@@ -1,0 +1,257 @@
+import {
+  Injectable,
+  UnauthorizedException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { User, UserRole, UserPermission } from './entities/user.entity';
+import {
+  LoginDto,
+  RegisterDto,
+  TokenRefreshDto,
+  AuthResponseDto,
+  UserResponseDto,
+} from './dto';
+import { PasswordUtil } from './utils';
+import { JwtPayload } from './strategies/jwt.strategy';
+
+@Injectable()
+export class AuthService {
+  constructor(
+    @InjectRepository(User)
+    private userRepository: Repository<User>,
+    private jwtService: JwtService,
+    private configService: ConfigService,
+  ) {}
+
+  async validateUser(username: string, password: string): Promise<User | null> {
+    // Find user by username or email
+    const user = await this.userRepository.findOne({
+      where: [
+        { username, isActive: true },
+        { email: username, isActive: true },
+      ],
+    });
+
+    if (user && (await user.validatePassword(password))) {
+      return user;
+    }
+
+    return null;
+  }
+
+  async login(loginDto: LoginDto): Promise<AuthResponseDto> {
+    const user = await this.validateUser(loginDto.username, loginDto.password);
+
+    if (!user) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    const tokens = await this.generateTokens(user);
+    
+    // Update last login time
+    user.lastLoginAt = new Date();
+    await this.userRepository.save(user);
+
+    return {
+      ...tokens,
+      user: this.mapUserToResponseDto(user),
+    };
+  }
+
+  async register(registerDto: RegisterDto): Promise<AuthResponseDto> {
+    // Check if username already exists
+    const existingUsername = await this.userRepository.findOne({
+      where: { username: registerDto.username },
+    });
+
+    if (existingUsername) {
+      throw new ConflictException('Username already exists');
+    }
+
+    // Check if email already exists
+    const existingEmail = await this.userRepository.findOne({
+      where: { email: registerDto.email },
+    });
+
+    if (existingEmail) {
+      throw new ConflictException('Email already exists');
+    }
+
+    // Create new user
+    const user = this.userRepository.create({
+      ...registerDto,
+      role: registerDto.role || UserRole.DATA_OPERATOR,
+      permissions: registerDto.permissions || this.getDefaultPermissions(registerDto.role || UserRole.DATA_OPERATOR),
+    });
+
+    const savedUser = await this.userRepository.save(user);
+    const tokens = await this.generateTokens(savedUser);
+
+    return {
+      ...tokens,
+      user: this.mapUserToResponseDto(savedUser),
+    };
+  }
+
+  async refreshToken(tokenRefreshDto: TokenRefreshDto): Promise<AuthResponseDto> {
+    try {
+      const payload = this.jwtService.verify(tokenRefreshDto.refreshToken, {
+        secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
+      });
+
+      const user = await this.userRepository.findOne({
+        where: { id: payload.sub, isActive: true },
+      });
+
+      if (!user) {
+        throw new UnauthorizedException('User not found');
+      }
+
+      const tokens = await this.generateTokens(user);
+
+      return {
+        ...tokens,
+        user: this.mapUserToResponseDto(user),
+      };
+    } catch (error) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+  }
+
+  async logout(userId: number): Promise<{ message: string }> {
+    // In a production environment, you might want to blacklist the token
+    // For now, we'll just return a success message
+    // You could also clear any cached user sessions here
+    
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (user) {
+      // Could update a lastLogoutAt field if needed
+      // user.lastLogoutAt = new Date();
+      // await this.userRepository.save(user);
+    }
+
+    return { message: 'Logout successful' };
+  }
+
+  async getCurrentUser(userId: number): Promise<UserResponseDto> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId, isActive: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    return this.mapUserToResponseDto(user);
+  }
+
+  private async generateTokens(user: User): Promise<{
+    accessToken: string;
+    refreshToken: string;
+    tokenType: string;
+    expiresIn: number;
+  }> {
+    const payload: JwtPayload = {
+      sub: user.id,
+      username: user.username,
+      email: user.email,
+      role: user.role,
+    };
+
+    const accessTokenExpiresIn = this.configService.get<number>('JWT_EXPIRES_IN', 3600);
+    const refreshTokenExpiresIn = this.configService.get<number>('JWT_REFRESH_EXPIRES_IN', 604800);
+
+    const [accessToken, refreshToken] = await Promise.all([
+      this.jwtService.signAsync(payload, {
+        secret: this.configService.get<string>('JWT_SECRET'),
+        expiresIn: accessTokenExpiresIn,
+      }),
+      this.jwtService.signAsync(payload, {
+        secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
+        expiresIn: refreshTokenExpiresIn,
+      }),
+    ]);
+
+    return {
+      accessToken,
+      refreshToken,
+      tokenType: 'Bearer',
+      expiresIn: accessTokenExpiresIn,
+    };
+  }
+
+  private mapUserToResponseDto(user: User): UserResponseDto {
+    return {
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      fullName: user.fullName,
+      role: user.role,
+      permissions: user.permissions || [],
+      isActive: user.isActive,
+      lastLoginAt: user.lastLoginAt,
+      createdAt: user.createdAt,
+    };
+  }
+
+  private getDefaultPermissions(role: UserRole): UserPermission[] {
+    switch (role) {
+      case UserRole.ADMIN:
+        return Object.values(UserPermission);
+      
+      case UserRole.MANAGER:
+        return [
+          UserPermission.READ_MEMBER,
+          UserPermission.UPDATE_MEMBER,
+          UserPermission.READ_LOAN,
+          UserPermission.UPDATE_LOAN,
+          UserPermission.APPROVE_LOAN,
+          UserPermission.READ_DEPOSIT,
+          UserPermission.UPDATE_DEPOSIT,
+          UserPermission.READ_TRANSACTION,
+          UserPermission.GENERATE_REPORTS,
+          UserPermission.VIEW_FINANCIAL_REPORTS,
+        ];
+      
+      case UserRole.LOAN_OFFICER:
+        return [
+          UserPermission.CREATE_MEMBER,
+          UserPermission.READ_MEMBER,
+          UserPermission.UPDATE_MEMBER,
+          UserPermission.CREATE_LOAN,
+          UserPermission.READ_LOAN,
+          UserPermission.UPDATE_LOAN,
+          UserPermission.READ_DEPOSIT,
+          UserPermission.READ_TRANSACTION,
+        ];
+      
+      case UserRole.ACCOUNTANT:
+        return [
+          UserPermission.READ_MEMBER,
+          UserPermission.READ_LOAN,
+          UserPermission.READ_DEPOSIT,
+          UserPermission.CREATE_TRANSACTION,
+          UserPermission.READ_TRANSACTION,
+          UserPermission.UPDATE_TRANSACTION,
+          UserPermission.GENERATE_REPORTS,
+          UserPermission.VIEW_FINANCIAL_REPORTS,
+        ];
+      
+      case UserRole.DATA_OPERATOR:
+      default:
+        return [
+          UserPermission.READ_MEMBER,
+          UserPermission.READ_LOAN,
+          UserPermission.READ_DEPOSIT,
+          UserPermission.READ_TRANSACTION,
+        ];
+    }
+  }
+}
