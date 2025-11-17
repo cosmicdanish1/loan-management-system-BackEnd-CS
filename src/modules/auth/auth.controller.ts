@@ -107,4 +107,19 @@ export class AuthController {
   async getCurrentUser(@CurrentUser() user: User): Promise<UserResponseDto> {
     return this.authService.getCurrentUser(user.id);
   }
+
+  @Post('change-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Change user password' })
+  @ApiResponse({ status: 200, description: 'Password changed successfully' })
+  @ApiResponse({ status: 401, description: 'Invalid credentials' })
+  async changePassword(
+    @Body() changePasswordDto: any,
+  ): Promise<{ message: string }> {
+    return this.authService.changePassword(
+      changePasswordDto.username,
+      changePasswordDto.currentPassword,
+      changePasswordDto.newPassword,
+    );
+  }
 }

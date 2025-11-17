@@ -9,6 +9,7 @@ import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User, UserRole, UserPermission } from './entities/user.entity';
+import { UserMaster, LoginTime, UserInfo } from './entities';
 import {
   LoginDto,
   RegisterDto,
@@ -24,12 +25,81 @@ export class AuthService {
   constructor(
     @InjectRepository(User)
     private userRepository: Repository<User>,
+    @InjectRepository(UserMaster)
+    private userMasterRepository: Repository<UserMaster>,
+    @InjectRepository(LoginTime)
+    private loginTimeRepository: Repository<LoginTime>,
+    @InjectRepository(UserInfo)
+    private userInfoRepository: Repository<UserInfo>,
     private jwtService: JwtService,
     private configService: ConfigService,
   ) {}
 
   async validateUser(username: string, password: string): Promise<User | null> {
-    // Find user by username or email
+    // Try new UserMaster table first
+    const userMaster = await this.userMasterRepository.findOne({
+      where: { susername: username },
+      relations: ['userLevel'],
+    });
+
+    if (userMaster) {
+      // Check if user is enabled
+      if (userMaster.enableDisable !== 'E') {
+        throw new UnauthorizedException('User account is disabled');
+      }
+
+      // Validate password using bcrypt
+      const isPasswordValid = await userMaster.validatePassword(password);
+      if (isPasswordValid) {
+        // Create login session
+        const now = new Date();
+        const loginTime = now.toTimeString().split(' ')[0].substring(0, 8);
+
+        const loginSession = this.loginTimeRepository.create({
+          userid: userMaster.userid,
+          loginDate: now,
+          loginTime: loginTime,
+          logoutTime: '',
+        });
+        await this.loginTimeRepository.save(loginSession);
+
+        // Update user login status
+        userMaster.loginStatus = 'Y';
+        await this.userMasterRepository.save(userMaster);
+
+        // Update or create user info
+        let userInfo = await this.userInfoRepository.findOne({
+          where: { userid: userMaster.userid },
+        });
+
+        if (userInfo) {
+          userInfo.hostname = 'localhost';
+          userInfo.abnormalStatus = 'N';
+        } else {
+          userInfo = this.userInfoRepository.create({
+            userid: userMaster.userid,
+            hostname: 'localhost',
+            abnormalStatus: 'N',
+          });
+        }
+        await this.userInfoRepository.save(userInfo);
+
+        // Map to old User format for compatibility
+        const user = new User();
+        user.id = userMaster.userid;
+        user.username = userMaster.susername;
+        user.email = `${userMaster.susername}@example.com`;
+        user.firstName = userMaster.susername;
+        user.lastName = '';
+        user.role = userMaster.userLevel?.userlevel as any || UserRole.DATA_OPERATOR;
+        user.permissions = [UserPermission.READ_MEMBER];
+        user.isActive = userMaster.isEnabled;
+
+        return user;
+      }
+    }
+
+    // Fallback to old users table
     const user = await this.userRepository.findOne({
       where: [
         { username, isActive: true },
@@ -253,5 +323,39 @@ export class AuthService {
           UserPermission.READ_TRANSACTION,
         ];
     }
+  }
+
+  async changePassword(
+    username: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<{ message: string }> {
+    // Find user in UserMaster table
+    const userMaster = await this.userMasterRepository.findOne({
+      where: { susername: username },
+    });
+
+    if (!userMaster) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    // Check if user is enabled
+    if (userMaster.enableDisable !== 'E') {
+      throw new UnauthorizedException('User account is disabled');
+    }
+
+    // Validate current password
+    const isCurrentPasswordValid = await userMaster.validatePassword(
+      currentPassword,
+    );
+    if (!isCurrentPasswordValid) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    // Update password (will be hashed automatically by entity)
+    userMaster.spassword = newPassword;
+    await this.userMasterRepository.save(userMaster);
+
+    return { message: 'Password changed successfully' };
   }
 }

@@ -60,13 +60,13 @@ export class Voucher {
   @Column({ nullable: true })
   authorizedBy: number;
 
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: 'timestamp', nullable: true })
   authorizedAt: Date;
 
   @Column({ nullable: true })
   cancelledBy: number;
 
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: 'timestamp', nullable: true })
   cancelledAt: Date;
 
   @Column({ type: 'text', nullable: true })

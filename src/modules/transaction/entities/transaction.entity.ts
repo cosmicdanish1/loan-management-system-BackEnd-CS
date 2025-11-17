@@ -61,7 +61,7 @@ export class Transaction {
   @Column({ nullable: true })
   reversedTransactionId: number;
 
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: 'timestamp', nullable: true })
   reversedAt: Date;
 
   @Column({ nullable: true })

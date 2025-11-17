@@ -39,7 +39,7 @@ export class RecurringDeposit {
   @Column({ type: 'date' })
   maturityDate: Date;
 
-  @Column({ type: 'int' })
+  @Column({ type: 'integer' })
   tenureMonths: number;
 
   @Column({ type: 'decimal', precision: 15, scale: 2 })
@@ -51,10 +51,10 @@ export class RecurringDeposit {
   @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
   interestAccrued: number;
 
-  @Column({ type: 'int', default: 0 })
+  @Column({ type: 'integer', default: 0 })
   installmentsPaid: number;
 
-  @Column({ type: 'int', default: 0 })
+  @Column({ type: 'integer', default: 0 })
   installmentsMissed: number;
 
   @Column({ default: 'ACTIVE' })

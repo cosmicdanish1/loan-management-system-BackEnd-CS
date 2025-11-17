@@ -37,7 +37,7 @@ export class FixedDeposit {
   @Column({ type: 'date' })
   maturityDate: Date;
 
-  @Column({ type: 'int' })
+  @Column({ type: 'integer' })
   tenureMonths: number;
 
   @Column({ type: 'decimal', precision: 15, scale: 2 })

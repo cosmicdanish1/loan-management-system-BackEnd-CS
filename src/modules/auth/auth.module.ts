@@ -6,11 +6,29 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { User } from './entities/user.entity';
+import {
+  UserMaster,
+  UserLevelMaster,
+  MenuMaster,
+  UserRights,
+  UserLevelDefaultRights,
+  UserInfo,
+  LoginTime,
+} from './entities';
 import { JwtStrategy, LocalStrategy } from './strategies';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User]),
+    TypeOrmModule.forFeature([
+      User, // Keep old entity for backward compatibility
+      UserMaster,
+      UserLevelMaster,
+      MenuMaster,
+      UserRights,
+      UserLevelDefaultRights,
+      UserInfo,
+      LoginTime,
+    ]),
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],

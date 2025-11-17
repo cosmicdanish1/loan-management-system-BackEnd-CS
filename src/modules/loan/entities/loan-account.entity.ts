@@ -45,7 +45,7 @@ export class LoanAccount {
   @Column({ type: 'date' })
   maturityDate: Date;
 
-  @Column({ type: 'int', default: 12 })
+  @Column({ type: 'integer', default: 12 })
   tenureMonths: number;
 
   @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })

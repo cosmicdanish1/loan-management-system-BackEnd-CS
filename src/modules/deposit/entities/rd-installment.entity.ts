@@ -21,7 +21,7 @@ export class RdInstallment {
   @Column()
   recurringDepositId: number;
 
-  @Column({ type: 'int' })
+  @Column({ type: 'integer' })
   installmentNumber: number;
 
   @Column({ type: 'decimal', precision: 15, scale: 2 })
