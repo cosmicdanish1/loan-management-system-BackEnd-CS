@@ -61,6 +61,23 @@ export class MemberController {
     return this.memberService.create(createMemberDto);
   }
 
+  @Get('lookup')
+  @ApiOperation({ summary: 'Lookup members for loan application' })
+  @ApiQuery({ name: 'search', required: false, type: 'string', description: 'Search term' })
+  @ApiResponse({
+    status: 200,
+    description: 'Members retrieved successfully',
+  })
+  async lookupMembers(@Query('search') search?: string) {
+    try {
+      return await this.memberService.lookupMembers(search);
+    } catch (error) {
+      console.error('Error in lookupMembers:', error);
+      // Return empty array on error for now
+      return [];
+    }
+  }
+
   @Get()
   @ApiOperation({ summary: 'Get all members with search and pagination' })
   @ApiResponse({

@@ -123,9 +123,8 @@ export class AuthService {
 
     const tokens = await this.generateTokens(user);
     
-    // Update last login time
-    user.lastLoginAt = new Date();
-    await this.userRepository.save(user);
+    // Note: Last login time is already tracked in logintime table by validateUser
+    // No need to update the old users table
 
     return {
       ...tokens,

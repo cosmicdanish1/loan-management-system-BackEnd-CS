@@ -7,12 +7,14 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like, FindOptionsWhere, ILike } from 'typeorm';
 import { Member } from './entities/member.entity';
+import { MemberMaster } from './entities/member-master.entity';
 import {
   CreateMemberDto,
   UpdateMemberDto,
   MemberResponseDto,
   SearchMemberDto,
 } from './dto';
+import { MemberLookupResponseDto } from './dto/member-lookup.dto';
 import { MemberNumberUtil, MemberValidationUtil } from './utils';
 
 @Injectable()
@@ -20,6 +22,8 @@ export class MemberService {
   constructor(
     @InjectRepository(Member)
     private readonly memberRepository: Repository<Member>,
+    @InjectRepository(MemberMaster)
+    private readonly memberMasterRepository: Repository<MemberMaster>,
   ) {}
 
   /**
@@ -381,5 +385,67 @@ export class MemberService {
       suspendedMembers,
       totalShareAmount: parseFloat(shareAmountResult?.total || '0'),
     };
+  }
+
+  /**
+   * Lookup members for loan application - Optimized for speed
+   */
+  async lookupMembers(search?: string): Promise<MemberLookupResponseDto[]> {
+    try {
+      // Check if repository is available
+      if (!this.memberMasterRepository) {
+        console.error('MemberMaster repository not initialized');
+        return [];
+      }
+
+      const queryBuilder = this.memberMasterRepository
+        .createQueryBuilder('member')
+        .select([
+          'member.mbno',
+          'member.f_name',
+          'member.m_name',
+          'member.l_name',
+          'member.basic_pay',
+          'member.dor',
+          'member.officeno',
+          'member.dept_name',
+          'member.permanent_address'
+        ]);
+
+      // Only get active members (indexed field for faster query)
+      queryBuilder.where('member.isactive = :isactive', { isactive: 'Y' });
+
+      // Apply search filter if provided
+      if (search) {
+        queryBuilder.andWhere(
+          '(CAST(member.mbno AS TEXT) LIKE :search OR ' +
+          'member.f_name ILIKE :search OR ' +
+          'member.m_name ILIKE :search OR ' +
+          'member.l_name ILIKE :search)',
+          { search: `%${search}%` }
+        );
+      }
+
+      // Order by member number and limit results
+      queryBuilder
+        .orderBy('member.mbno', 'ASC')
+        .limit(100);
+
+      const members = await queryBuilder.getMany();
+
+      console.log(`Found ${members.length} members in lookup`);
+
+      return members.map(member => ({
+        memberNo: member.mbno,
+        name: member.fullName,
+        basicPay: member.basic_pay?.toString() || '0',
+        dateOfRetire: member.dor ? new Date(member.dor).toLocaleDateString('en-GB') : '',
+        officeNo: member.officeno ? `[${member.officeno}] ${member.dept_name || ''}`.trim() : '',
+        address: member.permanent_address || '',
+      }));
+    } catch (error) {
+      console.error('Error in lookupMembers:', error);
+      return [];
+    }
   }
 }
