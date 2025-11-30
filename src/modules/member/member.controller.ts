@@ -1,0 +1,285 @@
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  Query,
+  ParseIntPipe,
+  HttpCode,
+  HttpStatus,
+  UseGuards,
+  UseInterceptors,
+  UploadedFile,
+  Res,
+  StreamableFile,
+} from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiParam,
+  ApiQuery,
+  ApiBearerAuth,
+  ApiConsumes,
+  ApiBody,
+} from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { Response } from 'express';
+import * as fs from 'fs';
+import { MemberService } from './member.service';
+import { SignatureService } from './services/signature.service';
+import {
+  CreateMemberDto,
+  UpdateMemberDto,
+  MemberResponseDto,
+  SearchMemberDto,
+} from './dto';
+import { signatureUploadConfig } from './config/multer.config';
+
+@ApiTags('Members')
+@Controller('members')
+@ApiBearerAuth()
+export class MemberController {
+  constructor(
+    private readonly memberService: MemberService,
+    private readonly signatureService: SignatureService,
+  ) {}
+
+  @Post()
+  @ApiOperation({ summary: 'Create a new member' })
+  @ApiResponse({
+    status: 201,
+    description: 'Member created successfully',
+    type: MemberResponseDto,
+  })
+  @ApiResponse({ status: 400, description: 'Bad request - validation failed' })
+  @ApiResponse({ status: 409, description: 'Conflict - duplicate data' })
+  async create(@Body() createMemberDto: CreateMemberDto): Promise<MemberResponseDto> {
+    return this.memberService.create(createMemberDto);
+  }
+
+  @Get('lookup')
+  @ApiOperation({ summary: 'Lookup members for loan application' })
+  @ApiQuery({ name: 'search', required: false, type: 'string', description: 'Search term' })
+  @ApiResponse({
+    status: 200,
+    description: 'Members retrieved successfully',
+  })
+  async lookupMembers(@Query('search') search?: string) {
+    try {
+      return await this.memberService.lookupMembers(search);
+    } catch (error) {
+      console.error('Error in lookupMembers:', error);
+      // Return empty array on error for now
+      return [];
+    }
+  }
+
+  @Get()
+  @ApiOperation({ summary: 'Get all members with search and pagination' })
+  @ApiResponse({
+    status: 200,
+    description: 'Members retrieved successfully',
+  })
+  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page number' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Items per page' })
+  @ApiQuery({ name: 'search', required: false, type: String, description: 'General search term' })
+  @ApiQuery({ name: 'memberNumber', required: false, type: String, description: 'Filter by member number' })
+  @ApiQuery({ name: 'firstName', required: false, type: String, description: 'Filter by first name' })
+  @ApiQuery({ name: 'lastName', required: false, type: String, description: 'Filter by last name' })
+  @ApiQuery({ name: 'phoneNumber', required: false, type: String, description: 'Filter by phone number' })
+  @ApiQuery({ name: 'email', required: false, type: String, description: 'Filter by email' })
+  @ApiQuery({ name: 'status', required: false, enum: ['ACTIVE', 'INACTIVE', 'SUSPENDED'], description: 'Filter by status' })
+  @ApiQuery({ name: 'sortBy', required: false, enum: ['memberNumber', 'firstName', 'lastName', 'createdAt', 'updatedAt'], description: 'Sort field' })
+  @ApiQuery({ name: 'sortOrder', required: false, enum: ['ASC', 'DESC'], description: 'Sort order' })
+  async findAll(@Query() searchDto: SearchMemberDto) {
+    return this.memberService.findAll(searchDto);
+  }
+
+  @Get('statistics')
+  @ApiOperation({ summary: 'Get member statistics' })
+  @ApiResponse({
+    status: 200,
+    description: 'Member statistics retrieved successfully',
+  })
+  async getStatistics() {
+    return this.memberService.getStatistics();
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: 'Get member by ID' })
+  @ApiParam({ name: 'id', type: 'number', description: 'Member ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Member retrieved successfully',
+    type: MemberResponseDto,
+  })
+  @ApiResponse({ status: 404, description: 'Member not found' })
+  async findOne(@Param('id', ParseIntPipe) id: number): Promise<MemberResponseDto> {
+    return this.memberService.findOne(id);
+  }
+
+  @Get('member-number/:memberNumber')
+  @ApiOperation({ summary: 'Get member by member number' })
+  @ApiParam({ name: 'memberNumber', type: 'string', description: 'Member number' })
+  @ApiResponse({
+    status: 200,
+    description: 'Member retrieved successfully',
+    type: MemberResponseDto,
+  })
+  @ApiResponse({ status: 404, description: 'Member not found' })
+  async findByMemberNumber(@Param('memberNumber') memberNumber: string): Promise<MemberResponseDto> {
+    return this.memberService.findByMemberNumber(memberNumber);
+  }
+
+  @Patch(':id')
+  @ApiOperation({ summary: 'Update member by ID' })
+  @ApiParam({ name: 'id', type: 'number', description: 'Member ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Member updated successfully',
+    type: MemberResponseDto,
+  })
+  @ApiResponse({ status: 400, description: 'Bad request - validation failed' })
+  @ApiResponse({ status: 404, description: 'Member not found' })
+  @ApiResponse({ status: 409, description: 'Conflict - duplicate data' })
+  async update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() updateMemberDto: UpdateMemberDto,
+  ): Promise<MemberResponseDto> {
+    return this.memberService.update(id, updateMemberDto);
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Soft delete member by ID' })
+  @ApiParam({ name: 'id', type: 'number', description: 'Member ID' })
+  @ApiResponse({ status: 204, description: 'Member deleted successfully' })
+  @ApiResponse({ status: 404, description: 'Member not found' })
+  async remove(@Param('id', ParseIntPipe) id: number): Promise<void> {
+    return this.memberService.remove(id);
+  }
+
+  @Post(':id/restore')
+  @ApiOperation({ summary: 'Restore soft deleted member' })
+  @ApiParam({ name: 'id', type: 'number', description: 'Member ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Member restored successfully',
+    type: MemberResponseDto,
+  })
+  @ApiResponse({ status: 400, description: 'Member is not deleted' })
+  @ApiResponse({ status: 404, description: 'Member not found' })
+  async restore(@Param('id', ParseIntPipe) id: number): Promise<MemberResponseDto> {
+    return this.memberService.restore(id);
+  }
+
+  @Post(':id/signature')
+  @UseInterceptors(FileInterceptor('signature', signatureUploadConfig))
+  @ApiOperation({ summary: 'Upload member signature' })
+  @ApiConsumes('multipart/form-data')
+  @ApiParam({ name: 'id', type: 'number', description: 'Member ID' })
+  @ApiBody({
+    description: 'Signature image file',
+    schema: {
+      type: 'object',
+      properties: {
+        signature: {
+          type: 'string',
+          format: 'binary',
+          description: 'Signature image (JPEG/PNG, max 2MB)',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Signature uploaded successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        signatureUrl: {
+          type: 'string',
+          example: '/api/v1/members/1/signature',
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 400, description: 'Bad request - invalid file' })
+  @ApiResponse({ status: 404, description: 'Member not found' })
+  async uploadSignature(
+    @Param('id', ParseIntPipe) id: number,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.signatureService.uploadSignature(id, file);
+  }
+
+  @Get(':id/signature')
+  @ApiOperation({ summary: 'Get member signature image' })
+  @ApiParam({ name: 'id', type: 'number', description: 'Member ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Signature image retrieved successfully',
+    content: {
+      'image/jpeg': {
+        schema: {
+          type: 'string',
+          format: 'binary',
+        },
+      },
+      'image/png': {
+        schema: {
+          type: 'string',
+          format: 'binary',
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 404, description: 'Member or signature not found' })
+  async getSignature(
+    @Param('id', ParseIntPipe) id: number,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const { filePath, mimeType } = await this.signatureService.getSignature(id);
+    
+    const file = fs.createReadStream(filePath);
+    res.set({
+      'Content-Type': mimeType,
+      'Content-Disposition': `inline; filename="member_${id}_signature"`,
+    });
+    
+    return new StreamableFile(file);
+  }
+
+  @Delete(':id/signature')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Delete member signature' })
+  @ApiParam({ name: 'id', type: 'number', description: 'Member ID' })
+  @ApiResponse({ status: 204, description: 'Signature deleted successfully' })
+  @ApiResponse({ status: 404, description: 'Member or signature not found' })
+  async deleteSignature(@Param('id', ParseIntPipe) id: number): Promise<void> {
+    return this.signatureService.deleteSignature(id);
+  }
+
+  @Get('signatures/statistics')
+  @ApiOperation({ summary: 'Get signature statistics' })
+  @ApiResponse({
+    status: 200,
+    description: 'Signature statistics retrieved successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        totalMembers: { type: 'number' },
+        membersWithSignature: { type: 'number' },
+        membersWithoutSignature: { type: 'number' },
+        signaturePercentage: { type: 'number' },
+      },
+    },
+  })
+  async getSignatureStatistics() {
+    return this.signatureService.getSignatureStatistics();
+  }
+}
