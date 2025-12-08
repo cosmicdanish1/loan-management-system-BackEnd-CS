@@ -505,4 +505,66 @@ export class LoanController {
   async getRecoverySuggestions(@Param('loanId', ParseIntPipe) loanId: number) {
     return this.defaulterTrackingService.getRecoverySuggestions(loanId);
   }
+
+  // Member Loan Master Endpoints
+
+  @Get('master/loan-case/:loanCaseNo')
+  @ApiOperation({ summary: 'Get loan details from loan_master by loan case number' })
+  @ApiParam({ name: 'loanCaseNo', type: 'string', description: 'Loan case number' })
+  @ApiResponse({
+    status: 200,
+    description: 'Loan details retrieved successfully from loan_master',
+  })
+  @ApiResponse({ status: 404, description: 'Loan not found' })
+  async getLoanFromMaster(@Param('loanCaseNo') loanCaseNo: string) {
+    return this.loanService.getMemberLoanFromMaster(loanCaseNo);
+  }
+
+  @Get('pending/loan-case/:loanCaseNo')
+  @ApiOperation({ summary: 'Get loan details from loan_pending by loan case number' })
+  @ApiParam({ name: 'loanCaseNo', type: 'string', description: 'Loan case number' })
+  @ApiResponse({
+    status: 200,
+    description: 'Loan details retrieved successfully from loan_pending',
+  })
+  @ApiResponse({ status: 404, description: 'Loan not found' })
+  async getLoanFromPending(@Param('loanCaseNo') loanCaseNo: string) {
+    return this.loanService.getMemberLoanFromPending(loanCaseNo);
+  }
+
+  @Get('master/member/:memberNumber')
+  @ApiOperation({ summary: 'Get all active loans for a member from loan_master' })
+  @ApiParam({ name: 'memberNumber', type: 'string', description: 'Member number' })
+  @ApiResponse({
+    status: 200,
+    description: 'Member loans retrieved successfully from loan_master',
+  })
+  async getMemberLoansFromMaster(@Param('memberNumber') memberNumber: string) {
+    return this.loanService.getMemberLoansFromMaster(memberNumber);
+  }
+
+  @Get('pending/member/:memberNumber')
+  @ApiOperation({ summary: 'Get all pending loans for a member from loan_pending' })
+  @ApiParam({ name: 'memberNumber', type: 'string', description: 'Member number' })
+  @ApiResponse({
+    status: 200,
+    description: 'Member pending loans retrieved successfully from loan_pending',
+  })
+  async getMemberLoansFromPending(@Param('memberNumber') memberNumber: string) {
+    return this.loanService.getMemberLoansFromPending(memberNumber);
+  }
+
+  @Get('search/member-loans')
+  @ApiOperation({ summary: 'Search loans across loan_master and loan_pending' })
+  @ApiResponse({
+    status: 200,
+    description: 'Loan search results retrieved successfully',
+  })
+  @ApiQuery({ name: 'memberNumber', required: false, type: String, description: 'Member number' })
+  @ApiQuery({ name: 'loanCaseNo', required: false, type: String, description: 'Loan case number' })
+  @ApiQuery({ name: 'loanType', required: false, type: String, description: 'Loan type (ALN, RLN, ELN, MLN)' })
+  @ApiQuery({ name: 'status', required: false, enum: ['active', 'pending', 'all'], description: 'Loan status filter' })
+  async searchMemberLoans(@Query() query: any) {
+    return this.loanService.searchMemberLoans(query);
+  }
 }

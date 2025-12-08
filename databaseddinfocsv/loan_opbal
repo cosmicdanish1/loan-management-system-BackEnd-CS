@@ -1,0 +1,6 @@
+"column_name","data_type","is_nullable","column_default","constraint_type"
+"mbno","numeric","YES",NULL,NULL
+"loancaseno","numeric","YES",NULL,NULL
+"openbalance","money","NO",NULL,NULL
+"loan_type","character varying","YES",NULL,NULL
+"headtype","character varying","YES",NULL,NULL

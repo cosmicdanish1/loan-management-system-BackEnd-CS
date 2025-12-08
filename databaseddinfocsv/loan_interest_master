@@ -1,0 +1,6 @@
+"column_name","data_type","is_nullable","column_default","constraint_type"
+"mbno","integer","YES",NULL,NULL
+"accno","integer","YES",NULL,NULL
+"headtype","character varying","YES",NULL,NULL
+"headcode","character varying","YES",NULL,NULL
+"to_date","timestamp without time zone","YES",NULL,NULL

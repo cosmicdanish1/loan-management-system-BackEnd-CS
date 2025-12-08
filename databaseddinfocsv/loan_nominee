@@ -1,0 +1,7 @@
+"column_name","data_type","is_nullable","column_default","constraint_type"
+"srno","numeric","YES",NULL,NULL
+"loancaseno","numeric","YES",NULL,NULL
+"name","character varying","YES",NULL,NULL
+"address","character varying","YES",NULL,NULL
+"age","smallint","YES",NULL,NULL
+"relation","character varying","YES",NULL,NULL

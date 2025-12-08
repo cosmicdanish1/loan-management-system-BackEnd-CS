@@ -1,0 +1,17 @@
+"column_name","data_type","is_nullable","column_default","constraint_type"
+"id","integer","NO",NULL,NULL
+"paymentNumber","character varying","NO",NULL,NULL
+"loanAccountId","integer","NO",NULL,NULL
+"amount","numeric","NO",NULL,NULL
+"principalAmount","numeric","NO",NULL,NULL
+"interestAmount","numeric","NO",NULL,NULL
+"penaltyAmount","numeric","NO",NULL,NULL
+"paymentDate","date","NO",NULL,NULL
+"paymentMethod","character varying","NO",NULL,NULL
+"referenceNumber","character varying","YES",NULL,NULL
+"remarks","text","YES",NULL,NULL
+"receiptNumber","character varying","YES",NULL,NULL
+"status","character varying","NO",NULL,NULL
+"balanceAfterPayment","numeric","NO",NULL,NULL
+"createdAt","timestamp without time zone","NO",NULL,NULL
+"updatedAt","timestamp without time zone","NO",NULL,NULL

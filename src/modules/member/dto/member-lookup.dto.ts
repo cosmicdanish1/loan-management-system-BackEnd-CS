@@ -13,4 +13,7 @@ export class MemberLookupResponseDto {
   dateOfRetire: string;
   officeNo: string;
   address: string;
+  shareBalance?: string;
+  regularLoanBal?: string;
+  emergencyLoanBal?: string;
 }

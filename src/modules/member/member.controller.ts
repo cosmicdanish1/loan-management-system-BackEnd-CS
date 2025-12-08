@@ -78,6 +78,152 @@ export class MemberController {
     }
   }
 
+  @Get(':memberNo/loan-cases')
+  @ApiOperation({ summary: 'Get existing loan cases for a member' })
+  @ApiParam({ name: 'memberNo', type: 'string', description: 'Member number' })
+  @ApiResponse({
+    status: 200,
+    description: 'Member loan cases retrieved successfully',
+  })
+  async getMemberLoanCases(@Param('memberNo') memberNo: string) {
+    try {
+      return await this.memberService.getMemberLoanCases(memberNo);
+    } catch (error) {
+      console.error('Error in getMemberLoanCases:', error);
+      return [];
+    }
+  }
+
+  @Get('details/:memberNo')
+  @ApiOperation({ summary: 'Get member details by member number' })
+  @ApiParam({ name: 'memberNo', type: 'string', description: 'Member number' })
+  @ApiResponse({
+    status: 200,
+    description: 'Member details retrieved successfully',
+  })
+  async getMemberDetails(@Param('memberNo') memberNo: string) {
+    try {
+      const memberDetails = await this.memberService.getMemberDetailsByNumber(memberNo);
+      if (!memberDetails) {
+        throw new Error('Member not found');
+      }
+      return memberDetails;
+    } catch (error) {
+      console.error('Error getting member details:', error);
+      throw error;
+    }
+  }
+
+  @Post('save-member')
+  @ApiOperation({ summary: 'Save or update member' })
+  @ApiResponse({
+    status: 201,
+    description: 'Member saved successfully',
+  })
+  async saveMember(@Body() memberData: any) {
+    try {
+      console.log('Received member data:', JSON.stringify(memberData, null, 2));
+      return await this.memberService.saveMemberMaster(memberData);
+    } catch (error) {
+      console.error('Error saving member in controller:', error);
+      throw error;
+    }
+  }
+
+  @Get('generate/loan-case-number')
+  @ApiOperation({ summary: 'Generate next sequential loan case number' })
+  @ApiResponse({
+    status: 200,
+    description: 'Loan case number generated successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        loanCaseNo: { type: 'string', example: '10001' }
+      }
+    }
+  })
+  async generateLoanCaseNumber() {
+    try {
+      const loanCaseNo = await this.memberService.generateNextLoanCaseNo();
+      return { loanCaseNo };
+    } catch (error) {
+      console.error('Error generating loan case number:', error);
+      throw new Error('Failed to generate loan case number');
+    }
+  }
+
+  @Post('loan-application')
+  @ApiOperation({ summary: 'Save loan application' })
+  @ApiResponse({
+    status: 201,
+    description: 'Loan application saved successfully',
+  })
+  async saveLoanApplication(@Body() loanData: any) {
+    try {
+      console.log('Received loan application data:', JSON.stringify(loanData, null, 2));
+      return await this.memberService.saveLoanApplication(loanData);
+    } catch (error) {
+      console.error('Error saving loan application in controller:', error);
+      console.error('Error stack:', error.stack);
+      throw error;
+    }
+  }
+
+  @Get('loans/pending')
+  @ApiOperation({ summary: 'Get all loan cases' })
+  @ApiResponse({
+    status: 200,
+    description: 'Loan cases retrieved successfully',
+  })
+  async getAllLoanCases() {
+    try {
+      return await this.memberService.getAllLoanCases();
+    } catch (error) {
+      console.error('Error getting loan cases:', error);
+      return [];
+    }
+  }
+
+  @Get('loans/case/:caseNo')
+  @ApiOperation({ summary: 'Get loan details by case number' })
+  @ApiParam({ name: 'caseNo', type: 'string', description: 'Loan case number' })
+  @ApiResponse({
+    status: 200,
+    description: 'Loan details retrieved successfully',
+  })
+  async getLoanDetailsByCaseNo(@Param('caseNo') caseNo: string) {
+    try {
+      const loanDetails = await this.memberService.getLoanDetailsByCaseNo(caseNo);
+      if (!loanDetails) {
+        throw new Error('Loan case not found');
+      }
+      return loanDetails;
+    } catch (error) {
+      console.error('Error getting loan details:', error);
+      throw error;
+    }
+  }
+
+  @Patch('loans/sanction/:caseNo')
+  @ApiOperation({ summary: 'Update loan with sanction details' })
+  @ApiParam({ name: 'caseNo', type: 'string', description: 'Loan case number' })
+  @ApiResponse({
+    status: 200,
+    description: 'Loan sanctioned successfully',
+  })
+  async updateLoanSanction(
+    @Param('caseNo') caseNo: string,
+    @Body() sanctionData: any
+  ) {
+    try {
+      console.log('Sanctioning loan:', caseNo, sanctionData);
+      return await this.memberService.updateLoanSanction(caseNo, sanctionData);
+    } catch (error) {
+      console.error('Error sanctioning loan:', error);
+      throw error;
+    }
+  }
+
   @Get()
   @ApiOperation({ summary: 'Get all members with search and pagination' })
   @ApiResponse({

@@ -7,13 +7,18 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like, ILike, MoreThan, LessThan } from 'typeorm';
 import { LoanAccount, LoanPayment } from './entities';
+import { LoanMaster } from './entities/loan-master.entity';
+import { LoanPending } from './entities/loan-pending.entity';
 import { Member } from '../member/entities/member.entity';
+import { MemberMaster } from '../member/entities/member-master.entity';
 import {
   CreateLoanDto,
   UpdateLoanDto,
   LoanResponseDto,
   CreateLoanPaymentDto,
   PaymentResponseDto,
+  MemberLoanDetailsDto,
+  LoanMasterDetailsDto,
 } from './dto';
 
 @Injectable()
@@ -25,6 +30,12 @@ export class LoanService {
     private readonly paymentRepository: Repository<LoanPayment>,
     @InjectRepository(Member)
     private readonly memberRepository: Repository<Member>,
+    @InjectRepository(LoanMaster)
+    private readonly loanMasterRepository: Repository<LoanMaster>,
+    @InjectRepository(LoanPending)
+    private readonly loanPendingRepository: Repository<LoanPending>,
+    @InjectRepository(MemberMaster)
+    private readonly memberMasterRepository: Repository<MemberMaster>,
   ) {}
 
   /**
@@ -449,6 +460,304 @@ export class LoanService {
     }
     
     await this.loanRepository.softDelete(id);
+  }
+
+  /**
+   * Get member loan details from loan_master table
+   * This fetches sanctioned/active loans with member information
+   */
+  async getMemberLoanFromMaster(loanCaseNo: string): Promise<LoanMasterDetailsDto> {
+    const loanMaster = await this.loanMasterRepository
+      .createQueryBuilder('loan')
+      .where('loan.loancaseno = :loanCaseNo', { loanCaseNo })
+      .getOne();
+
+    if (!loanMaster) {
+      throw new NotFoundException(`Loan case ${loanCaseNo} not found in loan_master`);
+    }
+
+    // Fetch member details
+    const member = await this.memberMasterRepository.findOne({
+      where: { mbno: loanMaster.mbno },
+    });
+
+    if (!member) {
+      throw new NotFoundException(`Member ${loanMaster.mbno} not found`);
+    }
+
+    // Get office name (you may need to join with division_master table)
+    const officeName = `${member.officeno}-${member.dept_name || 'N/A'}`;
+
+    return {
+      loanCaseNo: loanMaster.loancaseno,
+      memberNumber: loanMaster.mbno,
+      loanType: loanMaster.loantype,
+      loanAmount: Number(loanMaster.loan_amt),
+      paymentDate: loanMaster.payment_date,
+      rate: Number(loanMaster.rate),
+      noOfInstallments: loanMaster.no_of_instal,
+      installmentAmount: Number(loanMaster.instal_amt),
+      balance: Number(loanMaster.balance),
+      purpose: loanMaster.purpose,
+      interestAmount: Number(loanMaster.intt_amount || 0),
+      penalRate: Number(loanMaster.penalrate),
+      memberName: member.fullName,
+      officeName: officeName,
+      basicPay: Number(member.basic_pay),
+    };
+  }
+
+  /**
+   * Get member loan details from loan_pending table
+   * This fetches pending/applied loans with member information
+   */
+  async getMemberLoanFromPending(loanCaseNo: string): Promise<MemberLoanDetailsDto> {
+    const loanPending = await this.loanPendingRepository
+      .createQueryBuilder('loan')
+      .where('loan.loancaseno = :loanCaseNo', { loanCaseNo })
+      .getOne();
+
+    if (!loanPending) {
+      throw new NotFoundException(`Loan case ${loanCaseNo} not found in loan_pending`);
+    }
+
+    // Fetch member details
+    const member = await this.memberMasterRepository.findOne({
+      where: { mbno: loanPending.mbno },
+    });
+
+    if (!member) {
+      throw new NotFoundException(`Member ${loanPending.mbno} not found`);
+    }
+
+    // Get office name
+    const officeName = `${member.officeno}-${member.dept_name || 'N/A'}`;
+
+    // Determine status
+    let status = 'Pending';
+    if (loanPending.flg_paid === 'Y') {
+      status = 'Paid';
+    } else if (loanPending.flg_sanctioned === 'Y') {
+      status = 'Sanctioned';
+    }
+
+    return {
+      loanCaseNo: loanPending.loancaseno,
+      loanType: loanPending.loantype,
+      appliedAmount: Number(loanPending.applied_amt),
+      applicationDate: loanPending.app_date,
+      sanctionedAmount: Number(loanPending.sanctioned_amt),
+      sanctionDate: loanPending.sanctioned_date,
+      rate: 0, // Rate is not in loan_pending, need to fetch from business rules
+      noOfInstallments: loanPending.no_of_instal,
+      installmentAmount: 0, // Calculate if needed
+      balance: Number(loanPending.sanctioned_amt), // Initial balance
+      purpose: loanPending.purpose,
+      memberNumber: loanPending.mbno,
+      memberName: member.fullName,
+      officeName: officeName,
+      basicPay: Number(member.basic_pay),
+      status: status,
+    };
+  }
+
+  /**
+   * Get all loans for a member from loan_master
+   */
+  async getMemberLoansFromMaster(memberNumber: string): Promise<LoanMasterDetailsDto[]> {
+    const loans = await this.loanMasterRepository
+      .createQueryBuilder('loan')
+      .where('loan.mbno = :memberNumber', { memberNumber })
+      .orderBy('loan.payment_date', 'DESC')
+      .getMany();
+
+    const member = await this.memberMasterRepository.findOne({
+      where: { mbno: memberNumber },
+    });
+
+    if (!member) {
+      throw new NotFoundException(`Member ${memberNumber} not found`);
+    }
+
+    const officeName = `${member.officeno}-${member.dept_name || 'N/A'}`;
+
+    return loans.map(loan => ({
+      loanCaseNo: loan.loancaseno,
+      memberNumber: loan.mbno,
+      loanType: loan.loantype,
+      loanAmount: Number(loan.loan_amt),
+      paymentDate: loan.payment_date,
+      rate: Number(loan.rate),
+      noOfInstallments: loan.no_of_instal,
+      installmentAmount: Number(loan.instal_amt),
+      balance: Number(loan.balance),
+      purpose: loan.purpose,
+      interestAmount: Number(loan.intt_amount || 0),
+      penalRate: Number(loan.penalrate),
+      memberName: member.fullName,
+      officeName: officeName,
+      basicPay: Number(member.basic_pay),
+    }));
+  }
+
+  /**
+   * Get all pending loans for a member from loan_pending
+   */
+  async getMemberLoansFromPending(memberNumber: string): Promise<MemberLoanDetailsDto[]> {
+    const loans = await this.loanPendingRepository
+      .createQueryBuilder('loan')
+      .where('loan.mbno = :memberNumber', { memberNumber })
+      .orderBy('loan.app_date', 'DESC')
+      .getMany();
+
+    const member = await this.memberMasterRepository.findOne({
+      where: { mbno: memberNumber },
+    });
+
+    if (!member) {
+      throw new NotFoundException(`Member ${memberNumber} not found`);
+    }
+
+    const officeName = `${member.officeno}-${member.dept_name || 'N/A'}`;
+
+    return loans.map(loan => {
+      let status = 'Pending';
+      if (loan.flg_paid === 'Y') {
+        status = 'Paid';
+      } else if (loan.flg_sanctioned === 'Y') {
+        status = 'Sanctioned';
+      }
+
+      return {
+        loanCaseNo: loan.loancaseno,
+        loanType: loan.loantype,
+        appliedAmount: Number(loan.applied_amt),
+        applicationDate: loan.app_date,
+        sanctionedAmount: Number(loan.sanctioned_amt),
+        sanctionDate: loan.sanctioned_date,
+        rate: 0,
+        noOfInstallments: loan.no_of_instal,
+        installmentAmount: 0,
+        balance: Number(loan.sanctioned_amt),
+        purpose: loan.purpose,
+        memberNumber: loan.mbno,
+        memberName: member.fullName,
+        officeName: officeName,
+        basicPay: Number(member.basic_pay),
+        status: status,
+      };
+    });
+  }
+
+  /**
+   * Search loans across both loan_master and loan_pending
+   */
+  async searchMemberLoans(query: {
+    memberNumber?: string;
+    loanCaseNo?: string;
+    loanType?: string;
+    status?: 'active' | 'pending' | 'all';
+  }) {
+    const { memberNumber, loanCaseNo, loanType, status = 'all' } = query;
+
+    const results = {
+      activeLoans: [],
+      pendingLoans: [],
+    };
+
+    // Search in loan_master (active/sanctioned loans)
+    if (status === 'active' || status === 'all') {
+      const masterQuery = this.loanMasterRepository.createQueryBuilder('loan');
+
+      if (memberNumber) {
+        masterQuery.andWhere('loan.mbno = :memberNumber', { memberNumber });
+      }
+      if (loanCaseNo) {
+        masterQuery.andWhere('loan.loancaseno = :loanCaseNo', { loanCaseNo });
+      }
+      if (loanType) {
+        masterQuery.andWhere('loan.loantype = :loanType', { loanType });
+      }
+
+      const activeLoans = await masterQuery.getMany();
+
+      for (const loan of activeLoans) {
+        const member = await this.memberMasterRepository.findOne({
+          where: { mbno: loan.mbno },
+        });
+
+        if (member) {
+          results.activeLoans.push({
+            loanCaseNo: loan.loancaseno,
+            memberNumber: loan.mbno,
+            loanType: loan.loantype,
+            loanAmount: Number(loan.loan_amt),
+            paymentDate: loan.payment_date,
+            rate: Number(loan.rate),
+            noOfInstallments: loan.no_of_instal,
+            installmentAmount: Number(loan.instal_amt),
+            balance: Number(loan.balance),
+            purpose: loan.purpose,
+            memberName: member.fullName,
+            officeName: `${member.officeno}-${member.dept_name || 'N/A'}`,
+            basicPay: Number(member.basic_pay),
+          });
+        }
+      }
+    }
+
+    // Search in loan_pending (pending applications)
+    if (status === 'pending' || status === 'all') {
+      const pendingQuery = this.loanPendingRepository.createQueryBuilder('loan');
+
+      if (memberNumber) {
+        pendingQuery.andWhere('loan.mbno = :memberNumber', { memberNumber });
+      }
+      if (loanCaseNo) {
+        pendingQuery.andWhere('loan.loancaseno = :loanCaseNo', { loanCaseNo });
+      }
+      if (loanType) {
+        pendingQuery.andWhere('loan.loantype = :loanType', { loanType });
+      }
+
+      const pendingLoans = await pendingQuery.getMany();
+
+      for (const loan of pendingLoans) {
+        const member = await this.memberMasterRepository.findOne({
+          where: { mbno: loan.mbno },
+        });
+
+        if (member) {
+          let loanStatus = 'Pending';
+          if (loan.flg_paid === 'Y') {
+            loanStatus = 'Paid';
+          } else if (loan.flg_sanctioned === 'Y') {
+            loanStatus = 'Sanctioned';
+          }
+
+          results.pendingLoans.push({
+            loanCaseNo: loan.loancaseno,
+            loanType: loan.loantype,
+            appliedAmount: Number(loan.applied_amt),
+            applicationDate: loan.app_date,
+            sanctionedAmount: Number(loan.sanctioned_amt),
+            sanctionDate: loan.sanctioned_date,
+            rate: 0,
+            noOfInstallments: loan.no_of_instal,
+            installmentAmount: 0,
+            balance: Number(loan.sanctioned_amt),
+            purpose: loan.purpose,
+            memberNumber: loan.mbno,
+            memberName: member.fullName,
+            officeName: `${member.officeno}-${member.dept_name || 'N/A'}`,
+            basicPay: Number(member.basic_pay),
+            status: loanStatus,
+          });
+        }
+      }
+    }
+
+    return results;
   }
 
   // Private helper methods

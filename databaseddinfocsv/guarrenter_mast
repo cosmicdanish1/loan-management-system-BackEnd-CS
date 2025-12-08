@@ -1,0 +1,4 @@
+"column_name","data_type","is_nullable","column_default","constraint_type"
+"guarrenter_mbno","character varying","YES",NULL,NULL
+"balance","money","YES",NULL,NULL
+"openbalance","money","YES",NULL,NULL

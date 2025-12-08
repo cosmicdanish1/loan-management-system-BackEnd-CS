@@ -1,0 +1,16 @@
+"column_name","data_type","is_nullable","column_default","constraint_type"
+"loancaseno","numeric","YES",NULL,NULL
+"mbno","numeric","YES",NULL,NULL
+"loantype","character varying","YES",NULL,NULL
+"applied_amt","money","NO",NULL,NULL
+"sanctioned_amt","money","NO",NULL,NULL
+"app_date","timestamp without time zone","YES",NULL,NULL
+"sanctioned_date","timestamp without time zone","YES",NULL,NULL
+"no_of_instal","smallint","NO",NULL,NULL
+"g1mbno","numeric","YES",NULL,NULL
+"g2mbno","numeric","YES",NULL,NULL
+"g3mbno","numeric","YES",NULL,NULL
+"purpose","character varying","YES",NULL,NULL
+"flg_sanctioned","character varying","YES",NULL,NULL
+"flg_paid","character varying","YES",NULL,NULL
+"form_number","character varying","YES",NULL,NULL

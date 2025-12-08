@@ -1,0 +1,3 @@
+"column_name","data_type","is_nullable","column_default","constraint_type"
+"loan_limit_id","numeric","YES",NULL,NULL
+"code","character varying","YES",NULL,NULL
