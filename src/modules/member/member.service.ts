@@ -397,19 +397,15 @@ export class MemberService {
         SELECT 
           m.mbno,
           m.f_name || ' ' || COALESCE(m.m_name, '') || ' ' || m.l_name as member_name,
-          d.name as office_name,
+          COALESCE(d.name, 'Unknown') as office_name,
           m.basic_pay,
           m.dor,
           0 as share_balance,
-          (SELECT COALESCE(SUM(balance::numeric), 0) 
-           FROM loan_master 
-           WHERE mbno = m.mbno AND loantype = 'RLN') as regular_loan_bal,
-          (SELECT COALESCE(SUM(balance::numeric), 0) 
-           FROM loan_master 
-           WHERE mbno = m.mbno AND loantype = 'ELN') as emergency_loan_bal
+          0 as regular_loan_bal,
+          0 as emergency_loan_bal
         FROM member_master m
         LEFT JOIN division_master d ON m.officeno = d.officeno
-        WHERE m.isactive = 'Y'
+        WHERE (m.isactive = 'Y' OR m.isactive IS NULL)
       `;
 
       const params: any[] = [];
@@ -417,7 +413,7 @@ export class MemberService {
       // Apply search filter if provided
       if (search) {
         query += ` AND (
-          CAST(m.mbno AS TEXT) LIKE $1 OR 
+          m.mbno::text LIKE $1 OR 
           m.f_name ILIKE $1 OR 
           m.l_name ILIKE $1 OR
           d.name ILIKE $1
@@ -425,11 +421,17 @@ export class MemberService {
         params.push(`%${search}%`);
       }
 
-      query += ` ORDER BY m.mbno ASC LIMIT 100`;
+      query += ` AND m.mbno IS NOT NULL ORDER BY m.mbno DESC LIMIT 500`;
 
+      console.log('Executing lookup query:', query);
+      console.log('With params:', params);
+      
       const members = await this.memberMasterRepository.query(query, params);
 
       console.log(`Found ${members.length} members in lookup`);
+      if (members.length > 0) {
+        console.log('First member:', members[0]);
+      }
 
       return members.map((member: any) => ({
         memberNo: member.mbno?.toString() || '',
@@ -855,52 +857,83 @@ export class MemberService {
             desig = $7,
             present_address = $8,
             permanent_address = $9,
-            age = $10,
-            dob = $11,
-            dor = $12,
-            basic_pay = $13,
-            nominee_name = $14,
-            nominee_address = $15,
-            nominee_relation = $16,
-            declare_date = $17,
-            memb_date = $18,
-            pfno = $19,
-            flg_insured = $20,
-            insureamt = $21,
-            remarks = $22,
-            dept_name = $23,
-            isactive = $24,
-            flg_retire = $25
+            wingno = $10,
+            officeno = $11,
+            age = $12,
+            dob = $13,
+            dor = $14,
+            gross_salary = $15,
+            basic_pay = $16,
+            nominee_name = $17,
+            nominee_address = $18,
+            nominee_relation = $19,
+            declare_date = $20,
+            memb_date = $21,
+            pfno = $22,
+            flg_insured = $23,
+            insureamt = $24,
+            remarks = $25,
+            dept_name = $26,
+            isactive = $27,
+            flg_retire = $28
           WHERE mbno = $1
           RETURNING *
         `;
 
+        // Map division/office data - extract office number from division selection
+        let officeno = 0;
+        let wingno = '0';
+        
+        if (memberData.divisionRo) {
+          // Extract office number from division format like "1-BHILAI" or "BHILAI"
+          const divisionMatch = memberData.divisionRo.match(/^(\d+)-/);
+          if (divisionMatch) {
+            officeno = parseInt(divisionMatch[1]);
+            wingno = divisionMatch[1];
+          } else {
+            // Default office mapping for divisions without numbers
+            const officeMap: any = {
+              'BHILAI': 1,
+              'POWER HOUSE': 2,
+              'RISALI': 3,
+              'NANDINI': 4,
+              'DALLI RAJHRA': 5,
+              'MECON': 6
+            };
+            officeno = officeMap[memberData.divisionRo] || 1;
+            wingno = officeno.toString();
+          }
+        }
+
         const values = [
-          memberData.memberNumber,
-          memberData.title || 'Mr',
-          memberData.firstName || '',
-          memberData.middleName || '',
-          memberData.lastName || '',
-          memberData.gender === 'male' ? 'M' : 'F',
-          memberData.designation || '',
-          memberData.homeAddress || '',
-          memberData.permanentAddress || memberData.homeAddress || '',
-          memberData.age?.toString() || '0',
-          memberData.dateOfBirth ? new Date(memberData.dateOfBirth) : null,
-          memberData.retirementDate ? new Date(memberData.retirementDate) : null,
-          parseFloat(memberData.basicPay) || 0,
-          memberData.nomineeName || '',
-          memberData.nomineeAddress || '',
-          memberData.relationWithNominee || '',
-          memberData.declarationDate ? new Date(memberData.declarationDate) : null,
-          memberData.membershipDate ? new Date(memberData.membershipDate) : null,
-          memberData.srNoEpfPfNo || '',
-          memberData.isInsured ? 'Y' : 'N',
-          parseFloat(memberData.amountOfInsurance) || 0,
-          memberData.remarks || '',
-          memberData.department || '',
-          memberData.isActive ? 'Y' : 'N',
-          memberData.status === 'Retired' ? 'Y' : 'N'
+          memberData.memberNumber,                                    // $1 mbno (WHERE clause)
+          memberData.title || 'Mr',                                   // $2 prefix
+          memberData.firstName || '',                                 // $3 f_name
+          memberData.middleName || '',                                // $4 m_name
+          memberData.lastName || '',                                  // $5 l_name
+          memberData.gender === 'male' ? 'M' : 'F',                  // $6 sex
+          memberData.designation || '',                               // $7 desig
+          memberData.homeAddress || '',                               // $8 present_address
+          memberData.homeAddress || '',                               // $9 permanent_address
+          wingno,                                                     // $10 wingno
+          officeno,                                                   // $11 officeno
+          memberData.age?.toString() || '0',                          // $12 age
+          memberData.dateOfBirth ? new Date(memberData.dateOfBirth) : null, // $13 dob
+          memberData.retirementDate ? new Date(memberData.retirementDate) : null, // $14 dor
+          parseFloat(memberData.basicPay) || 0,                       // $15 gross_salary
+          parseFloat(memberData.basicPay) || 0,                       // $16 basic_pay
+          memberData.nomineeName || '',                               // $17 nominee_name
+          memberData.nomineeAddress || '',                            // $18 nominee_address
+          memberData.relationWithNominee || '',                       // $19 nominee_relation
+          memberData.declarationDate ? new Date(memberData.declarationDate) : null, // $20 declare_date
+          memberData.membershipDate ? new Date(memberData.membershipDate) : null, // $21 memb_date
+          memberData.srNoEpfPfNo || '',                               // $22 pfno
+          memberData.isInsured ? 'Y' : 'N',                          // $23 flg_insured
+          parseFloat(memberData.amountOfInsurance) || 0,              // $24 insureamt
+          memberData.remarks || '',                                   // $25 remarks
+          memberData.department || '',                                // $26 dept_name
+          memberData.isActive ? 'Y' : 'N',                           // $27 isactive
+          memberData.status === 'Retired' ? 'Y' : 'N'                // $28 flg_retire
         ];
 
         const result = await this.memberMasterRepository.query(updateQuery, values);
@@ -916,47 +949,81 @@ export class MemberService {
         const insertQuery = `
           INSERT INTO member_master (
             mbno, prefix, f_name, m_name, l_name, sex, desig,
-            present_address, permanent_address, age, dob, dor,
-            basic_pay, nominee_name, nominee_address, nominee_relation,
-            declare_date, memb_date, pfno, flg_insured, insureamt,
-            remarks, dept_name, isactive, flg_retire
+            present_address, permanent_address, wingno, officeno, age, 
+            dob, dor, gross_salary, basic_pay, nominee_name, nominee_address, 
+            nominee_relation, declare_date, memb_date, pfno, lfno, 
+            flg_incometax, flg_insured, insureamt, remarks, dept_name, 
+            isactive, flg_retire
           ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-            $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25
+            $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, 
+            $24, $25, $26, $27, $28, $29, $30
           )
           RETURNING *
         `;
 
+        // Map division/office data - extract office number from division selection
+        let officeno = 0;
+        let wingno = '0';
+        
+        if (memberData.divisionRo) {
+          // Extract office number from division format like "1-BHILAI" or "BHILAI"
+          const divisionMatch = memberData.divisionRo.match(/^(\d+)-/);
+          if (divisionMatch) {
+            officeno = parseInt(divisionMatch[1]);
+            wingno = divisionMatch[1];
+          } else {
+            // Default office mapping for divisions without numbers
+            const officeMap: any = {
+              'BHILAI': 1,
+              'POWER HOUSE': 2,
+              'RISALI': 3,
+              'NANDINI': 4,
+              'DALLI RAJHRA': 5,
+              'MECON': 6
+            };
+            officeno = officeMap[memberData.divisionRo] || 1;
+            wingno = officeno.toString();
+          }
+        }
+
         const values = [
-          memberData.memberNumber,
-          memberData.title || 'Mr',
-          memberData.firstName || '',
-          memberData.middleName || '',
-          memberData.lastName || '',
-          memberData.gender === 'male' ? 'M' : 'F',
-          memberData.designation || '',
-          memberData.homeAddress || '',
-          memberData.permanentAddress || memberData.homeAddress || '',
-          memberData.age?.toString() || '0',
-          memberData.dateOfBirth ? new Date(memberData.dateOfBirth) : null,
-          memberData.retirementDate ? new Date(memberData.retirementDate) : null,
-          parseFloat(memberData.basicPay) || 0,
-          memberData.nomineeName || '',
-          memberData.nomineeAddress || '',
-          memberData.relationWithNominee || '',
-          memberData.declarationDate ? new Date(memberData.declarationDate) : null,
-          memberData.membershipDate ? new Date(memberData.membershipDate) : null,
-          memberData.srNoEpfPfNo || '',
-          memberData.isInsured ? 'Y' : 'N',
-          parseFloat(memberData.amountOfInsurance) || 0,
-          memberData.remarks || '',
-          memberData.department || '',
-          memberData.isActive ? 'Y' : 'N',
-          memberData.status === 'Retired' ? 'Y' : 'N'
+          memberData.memberNumber,                                    // $1 mbno
+          memberData.title || 'Mr',                                   // $2 prefix
+          memberData.firstName || '',                                 // $3 f_name
+          memberData.middleName || '',                                // $4 m_name
+          memberData.lastName || '',                                  // $5 l_name
+          memberData.gender === 'male' ? 'M' : 'F',                  // $6 sex
+          memberData.designation || '',                               // $7 desig
+          memberData.homeAddress || '',                               // $8 present_address
+          memberData.homeAddress || '',                               // $9 permanent_address (same as present)
+          wingno,                                                     // $10 wingno
+          officeno,                                                   // $11 officeno
+          memberData.age?.toString() || '0',                          // $12 age
+          memberData.dateOfBirth ? new Date(memberData.dateOfBirth) : null, // $13 dob
+          memberData.retirementDate ? new Date(memberData.retirementDate) : null, // $14 dor
+          parseFloat(memberData.basicPay) || 0,                       // $15 gross_salary (same as basic)
+          parseFloat(memberData.basicPay) || 0,                       // $16 basic_pay
+          memberData.nomineeName || '',                               // $17 nominee_name
+          memberData.nomineeAddress || '',                            // $18 nominee_address
+          memberData.relationWithNominee || '',                       // $19 nominee_relation
+          memberData.declarationDate ? new Date(memberData.declarationDate) : null, // $20 declare_date
+          memberData.membershipDate ? new Date(memberData.membershipDate) : null, // $21 memb_date
+          memberData.srNoEpfPfNo || '',                               // $22 pfno
+          '',                                                         // $23 lfno (empty)
+          'N',                                                        // $24 flg_incometax
+          memberData.isInsured ? 'Y' : 'N',                          // $25 flg_insured
+          parseFloat(memberData.amountOfInsurance) || 0,              // $26 insureamt
+          memberData.remarks || '',                                   // $27 remarks
+          memberData.department || '',                                // $28 dept_name
+          memberData.isActive ? 'Y' : 'N',                           // $29 isactive
+          memberData.status === 'Retired' ? 'Y' : 'N'                // $30 flg_retire
         ];
 
         const result = await this.memberMasterRepository.query(insertQuery, values);
         console.log('✅ New member created successfully');
+        console.log('📋 Insert result:', result);
+        console.log('🔍 Inserted member number:', result[0]?.mbno);
         
         return {
           success: true,
@@ -967,6 +1034,55 @@ export class MemberService {
     } catch (error) {
       console.error('❌ Error saving member:', error);
       throw new Error('Failed to save member: ' + error.message);
+    }
+  }
+
+  /**
+   * Generate next sequential member number (8 digits)
+   * Finds the highest existing member number and increments by 1
+   */
+  async generateNextMemberNumber(): Promise<string> {
+    try {
+      const query = `
+        SELECT MAX(mbno::bigint) as max_member_no
+        FROM member_master
+        WHERE mbno IS NOT NULL 
+        AND mbno::text ~ '^[0-9]+$'
+        AND LENGTH(mbno::text) = 8
+      `;
+
+      const result = await this.memberMasterRepository.query(query);
+      let maxMemberNo = result[0]?.max_member_no;
+      
+      // Convert to number if it's a string
+      if (typeof maxMemberNo === 'string') {
+        maxMemberNo = parseInt(maxMemberNo);
+      }
+      
+      // If no valid 8-digit members exist, start from 10000000
+      if (!maxMemberNo || maxMemberNo < 10000000 || maxMemberNo > 99999999) {
+        maxMemberNo = 10000000;
+      }
+      
+      const nextMemberNo = maxMemberNo + 1;
+
+      // Ensure it's exactly 8 digits and within valid range
+      if (nextMemberNo > 99999999) {
+        throw new Error('Member number range exhausted. Please contact administrator.');
+      }
+
+      const memberNumber = nextMemberNo.toString().padStart(8, '0');
+
+      console.log(`Generated next member number: ${memberNumber} (previous max: ${maxMemberNo})`);
+
+      return memberNumber;
+    } catch (error) {
+      console.error('Error generating member number:', error);
+      // Fallback to timestamp-based generation (8 digits)
+      const timestamp = Date.now().toString();
+      const fallbackNumber = timestamp.slice(-8).padStart(8, '1');
+      console.log(`Using fallback member number: ${fallbackNumber}`);
+      return fallbackNumber;
     }
   }
 

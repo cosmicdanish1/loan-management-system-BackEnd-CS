@@ -70,9 +70,12 @@ export class MemberController {
   })
   async lookupMembers(@Query('search') search?: string) {
     try {
-      return await this.memberService.lookupMembers(search);
+      console.log('Controller: lookupMembers called with search:', search);
+      const result = await this.memberService.lookupMembers(search);
+      console.log('Controller: lookupMembers result length:', result.length);
+      return result;
     } catch (error) {
-      console.error('Error in lookupMembers:', error);
+      console.error('Controller Error in lookupMembers:', error);
       // Return empty array on error for now
       return [];
     }
@@ -127,6 +130,28 @@ export class MemberController {
     } catch (error) {
       console.error('Error saving member in controller:', error);
       throw error;
+    }
+  }
+
+  @Get('generate/member-number')
+  @ApiOperation({ summary: 'Generate next sequential member number (8 digits)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Member number generated successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        memberNumber: { type: 'string', example: '10000001' }
+      }
+    }
+  })
+  async generateMemberNumber() {
+    try {
+      const memberNumber = await this.memberService.generateNextMemberNumber();
+      return { memberNumber };
+    } catch (error) {
+      console.error('Error generating member number:', error);
+      throw new Error('Failed to generate member number');
     }
   }
 
