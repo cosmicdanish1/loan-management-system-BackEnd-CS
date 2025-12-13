@@ -114,6 +114,23 @@ export class MemberController {
     }
   }
 
+  @Get('balance/:memberNo')
+  @ApiOperation({ summary: 'Get member balance information' })
+  @ApiParam({ name: 'memberNo', type: 'string', description: 'Member number' })
+  @ApiResponse({
+    status: 200,
+    description: 'Member balance retrieved successfully',
+  })
+  async getMemberBalance(@Param('memberNo') memberNo: string) {
+    try {
+      const balanceData = await this.memberService.getMemberBalance(memberNo);
+      return balanceData;
+    } catch (error) {
+      console.error('Error getting member balance:', error);
+      throw error;
+    }
+  }
+
   @Post('save-member')
   @ApiOperation({ summary: 'Save or update member' })
   @ApiResponse({

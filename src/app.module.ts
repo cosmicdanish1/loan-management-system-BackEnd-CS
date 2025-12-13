@@ -17,6 +17,7 @@ import { TransactionModule } from './modules/transaction/transaction.module';
 import { ReportModule } from './modules/report/report.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { UtilityModule } from './modules/utility/utility.module';
+import { SearchModule } from './modules/search/search.module';
 
 @Module({
   imports: [
@@ -102,6 +103,7 @@ import { UtilityModule } from './modules/utility/utility.module';
     ReportModule,
     AdminModule,
     UtilityModule,
+    SearchModule,
   ],
   controllers: [AppController],
   providers: [AppService],
