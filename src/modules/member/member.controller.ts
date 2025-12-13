@@ -70,12 +70,9 @@ export class MemberController {
   })
   async lookupMembers(@Query('search') search?: string) {
     try {
-      console.log('Controller: lookupMembers called with search:', search);
-      const result = await this.memberService.lookupMembers(search);
-      console.log('Controller: lookupMembers result length:', result.length);
-      return result;
+      return await this.memberService.lookupMembers(search);
     } catch (error) {
-      console.error('Controller Error in lookupMembers:', error);
+      console.error('Error in lookupMembers:', error);
       // Return empty array on error for now
       return [];
     }

@@ -401,8 +401,20 @@ export class MemberService {
           m.basic_pay,
           m.dor,
           0 as share_balance,
-          0 as regular_loan_bal,
-          0 as emergency_loan_bal
+          COALESCE((SELECT SUM(CASE 
+             WHEN lm.balance IS NOT NULL AND lm.balance::text ~ '^[0-9]+\.?[0-9]*$' 
+             THEN lm.balance::numeric 
+             ELSE 0 
+           END) 
+           FROM loan_master lm 
+           WHERE lm.mbno = m.mbno AND lm.loantype = 'RLN'), 0) as regular_loan_bal,
+          COALESCE((SELECT SUM(CASE 
+             WHEN lm.balance IS NOT NULL AND lm.balance::text ~ '^[0-9]+\.?[0-9]*$' 
+             THEN lm.balance::numeric 
+             ELSE 0 
+           END) 
+           FROM loan_master lm 
+           WHERE lm.mbno = m.mbno AND lm.loantype = 'ELN'), 0) as emergency_loan_bal
         FROM member_master m
         LEFT JOIN division_master d ON m.officeno = d.officeno
         WHERE (m.isactive = 'Y' OR m.isactive IS NULL)
@@ -423,15 +435,9 @@ export class MemberService {
 
       query += ` AND m.mbno IS NOT NULL ORDER BY m.mbno DESC LIMIT 500`;
 
-      console.log('Executing lookup query:', query);
-      console.log('With params:', params);
-      
       const members = await this.memberMasterRepository.query(query, params);
 
       console.log(`Found ${members.length} members in lookup`);
-      if (members.length > 0) {
-        console.log('First member:', members[0]);
-      }
 
       return members.map((member: any) => ({
         memberNo: member.mbno?.toString() || '',
