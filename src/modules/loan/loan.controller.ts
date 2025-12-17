@@ -303,6 +303,17 @@ export class LoanController {
     return this.loanService.getEmiSchedule(id);
   }
 
+  @Get('master/:loanCaseNo/emi-schedule')
+  @ApiOperation({ summary: 'Get EMI schedule for loan from loan_master with payment status' })
+  @ApiParam({ name: 'loanCaseNo', type: 'string', description: 'Loan case number' })
+  @ApiResponse({
+    status: 200,
+    description: 'EMI schedule with payment status retrieved successfully',
+  })
+  async getEmiScheduleFromMaster(@Param('loanCaseNo') loanCaseNo: string) {
+    return this.loanService.getEmiScheduleFromMaster(loanCaseNo);
+  }
+
   @Post(':id/calculate-interest')
   @ApiOperation({ summary: 'Calculate and post interest for loan' })
   @ApiParam({ name: 'id', type: 'number', description: 'Loan ID' })

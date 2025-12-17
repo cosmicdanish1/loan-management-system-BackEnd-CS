@@ -18,6 +18,11 @@ import { ReportModule } from './modules/report/report.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { UtilityModule } from './modules/utility/utility.module';
 import { SearchModule } from './modules/search/search.module';
+import { BackupModule } from './modules/backup/backup.module';
+import { InterestModule } from './modules/interest/interest.module';
+import { CashBookModule } from './modules/cashbook/cashbook.module';
+import { DayBookModule } from './modules/daybook/daybook.module';
+import { ConsolidationModule } from './modules/consolidation/consolidation.module';
 
 @Module({
   imports: [
@@ -104,6 +109,11 @@ import { SearchModule } from './modules/search/search.module';
     AdminModule,
     UtilityModule,
     SearchModule,
+    BackupModule,
+    InterestModule,
+    CashBookModule,
+    DayBookModule,
+    ConsolidationModule,
   ],
   controllers: [AppController],
   providers: [AppService],

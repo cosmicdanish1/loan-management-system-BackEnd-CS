@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like, ILike, MoreThan, LessThan } from 'typeorm';
-import { LoanAccount, LoanPayment } from './entities';
+import { LoanAccount, LoanPayment, DemandMaster } from './entities';
 import { LoanMaster } from './entities/loan-master.entity';
 import { LoanPending } from './entities/loan-pending.entity';
 import { Member } from '../member/entities/member.entity';
@@ -36,6 +36,8 @@ export class LoanService {
     private readonly loanPendingRepository: Repository<LoanPending>,
     @InjectRepository(MemberMaster)
     private readonly memberMasterRepository: Repository<MemberMaster>,
+    @InjectRepository(DemandMaster)
+    private readonly demandMasterRepository: Repository<DemandMaster>,
   ) {}
 
   /**
@@ -401,6 +403,139 @@ export class LoanService {
     }
     
     return { schedule };
+  }
+
+  /**
+   * Get EMI schedule from loan_master with payment status from demand_master
+   */
+  async getEmiScheduleFromMaster(loanCaseNo: string) {
+    // First get the loan details from loan_master
+    const loanMaster = await this.loanMasterRepository
+      .createQueryBuilder('loan')
+      .where('loan.loancaseno = :loanCaseNo', { loanCaseNo })
+      .getOne();
+
+    if (!loanMaster) {
+      throw new NotFoundException(`Loan case ${loanCaseNo} not found in loan_master`);
+    }
+
+    // Get member details
+    const member = await this.memberMasterRepository.findOne({
+      where: { mbno: loanMaster.mbno },
+    });
+
+    if (!member) {
+      throw new NotFoundException(`Member ${loanMaster.mbno} not found`);
+    }
+
+    // Calculate EMI schedule
+    const schedule = [];
+    let balance = Number(loanMaster.loan_amt);
+    const monthlyRate = Number(loanMaster.rate) / 100 / 12;
+    const startDate = new Date(loanMaster.payment_date);
+    
+    // Calculate EMI using the installment amount from loan_master or formula
+    const emiAmount = Number(loanMaster.instal_amt) || 
+      (balance * monthlyRate * Math.pow(1 + monthlyRate, loanMaster.no_of_instal)) /
+      (Math.pow(1 + monthlyRate, loanMaster.no_of_instal) - 1);
+
+    // Get payment status from demand_master for this member
+    const demandRecords = await this.demandMasterRepository
+      .createQueryBuilder('demand')
+      .select(['demand.demandForYear', 'demand.demandForMonth'])
+      .addSelect(`CASE 
+        WHEN demand.${loanMaster.loantype.toLowerCase()}Amount > 0 THEN 'Paid'
+        ELSE 'Pending'
+      END`, 'paymentStatus')
+      .where('demand.mbno = :mbno', { mbno: loanMaster.mbno })
+      .orderBy('demand.demandForYear', 'ASC')
+      .addOrderBy('demand.demandForMonth', 'ASC')
+      .getRawMany();
+
+    // Create a map of payment status by year-month
+    const paymentStatusMap = new Map();
+    demandRecords.forEach(record => {
+      const key = `${record.demand_demandForYear}-${record.demand_demandForMonth}`;
+      paymentStatusMap.set(key, record.paymentStatus);
+    });
+
+    for (let month = 1; month <= loanMaster.no_of_instal; month++) {
+      const interestAmount = balance * monthlyRate;
+      const principalAmount = emiAmount - interestAmount;
+      balance -= principalAmount;
+      
+      // Calculate due date
+      const dueDate = new Date(startDate);
+      dueDate.setMonth(dueDate.getMonth() + month - 1);
+      
+      // Determine payment status
+      const yearMonth = `${dueDate.getFullYear()}-${dueDate.getMonth() + 1}`;
+      let status = paymentStatusMap.get(yearMonth) || 'Pending';
+      
+      // If due date is past and status is pending, mark as overdue
+      if (status === 'Pending' && dueDate < new Date()) {
+        status = 'Overdue';
+      }
+      
+      schedule.push({
+        month,
+        dueDate: dueDate.toISOString().split('T')[0], // YYYY-MM-DD format
+        emiAmount: Math.round(emiAmount * 100) / 100,
+        principalAmount: Math.round(principalAmount * 100) / 100,
+        interestAmount: Math.round(interestAmount * 100) / 100,
+        balance: Math.max(0, Math.round(balance * 100) / 100),
+        status,
+      });
+    }
+
+    // Calculate summary statistics
+    const paidInstallments = schedule.filter(item => item.status === 'Paid').length;
+    const pendingInstallments = schedule.filter(item => item.status === 'Pending').length;
+    const overdueInstallments = schedule.filter(item => item.status === 'Overdue').length;
+    
+    const totalPaid = schedule
+      .filter(item => item.status === 'Paid')
+      .reduce((sum, item) => sum + item.emiAmount, 0);
+    
+    const totalInterestPaid = schedule
+      .filter(item => item.status === 'Paid')
+      .reduce((sum, item) => sum + item.interestAmount, 0);
+    
+    const totalPrincipalPaid = schedule
+      .filter(item => item.status === 'Paid')
+      .reduce((sum, item) => sum + item.principalAmount, 0);
+    
+    const remainingBalance = Number(loanMaster.loan_amt) - totalPrincipalPaid;
+    const completionPercentage = (paidInstallments / loanMaster.no_of_instal) * 100;
+
+    return {
+      loanDetails: {
+        loanCaseNo: loanMaster.loancaseno,
+        memberNumber: loanMaster.mbno,
+        memberName: member.fullName,
+        loanType: loanMaster.loantype,
+        loanAmount: Number(loanMaster.loan_amt),
+        rate: Number(loanMaster.rate),
+        noOfInstallments: loanMaster.no_of_instal,
+        installmentAmount: Number(loanMaster.instal_amt),
+        balance: Number(loanMaster.balance),
+        purpose: loanMaster.purpose,
+        paymentDate: loanMaster.payment_date,
+        officeName: `${member.officeno}-${member.dept_name || 'N/A'}`,
+        basicPay: Number(member.basic_pay),
+      },
+      schedule,
+      summary: {
+        paidInstallments,
+        pendingInstallments,
+        overdueInstallments,
+        totalPaid: Math.round(totalPaid * 100) / 100,
+        totalInterestPaid: Math.round(totalInterestPaid * 100) / 100,
+        totalPrincipalPaid: Math.round(totalPrincipalPaid * 100) / 100,
+        remainingBalance: Math.round(remainingBalance * 100) / 100,
+        completionPercentage: Math.round(completionPercentage * 100) / 100,
+      },
+    };
   }
 
   /**

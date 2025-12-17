@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Day Book SB API</title>
+</head>
+<body>
+    <h1>Day Book SB API Test</h1>
+    <button onclick="testAPI()">Test API Call</button>
+    <div id="result"></div>
+
+    <script>
+        async function testAPI() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = 'Loading...';
+            
+            try {
+                const response = await fetch('http://localhost:3000/api/v1/daybook/report/sb?date=2025-12-17');
+                const data = await response.json();
+                
+                console.log('API Response:', data);
+                
+                resultDiv.innerHTML = `
+                    <h3>API Response:</h3>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                    
+                    <h3>Data Structure:</h3>
+                    <p>Success: ${data.success}</p>
+                    <p>Data exists: ${!!data.data}</p>
+                    <p>Nested data exists: ${!!data.data?.data}</p>
+                    <p>Entries count: ${data.data?.data?.entries?.length || 0}</p>
+                    
+                    <h3>Sample Entry:</h3>
+                    <pre>${JSON.stringify(data.data?.data?.entries?.[0] || 'No entries', null, 2)}</pre>
+                `;
+            } catch (error) {
+                console.error('Error:', error);
+                resultDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+    </script>
+</body>
+</html>

@@ -3,7 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
 import { LoanController } from './loan.controller';
 import { LoanService } from './loan.service';
-import { LoanAccount, LoanPayment } from './entities';
+import { LoanAccount, LoanPayment, DemandMaster } from './entities';
 import { LoanMaster } from './entities/loan-master.entity';
 import { LoanPending } from './entities/loan-pending.entity';
 import { Member } from '../member/entities/member.entity';
@@ -18,7 +18,8 @@ import { InterestCalculationService, DefaulterTrackingService, PaymentProcessing
       LoanMaster, 
       LoanPending, 
       Member, 
-      MemberMaster
+      MemberMaster,
+      DemandMaster
     ]),
     ScheduleModule.forRoot(),
   ],

@@ -1093,22 +1093,25 @@ export class MemberService {
   }
 
   /**
-   * Get member balance information - simplified version using available data
+   * Get member balance information using proper balance tables
    */
   async getMemberBalance(memberNo: string) {
     try {
       console.log(`[BALANCE] Getting balance for member: ${memberNo}`);
 
-      // Get member basic info
+      // Get member basic info with division and wing details
       const memberQuery = `
         SELECT 
           m.mbno,
           m.f_name || ' ' || COALESCE(m.m_name, '') || ' ' || m.l_name as member_name,
           COALESCE(d.name, 'Unknown Office') as office_name,
+          COALESCE(d.name, 'Unknown Division') as division_ro,
+          COALESCE(w.wname, 'Unknown Branch') as branch,
           COALESCE(m.basic_pay, 0) as basic_pay,
           COALESCE(m.isactive, 'Y') as isactive
         FROM member_master m
-        LEFT JOIN division_master d ON m.officeno = d.officeno
+        LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
+        LEFT JOIN wingmast w ON m.wingno = w.wingno
         WHERE m.mbno = $1
       `;
 
@@ -1120,11 +1123,132 @@ export class MemberService {
 
       const member = memberResult[0];
 
-      // Get loan balances from loan_master (this table definitely exists)
-      let regularLoanBalance = 0;
-      let emergencyLoanBalance = 0;
-      let totalLoanBalance = 0;
+      // Get detailed balance information from multiple sources
+      const balanceItems: any[] = [];
 
+      // 1. Get funds from funds_master (MD, CD, Share)
+      try {
+        const fundsQuery = `
+          SELECT 
+            COALESCE(mdamt, 0) as md_amount,
+            COALESCE(cdamt, 0) as cd_amount,
+            COALESCE(shareamt, 0) as share_amount
+          FROM funds_master
+          WHERE mbno = $1
+        `;
+
+        const fundsResult = await this.memberMasterRepository.query(fundsQuery, [memberNo]);
+        
+        if (fundsResult.length > 0) {
+          const funds = fundsResult[0];
+          const mdAmount = parseFloat(funds.md_amount) || 0;
+          const cdAmount = parseFloat(funds.cd_amount) || 0;
+          const shareAmount = parseFloat(funds.share_amount) || 0;
+
+          if (mdAmount > 0) {
+            balanceItems.push({
+              code: 'MD',
+              headName: 'Membership Deposit',
+              balance: mdAmount,
+              type: 'asset'
+            });
+          }
+
+          if (cdAmount > 0) {
+            balanceItems.push({
+              code: 'CD',
+              headName: 'Compulsory Deposit',
+              balance: cdAmount,
+              type: 'asset'
+            });
+          }
+
+          if (shareAmount > 0) {
+            balanceItems.push({
+              code: 'SH',
+              headName: 'Share Amount',
+              balance: shareAmount,
+              type: 'asset'
+            });
+          }
+        }
+      } catch (error) {
+        console.log('[BALANCE] Error getting funds data:', error.message);
+      }
+
+      // 2. Get FD balances from fdmaster
+      try {
+        const fdQuery = `
+          SELECT 
+            SUM(COALESCE(fdamount::numeric, 0)) as total_fd,
+            COUNT(*) as fd_count
+          FROM fdmaster
+          WHERE mbno = $1 AND fdrdflag = 'F'
+        `;
+        const fdResult = await this.memberMasterRepository.query(fdQuery, [memberNo]);
+        const fdBalance = parseFloat(fdResult[0]?.total_fd) || 0;
+        
+        if (fdBalance > 0) {
+          balanceItems.push({
+            code: 'FD',
+            headName: 'Fixed Deposit',
+            balance: fdBalance,
+            type: 'asset'
+          });
+        }
+      } catch (error) {
+        console.log('[BALANCE] Error getting FD data:', error.message);
+      }
+
+      // 3. Get RD balances from fdmaster
+      try {
+        const rdQuery = `
+          SELECT 
+            SUM(COALESCE(fdamount::numeric, 0)) as total_rd,
+            COUNT(*) as rd_count
+          FROM fdmaster
+          WHERE mbno = $1 AND fdrdflag = 'R'
+        `;
+        const rdResult = await this.memberMasterRepository.query(rdQuery, [memberNo]);
+        const rdBalance = parseFloat(rdResult[0]?.total_rd) || 0;
+        
+        if (rdBalance > 0) {
+          balanceItems.push({
+            code: 'RD',
+            headName: 'Recurring Deposit',
+            balance: rdBalance,
+            type: 'asset'
+          });
+        }
+      } catch (error) {
+        console.log('[BALANCE] Error getting RD data:', error.message);
+      }
+
+      // 4. Get SB balances from fdmaster
+      try {
+        const sbQuery = `
+          SELECT 
+            SUM(COALESCE(fdamount::numeric, 0)) as total_sb,
+            COUNT(*) as sb_count
+          FROM fdmaster
+          WHERE mbno = $1 AND fdrdflag = 'S'
+        `;
+        const sbResult = await this.memberMasterRepository.query(sbQuery, [memberNo]);
+        const sbBalance = parseFloat(sbResult[0]?.total_sb) || 0;
+        
+        if (sbBalance > 0) {
+          balanceItems.push({
+            code: 'SB',
+            headName: 'Savings Bank',
+            balance: sbBalance,
+            type: 'asset'
+          });
+        }
+      } catch (error) {
+        console.log('[BALANCE] Error getting SB data:', error.message);
+      }
+
+      // 5. Get loan balances from loan_master
       try {
         const loanQuery = `
           SELECT 
@@ -1143,72 +1267,57 @@ export class MemberService {
         
         loanResult.forEach((loan: any) => {
           const balance = parseFloat(loan.total_balance) || 0;
-          totalLoanBalance += balance;
-          
-          if (loan.loantype === 'RLN') {
-            regularLoanBalance = balance;
-          } else if (loan.loantype === 'ELN') {
-            emergencyLoanBalance = balance;
+          if (balance > 0) {
+            let loanName = 'Loan';
+            let loanCode = loan.loantype;
+            
+            if (loan.loantype === 'RLN') {
+              loanName = 'Regular Loan';
+              loanCode = 'RLN';
+            } else if (loan.loantype === 'ELN') {
+              loanName = 'Emergency Loan';
+              loanCode = 'ELN';
+            }
+
+            balanceItems.push({
+              code: loanCode,
+              headName: loanName,
+              balance: -balance, // Negative for liability
+              type: 'liability'
+            });
           }
         });
       } catch (error) {
         console.log('[BALANCE] Error getting loan balances:', error.message);
       }
 
-      // Try to get funds balance (may not exist for all members)
-      let membershipDeposit = 0;
-      let compulsoryDeposit = 0;
-      let shareAmount = 0;
-
-      try {
-        // Check if funds_master table exists and has data
-        const fundsQuery = `
-          SELECT 
-            COALESCE(mdamt, 0) as md_amount,
-            COALESCE(cdamt, 0) as cd_amount,
-            COALESCE(shareamt, 0) as share_amount
-          FROM funds_master
-          WHERE mbno = $1
-        `;
-
-        const fundsResult = await this.memberMasterRepository.query(fundsQuery, [memberNo]);
-        
-        if (fundsResult.length > 0) {
-          const funds = fundsResult[0];
-          membershipDeposit = parseFloat(funds.md_amount) || 0;
-          compulsoryDeposit = parseFloat(funds.cd_amount) || 0;
-          shareAmount = parseFloat(funds.share_amount) || 0;
-        }
-      } catch (error) {
-        console.log('[BALANCE] Funds table not available or no data, using defaults');
-        // Use default values - could be enhanced to get from other tables
-        membershipDeposit = 1000; // Default membership deposit
-        shareAmount = 500; // Default share amount
-      }
-
-      // Try to get FD balances
-      let fdBalance = 0;
-      try {
-        const fdQuery = `
-          SELECT SUM(COALESCE(fdamount::numeric, 0)) as total_fd
-          FROM fd_master
-          WHERE mbno = $1
-        `;
-        const fdResult = await this.memberMasterRepository.query(fdQuery, [memberNo]);
-        fdBalance = parseFloat(fdResult[0]?.total_fd) || 0;
-      } catch (error) {
-        console.log('[BALANCE] FD table not available');
-      }
-
       // Calculate totals
-      const totalAssets = membershipDeposit + compulsoryDeposit + shareAmount + fdBalance;
-      const totalLiabilities = totalLoanBalance;
+      const totalAssets = balanceItems
+        .filter(item => item.type === 'asset')
+        .reduce((sum, item) => sum + item.balance, 0);
+      
+      const totalLiabilities = Math.abs(balanceItems
+        .filter(item => item.type === 'liability')
+        .reduce((sum, item) => sum + item.balance, 0));
+      
       const netBalance = totalAssets - totalLiabilities;
+
+      // Prepare legacy format for compatibility
+      const membershipDeposit = balanceItems.find(item => item.code === 'MD')?.balance || 0;
+      const compulsoryDeposit = balanceItems.find(item => item.code === 'CD')?.balance || 0;
+      const shareAmount = balanceItems.find(item => item.code === 'SH')?.balance || 0;
+      const regularLoanBalance = Math.abs(balanceItems.find(item => item.code === 'RLN')?.balance || 0);
+      const emergencyLoanBalance = Math.abs(balanceItems.find(item => item.code === 'ELN')?.balance || 0);
+      const fixedDepositBalance = balanceItems.find(item => item.code === 'FD')?.balance || 0;
+      const recurringDepositBalance = balanceItems.find(item => item.code === 'RD')?.balance || 0;
+      const savingsBankBalance = balanceItems.find(item => item.code === 'SB')?.balance || 0;
 
       const balanceData = {
         memberNo: member.mbno?.toString() || '',
         memberName: member.member_name?.trim() || '',
         officeName: member.office_name || '',
+        divisionRo: member.division_ro || '',
+        branch: member.branch || '',
         basicPay: member.basic_pay?.toString() || '0',
         isActive: member.isactive === 'Y',
         
@@ -1225,11 +1334,12 @@ export class MemberService {
         // Loan balances
         regularLoanBalance: regularLoanBalance.toFixed(2),
         emergencyLoanBalance: emergencyLoanBalance.toFixed(2),
-        totalLoanBalance: totalLoanBalance.toFixed(2),
+        totalLoanBalance: totalLiabilities.toFixed(2),
         
         // Deposit balances
-        fixedDepositBalance: fdBalance.toFixed(2),
-        recurringDepositBalance: '0.00', // Not available in current schema
+        fixedDepositBalance: fixedDepositBalance.toFixed(2),
+        recurringDepositBalance: recurringDepositBalance.toFixed(2),
+        savingsBankBalance: savingsBankBalance.toFixed(2),
         
         // Other balances
         loanExecRec: '0.00',
@@ -1239,6 +1349,9 @@ export class MemberService {
         totalAssets: totalAssets.toFixed(2),
         totalLiabilities: totalLiabilities.toFixed(2),
         netBalance: netBalance.toFixed(2),
+        
+        // Detailed balance items for grid display
+        balanceItems: balanceItems,
         
         // Metadata
         lastUpdated: new Date().toISOString(),
