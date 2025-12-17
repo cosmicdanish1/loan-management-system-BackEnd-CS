@@ -24,6 +24,7 @@ import { CashBookModule } from './modules/cashbook/cashbook.module';
 import { DayBookModule } from './modules/daybook/daybook.module';
 import { ConsolidationModule } from './modules/consolidation/consolidation.module';
 import { MemberLedgerModule } from './modules/member-ledger/member-ledger.module';
+import { GeneralLedgerModule } from './modules/general-ledger/general-ledger.module';
 
 @Module({
   imports: [
@@ -116,6 +117,7 @@ import { MemberLedgerModule } from './modules/member-ledger/member-ledger.module
     DayBookModule,
     ConsolidationModule,
     MemberLedgerModule,
+    GeneralLedgerModule,
   ],
   controllers: [AppController],
   providers: [AppService],
