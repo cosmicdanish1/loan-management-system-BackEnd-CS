@@ -25,6 +25,7 @@ import { DayBookModule } from './modules/daybook/daybook.module';
 import { ConsolidationModule } from './modules/consolidation/consolidation.module';
 import { MemberLedgerModule } from './modules/member-ledger/member-ledger.module';
 import { GeneralLedgerModule } from './modules/general-ledger/general-ledger.module';
+import { PrintVoucherModule } from './modules/print-voucher/print-voucher.module';
 
 @Module({
   imports: [
@@ -118,8 +119,9 @@ import { GeneralLedgerModule } from './modules/general-ledger/general-ledger.mod
     ConsolidationModule,
     MemberLedgerModule,
     GeneralLedgerModule,
+    PrintVoucherModule,
   ],
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule { }
