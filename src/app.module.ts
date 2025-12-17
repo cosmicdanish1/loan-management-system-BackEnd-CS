@@ -23,6 +23,7 @@ import { InterestModule } from './modules/interest/interest.module';
 import { CashBookModule } from './modules/cashbook/cashbook.module';
 import { DayBookModule } from './modules/daybook/daybook.module';
 import { ConsolidationModule } from './modules/consolidation/consolidation.module';
+import { MemberLedgerModule } from './modules/member-ledger/member-ledger.module';
 
 @Module({
   imports: [
@@ -114,6 +115,7 @@ import { ConsolidationModule } from './modules/consolidation/consolidation.modul
     CashBookModule,
     DayBookModule,
     ConsolidationModule,
+    MemberLedgerModule,
   ],
   controllers: [AppController],
   providers: [AppService],
