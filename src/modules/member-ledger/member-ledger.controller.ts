@@ -1,17 +1,19 @@
 import { Controller, Get, Query, Logger } from '@nestjs/common';
 import { MemberLedgerService } from './member-ledger.service';
-import { 
-  GetMemberLedgerDto, 
+import {
+  GetMemberLedgerDto,
   MemberLedgerSummaryDto,
   HeadMasterDto,
-  ValidateMemberDto
+  ValidateMemberDto,
+  GetMemberDetailLedgerDto,
+  MemberDetailLedgerSummaryDto
 } from './dto/member-ledger.dto';
 
 @Controller('member-ledger')
 export class MemberLedgerController {
   private readonly logger = new Logger(MemberLedgerController.name);
 
-  constructor(private readonly memberLedgerService: MemberLedgerService) {}
+  constructor(private readonly memberLedgerService: MemberLedgerService) { }
 
   @Get('report')
   async getMemberLedgerReport(@Query() dto: GetMemberLedgerDto): Promise<{
@@ -20,13 +22,30 @@ export class MemberLedgerController {
     message: string;
   }> {
     this.logger.log(`Generating member ledger report for member: ${dto.memberNumber}, head: ${dto.headCode}, period: ${dto.fromDate} to ${dto.toDate}`);
-    
+
     const report = await this.memberLedgerService.getMemberLedgerReport(dto);
-    
+
     return {
       success: true,
       data: report,
       message: 'Member ledger report generated successfully'
+    };
+  }
+
+  @Get('detail-report')
+  async getMemberDetailLedgerReport(@Query() dto: GetMemberDetailLedgerDto): Promise<{
+    success: boolean;
+    data: MemberDetailLedgerSummaryDto;
+    message: string;
+  }> {
+    this.logger.log(`Generating member detail ledger report for member: ${dto.memberNumber}, period: ${dto.fromDate} to ${dto.toDate}`);
+
+    const report = await this.memberLedgerService.getMemberDetailLedgerReport(dto);
+
+    return {
+      success: true,
+      data: report,
+      message: 'Member detail ledger report generated successfully'
     };
   }
 
@@ -37,9 +56,9 @@ export class MemberLedgerController {
     message: string;
   }> {
     this.logger.log(`Validating member: ${dto.memberNumber}`);
-    
+
     const result = await this.memberLedgerService.validateMember(dto);
-    
+
     return {
       success: true,
       data: result,
@@ -54,9 +73,9 @@ export class MemberLedgerController {
     message: string;
   }> {
     this.logger.log('Fetching head masters for dropdown');
-    
+
     const heads = await this.memberLedgerService.getHeadMasters();
-    
+
     return {
       success: true,
       data: heads,

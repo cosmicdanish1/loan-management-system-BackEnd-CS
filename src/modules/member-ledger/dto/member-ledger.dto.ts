@@ -18,6 +18,21 @@ export class GetMemberLedgerDto {
   outputType?: 'screen' | 'printer' = 'screen';
 }
 
+export class GetMemberDetailLedgerDto {
+  @IsNumberString()
+  memberNumber: string;
+
+  @IsDateString()
+  fromDate: string;
+
+  @IsDateString()
+  toDate: string;
+
+  @IsOptional()
+  @IsEnum(['screen', 'printer'])
+  outputType?: 'screen' | 'printer' = 'screen';
+}
+
 export class MemberLedgerEntryDto {
   transactionNo: number;
   transactionDate: Date;
@@ -28,6 +43,16 @@ export class MemberLedgerEntryDto {
   balance: number;
   transactionType: 'DR' | 'CR';
   username: string;
+}
+
+export class MemberDetailLedgerEntryDto {
+  date: string;
+  accountHead: string;
+  voucherNo: string;
+  particulars: string;
+  debit: number;
+  credit: number;
+  code: string;
 }
 
 export class MemberLedgerSummaryDto {
@@ -43,6 +68,16 @@ export class MemberLedgerSummaryDto {
   closingBalance: number;
   entries: MemberLedgerEntryDto[];
   totalTransactions: number;
+}
+
+export class MemberDetailLedgerSummaryDto {
+  memberNumber: string;
+  memberName: string;
+  fromDate: string;
+  toDate: string;
+  entries: MemberDetailLedgerEntryDto[];
+  totalDebits: number;
+  totalCredits: number;
 }
 
 export class HeadMasterDto {

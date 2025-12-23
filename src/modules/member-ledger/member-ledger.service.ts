@@ -4,12 +4,14 @@ import { Repository } from 'typeorm';
 import { Ledger } from './entities/ledger.entity';
 import { MemberMaster } from '../member/entities/member-master.entity';
 import { HeadMaster } from '../consolidation/entities/head-master.entity';
-import { 
-  GetMemberLedgerDto, 
-  MemberLedgerSummaryDto, 
+import {
+  GetMemberLedgerDto,
+  MemberLedgerSummaryDto,
   MemberLedgerEntryDto,
   HeadMasterDto,
-  ValidateMemberDto
+  ValidateMemberDto,
+  GetMemberDetailLedgerDto,
+  MemberDetailLedgerSummaryDto
 } from './dto/member-ledger.dto';
 
 @Injectable()
@@ -23,18 +25,18 @@ export class MemberLedgerService {
     private memberRepository: Repository<MemberMaster>,
     @InjectRepository(HeadMaster)
     private headMasterRepository: Repository<HeadMaster>
-  ) {}
+  ) { }
 
   async getMemberLedgerReport(dto: GetMemberLedgerDto): Promise<MemberLedgerSummaryDto> {
     try {
       const memberNumber = Number(dto.memberNumber);
       const fromDate = new Date(dto.fromDate);
       const toDate = new Date(dto.toDate);
-      
+
       // Set time boundaries
       const startOfDay = new Date(fromDate);
       startOfDay.setHours(0, 0, 0, 0);
-      
+
       const endOfDay = new Date(toDate);
       endOfDay.setHours(23, 59, 59, 999);
 
@@ -69,8 +71,8 @@ export class MemberLedgerService {
 
       // Calculate opening balance (transactions before the from date)
       const openingBalance = await this.calculateOpeningBalance(
-        memberNumber, 
-        dto.headCode, 
+        memberNumber,
+        dto.headCode,
         startOfDay
       );
 
@@ -78,7 +80,7 @@ export class MemberLedgerService {
       let runningBalance = openingBalance;
       const entries: MemberLedgerEntryDto[] = ledgerEntries.map(entry => {
         const amount = this.parseMoneyAmount(entry.trans_amt.toString());
-        
+
         // Update running balance
         if (entry.trans_type === 'CR') {
           runningBalance += amount;
@@ -130,9 +132,95 @@ export class MemberLedgerService {
     }
   }
 
-  async validateMember(dto: ValidateMemberDto): Promise<{ 
-    exists: boolean; 
-    memberName?: string; 
+  async getMemberDetailLedgerReport(dto: GetMemberDetailLedgerDto): Promise<MemberDetailLedgerSummaryDto> {
+    try {
+      const memberNumber = Number(dto.memberNumber);
+      const fromDate = new Date(dto.fromDate);
+      const toDate = new Date(dto.toDate);
+
+      const startOfDay = new Date(fromDate);
+      startOfDay.setHours(0, 0, 0, 0);
+
+      const endOfDay = new Date(toDate);
+      endOfDay.setHours(23, 59, 59, 999);
+
+      // Validate member
+      const member = await this.memberRepository.findOne({
+        where: { mbno: memberNumber.toString() }
+      });
+
+      if (!member) {
+        throw new NotFoundException(`Member with number ${dto.memberNumber} not found`);
+      }
+
+      // Query raw logic as requested:
+      // Join ledger with headmaster to get head_name
+      // Filter by member_code and date range
+      // Order by trans_date, voucher_no
+      const rawEntries = await this.ledgerRepository
+        .createQueryBuilder('l')
+        .leftJoinAndMapOne('l.head', HeadMaster, 'h', 'l.code = h.code')
+        .where('l.mbno = :memberNumber', { memberNumber })
+        .andWhere('l.trans_date >= :startDate AND l.trans_date <= :endDate', {
+          startDate: startOfDay,
+          endDate: endOfDay
+        })
+        .orderBy('l.trans_date', 'ASC')
+        .addOrderBy('l.receipt_vchr_no', 'ASC') // voucher_no
+        .select([
+          'l.trans_date',
+          'h.head_name',
+          'l.receipt_vchr_no',
+          'l.narration',
+          'l.trans_amt',
+          'l.trans_type',
+          'l.code' // head_code
+        ])
+        .getRawMany();
+
+      // Transform to DTO
+      const entries = rawEntries.map(entry => {
+        const amount = typeof entry.l_trans_amt === 'number' ? entry.l_trans_amt : parseFloat(entry.l_trans_amt);
+        const debit = entry.l_trans_type === 'DR' ? amount : 0;
+        const credit = entry.l_trans_type === 'CR' ? amount : 0;
+
+        return {
+          date: entry.l_trans_date,
+          accountHead: entry.h_head_name || 'Unknown Head',
+          voucherNo: entry.l_receipt_vchr_no,
+          particulars: entry.l_narration,
+          debit: debit,
+          credit: credit,
+          code: entry.l_code
+        };
+      });
+
+      const totalDebits = entries.reduce((sum, e) => sum + e.debit, 0);
+      const totalCredits = entries.reduce((sum, e) => sum + e.credit, 0);
+      const memberName = `${member.f_name || ''} ${member.m_name || ''} ${member.l_name || ''}`.trim();
+
+      return {
+        memberNumber: dto.memberNumber,
+        memberName,
+        fromDate: dto.fromDate,
+        toDate: dto.toDate,
+        entries,
+        totalDebits,
+        totalCredits
+      };
+
+    } catch (error) {
+      this.logger.error('Error generating member detail ledger report:', error);
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      throw new Error('Failed to generate member detail ledger report');
+    }
+  }
+
+  async validateMember(dto: ValidateMemberDto): Promise<{
+    exists: boolean;
+    memberName?: string;
     memberNumber: string;
   }> {
     try {
@@ -184,8 +272,8 @@ export class MemberLedgerService {
   }
 
   private async calculateOpeningBalance(
-    memberNumber: number, 
-    headCode: string, 
+    memberNumber: number,
+    headCode: string,
     beforeDate: Date
   ): Promise<number> {
     try {
