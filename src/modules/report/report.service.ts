@@ -36,6 +36,7 @@ import { DepositMaturityDto } from './dto/deposit-maturity.dto';
 import { AccountClosingRegisterDto } from './dto/account-closing-register.dto';
 import { FixedDepositCertificateDto } from './dto/fixed-deposit-certificate.dto';
 import { ShareCertificateDto } from './dto/share-certificate.dto';
+import { ShareWarrantDto } from './dto/share-warrant.dto';
 import { RecurringDetailsDto } from './dto/recurring-details.dto';
 import { RecoveryDetailsDto } from './dto/recovery-details.dto';
 import { LoanContributionsRegisterDto } from './dto/loan-contributions-register.dto';
@@ -150,10 +151,21 @@ export class ReportService {
 
     // Calculate running balance and separate debit/credit
     let runningBalance = 0;
+    
+    // Helper function to parse money strings (e.g., "₹ 25,000.00" -> 25000)
+    const parseMoneyString = (moneyStr: any): number => {
+      if (!moneyStr) return 0;
+      const str = moneyStr.toString();
+      // Remove currency symbols, spaces, and commas, then parse
+      const cleanStr = str.replace(/[₹$,\s?]/g, '');
+      return parseFloat(cleanStr) || 0;
+    };
+    
     const ledgerData = transactions.map((trans, index) => {
       const isDebit = trans.trans_type === 'DR';
-      const debit = isDebit ? parseFloat(trans.amount) || 0 : 0;
-      const credit = !isDebit ? parseFloat(trans.amount) || 0 : 0;
+      const amount = parseMoneyString(trans.amount);
+      const debit = isDebit ? amount : 0;
+      const credit = !isDebit ? amount : 0;
 
       runningBalance += debit - credit;
 
@@ -376,11 +388,10 @@ export class ReportService {
   async getMemberLoanLedger(dto: MemberLoanLedgerDto) {
     const { memberCode, asOnDate, loanCategory } = dto;
 
-    // Map loan category to head code
-    // Note: You may need to adjust these codes based on your headmaster table
+    // Map loan category to head code based on actual database head codes
     const headCodeMap = {
-      [LoanCategory.REGULAR]: 'RLN', // Regular Loan - adjust if needed
-      [LoanCategory.SHORT_TERM]: 'SLN' // Short Term Loan - adjust if needed
+      [LoanCategory.REGULAR]: 'A1002', // REGULAR LOAN
+      [LoanCategory.SHORT_TERM]: 'A1047' // EMERGENCY LOAN (treating as short term)
     };
 
     const headCode = headCodeMap[loanCategory];
@@ -399,7 +410,7 @@ export class ReportService {
 
     const headName = head?.head_name || loanCategory;
 
-    // Fetch transactions up to asOnDate
+    // Fetch transactions up to asOnDate for the specific member
     const transactions = await this.ledgerRepository
       .createQueryBuilder('l')
       .select([
@@ -411,8 +422,7 @@ export class ReportService {
       ])
       .where('l.code = :headCode', { headCode })
       .andWhere('l.trans_date <= :asOnDate', { asOnDate })
-      // If your ledger table has member_code column, add this filter:
-      // .andWhere('l.member_code = :memberCode', { memberCode })
+      .andWhere('l.mbno = :memberCode', { memberCode: parseInt(memberCode) })
       .orderBy('l.trans_date', 'ASC')
       .addOrderBy('l.trans_no', 'ASC')
       .getRawMany();
@@ -702,7 +712,7 @@ export class ReportService {
           'CONCAT(m.prefix, \' \', m.f_name, \' \', COALESCE(m.m_name, \'\'), \' \', COALESCE(m.l_name, \'\')) as memberName',
           'm.wingno as wing',
           'm.desig as designation',
-          'l.trans_amt as amount',
+          'CAST(l.trans_amt AS numeric) as amount',
           'l.narration as narration',
           'l.receipt_vchr_no as voucherNo'
         ])
@@ -726,8 +736,17 @@ export class ReportService {
 
       const results = await query.getRawMany();
 
-      // Calculate totals
-      const totalAmount = results.reduce((sum, row) => sum + parseFloat(row.amount || '0'), 0);
+      // Helper function to parse money strings (e.g., "₹ 25,000.00" -> 25000)
+      const parseMoneyString = (moneyStr: any): number => {
+        if (!moneyStr) return 0;
+        const str = moneyStr.toString();
+        // Remove currency symbols, spaces, and commas, then parse
+        const cleanStr = str.replace(/[₹$,\s]/g, '');
+        return parseFloat(cleanStr) || 0;
+      };
+
+      // Calculate totals with proper money parsing
+      const totalAmount = results.reduce((sum, row) => sum + parseMoneyString(row.amount), 0);
 
       return {
         data: results.map(row => ({
@@ -737,7 +756,7 @@ export class ReportService {
           memberName: row.membername,
           wing: row.wing,
           designation: row.designation,
-          amount: parseFloat(row.amount || '0'),
+          amount: parseMoneyString(row.amount),
           narration: row.narration,
           voucherNo: row.voucherno
         })),
@@ -1117,8 +1136,8 @@ export class ReportService {
           const currentResult = await this.ledgerRepository
             .createQueryBuilder('l')
             .select([
-              'SUM(CASE WHEN l.trans_type = \'CR\' THEN l.trans_amt ELSE 0 END)', 'currentReceipts',
-              'SUM(CASE WHEN l.trans_type = \'DR\' THEN l.trans_amt ELSE 0 END)', 'currentPayments'
+              'SUM(CASE WHEN l.trans_type = \'CR\' THEN CAST(l.trans_amt AS numeric) ELSE 0 END)', 'currentReceipts',
+              'SUM(CASE WHEN l.trans_type = \'DR\' THEN CAST(l.trans_amt AS numeric) ELSE 0 END)', 'currentPayments'
             ])
             .where('l.code >= :codeFrom', { codeFrom: detail.code_from })
             .andWhere('l.code <= :codeTo', { codeTo: detail.code_to })
@@ -1130,8 +1149,8 @@ export class ReportService {
           const progressiveResult = await this.ledgerRepository
             .createQueryBuilder('l')
             .select([
-              'SUM(CASE WHEN l.trans_type = \'CR\' THEN l.trans_amt ELSE 0 END)', 'progressiveReceipts',
-              'SUM(CASE WHEN l.trans_type = \'DR\' THEN l.trans_amt ELSE 0 END)', 'progressivePayments'
+              'SUM(CASE WHEN l.trans_type = \'CR\' THEN CAST(l.trans_amt AS numeric) ELSE 0 END)', 'progressiveReceipts',
+              'SUM(CASE WHEN l.trans_type = \'DR\' THEN CAST(l.trans_amt AS numeric) ELSE 0 END)', 'progressivePayments'
             ])
             .where('l.code >= :codeFrom', { codeFrom: detail.code_from })
             .andWhere('l.code <= :codeTo', { codeTo: detail.code_to })
@@ -1993,15 +2012,15 @@ export class ReportService {
             ELSE 0 
           END as "totalShares",
           10 as "faceValuePerShare",
-          -- Generate share range (simplified approach)
+          -- Generate share range (using modulo to avoid integer overflow with large member numbers)
           CASE 
             WHEN COALESCE(a.cur_shareamt, 0) > 0 
-            THEN ((m.mbno - 1) * 100 + 1)::integer 
+            THEN ((m.mbno % 100000) * 100 + 1)::integer 
             ELSE 0 
           END as "shareFrom",
           CASE 
             WHEN COALESCE(a.cur_shareamt, 0) > 0 
-            THEN ((m.mbno - 1) * 100 + (COALESCE(a.cur_shareamt, 0) / 10)::integer)::integer 
+            THEN ((m.mbno % 100000) * 100 + (COALESCE(a.cur_shareamt, 0) / 10)::integer)::integer 
             ELSE 0 
           END as "shareTo"
         FROM member_master m

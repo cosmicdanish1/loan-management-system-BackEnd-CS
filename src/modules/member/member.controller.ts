@@ -64,13 +64,19 @@ export class MemberController {
   @Get('lookup')
   @ApiOperation({ summary: 'Lookup members for loan application' })
   @ApiQuery({ name: 'search', required: false, type: 'string', description: 'Search term' })
+  @ApiQuery({ name: 'limit', required: false, type: 'number', description: 'Number of results (default: 500, max: 1000)' })
+  @ApiQuery({ name: 'offset', required: false, type: 'number', description: 'Offset for pagination (default: 0)' })
   @ApiResponse({
     status: 200,
     description: 'Members retrieved successfully',
   })
-  async lookupMembers(@Query('search') search?: string) {
+  async lookupMembers(
+    @Query('search') search?: string,
+    @Query('limit') limit?: number,
+    @Query('offset') offset?: number
+  ) {
     try {
-      return await this.memberService.lookupMembers(search);
+      return await this.memberService.lookupMembers(search, limit, offset);
     } catch (error) {
       console.error('Error in lookupMembers:', error);
       // Return empty array on error for now
@@ -259,6 +265,58 @@ export class MemberController {
       return await this.memberService.updateLoanSanction(caseNo, sanctionData);
     } catch (error) {
       console.error('Error sanctioning loan:', error);
+      throw error;
+    }
+  }
+
+  @Post('vouchers/generate')
+  @ApiOperation({ summary: 'Generate voucher for loan disbursement (Step 3)' })
+  @ApiResponse({
+    status: 201,
+    description: 'Voucher generated successfully',
+  })
+  async generateLoanVoucher(@Body() voucherData: any) {
+    try {
+      console.log('📄 Generating loan voucher:', voucherData);
+      return await this.memberService.generateLoanVoucher(voucherData);
+    } catch (error) {
+      console.error('❌ Error generating voucher:', error);
+      throw error;
+    }
+  }
+
+  @Get('vouchers/pending')
+  @ApiOperation({ summary: 'Get all pending vouchers for Pass Transaction (Step 4)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Pending vouchers retrieved successfully',
+  })
+  async getPendingVouchers() {
+    try {
+      console.log('📋 Fetching pending vouchers...');
+      return await this.memberService.getPendingVouchers();
+    } catch (error) {
+      console.error('❌ Error fetching pending vouchers:', error);
+      throw error;
+    }
+  }
+
+  @Post('vouchers/pass/:voucherNo')
+  @ApiOperation({ summary: 'Pass Transaction - Final Posting (Step 4) - IRREVERSIBLE' })
+  @ApiParam({ name: 'voucherNo', type: 'string', description: 'Voucher number to post' })
+  @ApiResponse({
+    status: 201,
+    description: 'Transaction posted successfully to permanent ledger',
+  })
+  async passTransaction(
+    @Param('voucherNo') voucherNo: string,
+    @Body() postData: { postedBy?: string }
+  ) {
+    try {
+      console.log(`🔒 Posting transaction for voucher: ${voucherNo}`);
+      return await this.memberService.passTransaction(voucherNo, postData.postedBy || 'admin');
+    } catch (error) {
+      console.error('❌ Error posting transaction:', error);
       throw error;
     }
   }

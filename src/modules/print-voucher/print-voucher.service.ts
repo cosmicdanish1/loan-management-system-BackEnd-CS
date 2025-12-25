@@ -104,20 +104,32 @@ export class PrintVoucherService {
             entryDto.trans_no = entry.trans_no;
             entryDto.member_code = entry.mbno;
             entryDto.head_code = entry.code;
-            entryDto.debit = entry.trans_type === 'DR' ? Number(entry.trans_amt) : 0;
-            entryDto.credit = entry.trans_type === 'CR' ? Number(entry.trans_amt) : 0;
+            // Parse money string (e.g., "₹ 25,000.00" -> 25000)
+            const parseMoneyString = (moneyStr: any): number => {
+                if (!moneyStr) return 0;
+                const str = moneyStr.toString();
+                console.log(`Parsing money string: "${str}"`); // Debug log
+                // Remove currency symbols, spaces, and commas, then parse
+                const cleanStr = str.replace(/[₹$,\s]/g, '');
+                const result = parseFloat(cleanStr) || 0;
+                console.log(`Parsed result: ${result}`); // Debug log
+                return result;
+            };
+
+            entryDto.debit = entry.trans_type === 'DR' ? parseMoneyString(entry.trans_amt) : 0;
+            entryDto.credit = entry.trans_type === 'CR' ? parseMoneyString(entry.trans_amt) : 0;
 
             // Fetch Member Name
             const member = await this.memberMasterRepository.findOne({
                 where: { mbno: entry.mbno.toString() }
             });
-            entryDto.member_name = member ? member.fullName : 'Unknown Member';
+            entryDto.member_name = member ? member.fullName : `Member ${entry.mbno}`;
 
             // Fetch Head Name
             const head = await this.headMasterRepository.findOne({
                 where: { code: entry.code }
             });
-            entryDto.head_name = head ? head.head_name : 'Unknown Head';
+            entryDto.head_name = head ? head.head_name : `Head ${entry.code}`;
 
             dto.entries.push(entryDto);
         }
