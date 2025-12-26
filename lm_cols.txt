@@ -1,0 +1,13 @@
+penalrate
+intt_amount
+mbno
+loancaseno
+loan_amt
+payment_date
+rate
+no_of_instal
+instal_amt
+balance
+openbalance
+loantype
+purpose

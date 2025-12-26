@@ -1,0 +1,15 @@
+loancaseno
+mbno
+sanctioned_date
+no_of_instal
+g1mbno
+g2mbno
+g3mbno
+applied_amt
+sanctioned_amt
+app_date
+loantype
+purpose
+flg_sanctioned
+flg_paid
+form_number

@@ -1,0 +1,70 @@
+✅ Connected to database
+
+=== Finding Annual Statement Tables ===
+Annual statement tables: [
+  {
+    "table_name": "annualstatement"
+  }
+]
+
+=== Annualstatement Table Structure ===
+Columns (11): accno (numeric), op_triftamt (numeric), cur_triftamt (numeric), cur_tfintrec (numeric), op_tfintrec (numeric), op_shareamt (numeric), cur_shareamt (numeric), op_wfamt (numeric), cur_wfamt (numeric), rlbalance (numeric), tlbalance (numeric)
+
+Total records: 15
+
+=== Sample Annual Statement Data ===
+[
+  {
+    "accno": "1000001",
+    "op_triftamt": null,
+    "cur_triftamt": "25000",
+    "cur_tfintrec": "15000",
+    "op_tfintrec": null,
+    "op_shareamt": null,
+    "cur_shareamt": "10000",
+    "op_wfamt": null,
+    "cur_wfamt": null,
+    "rlbalance": null,
+    "tlbalance": null
+  },
+  {
+    "accno": "1000002",
+    "op_triftamt": null,
+    "cur_triftamt": "30000",
+    "cur_tfintrec": "18000",
+    "op_tfintrec": null,
+    "op_shareamt": null,
+    "cur_shareamt": "12000",
+    "op_wfamt": null,
+    "cur_wfamt": null,
+    "rlbalance": null,
+    "tlbalance": null
+  },
+  {
+    "accno": "1000003",
+    "op_triftamt": null,
+    "cur_triftamt": "35000",
+    "cur_tfintrec": "21000",
+    "op_tfintrec": null,
+    "op_shareamt": null,
+    "cur_shareamt": "14000",
+    "op_wfamt": null,
+    "cur_wfamt": null,
+    "rlbalance": null,
+    "tlbalance": null
+  }
+]
+
+=== Finding Division/Branch Tables ===
+Division/Branch tables: division_master, wingmast
+
+=== Wing Master Table ===
+Wing records: 10
+Sample wings:
+
+=== Office Master Table ===
+Office tables: 
+
+=== Member Master Division/Branch Info ===
+Sample wingno values: , 1, 3, 5, 6
+Sample officeno values: 1, 2, 3, 4, 5, 6

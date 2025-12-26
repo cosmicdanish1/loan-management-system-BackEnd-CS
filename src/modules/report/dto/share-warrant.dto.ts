@@ -1,32 +1,17 @@
-import { IsString, IsOptional, IsDateString, IsEnum } from 'class-validator';
-
-export enum ShareWarrantOutputType {
-  SCREEN = 'screen',
-  PRINTER = 'printer'
-}
+import { IsString, IsOptional, IsDateString } from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
 
 export class ShareWarrantDto {
-  @IsOptional()
+  @ApiProperty({ description: 'Starting Member Number' })
   @IsString()
-  memberNo?: string;
+  memberFrom: string;
 
-  @IsOptional()
+  @ApiProperty({ description: 'Ending Member Number' })
+  @IsString()
+  memberTo: string;
+
+  @ApiProperty({ description: 'Warrant Date', required: false })
   @IsDateString()
-  fromDate?: string;
-
   @IsOptional()
-  @IsDateString()
-  toDate?: string;
-
-  @IsOptional()
-  @IsString()
-  wingName?: string;
-
-  @IsOptional()
-  @IsString()
-  officeName?: string;
-
-  @IsOptional()
-  @IsEnum(ShareWarrantOutputType)
-  outputType?: ShareWarrantOutputType;
+  warrantDate?: string;
 }

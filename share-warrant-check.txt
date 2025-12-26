@@ -1,0 +1,304 @@
+Connected to database
+
+=== Finding Share-related tables ===
+Tables with share columns: [
+  {
+    "table_name": "akola_national"
+  },
+  {
+    "table_name": "akola_united"
+  },
+  {
+    "table_name": "amravati_united"
+  },
+  {
+    "table_name": "annualstatement"
+  },
+  {
+    "table_name": "aurangabad_unitd"
+  },
+  {
+    "table_name": "busrules"
+  },
+  {
+    "table_name": "doi_national"
+  },
+  {
+    "table_name": "doi_united"
+  },
+  {
+    "table_name": "doii_national"
+  },
+  {
+    "table_name": "doii_united"
+  },
+  {
+    "table_name": "doiii_national"
+  },
+  {
+    "table_name": "doiv_national"
+  },
+  {
+    "table_name": "dov_national"
+  },
+  {
+    "table_name": "dt_master"
+  },
+  {
+    "table_name": "dt_member"
+  },
+  {
+    "table_name": "fundsmaster"
+  },
+  {
+    "table_name": "jalgaon_united"
+  },
+  {
+    "table_name": "member_balances"
+  },
+  {
+    "table_name": "members"
+  },
+  {
+    "table_name": "nanded_united"
+  },
+  {
+    "table_name": "oic1"
+  },
+  {
+    "table_name": "oic2"
+  },
+  {
+    "table_name": "oic3"
+  },
+  {
+    "table_name": "ro_national"
+  },
+  {
+    "table_name": "ro_united"
+  },
+  {
+    "table_name": "society_details"
+  }
+]
+
+=== Share columns ===
+Share columns: [
+  {
+    "table_name": "akola_national",
+    "column_name": "SHARE",
+    "data_type": "double precision"
+  },
+  {
+    "table_name": "akola_united",
+    "column_name": "SHARE",
+    "data_type": "double precision"
+  },
+  {
+    "table_name": "amravati_united",
+    "column_name": "SHARE",
+    "data_type": "double precision"
+  },
+  {
+    "table_name": "annualstatement",
+    "column_name": "op_shareamt",
+    "data_type": "numeric"
+  },
+  {
+    "table_name": "annualstatement",
+    "column_name": "cur_shareamt",
+    "data_type": "numeric"
+  },
+  {
+    "table_name": "aurangabad_unitd",
+    "column_name": "SHARE",
+    "data_type": "double precision"
+  },
+  {
+    "table_name": "busrules",
+    "column_name": "maxshareamt",
+    "data_type": "numeric"
+  },
+  {
+    "table_name": "busrules",
+    "column_name": "sharerecov",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "busrules",
+    "column_name": "minshareamt",
+    "data_type": "numeric"
+  },
+  {
+    "table_name": "doi_national",
+    "column_name": "SHARE",
+    "data_type": "double precision"
+  },
+  {
+    "table_name": "doi_united",
+    "column_name": "SHARE",
+    "data_type": "double precision"
+  },
+  {
+    "table_name": "doii_national",
+    "column_name": "SHARE",
+    "data_type": "double precision"
+  },
+  {
+    "table_name": "doii_united",
+    "column_name": "SHARE",
+    "data_type": "double precision"
+  },
+  {
+    "table_name": "doiii_national",
+    "column_name": "SHARE",
+    "data_type": "double precision"
+  },
+  {
+    "table_name": "doiv_national",
+    "column_name": "SHARE",
+    "data_type": "double precision"
+  },
+  {
+    "table_name": "dov_national",
+    "column_name": "SHARE",
+    "data_type": "double precision"
+  },
+  {
+    "table_name": "dt_master",
+    "column_name": "sharedr",
+    "data_type": "double precision"
+  },
+  {
+    "table_name": "dt_master",
+    "column_name": "sharecr",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "dt_master",
+    "column_name": "share_opbal",
+    "data_type": "double precision"
+  },
+  {
+    "table_name": "dt_master",
+    "column_name": "share_bal",
+    "data_type": "double precision"
+  },
+  {
+    "table_name": "dt_member",
+    "column_name": "sharecr",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "dt_member",
+    "column_name": "share_opbal",
+    "data_type": "double precision"
+  },
+  {
+    "table_name": "dt_member",
+    "column_name": "sharedr",
+    "data_type": "double precision"
+  },
+  {
+    "table_name": "dt_member",
+    "column_name": "share_bal",
+    "data_type": "double precision"
+  },
+  {
+    "table_name": "fundsmaster",
+    "column_name": "shareamt",
+    "data_type": "numeric"
+  },
+  {
+    "table_name": "fundsmaster",
+    "column_name": "shareopbal",
+    "data_type": "numeric"
+  },
+  {
+    "table_name": "jalgaon_united",
+    "column_name": "SHARE",
+    "data_type": "double precision"
+  },
+  {
+    "table_name": "member_balances",
+    "column_name": "shares",
+    "data_type": "double precision"
+  },
+  {
+    "table_name": "members",
+    "column_name": "shareAmount",
+    "data_type": "numeric"
+  },
+  {
+    "table_name": "nanded_united",
+    "column_name": "SHARE",
+    "data_type": "double precision"
+  },
+  {
+    "table_name": "oic1",
+    "column_name": "SHARE",
+    "data_type": "double precision"
+  },
+  {
+    "table_name": "oic2",
+    "column_name": "SHARE",
+    "data_type": "double precision"
+  },
+  {
+    "table_name": "oic3",
+    "column_name": "SHARE",
+    "data_type": "double precision"
+  },
+  {
+    "table_name": "ro_national",
+    "column_name": "SHARE",
+    "data_type": "double precision"
+  },
+  {
+    "table_name": "ro_united",
+    "column_name": "SHARE",
+    "data_type": "double precision"
+  },
+  {
+    "table_name": "society_details",
+    "column_name": "authshare",
+    "data_type": "numeric"
+  }
+]
+
+=== Member Master table columns ===
+Member master columns (42): mbno, prefix, f_name, m_name, l_name, sex, desig, present_address, permanent_address, wingno, officeno, age, dob, date_of_appt, dor, permanetdate, quasiperdate, supanuationdate, gross_salary, basic_pay, nominee_name, nominee_address, nominee_relation, declare_date, flg_retire, memb_date, pfno, lfno, flg_incometax, flg_insured, insureamt, remarks, date_of_retirement, dept_name, cbsac, isactive, aadharno, phoneno, pan_no, frs_no, fathers_name, branchmsno
+
+=== Checking member_master for share data ===
+Sample members: [
+  {
+    "mbno": "610023712",
+    "f_name": "A",
+    "m_name": "K",
+    "l_name": "BEHERA"
+  },
+  {
+    "mbno": "610015819",
+    "f_name": "MAHESH",
+    "m_name": "KUMAR",
+    "l_name": "AGRAWAL"
+  },
+  {
+    "mbno": "610016111",
+    "f_name": "PRAMOD",
+    "m_name": "KUMAR",
+    "l_name": ""
+  },
+  {
+    "mbno": "610028755",
+    "f_name": "S",
+    "m_name": "K",
+    "l_name": "DUGGAL"
+  },
+  {
+    "mbno": "610016572",
+    "f_name": "SINGH",
+    "m_name": "DALBIR",
+    "l_name": ""
+  }
+]

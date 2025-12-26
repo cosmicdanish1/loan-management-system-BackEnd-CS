@@ -1,0 +1,413 @@
+✅ Connected to database
+
+=== Finding Yearly Statement Tables ===
+Relevant tables: annualstatement, convertmember, dt_member, member_balances, member_bookbal, member_data, member_master, member_masterdelete, member_transfer, membercategory, members, membertypemaster, tblmemberdetledgerhead, yearend_member
+
+=== Member Master Sample ===
+Sample members: [
+  {
+    "mbno": "1001",
+    "f_name": "Member1001",
+    "m_name": "Kumar",
+    "l_name": "Singh",
+    "wingno": null,
+    "officeno": 1,
+    "memb_date": "2025-12-23T18:30:00.000Z"
+  },
+  {
+    "mbno": "1002",
+    "f_name": "Member1002",
+    "m_name": "Kumar",
+    "l_name": "Singh",
+    "wingno": null,
+    "officeno": 1,
+    "memb_date": "2025-12-23T18:30:00.000Z"
+  },
+  {
+    "mbno": "1003",
+    "f_name": "Member1003",
+    "m_name": "Kumar",
+    "l_name": "Singh",
+    "wingno": null,
+    "officeno": 1,
+    "memb_date": "2025-12-23T18:30:00.000Z"
+  },
+  {
+    "mbno": "12345",
+    "f_name": "Member12345",
+    "m_name": "Kumar",
+    "l_name": "Singh",
+    "wingno": null,
+    "officeno": 1,
+    "memb_date": "2025-12-23T18:30:00.000Z"
+  },
+  {
+    "mbno": "12346",
+    "f_name": "Member12346",
+    "m_name": "Kumar",
+    "l_name": "Singh",
+    "wingno": null,
+    "officeno": 1,
+    "memb_date": "2025-12-23T18:30:00.000Z"
+  }
+]
+
+=== Checking for member balances/transactions ===
+Member balances records: 6505
+Sample balance: [
+  {
+    "srno": 4245,
+    "mbno": 610032318,
+    "pfno": 405000,
+    "member_name": "Mr ABHIJIT BANDYOPADHYAY ",
+    "officeno": 1,
+    "dr_cr": null,
+    "shares": 100,
+    "int_rate": 7,
+    "compulsory_deposit": 8245,
+    "rd_amt": 200,
+    "dep_date": "2015-09-27T18:30:00.000Z",
+    "iscompound": null,
+    "loanint_rate": 12,
+    "regularloan": 0,
+    "regularinstallamt": 0,
+    "int_amount": null,
+    "eloanint_rate": null,
+    "emergency_loan_balance": 0,
+    "einstallamt": 0,
+    "eint_amount": null,
+    "frsbalance": null
+  },
+  {
+    "srno": 4246,
+    "mbno": 610032320,
+    "pfno": 405026,
+    "member_name": "Mr SOURAV CHAKRABORTY ",
+    "officeno": 1,
+    "dr_cr": null,
+    "shares": 100,
+    "int_rate": 7,
+    "compulsory_deposit": 8245,
+    "rd_amt": 200,
+    "dep_date": "2015-09-27T18:30:00.000Z",
+    "iscompound": null,
+    "loanint_rate": 12,
+    "regularloan": 0,
+    "regularinstallamt": 0,
+    "int_amount": null,
+    "eloanint_rate": null,
+    "emergency_loan_balance": 0,
+    "einstallamt": 0,
+    "eint_amount": null,
+    "frsbalance": null
+  }
+]
+
+=== Checking ledger transactions ===
+Ledger records: 1284505
+Sample ledger entries: [
+  {
+    "trans_date": "2025-12-25T18:30:00.000Z",
+    "mbno": "1",
+    "code": "L1001",
+    "trans_type": "CR",
+    "trans_amt": "50000.0000",
+    "narration": "Initial Capital"
+  },
+  {
+    "trans_date": "2025-12-25T18:30:00.000Z",
+    "mbno": "2",
+    "code": "L2001",
+    "trans_type": "CR",
+    "trans_amt": "25000.0000",
+    "narration": "Deposit Received"
+  },
+  {
+    "trans_date": "2025-12-25T18:30:00.000Z",
+    "mbno": "0",
+    "code": "A001",
+    "trans_type": "DR",
+    "trans_amt": "75000.0000",
+    "narration": "Cash Balance"
+  }
+]
+
+=== Data Types Check ===
+Amount columns in member_balances: [
+  {
+    "column_name": "authshare",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "balance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "balance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "balance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "balance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "balance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "balance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "balance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "balance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "balance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "balance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "balanceAfterPayment",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "balance_for_month",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "balance_for_month",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "balance_for_month",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "balance_for_month",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "cdbalance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "cdbalance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "closingbalance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "closingbalance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "closingbalance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "cur_shareamt",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "einstallamt",
+    "data_type": "double precision"
+  },
+  {
+    "column_name": "emergency_loan_balance",
+    "data_type": "double precision"
+  },
+  {
+    "column_name": "frsbalance",
+    "data_type": "double precision"
+  },
+  {
+    "column_name": "headbalance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "interestbalance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "interestbalance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "maxshareamt",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "md1balance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "md2balance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "md3balance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "md4balance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "md5balance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "mdbalance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "mdbalance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "minsavingbalance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "minshareamt",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "op_shareamt",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "openbalance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "openbalance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "openbalance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "openbalance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "opening_balance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "opening_balance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "pl_balance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "pl_balance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "rd_amt",
+    "data_type": "double precision"
+  },
+  {
+    "column_name": "rdbalance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "rdbalance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "regularinstallamt",
+    "data_type": "double precision"
+  },
+  {
+    "column_name": "relisshared",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "rlbalance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "shareAmount",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "share_bal",
+    "data_type": "double precision"
+  },
+  {
+    "column_name": "share_bal",
+    "data_type": "double precision"
+  },
+  {
+    "column_name": "share_opbal",
+    "data_type": "double precision"
+  },
+  {
+    "column_name": "share_opbal",
+    "data_type": "double precision"
+  },
+  {
+    "column_name": "shareamt",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "sharecr",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "sharecr",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "sharedr",
+    "data_type": "double precision"
+  },
+  {
+    "column_name": "sharedr",
+    "data_type": "double precision"
+  },
+  {
+    "column_name": "shareopbal",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "sharerecov",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "shares",
+    "data_type": "double precision"
+  },
+  {
+    "column_name": "shrbalance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "shrbalance",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "tlbalance",
+    "data_type": "numeric"
+  }
+]

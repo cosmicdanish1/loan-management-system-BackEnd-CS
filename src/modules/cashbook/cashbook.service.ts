@@ -5,11 +5,12 @@ import { Ledger } from './entities/ledger.entity';
 import { Transactions } from './entities/transactions.entity';
 import { MemberMaster } from '../member/entities/member-master.entity';
 import { InterestMaster } from '../interest/entities/interest-master.entity';
-import { 
-  GetCashBookDto, 
-  CashBookSummaryDto, 
+import { HeadMaster } from '../print-voucher/entities/head-master.entity';
+import {
+  GetCashBookDto,
+  CashBookSummaryDto,
   CashBookEntryDto,
-  CreateTransactionDto 
+  CreateTransactionDto
 } from './dto/cashbook.dto';
 
 @Injectable()
@@ -24,15 +25,17 @@ export class CashBookService {
     @InjectRepository(MemberMaster)
     private memberRepository: Repository<MemberMaster>,
     @InjectRepository(InterestMaster)
-    private interestMasterRepository: Repository<InterestMaster>
-  ) {}
+    private interestMasterRepository: Repository<InterestMaster>,
+    @InjectRepository(HeadMaster)
+    private headMasterRepository: Repository<HeadMaster>
+  ) { }
 
   async getCashBookReport(dto: GetCashBookDto): Promise<CashBookSummaryDto> {
     try {
       const reportDate = new Date(dto.date);
       const startOfDay = new Date(reportDate);
       startOfDay.setHours(0, 0, 0, 0);
-      
+
       const endOfDay = new Date(reportDate);
       endOfDay.setHours(23, 59, 59, 999);
 
@@ -46,8 +49,21 @@ export class CashBookService {
         .orderBy('t.code', 'ASC')
         .getMany();
 
+      // Get all head names for the codes found in transactions
+      const codes = [...new Set(transactions.map(t => t.code))].filter(Boolean);
+      console.log('Fetching head names for codes:', codes);
+
+      const heads = codes.length > 0
+        ? await this.headMasterRepository.find({
+          where: { code: require('typeorm').In(codes) }
+        })
+        : [];
+
+      console.log('Fetched heads from DB:', heads.map(h => `${h.code}:${h.head_name}`));
+      const headMap = new Map(heads.map(h => [h.code.trim(), h.head_name]));
+
       // Group transactions by code (head code)
-      const groupedTransactions = this.groupTransactionsByCode(transactions);
+      const groupedTransactions = this.groupTransactionsByCode(transactions, headMap);
 
       // Calculate opening balance (transactions before the selected date)
       const openingBalance = await this.calculateOpeningBalance(reportDate);
@@ -56,11 +72,11 @@ export class CashBookService {
       const totalReceipts = transactions
         .filter(t => t.trans_type === 'CR')
         .reduce((sum, t) => sum + this.parseMoneyAmount(t.trans_amt), 0);
-      
+
       const totalPayments = transactions
         .filter(t => t.trans_type === 'DR')
         .reduce((sum, t) => sum + this.parseMoneyAmount(t.trans_amt), 0);
-      
+
       const netBalance = totalReceipts - totalPayments;
       const closingBalance = openingBalance + netBalance;
 
@@ -80,22 +96,22 @@ export class CashBookService {
     }
   }
 
-  private groupTransactionsByCode(transactions: Transactions[]): CashBookEntryDto[] {
+  private groupTransactionsByCode(transactions: Transactions[], headMap: Map<string, string>): CashBookEntryDto[] {
     const grouped = new Map<string, CashBookEntryDto>();
 
     transactions.forEach(transaction => {
-      const key = transaction.code;
-      
-      if (!grouped.has(key)) {
-        grouped.set(key, {
-          code: transaction.code,
-          headName: this.getHeadNameByCode(transaction.code), // We'll need to implement this
+      const code = transaction.code ? transaction.code.trim() : '';
+
+      if (!grouped.has(code)) {
+        grouped.set(code, {
+          code: code,
+          headName: headMap.get(code) || `Head ${code}`,
           receipt: 0,
           payment: 0
         });
       }
 
-      const entry = grouped.get(key)!;
+      const entry = grouped.get(code)!;
       if (transaction.trans_type === 'CR') {
         entry.receipt += this.parseMoneyAmount(transaction.trans_amt);
       } else if (transaction.trans_type === 'DR') {
@@ -114,23 +130,6 @@ export class CashBookService {
     return parseFloat(cleanValue) || 0;
   }
 
-  private getHeadNameByCode(code: string): string {
-    // Map common codes to names - you can expand this based on your system
-    const codeMap: { [key: string]: string } = {
-      'A1001': 'Savings Account',
-      'A1002': 'Fixed Deposit',
-      'A1003': 'Recurring Deposit',
-      'L2001': 'Member Deposits',
-      'I3001': 'Interest Income',
-      'E4001': 'Interest Expense',
-      'E4002': 'Administrative Expenses',
-      'A1004': 'Cash in Hand',
-      'A1005': 'Bank Account'
-    };
-    
-    return codeMap[code] || `Head Code ${code}`;
-  }
-
   private async calculateOpeningBalance(date: Date): Promise<number> {
     try {
       const transactions = await this.transactionsRepository
@@ -141,7 +140,7 @@ export class CashBookService {
       const totalCredits = transactions
         .filter(t => t.trans_type === 'CR')
         .reduce((sum, t) => sum + this.parseMoneyAmount(t.trans_amt), 0);
-      
+
       const totalDebits = transactions
         .filter(t => t.trans_type === 'DR')
         .reduce((sum, t) => sum + this.parseMoneyAmount(t.trans_amt), 0);
@@ -157,7 +156,7 @@ export class CashBookService {
     try {
       // Get next transaction number
       const nextTransNo = await this.getNextTransactionNumber();
-      
+
       const amount = dto.transType === 'CR' ? dto.credit : dto.debit;
       const transaction = this.transactionsRepository.create({
         trans_no: nextTransNo,
@@ -200,7 +199,7 @@ export class CashBookService {
         .createQueryBuilder('t')
         .select('MAX(t.trans_no)', 'maxTransNo')
         .getRawOne();
-      
+
       return (Number(result?.maxTransNo) || 0) + 1;
     } catch (error) {
       this.logger.error('Error getting next transaction number:', error);

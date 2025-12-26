@@ -25,7 +25,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     if (exception instanceof HttpException) {
       status = exception.getStatus();
       const errorResponse = exception.getResponse();
-      
+
       if (typeof errorResponse === 'object') {
         message = (errorResponse as any).message || exception.message;
         error = (errorResponse as any).error || exception.name;
@@ -37,7 +37,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       status = HttpStatus.BAD_REQUEST;
       message = 'Database operation failed';
       error = 'Database Error';
-      
+
       // Handle specific database errors
       if (exception.message.includes('duplicate key')) {
         message = 'Record already exists';

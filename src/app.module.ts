@@ -26,6 +26,7 @@ import { ConsolidationModule } from './modules/consolidation/consolidation.modul
 import { MemberLedgerModule } from './modules/member-ledger/member-ledger.module';
 import { GeneralLedgerModule } from './modules/general-ledger/general-ledger.module';
 import { PrintVoucherModule } from './modules/print-voucher/print-voucher.module';
+import { AnalyticsModule } from './modules/analytics/analytics.module';
 
 @Module({
   imports: [
@@ -56,6 +57,27 @@ import { PrintVoucherModule } from './modules/print-voucher/print-voucher.module
       imports: [ConfigModule],
       useClass: DatabaseConfig,
       inject: [ConfigService],
+    }),
+
+    // Analytics Database configuration (separate database)
+    TypeOrmModule.forRootAsync({
+      name: 'analytics',
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        type: 'postgres',
+        host: configService.get('DB_HOST', 'localhost'),
+        port: configService.get('DB_PORT', 5432),
+        username: configService.get('DB_USERNAME', 'postgres'),
+        password: configService.get('DB_PASSWORD', 'password'),
+        database: 'EMP_Analytics_DB', // Separate analytics database
+        entities: [
+          __dirname + '/modules/analytics/entities/*.entity{.ts,.js}',
+        ],
+        synchronize: configService.get('NODE_ENV') === 'development',
+        logging: configService.get('NODE_ENV') === 'development',
+        ssl: configService.get('NODE_ENV') === 'production' ? { rejectUnauthorized: false } : false,
+      }),
     }),
 
     // Rate limiting
@@ -120,6 +142,7 @@ import { PrintVoucherModule } from './modules/print-voucher/print-voucher.module
     MemberLedgerModule,
     GeneralLedgerModule,
     PrintVoucherModule,
+    AnalyticsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

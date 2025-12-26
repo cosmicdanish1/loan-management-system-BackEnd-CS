@@ -43,6 +43,10 @@ import { LoanContributionsRegisterDto } from './dto/loan-contributions-register.
 import { LienAccountInformationDto } from './dto/lien-account-information.dto';
 import { AdHocReportsDto } from './dto/adhoc-reports.dto';
 import { PassBookPrintingDto } from './dto/passbook-printing.dto';
+import { MemberLoanDetailDto } from './dto/member-loan-detail.dto';
+import { AnnualMemberStatementDto } from './dto/annual-member-statement.dto';
+import { YearlyMemberStatementDto } from './dto/yearly-member-statement.dto';
+import { MemberLedgerDto } from './dto/member-ledger.dto';
 
 @Injectable()
 export class ReportService {
@@ -151,7 +155,7 @@ export class ReportService {
 
     // Calculate running balance and separate debit/credit
     let runningBalance = 0;
-    
+
     // Helper function to parse money strings (e.g., "₹ 25,000.00" -> 25000)
     const parseMoneyString = (moneyStr: any): number => {
       if (!moneyStr) return 0;
@@ -160,7 +164,7 @@ export class ReportService {
       const cleanStr = str.replace(/[₹$,\s?]/g, '');
       return parseFloat(cleanStr) || 0;
     };
-    
+
     const ledgerData = transactions.map((trans, index) => {
       const isDebit = trans.trans_type === 'DR';
       const amount = parseMoneyString(trans.amount);
@@ -873,17 +877,21 @@ export class ReportService {
       .where("m.wingno IS NOT NULL AND m.wingno != ''")
       .orderBy('m.wingno', 'ASC')
       .getRawMany();
-    return wings.map(w => w.wing);
+    return wings.map(w => ({ wingno: w.wing, wname: `Wing ${w.wing}` }));
   }
 
   async getOfficeList() {
-    const offices = await this.memberMasterRepository
-      .createQueryBuilder('m')
-      .select('DISTINCT m.officeno', 'office')
-      .where("m.officeno IS NOT NULL")
-      .orderBy('m.officeno', 'ASC')
-      .getRawMany();
-    return offices.map(o => o.office.toString());
+    const query = `
+      SELECT DISTINCT officeno, name as "officeName" 
+      FROM division_master 
+      ORDER BY officeno
+    `;
+
+    const offices = await this.memberMasterRepository.query(query);
+    return offices.map(o => ({
+      officeno: o.officeno.toString(),
+      officeName: o.officeName
+    }));
   }
 
   async getJottingReport(dto: JottingReportDto) {
@@ -1135,10 +1143,8 @@ export class ReportService {
           // Current Period: Receipts (CR) and Payments (DR)
           const currentResult = await this.ledgerRepository
             .createQueryBuilder('l')
-            .select([
-              'SUM(CASE WHEN l.trans_type = \'CR\' THEN CAST(l.trans_amt AS numeric) ELSE 0 END)', 'currentReceipts',
-              'SUM(CASE WHEN l.trans_type = \'DR\' THEN CAST(l.trans_amt AS numeric) ELSE 0 END)', 'currentPayments'
-            ])
+            .select('SUM(CASE WHEN l.trans_type = \'CR\' THEN CAST(l.trans_amt AS numeric) ELSE 0 END)', 'current_receipts')
+            .addSelect('SUM(CASE WHEN l.trans_type = \'DR\' THEN CAST(l.trans_amt AS numeric) ELSE 0 END)', 'current_payments')
             .where('l.code >= :codeFrom', { codeFrom: detail.code_from })
             .andWhere('l.code <= :codeTo', { codeTo: detail.code_to })
             .andWhere('l.trans_date >= :fromDate', { fromDate })
@@ -1148,10 +1154,8 @@ export class ReportService {
           // Progressive (YTD): From financial year start to current toDate
           const progressiveResult = await this.ledgerRepository
             .createQueryBuilder('l')
-            .select([
-              'SUM(CASE WHEN l.trans_type = \'CR\' THEN CAST(l.trans_amt AS numeric) ELSE 0 END)', 'progressiveReceipts',
-              'SUM(CASE WHEN l.trans_type = \'DR\' THEN CAST(l.trans_amt AS numeric) ELSE 0 END)', 'progressivePayments'
-            ])
+            .select('SUM(CASE WHEN l.trans_type = \'CR\' THEN CAST(l.trans_amt AS numeric) ELSE 0 END)', 'progressive_receipts')
+            .addSelect('SUM(CASE WHEN l.trans_type = \'DR\' THEN CAST(l.trans_amt AS numeric) ELSE 0 END)', 'progressive_payments')
             .where('l.code >= :codeFrom', { codeFrom: detail.code_from })
             .andWhere('l.code <= :codeTo', { codeTo: detail.code_to })
             .andWhere('l.trans_date >= :financialYearStart', { financialYearStart })
@@ -1159,12 +1163,12 @@ export class ReportService {
             .getRawOne();
 
           // Calculate balances
-          const currentReceipts = parseFloat(currentResult?.currentReceipts || '0');
-          const currentPayments = parseFloat(currentResult?.currentPayments || '0');
+          const currentReceipts = parseFloat(currentResult?.current_receipts || '0');
+          const currentPayments = parseFloat(currentResult?.current_payments || '0');
           const currentBalance = currentReceipts - currentPayments;
 
-          const progressiveReceipts = parseFloat(progressiveResult?.progressiveReceipts || '0');
-          const progressivePayments = parseFloat(progressiveResult?.progressivePayments || '0');
+          const progressiveReceipts = parseFloat(progressiveResult?.progressive_receipts || '0');
+          const progressivePayments = parseFloat(progressiveResult?.progressive_payments || '0');
           const progressiveBalance = progressiveReceipts - progressivePayments;
 
           return {
@@ -2204,7 +2208,7 @@ export class ReportService {
 
       const monthNumber = monthMap[month.toUpperCase()] || 1;
       const params: any[] = [parseInt(memberNo), monthNumber, parseInt(year)];
-      
+
       const results = await this.memberMasterRepository.query(query, params);
 
       if (!results || results.length === 0) {
@@ -2309,7 +2313,7 @@ export class ReportService {
             transactions: []
           };
         }
-        
+
         acc[key].transactions.push({
           transactionDate: record.transactionDate,
           transactionType: record.transactionType,
@@ -2317,7 +2321,7 @@ export class ReportService {
           narration: record.narration || '',
           voucherNo: record.voucherNo || ''
         });
-        
+
         return acc;
       }, {});
 
@@ -2439,12 +2443,12 @@ export class ReportService {
             LEFT JOIN loan_master lm ON m.mbno = lm.mbno
             WHERE m.isactive = 'Y'
           `;
-          
+
           if (memberNo) {
             query += ' AND m.mbno = $1';
             params.push(parseInt(memberNo));
           }
-          
+
           query += ' GROUP BY m.mbno, m.prefix, m.f_name, m.m_name, m.l_name, m.present_address, m.desig, m.dept_name, m.memb_date, m.isactive, a.cur_shareamt, a.cur_triftamt, a.cur_tfintrec ORDER BY m.mbno';
           break;
 
@@ -2469,17 +2473,17 @@ export class ReportService {
             INNER JOIN member_master m ON f.mbno = m.mbno
             WHERE 1=1
           `;
-          
+
           if (accountType) {
             query += ' AND f.fdrdflag = $' + (params.length + 1);
             params.push(accountType);
           }
-          
+
           if (fromDate && toDate) {
             query += ' AND f.depdate >= $' + (params.length + 1) + ' AND f.depdate <= $' + (params.length + 2);
             params.push(fromDate, toDate);
           }
-          
+
           query += ' ORDER BY f.depdate DESC';
           break;
 
@@ -2499,17 +2503,17 @@ export class ReportService {
             LEFT JOIN headmaster h ON l.code = h.code
             WHERE 1=1
           `;
-          
+
           if (fromDate && toDate) {
             query += ' AND l.trans_date >= $' + (params.length + 1) + ' AND l.trans_date <= $' + (params.length + 2);
             params.push(fromDate, toDate);
           }
-          
+
           if (memberNo) {
             query += ' AND l.mbno = $' + (params.length + 1);
             params.push(parseInt(memberNo));
           }
-          
+
           query += ' ORDER BY l.trans_date DESC, l.trans_no DESC LIMIT 1000';
           break;
 
@@ -2591,13 +2595,13 @@ export class ReportService {
           if (!customQuery || customQuery.trim() === '') {
             throw new Error('Custom query is required for custom report type');
           }
-          
+
           // Basic security check - only allow SELECT statements
           const trimmedQuery = customQuery.trim().toUpperCase();
           if (!trimmedQuery.startsWith('SELECT')) {
             throw new Error('Only SELECT queries are allowed for custom reports');
           }
-          
+
           // Prevent dangerous operations
           const dangerousKeywords = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE', 'TRUNCATE'];
           for (const keyword of dangerousKeywords) {
@@ -2605,7 +2609,7 @@ export class ReportService {
               throw new Error(`${keyword} operations are not allowed in custom queries`);
             }
           }
-          
+
           query = customQuery;
           break;
 
@@ -2753,7 +2757,7 @@ export class ReportService {
 
       if (fromDate && toDate) {
         const paramIndex = transactionParams.length;
-        transactionQuery += ` AND l.trans_date >= $${paramIndex + 1} AND l.trans_date <= $${paramIndex + 2}`;
+        transactionQuery += ` AND l.trans_date >= $${paramIndex + 1} AND l.trans_date <= $${paramIndex + 2} `;
         transactionParams.push(fromDate, toDate);
       }
 
@@ -2767,8 +2771,8 @@ export class ReportService {
 
       // Calculate running balance for each account
       const accountsWithTransactions = accountResults.map(account => {
-        const accountTransactions = transactionResults.filter(t => 
-          t.accountNo?.toString() === account.accountNo || 
+        const accountTransactions = transactionResults.filter(t =>
+          t.accountNo?.toString() === account.accountNo ||
           (!t.accountNo && accountResults.length === 1) // If no account number in transaction, assume single account
         );
 
@@ -2816,5 +2820,253 @@ export class ReportService {
       console.error('Error in getPassBookPrinting:', error);
       throw error;
     }
+  }
+
+  async getMemberLoanDetail(dto: MemberLoanDetailDto) {
+    const { memberFrom, memberTo, loanType } = dto;
+
+    const query = `
+      SELECT 
+        lp.mbno as "mbno",
+        TRIM(CONCAT(m.f_name, ' ', m.m_name, ' ', m.l_name)) as "name",
+        lp.loancaseno as "loanCaseNo",
+        lp.sanctioned_date as "sanctionDate",
+        lp.sanctioned_amt as "sanctionAmount",
+        TRIM(CONCAT(s1.f_name, ' ', s1.m_name, ' ', s1.l_name)) as "surety1",
+        TRIM(CONCAT(s2.f_name, ' ', s2.m_name, ' ', s2.l_name)) as "surety2",
+        lp.flg_sanctioned as "flgSanctioned",
+        lp.flg_paid as "flgPaid"
+      FROM loan_pending lp
+      LEFT JOIN member_master m ON lp.mbno::numeric = m.mbno::numeric
+      LEFT JOIN member_master s1 ON lp.g1mbno::numeric = s1.mbno::numeric
+      LEFT JOIN member_master s2 ON lp.g2mbno::numeric = s2.mbno::numeric
+      WHERE lp.mbno::numeric >= $1 AND lp.mbno::numeric <= $2
+      ${loanType && loanType !== 'ALL' && !['LONG TERM LOAN', 'SHORT TERM LOAN', 'EMERGENCY LOAN', 'PERSONAL LOAN'].includes(loanType) ? 'AND lp.loantype = $3' : ''}
+      ORDER BY lp.mbno::numeric ASC, lp.loancaseno::numeric ASC
+    `;
+
+    const params = [memberFrom, memberTo];
+    if (loanType && loanType !== 'ALL' && !['LONG TERM LOAN', 'SHORT TERM LOAN', 'EMERGENCY LOAN', 'PERSONAL LOAN'].includes(loanType)) {
+      params.push(loanType);
+    }
+
+    const result = await this.loanMasterRepository.query(query, params);
+
+    return result.map((item, index) => ({
+      key: index.toString(),
+      mbno: item.mbno,
+      name: item.name || 'Unknown',
+      loanCaseNo: item.loanCaseNo,
+      sanctionDate: item.sanctionDate ? new Date(item.sanctionDate).toLocaleDateString('en-IN') : '-',
+      sanctionAmount: parseFloat(item.sanctionAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 }),
+      surety1: item.surety1 || '-',
+      surety2: item.surety2 || '-',
+      flgSanctioned: item.flgSanctioned,
+      flgPaid: item.flgPaid
+    }));
+  }
+
+  async getShareWarrant(dto: ShareWarrantDto) {
+    const { memberFrom, memberTo, warrantDate } = dto;
+    const date = warrantDate || new Date().toISOString().split('T')[0];
+
+    const query = `
+      SELECT 
+        mb.srno as "srno",
+        mb.mbno as "mbno",
+        mb.member_name as "memberName",
+        mb.pfno as "pfno",
+        mb.officeno as "officeno",
+        mb.shares as "shareAmount",
+        $3 as "warrantDate"
+      FROM member_balances mb
+      WHERE mb.mbno::numeric >= $1 AND mb.mbno::numeric <= $2
+      AND mb.shares > 0
+      ORDER BY mb.mbno::numeric ASC
+    `;
+
+    const result = await this.memberMasterRepository.query(query, [memberFrom, memberTo, date]);
+
+    return result.map((item, index) => ({
+      key: index.toString(),
+      srno: (index + 1).toString(),
+      mbno: item.mbno,
+      memberName: item.memberName || 'Unknown',
+      pfno: item.pfno || '-',
+      officeno: item.officeno || '-',
+      shareAmount: parseFloat(item.shareAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 }),
+      warrantDate: new Date(item.warrantDate).toLocaleDateString('en-IN')
+    }));
+  }
+
+  async getDivisionList(wingNo?: string) {
+    const query = wingNo
+      ? `SELECT DISTINCT divno as "divNo", name as "divName", officeno as "officeNo", wingno as "wingNo", address, city 
+         FROM division_master 
+         WHERE wingno = $1 
+         ORDER BY name`
+      : `SELECT DISTINCT divno as "divNo", name as "divName", officeno as "officeNo", wingno as "wingNo", address, city 
+         FROM division_master 
+         ORDER BY name`;
+
+    const params = wingNo ? [wingNo] : [];
+    const result = await this.memberMasterRepository.query(query, params);
+
+    return result.map(item => ({
+      divNo: item.divNo,
+      divName: item.divName,
+      officeNo: item.officeNo,
+      wingNo: item.wingNo,
+      address: item.address,
+      city: item.city
+    }));
+  }
+
+  async getAnnualMemberStatement(dto: AnnualMemberStatementDto) {
+    const { wingNo, officeNo, asOnDate } = dto;
+
+    let query = `
+      SELECT 
+        a.accno as "accountNo",
+        COALESCE(a.op_triftamt, 0) as "opThriftAmount",
+        COALESCE(a.cur_triftamt, 0) as "curThriftAmount",
+        COALESCE(a.cur_tfintrec, 0) as "curThriftInterest",
+        COALESCE(a.op_tfintrec, 0) as "opThriftInterest",
+        COALESCE(a.op_shareamt, 0) as "opShareAmount",
+        COALESCE(a.cur_shareamt, 0) as "curShareAmount",
+        COALESCE(a.op_wfamt, 0) as "opWelfareAmount",
+        COALESCE(a.cur_wfamt, 0) as "curWelfareAmount",
+        COALESCE(a.rlbalance, 0) as "regularLoanBalance",
+        COALESCE(a.tlbalance, 0) as "termLoanBalance",
+        mm.mbno as "memberNo",
+        TRIM(CONCAT(mm.f_name, ' ', mm.m_name, ' ', mm.l_name)) as "memberName",
+        mm.wingno as "wingNo",
+        mm.officeno as "officeNo"
+      FROM annualstatement a
+      LEFT JOIN member_master mm ON a.accno::text = mm.mbno::text
+      WHERE 1=1
+    `;
+
+    const params = [];
+    let paramIndex = 1;
+
+    if (wingNo) {
+      query += ` AND mm.wingno = $${paramIndex}`;
+      params.push(wingNo);
+      paramIndex++;
+    }
+
+    if (officeNo) {
+      query += ` AND mm.officeno = $${paramIndex}`;
+      params.push(officeNo);
+      paramIndex++;
+    }
+
+    query += ` ORDER BY mm.mbno`;
+
+    const result = await this.memberMasterRepository.query(query, params);
+
+    return result.map(item => ({
+      accountNo: item.accountNo,
+      memberNo: item.memberNo,
+      memberName: item.memberName || 'Unknown',
+      wingNo: item.wingNo,
+      officeNo: item.officeNo,
+      opThriftAmount: parseFloat(item.opThriftAmount || 0).toFixed(2),
+      curThriftAmount: parseFloat(item.curThriftAmount || 0).toFixed(2),
+      curThriftInterest: parseFloat(item.curThriftInterest || 0).toFixed(2),
+      opThriftInterest: parseFloat(item.opThriftInterest || 0).toFixed(2),
+      opShareAmount: parseFloat(item.opShareAmount || 0).toFixed(2),
+      curShareAmount: parseFloat(item.curShareAmount || 0).toFixed(2),
+      opWelfareAmount: parseFloat(item.opWelfareAmount || 0).toFixed(2),
+      curWelfareAmount: parseFloat(item.curWelfareAmount || 0).toFixed(2),
+      regularLoanBalance: parseFloat(item.regularLoanBalance || 0).toFixed(2),
+      termLoanBalance: parseFloat(item.termLoanBalance || 0).toFixed(2),
+      asOnDate: asOnDate
+    }));
+  }
+
+  async getYearlyMemberStatement(dto: YearlyMemberStatementDto) {
+    const { fromDate, toDate, wingNo, officeNo, fromMemberNo, toMemberNo, sortBy = 'MBNO' } = dto;
+
+    let query = `
+      SELECT 
+        mb.mbno as "memberNo",
+        mb.member_name as "memberName",
+        COALESCE(mb.shares, 0) as "shares",
+        COALESCE(mb.compulsory_deposit, 0) as "compulsoryDeposit",
+        COALESCE(mb.regularloan, 0) as "regularLoan",
+        COALESCE(mb.emergency_loan_balance, 0) as "emergencyLoan"
+      FROM member_balances mb
+      WHERE mb.mbno::numeric >= $1 AND mb.mbno::numeric <= $2
+    `;
+
+    const params = [fromMemberNo, toMemberNo];
+    let paramIndex = 3;
+
+    if (wingNo) {
+      query += ` AND mb.wingno = $${paramIndex}`;
+      params.push(wingNo);
+      paramIndex++;
+    }
+
+    if (officeNo) {
+      query += ` AND mb.officeno = $${paramIndex}`;
+      params.push(officeNo);
+      paramIndex++;
+    }
+
+    // Add sorting
+    if (sortBy === 'MBNO') {
+      query += ` ORDER BY mb.mbno::numeric ASC`;
+    } else if (sortBy === 'Name') {
+      query += ` ORDER BY mb.member_name ASC`;
+    } else {
+      query += ` ORDER BY mb.mbno::numeric ASC`;
+    }
+
+    const result = await this.memberMasterRepository.query(query, params);
+
+    return result.map((item, index) => ({
+      key: index.toString(),
+      memberNo: item.memberNo,
+      memberName: item.memberName || 'Unknown',
+      shares: parseFloat(item.shares || 0).toFixed(2),
+      compulsoryDeposit: parseFloat(item.compulsoryDeposit || 0).toFixed(2),
+      regularLoan: parseFloat(item.regularLoan || 0).toFixed(2),
+      emergencyLoan: parseFloat(item.emergencyLoan || 0).toFixed(2)
+    }));
+  }
+
+  async getMemberLedger(dto: MemberLedgerDto) {
+    const { memberNo, fromDate, toDate } = dto;
+
+    const query = `
+      SELECT 
+        l.trans_date as "transDate",
+        l.trans_type as "transType",
+        l.code as "code",
+        l.trans_amt as "transAmt",
+        l.narration as "narration",
+        l.vchr_no as "voucherNo",
+        l.trans_time as "transTime"
+      FROM ledger l
+      WHERE l.mbno = $1
+      AND l.trans_date >= $2::date
+      AND l.trans_date <= $3::date
+      ORDER BY l.trans_date ASC, l.trans_time ASC
+    `;
+
+    const result = await this.memberMasterRepository.query(query, [memberNo, fromDate, toDate]);
+
+    return result.map((item, index) => ({
+      key: index.toString(),
+      transDate: new Date(item.transDate).toLocaleDateString('en-IN'),
+      transType: item.transType,
+      code: item.code,
+      transAmt: parseFloat(item.transAmt || 0).toFixed(2),
+      narration: item.narration || '',
+      voucherNo: item.voucherNo || ''
+    }));
   }
 }

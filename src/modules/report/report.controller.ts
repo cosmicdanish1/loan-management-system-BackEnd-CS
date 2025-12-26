@@ -35,6 +35,11 @@ import { LoanContributionsRegisterDto } from './dto/loan-contributions-register.
 import { LienAccountInformationDto } from './dto/lien-account-information.dto';
 import { AdHocReportsDto } from './dto/adhoc-reports.dto';
 import { PassBookPrintingDto } from './dto/passbook-printing.dto';
+import { ShareWarrantDto } from './dto/share-warrant.dto';
+import { MemberLoanDetailDto } from './dto/member-loan-detail.dto';
+import { AnnualMemberStatementDto } from './dto/annual-member-statement.dto';
+import { YearlyMemberStatementDto } from './dto/yearly-member-statement.dto';
+import { MemberLedgerDto } from './dto/member-ledger.dto';
 
 @ApiTags('Reports')
 @Controller('report')
@@ -248,5 +253,35 @@ export class ReportController {
   @Get('diagnostic-tables')
   diagnosticCheck() {
     return this.reportService.diagnosticCheck();
+  }
+
+  @Get('member-loan-detail')
+  getMemberLoanDetail(@Query() query: MemberLoanDetailDto) {
+    return this.reportService.getMemberLoanDetail(query);
+  }
+
+  @Get('share-warrant')
+  getShareWarrant(@Query() query: ShareWarrantDto) {
+    return this.reportService.getShareWarrant(query);
+  }
+
+  @Get('division-list')
+  getDivisionList(@Query('wingNo') wingNo?: string) {
+    return this.reportService.getDivisionList(wingNo);
+  }
+
+  @Get('annual-member-statement')
+  getAnnualMemberStatement(@Query() query: AnnualMemberStatementDto) {
+    return this.reportService.getAnnualMemberStatement(query);
+  }
+
+  @Get('yearly-member-statement')
+  getYearlyMemberStatement(@Query() query: YearlyMemberStatementDto) {
+    return this.reportService.getYearlyMemberStatement(query);
+  }
+
+  @Get('member-ledger')
+  getMemberLedger(@Query() query: MemberLedgerDto) {
+    return this.reportService.getMemberLedger(query);
   }
 }
