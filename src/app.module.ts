@@ -26,7 +26,7 @@ import { ConsolidationModule } from './modules/consolidation/consolidation.modul
 import { MemberLedgerModule } from './modules/member-ledger/member-ledger.module';
 import { GeneralLedgerModule } from './modules/general-ledger/general-ledger.module';
 import { PrintVoucherModule } from './modules/print-voucher/print-voucher.module';
-import { AnalyticsModule } from './modules/analytics/analytics.module';
+import { JottingReportModule } from './modules/jotting-report/jotting-report.module';
 
 @Module({
   imports: [
@@ -142,7 +142,7 @@ import { AnalyticsModule } from './modules/analytics/analytics.module';
     MemberLedgerModule,
     GeneralLedgerModule,
     PrintVoucherModule,
-    AnalyticsModule,
+    JottingReportModule,
   ],
   controllers: [AppController],
   providers: [AppService],

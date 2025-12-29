@@ -29,7 +29,8 @@ export class MemberLedgerService {
 
   async getMemberLedgerReport(dto: GetMemberLedgerDto): Promise<MemberLedgerSummaryDto> {
     try {
-      const memberNumber = Number(dto.memberNumber);
+      // Keep memberNumber as string to match database numeric type
+      const memberNumberStr = dto.memberNumber.toString();
       const fromDate = new Date(dto.fromDate);
       const toDate = new Date(dto.toDate);
 
@@ -40,9 +41,9 @@ export class MemberLedgerService {
       const endOfDay = new Date(toDate);
       endOfDay.setHours(23, 59, 59, 999);
 
-      // Validate member exists
+      // Validate member exists - use string comparison for numeric column
       const member = await this.memberRepository.findOne({
-        where: { mbno: memberNumber.toString() }
+        where: { mbno: memberNumberStr }
       });
 
       if (!member) {
@@ -57,9 +58,10 @@ export class MemberLedgerService {
       const headName = headMaster?.head_name || dto.headCode;
 
       // Get ledger entries for the member, head, and date range
+      // FIX: Use string comparison for numeric mbno column
       const ledgerEntries = await this.ledgerRepository
         .createQueryBuilder('l')
-        .where('l.mbno = :memberNumber', { memberNumber })
+        .where('l.mbno = :memberNumber', { memberNumber: memberNumberStr })
         .andWhere('l.code = :headCode', { headCode: dto.headCode })
         .andWhere('l.trans_date >= :startDate AND l.trans_date <= :endDate', {
           startDate: startOfDay,
@@ -71,7 +73,7 @@ export class MemberLedgerService {
 
       // Calculate opening balance (transactions before the from date)
       const openingBalance = await this.calculateOpeningBalance(
-        memberNumber,
+        memberNumberStr,
         dto.headCode,
         startOfDay
       );
@@ -134,7 +136,8 @@ export class MemberLedgerService {
 
   async getMemberDetailLedgerReport(dto: GetMemberDetailLedgerDto): Promise<MemberDetailLedgerSummaryDto> {
     try {
-      const memberNumber = Number(dto.memberNumber);
+      // Keep memberNumber as string to match database numeric type
+      const memberNumberStr = dto.memberNumber.toString();
       const fromDate = new Date(dto.fromDate);
       const toDate = new Date(dto.toDate);
 
@@ -144,9 +147,9 @@ export class MemberLedgerService {
       const endOfDay = new Date(toDate);
       endOfDay.setHours(23, 59, 59, 999);
 
-      // Validate member
+      // Validate member - use string comparison for numeric column
       const member = await this.memberRepository.findOne({
-        where: { mbno: memberNumber.toString() }
+        where: { mbno: memberNumberStr }
       });
 
       if (!member) {
@@ -157,10 +160,11 @@ export class MemberLedgerService {
       // Join ledger with headmaster to get head_name
       // Filter by member_code and date range
       // Order by trans_date, voucher_no
+      // FIX: Use string comparison for numeric mbno column
       const rawEntries = await this.ledgerRepository
         .createQueryBuilder('l')
         .leftJoinAndMapOne('l.head', HeadMaster, 'h', 'l.code = h.code')
-        .where('l.mbno = :memberNumber', { memberNumber })
+        .where('l.mbno = :memberNumber', { memberNumber: memberNumberStr })
         .andWhere('l.trans_date >= :startDate AND l.trans_date <= :endDate', {
           startDate: startOfDay,
           endDate: endOfDay
@@ -224,9 +228,10 @@ export class MemberLedgerService {
     memberNumber: string;
   }> {
     try {
-      const memberNumber = Number(dto.memberNumber);
+      // Use string comparison for numeric mbno column
+      const memberNumberStr = dto.memberNumber.toString();
       const member = await this.memberRepository.findOne({
-        where: { mbno: memberNumber.toString() }
+        where: { mbno: memberNumberStr }
       });
 
       if (member) {
@@ -272,14 +277,15 @@ export class MemberLedgerService {
   }
 
   private async calculateOpeningBalance(
-    memberNumber: number,
+    memberNumberStr: string,
     headCode: string,
     beforeDate: Date
   ): Promise<number> {
     try {
+      // FIX: Use string comparison for numeric mbno column
       const entries = await this.ledgerRepository
         .createQueryBuilder('l')
-        .where('l.mbno = :memberNumber', { memberNumber })
+        .where('l.mbno = :memberNumber', { memberNumber: memberNumberStr })
         .andWhere('l.code = :headCode', { headCode })
         .andWhere('l.trans_date < :beforeDate', { beforeDate })
         .getMany();

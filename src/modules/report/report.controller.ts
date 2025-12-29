@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Query } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, Param } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { ReportService } from './report.service';
 import { CashBookMonthlyDto } from './dto/cash-book-monthly.dto';
@@ -155,6 +155,11 @@ export class ReportController {
   @Get('schedule')
   getAllSchedules(@Query('type') type?: string) {
     return this.reportService.getAllReportSchedules(type);
+  }
+
+  @Get('schedule/:id')
+  getScheduleDetails(@Param('id') id: number) {
+    return this.reportService.getReportScheduleDetails(id);
   }
 
   @Get()

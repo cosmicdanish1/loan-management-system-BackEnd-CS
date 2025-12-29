@@ -1,6 +1,6 @@
 const { Client } = require('pg');
 
-async function listTables() {
+async function checkLedgerConstraints() {
     const client = new Client({
         host: 'localhost',
         port: 5432,
@@ -12,14 +12,16 @@ async function listTables() {
     try {
         await client.connect();
 
+        console.log('--- Checking NOT NULL columns ---');
         const res = await client.query(`
-            SELECT table_name 
-            FROM information_schema.tables 
-            WHERE table_schema = 'public' 
-            ORDER BY table_name;
+            SELECT column_name, is_nullable, column_default
+            FROM information_schema.columns 
+            WHERE table_name = 'ledger'
         `);
 
-        console.table(res.rows);
+        res.rows.forEach(r => {
+            console.log(`${r.column_name}: Nullable=${r.is_nullable}, Default=${r.column_default}`);
+        });
 
     } catch (err) {
         console.error(err);
@@ -28,4 +30,4 @@ async function listTables() {
     }
 }
 
-listTables();
+checkLedgerConstraints();

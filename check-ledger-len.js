@@ -1,6 +1,6 @@
 const { Client } = require('pg');
 
-async function listTables() {
+async function checkLedgerLengths() {
     const client = new Client({
         host: 'localhost',
         port: 5432,
@@ -13,13 +13,14 @@ async function listTables() {
         await client.connect();
 
         const res = await client.query(`
-            SELECT table_name 
-            FROM information_schema.tables 
-            WHERE table_schema = 'public' 
-            ORDER BY table_name;
+            SELECT column_name, data_type, character_maximum_length
+            FROM information_schema.columns 
+            WHERE table_name = 'ledger'
         `);
 
-        console.table(res.rows);
+        res.rows.forEach(r => {
+            console.log(`${r.column_name}: ${r.data_type} (${r.character_maximum_length})`);
+        });
 
     } catch (err) {
         console.error(err);
@@ -28,4 +29,4 @@ async function listTables() {
     }
 }
 
-listTables();
+checkLedgerLengths();

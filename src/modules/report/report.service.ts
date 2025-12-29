@@ -390,15 +390,18 @@ export class ReportService {
   }
 
   async getMemberLoanLedger(dto: MemberLoanLedgerDto) {
-    const { memberCode, asOnDate, loanCategory } = dto;
+    const { memberCode, asOnDate, loanCategory, headCode: dtoHeadCode } = dto;
 
-    // Map loan category to head code based on actual database head codes
-    const headCodeMap = {
-      [LoanCategory.REGULAR]: 'A1002', // REGULAR LOAN
-      [LoanCategory.SHORT_TERM]: 'A1047' // EMERGENCY LOAN (treating as short term)
-    };
+    let headCode = dtoHeadCode;
 
-    const headCode = headCodeMap[loanCategory];
+    if (!headCode && loanCategory) {
+      // Map loan category to head code based on actual database head codes
+      const headCodeMap = {
+        [LoanCategory.REGULAR]: 'A1002', // REGULAR LOAN
+        [LoanCategory.SHORT_TERM]: 'A1047' // EMERGENCY LOAN (treating as short term)
+      };
+      headCode = headCodeMap[loanCategory];
+    }
 
     // Get member details
     const member = await this.memberMasterRepository.findOne({
@@ -638,26 +641,29 @@ export class ReportService {
       let query = this.memberMasterRepository
         .createQueryBuilder('m')
         .leftJoin('annualstatement', 'a', 'a.accno = m.mbno')
+        .leftJoin('wingmast', 'w', 'w.wingno = m.wingno')
+        .leftJoin('office_master', 'o', 'o.officeno = m.officeno')
         .select([
-          'm.mbno as memberNo',
-          'CONCAT(m.prefix, \' \', m.f_name, \' \', COALESCE(m.m_name, \'\'), \' \', COALESCE(m.l_name, \'\')) as memberName',
-          'm.wingno as wing',
-          'CAST(m.officeno AS VARCHAR) as office',
+          'm.mbno as memberno',
+          'CONCAT(m.prefix, \' \', m.f_name, \' \', COALESCE(m.m_name, \'\'), \' \', COALESCE(m.l_name, \'\')) as membername',
+          'COALESCE(w.wname, m.wingno) as wing',
+          'COALESCE(o.office_name, CAST(m.officeno AS VARCHAR)) as office',
           'm.desig as designation',
-          'COALESCE(a.cur_shareamt, 0) as shareAmount',
-          `ROUND((COALESCE(a.cur_shareamt, 0) * ${dividendRate}) / 100, 2) as dividendAmount`
+          'COALESCE(a.cur_shareamt, 0) as shareamount',
+          `ROUND((COALESCE(a.cur_shareamt, 0) * ${dividendRate}) / 100, 2) as dividendamount`
         ])
         .where('m.isactive = :status', { status: 'Y' })
-        .andWhere('m.flg_retire = :retire', { retire: 'N' });
+        .andWhere('m.flg_retire = :retire', { retire: 'N' })
+        .andWhere('COALESCE(a.cur_shareamt, 0) > 0');
 
       // Apply wing filter
       if (wingName && wingName !== '') {
-        query = query.andWhere('m.wingno = :wing', { wing: wingName });
+        query = query.andWhere('(w.wname = :wing OR m.wingno = :wing)', { wing: wingName });
       }
 
       // Apply office filter
       if (officeName && officeName !== '') {
-        query = query.andWhere('CAST(m.officeno AS VARCHAR) = :office', { office: officeName });
+        query = query.andWhere('(o.office_name = :office OR CAST(m.officeno AS VARCHAR) = :office)', { office: officeName });
       }
 
       // Apply sorting
@@ -671,19 +677,29 @@ export class ReportService {
 
       const results = await query.getRawMany();
 
+      // Debug logging
+      if (results.length > 0) {
+        console.log('🔍 [DividendReport] First row sample:', results[0]);
+      } else {
+        console.log('⚠️ [DividendReport] No results found');
+      }
+
       // Calculate totals
-      const totalShareAmount = results.reduce((sum, row) => sum + parseFloat(row.shareamount || '0'), 0);
-      const totalDividendAmount = results.reduce((sum, row) => sum + parseFloat(row.dividendamount || '0'), 0);
+      // Use loose check for keys (lowercase is standard for RawMany)
+      const totalShareAmount = results.reduce((sum, row) => sum + parseFloat(row.shareamount || row.shareAmount || '0'), 0);
+      const totalDividendAmount = results.reduce((sum, row) => sum + parseFloat(row.dividendamount || row.dividendAmount || '0'), 0);
+
+      console.log(`📊 [DividendReport] Totals - Share: ${totalShareAmount}, Dividend: ${totalDividendAmount}`);
 
       return {
         data: results.map(row => ({
-          memberNo: row.memberno,
-          memberName: row.membername,
+          memberNo: row.memberno || row.memberNo,
+          memberName: row.membername || row.memberName,
           wing: row.wing,
           office: row.office,
           designation: row.designation,
-          shareAmount: parseFloat(row.shareamount || '0'),
-          dividendAmount: parseFloat(row.dividendamount || '0')
+          shareAmount: parseFloat(row.shareamount || row.shareAmount || '0'),
+          dividendAmount: parseFloat(row.dividendamount || row.dividendAmount || '0')
         })),
         summary: {
           totalMembers: results.length,
@@ -709,15 +725,15 @@ export class ReportService {
       let query = this.ledgerRepository
         .createQueryBuilder('l')
         .leftJoin('member_master', 'm', 'm.mbno = l.mbno')
+        .leftJoin('wingmast', 'w', 'w.wingno = m.wingno')
         .select([
           'l.trans_no as transactionNo',
           'l.trans_date as paymentDate',
           'l.mbno as memberNo',
           'CONCAT(m.prefix, \' \', m.f_name, \' \', COALESCE(m.m_name, \'\'), \' \', COALESCE(m.l_name, \'\')) as memberName',
-          'm.wingno as wing',
+          'COALESCE(w.wname, m.wingno) as wing',
           'm.desig as designation',
           'CAST(l.trans_amt AS numeric) as amount',
-          'l.narration as narration',
           'l.receipt_vchr_no as voucherNo'
         ])
         .where('l.trans_type = :type', { type: 'DR' })
@@ -733,7 +749,7 @@ export class ReportService {
 
       // Apply wing filter
       if (wingName && wingName !== '') {
-        query = query.andWhere('m.wingno = :wing', { wing: wingName });
+        query = query.andWhere('(w.wname = :wing OR m.wingno = :wing)', { wing: wingName });
       }
 
       query = query.orderBy('l.trans_date', 'DESC').addOrderBy('l.trans_no', 'DESC');
@@ -786,11 +802,13 @@ export class ReportService {
       let query = this.memberMasterRepository
         .createQueryBuilder('m')
         .leftJoin('annualstatement', 'a', 'a.accno = m.mbno')
+        .leftJoin('wingmast', 'w', 'w.wingno = m.wingno')
+        .leftJoin('office_master', 'o', 'o.officeno = m.officeno')
         .select([
           'm.mbno as memberNo',
           'CONCAT(m.prefix, \' \', m.f_name, \' \', COALESCE(m.m_name, \'\'), \' \', COALESCE(m.l_name, \'\')) as memberName',
-          'm.wingno as wing',
-          'CAST(m.officeno AS VARCHAR) as office',
+          'COALESCE(w.wname, m.wingno) as wing',
+          'COALESCE(o.office_name, CAST(m.officeno AS VARCHAR)) as office',
           'm.desig as designation',
           'COALESCE(a.cur_triftamt, 0) as cdBalance',       // CD (Compulsory Deposit)
           'COALESCE(a.cur_tfintrec, 0) as mdBalance',       // MD (Monthly Deposit/Thrift)
@@ -804,7 +822,7 @@ export class ReportService {
 
       // Apply wing filter
       if (wingName && wingName !== '') {
-        query = query.andWhere('m.wingno = :wing', { wing: wingName });
+        query = query.andWhere('(w.wname = :wing OR m.wingno = :wing)', { wing: wingName });
       }
 
       // Apply account type filter
@@ -837,6 +855,10 @@ export class ReportService {
       const totalMDInterest = results.reduce((sum, row) => sum + parseFloat(row.mdinterest || '0'), 0);
       const totalShareInterest = results.reduce((sum, row) => sum + parseFloat(row.shareinterest || '0'), 0);
 
+      // Fetch Society Details
+      const societyDetails = await this.memberMasterRepository.query('SELECT * FROM society_details LIMIT 1');
+      const society = societyDetails[0] || {};
+
       return {
         data: results.map(row => ({
           memberNo: row.memberno,
@@ -862,7 +884,9 @@ export class ReportService {
           totalShareInterest,
           totalInterest: totalCDInterest + totalMDInterest + totalShareInterest,
           financialYear: financialYear || 'Current Year'
-        }
+        },
+        societyName: society.name || 'EMP ESPAT EMPLOYEES CO-OP CREDIT SOCIETY LTD.',
+        societyAddress: society.address || 'Sector 27A, Nigdi, Pradhikaran, Pune - 411044'
       };
     } catch (error) {
       console.error('Error in getInterestList:', error);
@@ -1008,11 +1032,13 @@ export class ReportService {
       let query = this.memberMasterRepository
         .createQueryBuilder('m')
         .leftJoin('annualstatement', 'a', 'a.accno = m.mbno')
+        .leftJoin('wingmast', 'w', 'w.wingno = m.wingno')
+        .leftJoin('office_master', 'o', 'o.officeno = m.officeno')
         .select([
           'm.mbno as memberNo',
           'CONCAT(m.prefix, \' \', m.f_name, \' \', COALESCE(m.m_name, \'\'), \' \', COALESCE(m.l_name, \'\')) as memberName',
-          'm.wingno as wing',
-          'CAST(m.officeno AS VARCHAR) as office',
+          'COALESCE(w.wname, m.wingno) as wing',
+          'COALESCE(o.office_name, CAST(m.officeno AS VARCHAR)) as office',
           'm.desig as designation',
           'm.basic_pay as basicPay',
           'COALESCE(a.cur_shareamt, 0) as shareAmount',
@@ -1024,11 +1050,14 @@ export class ReportService {
 
       // Apply filters
       if (wingName && wingName !== '') {
-        query = query.andWhere('m.wingno = :wing', { wing: wingName });
+        query = query.andWhere('(w.wname = :wing OR m.wingno = :wing)', { wing: wingName });
       }
 
       if (officeName && officeName !== '') {
-        query = query.andWhere('CAST(m.officeno AS VARCHAR) = :office', { office: officeName });
+        query = query.andWhere('(o.office_name = :office OR m.officeno = :officeInt)', {
+          office: officeName,
+          officeInt: isNaN(parseInt(officeName)) ? -1 : parseInt(officeName)
+        });
       }
 
       if (memberNo && memberNo !== '') {
@@ -1053,6 +1082,10 @@ export class ReportService {
       }
 
       const results = await query.getRawMany();
+
+      // Fetch Society Details
+      const societyDetails = await this.memberMasterRepository.query('SELECT * FROM society_details LIMIT 1');
+      const society = societyDetails[0] || {};
 
       // Calculate totals
       const totalAmount = results.reduce((sum, row) => sum + parseFloat(row.dividendamount || '0'), 0);
@@ -1079,7 +1112,9 @@ export class ReportService {
           totalAmount,
           dividendRate,
           fromDate: fromDate || 'N/A',
-          uptoDate: uptoDate || 'N/A'
+          uptoDate: uptoDate || 'N/A',
+          societyName: society.name || 'EMP ESPAT EMPLOYEES CO-OP CREDIT SOCIETY LTD.',
+          societyAddress: society.address || 'Sector 27A, Nigdi, Pradhikaran, Pune - 411044'
         }
       };
     } catch (error) {
@@ -1091,14 +1126,31 @@ export class ReportService {
   // Report Schedule Builder Methods
   async createReportSchedule(dto: CreateReportScheduleDto) {
     try {
-      // Create header
-      const header = this.scheduleHeaderRepository.create({
-        schedule_name: dto.schedule_name,
-        template_name: dto.template_name,
-        report_type: dto.report_type || 'TRIAL',
-      });
+      let header;
+      if (dto.id) {
+        // Update existing header
+        header = await this.scheduleHeaderRepository.findOne({ where: { id: dto.id } });
+        if (!header) throw new Error(`Schedule with ID ${dto.id} not found`);
+
+        header.schedule_name = dto.schedule_name;
+        header.template_name = dto.template_name;
+        header.report_type = dto.report_type || 'TRIAL';
+        header.updated_at = new Date();
+      } else {
+        // Create new header
+        header = this.scheduleHeaderRepository.create({
+          schedule_name: dto.schedule_name,
+          template_name: dto.template_name,
+          report_type: dto.report_type || 'TRIAL',
+        });
+      }
 
       const savedHeader = await this.scheduleHeaderRepository.save(header);
+
+      // If updating, remove old details first
+      if (dto.id) {
+        await this.scheduleDetailRepository.delete({ schedule_id: savedHeader.id });
+      }
 
       // Create details
       const details = dto.details.map(detail =>
@@ -1115,10 +1167,10 @@ export class ReportService {
       return {
         success: true,
         scheduleId: savedHeader.id,
-        message: 'Report schedule created successfully'
+        message: dto.id ? 'Report schedule updated successfully' : 'Report schedule created successfully'
       };
     } catch (error) {
-      console.error('Error creating report schedule:', error);
+      console.error('Error creating/updating report schedule:', error);
       throw error;
     }
   }
@@ -1209,13 +1261,19 @@ export class ReportService {
         }
       );
 
+      // Fetch Society Details
+      const societyDetails = await this.memberMasterRepository.query('SELECT * FROM society_details LIMIT 1');
+      const society = societyDetails[0] || {};
+
       return {
         scheduleId,
         fromDate,
         toDate,
         financialYearStart,
         lineItems,
-        grandTotals
+        grandTotals,
+        societyName: society.name || 'EMP ESPAT EMPLOYEES CO-OP CREDIT SOCIETY LTD.',
+        societyAddress: society.address || 'Sector 27A, Nigdi, Pradhikaran, Pune - 411044'
       };
     } catch (error) {
       console.error('Error executing report schedule:', error);
@@ -1237,6 +1295,19 @@ export class ReportService {
       return schedules;
     } catch (error) {
       console.error('Error fetching report schedules:', error);
+      throw error;
+    }
+  }
+
+  async getReportScheduleDetails(id: number) {
+    try {
+      const schedule = await this.scheduleHeaderRepository.findOne({
+        where: { id },
+        relations: ['details']
+      });
+      return schedule;
+    } catch (error) {
+      console.error('Error fetching schedule details:', error);
       throw error;
     }
   }
@@ -1515,15 +1586,15 @@ export class ReportService {
       .addOrderBy('l.trans_no', 'ASC')
       .getRawMany();
 
-    const items = transactions.map(t => {
-      const amount = parseFloat(t.amount);
+    const items = transactions.map((t, index) => {
+      const amount = parseFloat(t.amount) || 0;
       return {
-        key: t.transNo.toString(),
+        key: (t.transNo || index + 1).toString(),
         date: t.date,
-        headCode: t.headCode,
+        headCode: t.headCode || '',
         headName: t.headName || 'Unknown',
-        voucherNo: t.voucherNo,
-        narration: t.narration,
+        voucherNo: t.voucherNo || '-',
+        narration: t.narration || '',
         withdrawal: t.type === 'DR' ? amount : 0,
         deposit: t.type === 'CR' ? amount : 0
       };
@@ -2841,29 +2912,63 @@ export class ReportService {
       LEFT JOIN member_master s1 ON lp.g1mbno::numeric = s1.mbno::numeric
       LEFT JOIN member_master s2 ON lp.g2mbno::numeric = s2.mbno::numeric
       WHERE lp.mbno::numeric >= $1 AND lp.mbno::numeric <= $2
-      ${loanType && loanType !== 'ALL' && !['LONG TERM LOAN', 'SHORT TERM LOAN', 'EMERGENCY LOAN', 'PERSONAL LOAN'].includes(loanType) ? 'AND lp.loantype = $3' : ''}
+      ${loanType && loanType !== 'ALL' ? 'AND lp.loantype = $3' : ''}
       ORDER BY lp.mbno::numeric ASC, lp.loancaseno::numeric ASC
     `;
 
     const params = [memberFrom, memberTo];
-    if (loanType && loanType !== 'ALL' && !['LONG TERM LOAN', 'SHORT TERM LOAN', 'EMERGENCY LOAN', 'PERSONAL LOAN'].includes(loanType)) {
+    if (loanType && loanType !== 'ALL') {
       params.push(loanType);
     }
 
-    const result = await this.loanMasterRepository.query(query, params);
+    let result = await this.loanMasterRepository.query(query, params);
 
-    return result.map((item, index) => ({
-      key: index.toString(),
-      mbno: item.mbno,
-      name: item.name || 'Unknown',
-      loanCaseNo: item.loanCaseNo,
-      sanctionDate: item.sanctionDate ? new Date(item.sanctionDate).toLocaleDateString('en-IN') : '-',
-      sanctionAmount: parseFloat(item.sanctionAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 }),
-      surety1: item.surety1 || '-',
-      surety2: item.surety2 || '-',
-      flgSanctioned: item.flgSanctioned,
-      flgPaid: item.flgPaid
-    }));
+    // Fallback: If no results found, fetch latest 50 records as suggested by requirements
+    let isFallback = false;
+    if (result.length === 0) {
+      const fallbackQuery = `
+        SELECT 
+          lp.mbno as "mbno",
+          TRIM(CONCAT(m.f_name, ' ', m.m_name, ' ', m.l_name)) as "name",
+          lp.loancaseno as "loanCaseNo",
+          lp.sanctioned_date as "sanctionDate",
+          lp.sanctioned_amt as "sanctionAmount",
+          TRIM(CONCAT(s1.f_name, ' ', s1.m_name, ' ', s1.l_name)) as "surety1",
+          TRIM(CONCAT(s2.f_name, ' ', s2.m_name, ' ', s2.l_name)) as "surety2",
+          lp.flg_sanctioned as "flgSanctioned",
+          lp.flg_paid as "flgPaid"
+        FROM loan_pending lp
+        LEFT JOIN member_master m ON lp.mbno::numeric = m.mbno::numeric
+        LEFT JOIN member_master s1 ON lp.g1mbno::numeric = s1.mbno::numeric
+        LEFT JOIN member_master s2 ON lp.g2mbno::numeric = s2.mbno::numeric
+        ORDER BY lp.sanctioned_date DESC NULLS LAST, lp.loancaseno DESC
+        LIMIT 50
+      `;
+      result = await this.loanMasterRepository.query(fallbackQuery);
+      isFallback = true;
+    }
+
+    // Fetch Society Details
+    const societyDetails = await this.memberMasterRepository.query('SELECT * FROM society_details LIMIT 1');
+    const society = societyDetails[0] || {};
+
+    return {
+      reportData: result.map((item, index) => ({
+        key: index.toString(),
+        mbno: item.mbno,
+        name: item.name || 'Unknown',
+        loanCaseNo: item.loanCaseNo,
+        sanctionDate: item.sanctionDate ? new Date(item.sanctionDate).toLocaleDateString('en-IN') : '-',
+        sanctionAmount: item.sanctionAmount ? parseFloat(item.sanctionAmount.toString().replace(/[$,]/g, '')).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '0.00',
+        surety1: item.surety1 || '-',
+        surety2: item.surety2 || '-',
+        flgSanctioned: item.flgSanctioned,
+        flgPaid: item.flgPaid
+      })),
+      societyName: society.name || 'EMP ESPAT EMPLOYEES CO-OP CREDIT SOCIETY LTD.',
+      societyAddress: society.address || 'Sector 27A, Nigdi, Pradhikaran, Pune - 411044',
+      isFallback
+    };
   }
 
   async getShareWarrant(dto: ShareWarrantDto) {
@@ -2964,26 +3069,53 @@ export class ReportService {
 
     query += ` ORDER BY mm.mbno`;
 
-    const result = await this.memberMasterRepository.query(query, params);
+    let result = await this.memberMasterRepository.query(query, params);
+    let isFallback = false;
 
-    return result.map(item => ({
-      accountNo: item.accountNo,
-      memberNo: item.memberNo,
-      memberName: item.memberName || 'Unknown',
-      wingNo: item.wingNo,
-      officeNo: item.officeNo,
-      opThriftAmount: parseFloat(item.opThriftAmount || 0).toFixed(2),
-      curThriftAmount: parseFloat(item.curThriftAmount || 0).toFixed(2),
-      curThriftInterest: parseFloat(item.curThriftInterest || 0).toFixed(2),
-      opThriftInterest: parseFloat(item.opThriftInterest || 0).toFixed(2),
-      opShareAmount: parseFloat(item.opShareAmount || 0).toFixed(2),
-      curShareAmount: parseFloat(item.curShareAmount || 0).toFixed(2),
-      opWelfareAmount: parseFloat(item.opWelfareAmount || 0).toFixed(2),
-      curWelfareAmount: parseFloat(item.curWelfareAmount || 0).toFixed(2),
-      regularLoanBalance: parseFloat(item.regularLoanBalance || 0).toFixed(2),
-      termLoanBalance: parseFloat(item.termLoanBalance || 0).toFixed(2),
-      asOnDate: asOnDate
-    }));
+    // Fallback logic for demo/empty data
+    if (result.length === 0) {
+      const fallbackQuery = `
+        SELECT 
+          a.accno as "accountNo",
+          COALESCE(a.op_triftamt, 0) as "opThriftAmount",
+          COALESCE(a.cur_triftamt, 0) as "curThriftAmount",
+          COALESCE(a.op_shareamt, 0) as "opShareAmount",
+          COALESCE(a.cur_shareamt, 0) as "curShareAmount",
+          COALESCE(a.rlbalance, 0) as "regularLoanBalance",
+          COALESCE(a.tlbalance, 0) as "termLoanBalance",
+          mm.mbno as "memberNo",
+          TRIM(CONCAT(mm.f_name, ' ', mm.m_name, ' ', mm.l_name)) as "memberName"
+        FROM annualstatement a
+        LEFT JOIN member_master mm ON a.accno::text = mm.mbno::text
+        ORDER BY a.accno DESC
+        LIMIT 50
+      `;
+      result = await this.memberMasterRepository.query(fallbackQuery);
+      isFallback = true;
+    }
+
+    // Fetch Society Details
+    const societyDetails = await this.memberMasterRepository.query('SELECT * FROM society_details LIMIT 1');
+    const society = societyDetails[0] || {};
+
+    return {
+      reportData: result.map((item, index) => ({
+        key: index.toString(),
+        accountNo: item.accountNo,
+        memberNo: item.memberNo,
+        memberName: item.memberName || 'Unknown',
+        opThriftAmount: parseFloat(item.opThriftAmount || 0).toFixed(2),
+        curThriftAmount: parseFloat(item.curThriftAmount || 0).toFixed(2),
+        opShareAmount: parseFloat(item.opShareAmount || 0).toFixed(2),
+        curShareAmount: parseFloat(item.curShareAmount || 0).toFixed(2),
+        regularLoanBalance: parseFloat(item.regularLoanBalance || 0).toFixed(2),
+        termLoanBalance: parseFloat(item.termLoanBalance || 0).toFixed(2),
+        asOnDate: asOnDate
+      })),
+      societyName: society.name || 'EMP ESPAT EMPLOYEES CO-OP CREDIT SOCIETY LTD.',
+      societyAddress: society.address || 'Sector 27A, Nigdi, Pradhikaran, Pune - 411044',
+      isFallback
+    };
   }
 
   async getYearlyMemberStatement(dto: YearlyMemberStatementDto) {
@@ -2998,20 +3130,21 @@ export class ReportService {
         COALESCE(mb.regularloan, 0) as "regularLoan",
         COALESCE(mb.emergency_loan_balance, 0) as "emergencyLoan"
       FROM member_balances mb
-      WHERE mb.mbno::numeric >= $1 AND mb.mbno::numeric <= $2
+      LEFT JOIN member_master mm ON CAST(mb.mbno AS NUMERIC) = CAST(mm.mbno AS NUMERIC)
+      WHERE CAST(mb.mbno AS NUMERIC) >= $1 AND CAST(mb.mbno AS NUMERIC) <= $2
     `;
 
     const params = [fromMemberNo, toMemberNo];
     let paramIndex = 3;
 
     if (wingNo) {
-      query += ` AND mb.wingno = $${paramIndex}`;
+      query += ` AND mm.wingno = $${paramIndex}`;
       params.push(wingNo);
       paramIndex++;
     }
 
     if (officeNo) {
-      query += ` AND mb.officeno = $${paramIndex}`;
+      query += ` AND mm.officeno::text = $${paramIndex}`;
       params.push(officeNo);
       paramIndex++;
     }
@@ -3025,17 +3158,45 @@ export class ReportService {
       query += ` ORDER BY mb.mbno::numeric ASC`;
     }
 
-    const result = await this.memberMasterRepository.query(query, params);
+    let result = await this.memberMasterRepository.query(query, params);
+    let isFallback = false;
 
-    return result.map((item, index) => ({
-      key: index.toString(),
-      memberNo: item.memberNo,
-      memberName: item.memberName || 'Unknown',
-      shares: parseFloat(item.shares || 0).toFixed(2),
-      compulsoryDeposit: parseFloat(item.compulsoryDeposit || 0).toFixed(2),
-      regularLoan: parseFloat(item.regularLoan || 0).toFixed(2),
-      emergencyLoan: parseFloat(item.emergencyLoan || 0).toFixed(2)
-    }));
+    // Fallback logic
+    if (result.length === 0) {
+      const fallbackQuery = `
+        SELECT 
+          mb.mbno as "memberNo",
+          mb.member_name as "memberName",
+          COALESCE(mb.shares, 0) as "shares",
+          COALESCE(mb.compulsory_deposit, 0) as "compulsoryDeposit",
+          COALESCE(mb.regularloan, 0) as "regularLoan",
+          COALESCE(mb.emergency_loan_balance, 0) as "emergencyLoan"
+        FROM member_balances mb
+        ORDER BY mb.mbno::numeric DESC
+        LIMIT 50
+      `;
+      result = await this.memberMasterRepository.query(fallbackQuery);
+      isFallback = true;
+    }
+
+    // Fetch Society Details
+    const societyDetails = await this.memberMasterRepository.query('SELECT * FROM society_details LIMIT 1');
+    const society = societyDetails[0] || {};
+
+    return {
+      data: result.map((item, index) => ({
+        key: index.toString(),
+        memberNo: item.memberNo,
+        memberName: item.memberName || 'Unknown',
+        shares: parseFloat(item.shares || 0).toFixed(2),
+        compulsoryDeposit: parseFloat(item.compulsoryDeposit || 0).toFixed(2),
+        regularLoan: parseFloat(item.regularLoan || 0).toFixed(2),
+        emergencyLoan: parseFloat(item.emergencyLoan || 0).toFixed(2)
+      })),
+      societyName: society.name || 'EMP ESPAT EMPLOYEES CO-OP CREDIT SOCIETY LTD.',
+      societyAddress: society.address || 'Sector 27A, Nigdi, Pradhikaran, Pune - 411044',
+      isFallback
+    };
   }
 
   async getMemberLedger(dto: MemberLedgerDto) {
@@ -3048,25 +3209,40 @@ export class ReportService {
         l.code as "code",
         l.trans_amt as "transAmt",
         l.narration as "narration",
-        l.vchr_no as "voucherNo",
-        l.trans_time as "transTime"
+        l.receipt_vchr_no as "voucherNo",
+        l.ledgerid as "transTime"
       FROM ledger l
       WHERE l.mbno = $1
       AND l.trans_date >= $2::date
       AND l.trans_date <= $3::date
-      ORDER BY l.trans_date ASC, l.trans_time ASC
+      ORDER BY l.trans_date ASC, l.ledgerid ASC
     `;
 
     const result = await this.memberMasterRepository.query(query, [memberNo, fromDate, toDate]);
 
-    return result.map((item, index) => ({
-      key: index.toString(),
-      transDate: new Date(item.transDate).toLocaleDateString('en-IN'),
-      transType: item.transType,
-      code: item.code,
-      transAmt: parseFloat(item.transAmt || 0).toFixed(2),
-      narration: item.narration || '',
-      voucherNo: item.voucherNo || ''
-    }));
+    // Calculate running balance
+    let runningBalance = 0;
+
+    return result.map((item, index) => {
+      const amount = parseFloat(item.transAmt || 0);
+      
+      // Update running balance based on transaction type
+      if (item.transType === 'CR') {
+        runningBalance += amount;
+      } else if (item.transType === 'DR') {
+        runningBalance -= amount;
+      }
+
+      return {
+        key: index.toString(),
+        transDate: new Date(item.transDate).toLocaleDateString('en-IN'),
+        transType: item.transType,
+        code: item.code,
+        transAmt: amount.toFixed(2),
+        narration: item.narration || '',
+        voucherNo: item.voucherNo || '',
+        runningBalance: runningBalance.toFixed(2)
+      };
+    });
   }
 }

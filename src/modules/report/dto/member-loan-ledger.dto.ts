@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsDateString, IsEnum } from 'class-validator';
+import { IsString, IsNotEmpty, IsDateString, IsEnum, IsOptional } from 'class-validator';
 
 export enum LoanCategory {
     REGULAR = 'REGULAR',
@@ -15,6 +15,10 @@ export class MemberLoanLedgerDto {
     asOnDate: string; // e.g., '2024-12-31'
 
     @IsEnum(LoanCategory)
-    @IsNotEmpty()
-    loanCategory: LoanCategory; // 'REGULAR' or 'SHORT_TERM'
+    @IsOptional()
+    loanCategory?: LoanCategory; // 'REGULAR' or 'SHORT_TERM'
+
+    @IsString()
+    @IsOptional()
+    headCode?: string;
 }

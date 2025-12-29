@@ -10,7 +10,7 @@ Annual statement tables: [
 === Annualstatement Table Structure ===
 Columns (11): accno (numeric), op_triftamt (numeric), cur_triftamt (numeric), cur_tfintrec (numeric), op_tfintrec (numeric), op_shareamt (numeric), cur_shareamt (numeric), op_wfamt (numeric), cur_wfamt (numeric), rlbalance (numeric), tlbalance (numeric)
 
-Total records: 15
+Total records: 65
 
 === Sample Annual Statement Data ===
 [
@@ -56,14 +56,14 @@ Total records: 15
 ]
 
 === Finding Division/Branch Tables ===
-Division/Branch tables: division_master, wingmast
+Division/Branch tables: division_master, office_master, wingmast
 
 === Wing Master Table ===
-Wing records: 10
+Wing records: 16
 Sample wings:
 
 === Office Master Table ===
-Office tables: 
+Office tables: office_master
 
 === Member Master Division/Branch Info ===
 Sample wingno values: , 1, 3, 5, 6

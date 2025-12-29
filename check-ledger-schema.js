@@ -1,6 +1,6 @@
 const { Client } = require('pg');
 
-async function listTables() {
+async function checkLedgerSchema() {
     const client = new Client({
         host: 'localhost',
         port: 5432,
@@ -12,13 +12,12 @@ async function listTables() {
     try {
         await client.connect();
 
+        console.log('--- LEDGER TABLE COLUMNS ---');
         const res = await client.query(`
-            SELECT table_name 
-            FROM information_schema.tables 
-            WHERE table_schema = 'public' 
-            ORDER BY table_name;
+            SELECT column_name, data_type 
+            FROM information_schema.columns 
+            WHERE table_name = 'ledger'
         `);
-
         console.table(res.rows);
 
     } catch (err) {
@@ -28,4 +27,4 @@ async function listTables() {
     }
 }
 
-listTables();
+checkLedgerSchema();

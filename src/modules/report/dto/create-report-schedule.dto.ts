@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsString, IsArray, ValidateNested, ArrayMinSize } from 'class-validator';
+import { IsString, IsArray, ValidateNested, ArrayMinSize, IsOptional, IsNumber } from 'class-validator';
 
 export class ReportScheduleDetailDto {
     @IsString()
@@ -13,6 +13,10 @@ export class ReportScheduleDetailDto {
 }
 
 export class CreateReportScheduleDto {
+    @IsOptional()
+    @IsNumber()
+    id?: number;
+
     @IsString()
     schedule_name: string;
 
