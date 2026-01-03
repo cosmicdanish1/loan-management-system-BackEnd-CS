@@ -1864,7 +1864,7 @@ export class ReportService {
             f.account_number::text as "accountNo",
             'FD' as "accountType",
             f.statusdate as "closingDate",
-            f.matamount::numeric as "finalAmount",
+            COALESCE(f.matamount, 0)::numeric as "finalAmount",
             'Fixed Deposit' as "description"
           FROM fdmaster f
           INNER JOIN member_master m ON f.mbno = m.mbno
@@ -1883,7 +1883,7 @@ export class ReportService {
             f.account_number::text as "accountNo",
             'RD' as "accountType",
             f.statusdate as "closingDate",
-            f.matamount::numeric as "finalAmount",
+            COALESCE(f.matamount, 0)::numeric as "finalAmount",
             'Recurring Deposit' as "description"
           FROM fdmaster f
           INNER JOIN member_master m ON f.mbno = m.mbno
@@ -1900,13 +1900,13 @@ export class ReportService {
             l.mbno as "memberCode",
             CONCAT(m.prefix, ' ', m.f_name, ' ', COALESCE(m.m_name, ''), ' ', COALESCE(m.l_name, '')) as "memberName",
             l.loancaseno::text as "accountNo",
-            l.loantype as "accountType",
+            'LOAN' as "accountType",
             l.payment_date as "closingDate", -- Using payment_date as placeholder
-            l.loan_amt::numeric as "finalAmount",
-            CONCAT(l.loantype, ' Loan') as "description"
+            COALESCE(l.loan_amt, 0)::numeric as "finalAmount",
+            'Loan' as "description"
           FROM loan_master l
           INNER JOIN member_master m ON l.mbno = m.mbno
-          WHERE l.balance::numeric = 0 -- Assuming 0 balance means closed
+          WHERE COALESCE(l.balance, 0)::numeric = 0 -- Assuming 0 balance means closed
             AND EXTRACT(MONTH FROM l.payment_date) = $1
             AND EXTRACT(YEAR FROM l.payment_date) = $2
 
@@ -1921,7 +1921,7 @@ export class ReportService {
             f.account_number::text as "accountNo",
             'FD' as "accountType",
             f.statusdate as "closingDate",
-            f.matamount::numeric as "finalAmount",
+            COALESCE(f.matamount, 0)::numeric as "finalAmount",
             'Fixed Deposit' as "description"
           FROM fdmaster f
           INNER JOIN member_master m ON f.mbno = m.mbno
@@ -1941,7 +1941,7 @@ export class ReportService {
             f.account_number::text as "accountNo",
             'RD' as "accountType",
             f.statusdate as "closingDate",
-            f.matamount::numeric as "finalAmount",
+            COALESCE(f.matamount, 0)::numeric as "finalAmount",
             'Recurring Deposit' as "description"
           FROM fdmaster f
           INNER JOIN member_master m ON f.mbno = m.mbno
@@ -1953,25 +1953,24 @@ export class ReportService {
           ORDER BY f.statusdate ASC, f.mbno ASC
         `;
       } else {
-        // Specific loan type
+        // For now, since loantype is numeric and all NULL, we'll just return loans without type filtering
         query = `
           SELECT 
             l.mbno as "memberCode",
             CONCAT(m.prefix, ' ', m.f_name, ' ', COALESCE(m.m_name, ''), ' ', COALESCE(m.l_name, '')) as "memberName",
             l.loancaseno::text as "accountNo",
-            l.loantype as "accountType",
+            'LOAN' as "accountType",
             l.payment_date as "closingDate",
-            l.loan_amt::numeric as "finalAmount",
-            CONCAT(l.loantype, ' Loan') as "description"
+            COALESCE(l.loan_amt, 0)::numeric as "finalAmount",
+            'Loan' as "description"
           FROM loan_master l
           INNER JOIN member_master m ON l.mbno = m.mbno
-          WHERE l.balance::numeric = 0
-            AND l.loantype = $3
+          WHERE COALESCE(l.balance, 0)::numeric = 0
             AND EXTRACT(MONTH FROM l.payment_date) = $1
             AND EXTRACT(YEAR FROM l.payment_date) = $2
           ORDER BY l.payment_date ASC, l.mbno ASC
         `;
-        params.push(accountType);
+        // Don't add accountType to params since we're not filtering by it
       }
 
       const results = await this.memberMasterRepository.query(query, params);
@@ -2101,7 +2100,7 @@ export class ReportService {
         FROM member_master m
         LEFT JOIN annualstatement a ON m.mbno = a.accno
         WHERE m.mbno = $1
-          AND m.isactive = 'Y'
+          AND (m.isactive = 'Y' OR m.isactive = '1')
       `;
 
       const params: any[] = [parseInt(memberNo)];
@@ -2175,20 +2174,20 @@ export class ReportService {
       let query = `
         SELECT 
           f.mbno as "memberNo",
-          CONCAT(f.prefix, ' ', f.f_name, ' ', COALESCE(f.m_name, ''), ' ', COALESCE(f.l_name, '')) as "memberName",
-          m.present_address as "address",
+          CONCAT(COALESCE(f.prefix, ''), ' ', COALESCE(f.f_name, ''), ' ', COALESCE(f.m_name, ''), ' ', COALESCE(f.l_name, '')) as "memberName",
+          COALESCE(m.present_address, 'Address not available') as "address",
           f.account_number::text as "accountNo",
-          f.certno as "certificateNo",
-          f.fdamount::numeric as "monthlyAmount",
-          f.rate::numeric as "interestRate",
-          f.depperiod::numeric as "tenure",
+          COALESCE(f.certno, CONCAT('RD-', f.account_number)) as "certificateNo",
+          COALESCE(f.fdamount, 0)::numeric as "monthlyAmount",
+          COALESCE(f.rate, 0)::numeric as "interestRate",
+          COALESCE(f.depperiod, 0)::numeric as "tenure",
           f.depdate as "openDate",
           f.matdate as "maturityDate",
-          f.matamount::numeric as "maturityAmount",
-          f.nominee as "nominee",
-          f.nrelation as "nomineeRelation",
+          COALESCE(f.matamount, 0)::numeric as "maturityAmount",
+          COALESCE(f.nominee, 'Not Specified') as "nominee",
+          COALESCE(f.nrelation, '') as "nomineeRelation",
           f.status as "status",
-          f.minbal::numeric as "minimumBalance",
+          COALESCE(f.openbal, 0)::numeric as "minimumBalance",
           -- Calculate installments paid (simplified)
           CASE 
             WHEN f.depdate IS NOT NULL AND CURRENT_DATE >= f.depdate
@@ -2196,7 +2195,7 @@ export class ReportService {
             ELSE 0
           END as "installmentsPaid"
         FROM fdmaster f
-        INNER JOIN member_master m ON f.mbno = m.mbno
+        LEFT JOIN member_master m ON f.mbno = m.mbno
         WHERE f.mbno = $1
           AND f.fdrdflag = 'R' -- Recurring Deposit
           AND f.status != '1' -- Exclude closed accounts
@@ -2207,15 +2206,19 @@ export class ReportService {
       const results = await this.memberMasterRepository.query(query, params);
 
       if (!results || results.length === 0) {
-        throw new Error(`No Recurring Deposit accounts found for member ${memberNo}`);
+        return {
+          success: false,
+          error: `No Recurring Deposit accounts found for member ${memberNo}`,
+          data: []
+        };
       }
 
-      return results.map(rd => ({
-        memberNo: rd.memberNo,
-        memberName: rd.memberName,
+      const processedResults = results.map(rd => ({
+        memberNo: rd.memberNo?.toString() || '',
+        memberName: rd.memberName?.trim() || 'Unknown Member',
         address: rd.address || 'Address not available',
-        accountNo: rd.accountNo,
-        certificateNo: rd.certificateNo,
+        accountNo: rd.accountNo || '',
+        certificateNo: rd.certificateNo || '',
         monthlyAmount: parseFloat(rd.monthlyAmount || '0'),
         interestRate: parseFloat(rd.interestRate || '0'),
         tenure: parseInt(rd.tenure || '0'),
@@ -2229,9 +2232,18 @@ export class ReportService {
         installmentsPaid: parseInt(rd.installmentsPaid || '0')
       }));
 
+      return {
+        success: true,
+        data: processedResults
+      };
+
     } catch (error) {
       console.error('Error in getRecurringDetails:', error);
-      throw error;
+      return {
+        success: false,
+        error: 'Database operation failed',
+        data: []
+      };
     }
   }
 
@@ -2243,32 +2255,33 @@ export class ReportService {
       let query = `
         SELECT 
           d.mbno as "memberNo",
-          CONCAT(m.prefix, ' ', m.f_name, ' ', COALESCE(m.m_name, ''), ' ', COALESCE(m.l_name, '')) as "memberName",
-          m.present_address as "address",
+          CONCAT(COALESCE(d.prefix, ''), ' ', COALESCE(d.f_name, ''), ' ', COALESCE(d.m_name, ''), ' ', COALESCE(d.l_name, '')) as "memberName",
+          COALESCE(m.present_address, 'Address not available') as "address",
           d.demand_for_month as "demandMonth",
           d.demand_for_year as "demandYear",
-          d.totaldemand::numeric as "totalDemand",
-          d.rln_amount::numeric as "regularLoanAmount",
-          d.eln_amount::numeric as "emergencyLoanAmount",
-          d.aln_amount::numeric as "advanceLoanAmount",
-          d.mln_amount::numeric as "miscLoanAmount",
-          d.rd_amount::numeric as "rdAmount",
-          d.md_amount::numeric as "mdAmount",
-          d.cd_amount::numeric as "cdAmount",
-          d.shr_amount::numeric as "shareAmount",
-          d.bankcharge::numeric as "bankCharges",
-          d.others::numeric as "otherCharges",
-          d.balance_for_month::numeric as "balanceForMonth",
+          COALESCE(d.totaldemand, 0)::numeric as "totalDemand",
+          COALESCE(d.rln_amount, 0)::numeric as "regularLoanAmount",
+          COALESCE(d.eln_amount, 0)::numeric as "emergencyLoanAmount",
+          COALESCE(d.aln_amount, 0)::numeric as "advanceLoanAmount",
+          COALESCE(d.mln_amount, 0)::numeric as "miscLoanAmount",
+          COALESCE(d.rd_amount, 0)::numeric as "rdAmount",
+          COALESCE(d.md_amount, 0)::numeric as "mdAmount",
+          COALESCE(d.cd_amount, 0)::numeric as "cdAmount",
+          COALESCE(d.shr_amount, 0)::numeric as "shareAmount",
+          COALESCE(d.bankcharge, 0)::numeric as "bankCharges",
+          COALESCE(d."OTHERS", 0)::numeric as "otherCharges",
+          COALESCE(d.balance_for_month, 0)::numeric as "balanceForMonth",
           d.dmnd_gnrt_date as "demandGeneratedDate",
           d.dmnd_post_date as "demandPostedDate",
           d.demand_posted as "demandPosted",
           d.passflag as "passFlag"
         FROM demand_master d
-        INNER JOIN member_master m ON d.mbno = m.mbno
+        LEFT JOIN member_master m ON d.mbno = m.mbno
         WHERE d.mbno = $1
           AND d.demand_for_month = $2
           AND d.demand_for_year = $3
         ORDER BY d.dmnd_gnrt_date DESC
+        LIMIT 1
       `;
 
       // Convert month name to number
@@ -2283,44 +2296,55 @@ export class ReportService {
       const results = await this.memberMasterRepository.query(query, params);
 
       if (!results || results.length === 0) {
-        throw new Error(`No recovery details found for member ${memberNo} for ${month} ${year}`);
+        return {
+          success: false,
+          error: `No recovery details found for member ${memberNo} for ${month} ${year}`,
+          data: null
+        };
       }
 
       const recoveryData = results[0];
 
       return {
-        memberNo: recoveryData.memberNo,
-        memberName: recoveryData.memberName,
-        address: recoveryData.address || 'Address not available',
-        demandMonth: recoveryData.demandMonth,
-        demandYear: recoveryData.demandYear,
-        period: `${month} ${year}`,
-        totalDemand: parseFloat(recoveryData.totalDemand || '0'),
-        loanRecoveries: {
-          regularLoan: parseFloat(recoveryData.regularLoanAmount || '0'),
-          emergencyLoan: parseFloat(recoveryData.emergencyLoanAmount || '0'),
-          advanceLoan: parseFloat(recoveryData.advanceLoanAmount || '0'),
-          miscLoan: parseFloat(recoveryData.miscLoanAmount || '0')
-        },
-        depositRecoveries: {
-          recurringDeposit: parseFloat(recoveryData.rdAmount || '0'),
-          monthlyDeposit: parseFloat(recoveryData.mdAmount || '0'),
-          compulsoryDeposit: parseFloat(recoveryData.cdAmount || '0'),
-          shareAmount: parseFloat(recoveryData.shareAmount || '0')
-        },
-        charges: {
-          bankCharges: parseFloat(recoveryData.bankCharges || '0'),
-          otherCharges: parseFloat(recoveryData.otherCharges || '0')
-        },
-        balanceForMonth: parseFloat(recoveryData.balanceForMonth || '0'),
-        demandGeneratedDate: recoveryData.demandGeneratedDate,
-        demandPostedDate: recoveryData.demandPostedDate,
-        status: recoveryData.demandPosted === 'Y' ? 'Posted' : 'Pending'
+        success: true,
+        data: {
+          memberNo: recoveryData.memberNo?.toString() || '',
+          memberName: recoveryData.memberName?.trim() || 'Unknown Member',
+          address: recoveryData.address || 'Address not available',
+          demandMonth: recoveryData.demandMonth,
+          demandYear: recoveryData.demandYear,
+          period: `${month} ${year}`,
+          totalDemand: parseFloat(recoveryData.totalDemand || '0'),
+          loanRecoveries: {
+            regularLoan: parseFloat(recoveryData.regularLoanAmount || '0'),
+            emergencyLoan: parseFloat(recoveryData.emergencyLoanAmount || '0'),
+            advanceLoan: parseFloat(recoveryData.advanceLoanAmount || '0'),
+            miscLoan: parseFloat(recoveryData.miscLoanAmount || '0')
+          },
+          depositRecoveries: {
+            recurringDeposit: parseFloat(recoveryData.rdAmount || '0'),
+            monthlyDeposit: parseFloat(recoveryData.mdAmount || '0'),
+            compulsoryDeposit: parseFloat(recoveryData.cdAmount || '0'),
+            shareAmount: parseFloat(recoveryData.shareAmount || '0')
+          },
+          charges: {
+            bankCharges: parseFloat(recoveryData.bankCharges || '0'),
+            otherCharges: parseFloat(recoveryData.otherCharges || '0')
+          },
+          balanceForMonth: parseFloat(recoveryData.balanceForMonth || '0'),
+          demandGeneratedDate: recoveryData.demandGeneratedDate,
+          demandPostedDate: recoveryData.demandPostedDate,
+          status: recoveryData.demandPosted === 'Y' ? 'Posted' : 'Pending'
+        }
       };
 
     } catch (error) {
       console.error('Error in getRecoveryDetails:', error);
-      throw error;
+      return {
+        success: false,
+        error: 'Database operation failed',
+        data: null
+      };
     }
   }
 
@@ -2329,6 +2353,7 @@ export class ReportService {
 
     try {
       // Query loan contributions/transactions for the specified member and date range
+      // Based on analysis: A1047 = Emergency Loan, L1004 = Compulsory Deposit, L1002 = FRS1, L1045 = FRS2
       let query = `
         SELECT 
           l.mbno as "memberNo",
@@ -2347,14 +2372,23 @@ export class ReportService {
           l.trans_type as "transactionType",
           l.trans_amt::numeric as "transactionAmount",
           l.narration as "narration",
-          l.receipt_vchr_no as "voucherNo"
+          l.receipt_vchr_no as "voucherNo",
+          ab.acname as "accountName"
         FROM ledger l
         INNER JOIN member_master m ON l.mbno = m.mbno
-        LEFT JOIN loan_master lm ON l.mbno = lm.mbno
+        LEFT JOIN loan_master lm ON l.mbno = lm.mbno 
+          AND l.trans_date >= lm.payment_date::date - INTERVAL '30 days'
+          AND l.trans_date <= lm.payment_date::date + INTERVAL '30 days'
+        LEFT JOIN accountbalance ab ON l.code = ab.acno
         WHERE l.mbno = $1
           AND l.trans_date >= $2::date
           AND l.trans_date <= $3::date
-          AND (l.code LIKE '%LN%' OR l.narration ILIKE '%loan%' OR l.narration ILIKE '%contribution%')
+          AND (
+            l.code IN ('A1047', 'A1001', 'L1004', 'L1002', 'L1045') OR
+            l.code LIKE '%LN%' OR 
+            l.narration ILIKE '%loan%' OR 
+            l.narration ILIKE '%contribution%'
+          )
         ORDER BY l.trans_date DESC, l.trans_no DESC
       `;
 
@@ -2365,13 +2399,23 @@ export class ReportService {
         throw new Error(`No loan contribution records found for member ${memberNo} between ${fromDate} and ${toDate}`);
       }
 
-      // Group transactions by loan type
+      // Group transactions by loan type or account type
       const groupedData = results.reduce((acc, record) => {
-        const key = `${record.loanType || 'MISC'}-${record.loanCaseNo || 'N/A'}`;
+        let key = 'MISC-N/A';
+        let loanType = 'Miscellaneous';
+        
+        if (record.loanCaseNo) {
+          key = `${record.loanType || 'LOAN'}-${record.loanCaseNo}`;
+          loanType = record.loanType || 'Loan';
+        } else if (record.accountName) {
+          key = `CONTRIB-${record.accountName}`;
+          loanType = record.accountName;
+        }
+        
         if (!acc[key]) {
           acc[key] = {
             loanDetails: {
-              loanType: record.loanType || 'Miscellaneous',
+              loanType: loanType,
               loanCaseNo: record.loanCaseNo || 'N/A',
               loanAmount: parseFloat(record.loanAmount || '0'),
               disbursementDate: record.disbursementDate,
@@ -2379,7 +2423,7 @@ export class ReportService {
               numberOfInstallments: parseInt(record.numberOfInstallments || '0'),
               installmentAmount: parseFloat(record.installmentAmount || '0'),
               outstandingBalance: parseFloat(record.outstandingBalance || '0'),
-              purpose: record.purpose || 'Not specified'
+              purpose: record.purpose || record.accountName || 'Not specified'
             },
             transactions: []
           };
@@ -2389,7 +2433,7 @@ export class ReportService {
           transactionDate: record.transactionDate,
           transactionType: record.transactionType,
           transactionAmount: parseFloat(record.transactionAmount || '0'),
-          narration: record.narration || '',
+          narration: record.narration || record.accountName || '',
           voucherNo: record.voucherNo || ''
         });
 
@@ -2716,7 +2760,7 @@ export class ReportService {
         SELECT 
           m.mbno as "memberNo",
           CONCAT(m.prefix, ' ', m.f_name, ' ', COALESCE(m.m_name, ''), ' ', COALESCE(m.l_name, '')) as "memberName",
-          m.present_address as "address",
+          COALESCE(m.present_address, m.permanent_address, 'Address not available') as "address",
           m.memb_date as "membershipDate"
         FROM member_master m
         WHERE m.mbno = $1
@@ -2865,6 +2909,9 @@ export class ReportService {
 
         return {
           ...account,
+          // FIXED: Convert string values to proper numeric types
+          currentBalance: parseFloat(account.currentBalance || '0'),
+          interestRate: parseFloat(account.interestRate || '0'),
           transactions: processedTransactions,
           transactionCount: processedTransactions.length,
           totalCredits: processedTransactions

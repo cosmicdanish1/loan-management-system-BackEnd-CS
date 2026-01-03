@@ -17,6 +17,7 @@ import { TransactionModule } from './modules/transaction/transaction.module';
 import { ReportModule } from './modules/report/report.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { UtilityModule } from './modules/utility/utility.module';
+import { UtilitiesModule } from './modules/utilities/utilities.module';
 import { SearchModule } from './modules/search/search.module';
 import { BackupModule } from './modules/backup/backup.module';
 import { InterestModule } from './modules/interest/interest.module';
@@ -133,6 +134,7 @@ import { JottingReportModule } from './modules/jotting-report/jotting-report.mod
     ReportModule,
     AdminModule,
     UtilityModule,
+    UtilitiesModule,
     SearchModule,
     BackupModule,
     InterestModule,

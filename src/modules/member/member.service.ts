@@ -24,7 +24,7 @@ export class MemberService {
     private readonly memberRepository: Repository<Member>,
     @InjectRepository(MemberMaster)
     private readonly memberMasterRepository: Repository<MemberMaster>,
-  ) {}
+  ) { }
 
   /**
    * Create a new member
@@ -298,11 +298,11 @@ export class MemberService {
   async lookupMembers(search?: string, limit?: number, offset?: number): Promise<MemberLookupResponseDto[]> {
     try {
       console.log('🔍 Looking up members with search:', search, 'limit:', limit, 'offset:', offset);
-      
+
       // Set defaults and limits
       const actualLimit = Math.min(limit || 500, 1000); // Default 500, max 1000
       const actualOffset = offset || 0;
-      
+
       const query = `
         SELECT DISTINCT
           m.mbno as memberNo,
@@ -312,7 +312,7 @@ export class MemberService {
           COALESCE(d.name, 'Unknown Office') as officeName
         FROM member_master m
         LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
-        WHERE m.isactive = 'Y' AND m.mbno IS NOT NULL
+        WHERE (m.isactive = 'Y' OR m.isactive = '1') AND m.mbno IS NOT NULL
         ${search ? `AND (TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) ILIKE '%${search}%' OR m.mbno::text ILIKE '%${search}%')` : ''}
         ORDER BY TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, ''))
         LIMIT ${actualLimit} OFFSET ${actualOffset}
@@ -321,7 +321,7 @@ export class MemberService {
       console.log('📋 Executing query with limit:', actualLimit, 'offset:', actualOffset);
       const result = await this.memberMasterRepository.query(query);
       console.log('📊 Query result count:', result.length);
-      
+
       const mappedResult = result.map((member: any) => ({
         memberNo: member.memberno,
         memberName: member.membername,
@@ -329,7 +329,7 @@ export class MemberService {
         wingNo: member.wingno,
         officeName: member.officename
       }));
-      
+
       console.log('✅ Mapped result count:', mappedResult.length);
       return mappedResult;
     } catch (error) {
@@ -354,11 +354,11 @@ export class MemberService {
         WHERE mbno = $1
         ORDER BY loancaseno DESC
       `;
-      
+
       const loanCases = await this.memberMasterRepository.query(query, [memberNo]);
-      
+
       console.log(`Found ${loanCases.length} loan cases for member ${memberNo}`);
-      
+
       return loanCases.map((loan: any) => ({
         memberNo,
         loanCaseNo: loan.loancaseno,
@@ -412,7 +412,7 @@ export class MemberService {
         LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
         WHERE m.mbno = $1
       `;
-      
+
       const result = await this.memberMasterRepository.query(query, [memberNo]);
       return result[0] || null;
     } catch (error) {
@@ -439,7 +439,7 @@ export class MemberService {
           WHERE mbno = $1
           RETURNING *
         `;
-        
+
         const result = await this.memberMasterRepository.query(updateQuery, [
           memberData.mbno, memberData.prefix, memberData.f_name, memberData.m_name,
           memberData.l_name, memberData.sex, memberData.desig, memberData.present_address,
@@ -450,12 +450,12 @@ export class MemberService {
           memberData.insureamt, memberData.remarks, memberData.dept_name, memberData.isactive,
           memberData.flg_retire
         ]);
-        
+
         return { success: true, data: result[0] };
       } else {
         // Insert new member
         const memberNumber = await this.generateNextMemberNumber();
-        
+
         const insertQuery = `
           INSERT INTO member_master (
             mbno, prefix, f_name, m_name, l_name, sex, desig,
@@ -470,7 +470,7 @@ export class MemberService {
           )
           RETURNING *
         `;
-        
+
         const result = await this.memberMasterRepository.query(insertQuery, [
           memberNumber, memberData.prefix, memberData.f_name, memberData.m_name,
           memberData.l_name, memberData.sex, memberData.desig, memberData.present_address,
@@ -481,7 +481,7 @@ export class MemberService {
           memberData.flg_incometax, memberData.flg_insured, memberData.insureamt,
           memberData.remarks, memberData.dept_name, memberData.isactive, memberData.flg_retire
         ]);
-        
+
         return { success: true, data: result[0] };
       }
     } catch (error) {
@@ -502,10 +502,10 @@ export class MemberService {
         AND mbno::text ~ '^[0-9]+$'
         AND LENGTH(mbno::text) = 8
       `;
-      
+
       const result = await this.memberMasterRepository.query(query);
       const maxMemberNo = result[0]?.max_member_no;
-      
+
       if (maxMemberNo) {
         const nextNumber = (parseInt(maxMemberNo) + 1).toString().padStart(8, '0');
         const memberNumber = nextNumber;
@@ -524,62 +524,163 @@ export class MemberService {
   }
 
   /**
-   * Get member balance information
+   * Get member balance information with comprehensive balance breakdown
    */
   async getMemberBalance(memberNo: string) {
     try {
-      console.log(`[BALANCE] Getting balance for member: ${memberNo}`);
-      
-      // Get basic member info
-      const memberQuery = `
+      console.log(`[BALANCE] Getting comprehensive balance for member: ${memberNo}`);
+
+      // Get comprehensive member and balance info in a single query
+      const comprehensiveQuery = `
         SELECT
           m.mbno, 
           TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
           COALESCE(d.name, 'Unknown Office') as office_name,
           COALESCE(m.basic_pay, 0) as basic_pay,
-          COALESCE(m.isactive, 'N') as is_active
+          COALESCE(m.isactive, 'N') as is_active,
+          -- Balance data from member_balances
+          COALESCE(mb.shares, 0) as shares,
+          COALESCE(mb.compulsory_deposit, 0) as compulsory_deposit,
+          COALESCE(mb.rd_amt, 0) as rd_amount,
+          COALESCE(mb.regularloan, 0) as regular_loan_balance,
+          COALESCE(mb.emergency_loan_balance, 0) as emergency_loan_balance,
+          COALESCE(mb.frsbalance, 0) as frs_balance
         FROM member_master m
         LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
+        LEFT JOIN member_balances mb ON m.mbno = mb.mbno
         WHERE m.mbno = $1
       `;
-      
-      const memberResult = await this.memberMasterRepository.query(memberQuery, [memberNo]);
-      
-      if (memberResult.length === 0) {
+
+      const result = await this.memberMasterRepository.query(comprehensiveQuery, [memberNo]);
+
+      if (result.length === 0) {
         throw new Error('Member not found');
       }
-      
-      const member = memberResult[0];
-      
-      // Get loan balance by type (if loan_master table exists)
-      let loanBalances = {};
-      let totalLoanBalance = 0;
-      
+
+      const member = result[0];
+
+      // Get additional loan balances from loan_master if available
+      let additionalLoanBalances = {};
+      let totalLoanFromMaster = 0;
+
       try {
         const loanQuery = `
           SELECT
-            loantype,
+            COALESCE(loantype, 'UNKNOWN') as loantype,
             SUM(CASE 
-              WHEN balance IS NOT NULL 
+              WHEN balance IS NOT NULL AND balance != '' 
               THEN balance::numeric
               ELSE 0
             END) as total_balance
           FROM loan_master
-          WHERE mbno = $1
+          WHERE mbno = $1 AND balance IS NOT NULL AND balance != ''
           GROUP BY loantype
         `;
-        
+
         const loanResult = await this.memberMasterRepository.query(loanQuery, [memberNo]);
-        
+
         loanResult.forEach((loan: any) => {
           const balance = parseFloat(loan.total_balance) || 0;
-          loanBalances[loan.loantype] = balance;
-          totalLoanBalance += balance;
+          if (balance > 0) {
+            additionalLoanBalances[loan.loantype || 'UNKNOWN'] = balance;
+            totalLoanFromMaster += balance;
+          }
         });
       } catch (error) {
-        console.log('⚠️ loan_master table query failed, skipping loan balances');
+        console.log('⚠️ loan_master table query failed, using member_balances data only');
       }
-      
+
+      // Create comprehensive balance items
+      const balanceItems = [];
+
+      // Assets
+      const shares = parseFloat(member.shares) || 0;
+      if (shares > 0) {
+        balanceItems.push({
+          code: 'SH',
+          headName: 'Share Amount',
+          balance: shares,
+          type: 'asset'
+        });
+      }
+
+      const compulsoryDeposit = parseFloat(member.compulsory_deposit) || 0;
+      if (compulsoryDeposit > 0) {
+        balanceItems.push({
+          code: 'CD',
+          headName: 'Compulsory Deposit',
+          balance: compulsoryDeposit,
+          type: 'asset'
+        });
+      }
+
+      const rdAmount = parseFloat(member.rd_amount) || 0;
+      if (rdAmount > 0) {
+        balanceItems.push({
+          code: 'RD',
+          headName: 'Recurring Deposit',
+          balance: rdAmount,
+          type: 'asset'
+        });
+      }
+
+      const frsBalance = parseFloat(member.frs_balance) || 0;
+      if (frsBalance > 0) {
+        balanceItems.push({
+          code: 'FRS',
+          headName: 'FRS Balance',
+          balance: frsBalance,
+          type: 'asset'
+        });
+      }
+
+      // Liabilities
+      const regularLoan = parseFloat(member.regular_loan_balance) || 0;
+      if (regularLoan > 0) {
+        balanceItems.push({
+          code: 'RLN',
+          headName: 'Regular Loan',
+          balance: -regularLoan, // Negative for liability
+          type: 'liability'
+        });
+      }
+
+      const emergencyLoan = parseFloat(member.emergency_loan_balance) || 0;
+      if (emergencyLoan > 0) {
+        balanceItems.push({
+          code: 'ELN',
+          headName: 'Emergency Loan',
+          balance: -emergencyLoan, // Negative for liability
+          type: 'liability'
+        });
+      }
+
+      // Add additional loans from loan_master
+      Object.entries(additionalLoanBalances).forEach(([loanType, balance]) => {
+        if (parseFloat(balance as string) > 0) {
+          balanceItems.push({
+            code: loanType,
+            headName: `${loanType} Loan`,
+            balance: -parseFloat(balance as string), // Negative for liability
+            type: 'liability'
+          });
+        }
+      });
+
+      // Calculate totals
+      const totalAssets = balanceItems
+        .filter(item => item.type === 'asset')
+        .reduce((sum, item) => sum + item.balance, 0);
+
+      const totalLiabilities = Math.abs(balanceItems
+        .filter(item => item.type === 'liability')
+        .reduce((sum, item) => sum + item.balance, 0));
+
+      const netBalance = totalAssets - totalLiabilities;
+
+      // Use loan_master total if available, otherwise use member_balances
+      const finalLoanBalance = totalLoanFromMaster > 0 ? totalLoanFromMaster : (regularLoan + emergencyLoan);
+
       const balanceData = {
         memberInfo: {
           memberNo: member.mbno,
@@ -589,13 +690,28 @@ export class MemberService {
           isActive: member.is_active === 'Y'
         },
         loans: {
-          balances: loanBalances,
-          totalBalance: totalLoanBalance
+          balances: Object.keys(additionalLoanBalances).length > 0 ? additionalLoanBalances : {
+            RLN: regularLoan,
+            ELN: emergencyLoan
+          },
+          totalBalance: finalLoanBalance
+        },
+        balanceItems: balanceItems,
+        summary: {
+          totalAssets: totalAssets,
+          totalLiabilities: totalLiabilities,
+          netBalance: netBalance
         }
       };
-      
-      console.log(`[BALANCE] Balance calculated for member ${memberNo}:`, balanceData);
-      
+
+      console.log(`[BALANCE] Comprehensive balance calculated for member ${memberNo}:`, {
+        memberName: member.member_name,
+        totalAssets: totalAssets,
+        totalLiabilities: totalLiabilities,
+        netBalance: netBalance,
+        balanceItemsCount: balanceItems.length
+      });
+
       return balanceData;
     } catch (error) {
       console.error('Error getting member balance:', error);
@@ -613,11 +729,11 @@ export class MemberService {
         FROM loan_pending
         WHERE loancaseno IS NOT NULL
       `;
-      
+
       const result = await this.memberMasterRepository.query(query);
       const maxCaseNo = result[0]?.max_case_no || 10000;
       const nextCaseNo = (maxCaseNo + 1).toString();
-      
+
       console.log(`Generated next loan case number: ${nextCaseNo}`);
       return nextCaseNo;
     } catch (error) {
@@ -632,25 +748,34 @@ export class MemberService {
   async saveLoanApplication(loanData: any) {
     try {
       console.log('Saving loan application:', loanData);
-      
+
       // Map loan types to 3-character codes for database
       const loanTypeMapping = {
-        'Emergency': 'EMG',
-        'Regular': 'REG',
-        'Against': 'AGT',
-        'Loan Against Deposit': 'AGT',
-        'Short Term': 'STM',
-        'Long Term': 'LTM'
+        'EMERGENCY': 'ELN',
+        'REGULAR': 'RLN',
+        'AGAINST': 'ALN',
+        'EMERGENCY LOAN': 'ELN',
+        'REGULAR LOAN': 'RLN',
+        'LOAN AGAINST DEPOSIT': 'ALN',
+        'Emergency': 'ELN',
+        'Regular': 'RLN',
+        'Against': 'ALN',
+        'ELN': 'ELN',
+        'RLN': 'RLN',
+        'ALN': 'ALN'
       };
-      
-      const mappedLoanType = loanTypeMapping[loanData.loanType] || loanData.loanType.substring(0, 3).toUpperCase();
-      
+
+      const lookupKey = loanData.loanType ? loanData.loanType.toString() : '';
+      const mappedLoanType = loanTypeMapping[lookupKey] ||
+        loanTypeMapping[lookupKey.toUpperCase()] ||
+        lookupKey.substring(0, 3).toUpperCase();
+
       // Generate loan case number if not provided
       let loanCaseNo = loanData.loanCaseNo;
       if (!loanCaseNo) {
         loanCaseNo = await this.generateNextLoanCaseNo();
       }
-      
+
       const insertQuery = `
         INSERT INTO loan_pending (
           mbno, loantype, loancaseno, applied_amt, sanctioned_amt, app_date,
@@ -658,7 +783,7 @@ export class MemberService {
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         RETURNING *
       `;
-      
+
       const result = await this.memberMasterRepository.query(insertQuery, [
         loanData.memberNo,
         mappedLoanType, // Use mapped 3-character code
@@ -671,9 +796,9 @@ export class MemberService {
         'N', // flg_sanctioned = 'N' (not sanctioned yet)
         'N'  // flg_paid = 'N' (not paid yet)
       ]);
-      
+
       console.log(`✅ Loan application saved successfully. Case No: ${loanCaseNo}`);
-      
+
       return {
         success: true,
         message: 'Loan application saved successfully',
@@ -707,9 +832,9 @@ export class MemberService {
         WHERE lp.flg_sanctioned = 'Y' AND lp.flg_paid = 'N'
         ORDER BY lp.app_date DESC
       `;
-      
+
       const result = await this.memberMasterRepository.query(query);
-      
+
       return result.map((loan: any) => ({
         loanCaseNo: loan.loancaseno,
         memberNo: loan.mbno,
@@ -738,15 +863,15 @@ export class MemberService {
         JOIN member_master mm ON lp.mbno = mm.mbno
         WHERE lp.loancaseno = $1
       `;
-      
+
       const result = await this.memberMasterRepository.query(query, [caseNo]);
-      
+
       if (result.length === 0) {
         return null;
       }
-      
+
       const loan = result[0];
-      
+
       return {
         loanCaseNo: loan.loancaseno,
         memberNo: loan.mbno,
@@ -783,18 +908,18 @@ export class MemberService {
         WHERE loancaseno = $4
         RETURNING *
       `;
-      
+
       const result = await this.memberMasterRepository.query(updateQuery, [
         sanctionData.sanctionedAmount,
         sanctionData.sanctionDate,
         sanctionData.noOfInstallments,
         caseNo
       ]);
-      
+
       if (result.length === 0) {
         throw new Error('Loan case not found');
       }
-      
+
       return {
         success: true,
         message: 'Loan sanctioned successfully',
@@ -816,25 +941,25 @@ export class MemberService {
 
       // 1. Get and increment voucher number
       const voucherNumber = await this.getNextVoucherNumber();
-      
+
       // 2. Get next voucher ID
       const voucherId = await this.getNextVoucherId();
-      
+
       // 3. Validate loan case exists and is sanctioned
       const loanQuery = `
         SELECT loancaseno, mbno, sanctioned_amt, flg_sanctioned, flg_paid
         FROM loan_pending 
         WHERE loancaseno = $1 AND flg_sanctioned = 'Y' AND flg_paid = 'N'
       `;
-      
+
       const loanResult = await this.memberMasterRepository.query(loanQuery, [voucherData.loanCaseNo]);
-      
+
       if (loanResult.length === 0) {
         throw new Error('Loan case not found or not sanctioned or already disbursed');
       }
-      
+
       const loan = loanResult[0];
-      
+
       // 4. Insert voucher to existing vouchers table
       const insertQuery = `
         INSERT INTO vouchers (
@@ -844,7 +969,7 @@ export class MemberService {
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         RETURNING *
       `;
-      
+
       const insertValues = [
         voucherId,
         voucherNumber,
@@ -861,18 +986,18 @@ export class MemberService {
         `Loan Case: ${voucherData.loanCaseNo}, Payment Mode: ${voucherData.paymentMode}`,
         new Date()
       ];
-      
+
       const voucherResult = await this.memberMasterRepository.query(insertQuery, insertValues);
-      
+
       console.log(`✅ Voucher ${voucherNumber} generated successfully`);
-      
+
       return {
         success: true,
         message: 'Voucher generated successfully',
         voucherNo: voucherNumber,
         data: voucherResult[0]
       };
-      
+
     } catch (error) {
       console.error('❌ Error generating voucher:', error);
       throw new Error('Failed to generate voucher: ' + error.message);
@@ -892,17 +1017,17 @@ export class MemberService {
         FROM vouchers 
         WHERE "voucherNumber" LIKE 'VCH%'
       `;
-      
+
       const maxResult = await this.memberMasterRepository.query(getMaxQuery);
       const currentMax = maxResult[0]?.max_num || 0;
       const nextNumber = currentMax + 1;
-      
+
       // Format as VCH001, VCH002, etc.
       const voucherNumber = `VCH${nextNumber.toString().padStart(3, '0')}`;
-      
+
       console.log(`📄 Generated voucher number: ${voucherNumber}`);
       return voucherNumber;
-      
+
     } catch (error) {
       console.error('❌ Error generating voucher number:', error);
       throw new Error('Failed to generate voucher number: ' + error.message);
@@ -918,13 +1043,13 @@ export class MemberService {
         SELECT COALESCE(MAX(id), 0) + 1 as next_id
         FROM vouchers
       `;
-      
+
       const maxResult = await this.memberMasterRepository.query(getMaxQuery);
       const nextId = maxResult[0]?.next_id || 1;
-      
+
       console.log(`🆔 Generated voucher ID: ${nextId}`);
       return nextId;
-      
+
     } catch (error) {
       console.error('❌ Error generating voucher ID:', error);
       throw new Error('Failed to generate voucher ID: ' + error.message);
@@ -947,11 +1072,11 @@ export class MemberService {
         WHERE v.status = 'PENDING' AND v."voucherType" = 'LOAN_DISBURSEMENT'
         ORDER BY v."voucherDate" DESC
       `;
-      
+
       const result = await this.memberMasterRepository.query(query);
-      
+
       console.log(`📋 Found ${result.length} pending vouchers`);
-      
+
       return result.map((voucher: any) => ({
         id: voucher.id,
         voucherNo: voucher.voucherNumber,
@@ -968,7 +1093,7 @@ export class MemberService {
         createdDate: voucher.voucherDate,
         createdBy: 'system'
       }));
-      
+
     } catch (error) {
       console.error('❌ Error fetching pending vouchers:', error);
       throw new Error('Failed to fetch pending vouchers: ' + error.message);
@@ -981,13 +1106,13 @@ export class MemberService {
    */
   async passTransaction(voucherNo: string, postedBy: string = 'admin') {
     const queryRunner = this.memberMasterRepository.manager.connection.createQueryRunner();
-    
+
     try {
       await queryRunner.connect();
       await queryRunner.startTransaction();
-      
+
       console.log(`🔒 Starting Pass Transaction for voucher: ${voucherNo}`);
-      
+
       // 1. Fetch voucher details with loan and member info
       const voucherQuery = `
         SELECT 
@@ -1000,24 +1125,24 @@ export class MemberService {
         JOIN member_master mm ON v."memberId" = mm.mbno
         WHERE v."voucherNumber" = $1 AND v.status = 'PENDING'
       `;
-      
+
       const voucherResult = await queryRunner.query(voucherQuery, [voucherNo]);
-      
+
       if (voucherResult.length === 0) {
         throw new Error('Voucher not found or already posted');
       }
-      
+
       const voucher = voucherResult[0];
       const loanCaseNo = voucher.remarks.match(/Loan Case: ([^,]+)/)?.[1] || '';
       const paymentMode = voucher.remarks.match(/Payment Mode: ([^,]+)/)?.[1] || 'CASH';
-      
+
       console.log(`📄 Processing voucher for member: ${voucher.member_name}`);
-      
+
       // 2. Get next transaction number
       const transNoQuery = `SELECT COALESCE(MAX(trans_no), 0) + 1 as next_trans_no FROM transactions`;
       const transNoResult = await queryRunner.query(transNoQuery);
       const nextTransNo = transNoResult[0].next_trans_no;
-      
+
       // 3. Insert to transactions table (staging for ledger)
       const transactionQuery = `
         INSERT INTO transactions (
@@ -1026,7 +1151,7 @@ export class MemberService {
           cheq_date, bankname, pass_flag, narration, username
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
       `;
-      
+
       await queryRunner.query(transactionQuery, [
         nextTransNo,                           // trans_no
         'LN',                                  // trans_type (Loan)
@@ -1045,22 +1170,22 @@ export class MemberService {
         voucher.description,                   // narration
         postedBy                              // username
       ]);
-      
+
       // 4. Insert Debit Entry to Ledger (Loan Account)
       const ledgerIdQuery = `SELECT COALESCE(MAX(ledgerid), 0) + 1 as next_ledger_id FROM ledger`;
       const ledgerIdResult = await queryRunner.query(ledgerIdQuery);
       let nextLedgerId = ledgerIdResult[0].next_ledger_id;
-      
+
       const debitLedgerQuery = `
         INSERT INTO ledger (
           trans_no, trans_date, trans_type, code, mbno, acc_type, trans_amt,
           receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
       `;
-      
+
       const loanAccountCode = this.getLoanAccountCode(voucher.loantype);
       const debitNarration = `Loan disbursement - ${voucherNo} - ${voucher.member_name}`;
-      
+
       await queryRunner.query(debitLedgerQuery, [
         nextTransNo,                          // trans_no
         new Date(),                           // trans_date
@@ -1077,11 +1202,11 @@ export class MemberService {
         postedBy,                            // username
         nextLedgerId++                       // ledgerid
       ]);
-      
+
       // 5. Insert Credit Entry to Ledger (Bank/Cash Account)
       const creditAccountCode = paymentMode === 'BANK' ? 'BANK1' : 'CASH1';
       const creditNarration = `Loan disbursement payment - ${voucherNo} - ${voucher.member_name}`;
-      
+
       await queryRunner.query(debitLedgerQuery, [
         nextTransNo,                          // trans_no
         new Date(),                           // trans_date
@@ -1098,7 +1223,7 @@ export class MemberService {
         postedBy,                            // username
         nextLedgerId++                       // ledgerid
       ]);
-      
+
       // 6. Insert Cash Book Entry (if cash payment)
       if (paymentMode === 'CASH') {
         const cashBookQuery = `
@@ -1106,7 +1231,7 @@ export class MemberService {
             headcode, headname, pcash, trans_date
           ) VALUES ($1, $2, $3, $4)
         `;
-        
+
         await queryRunner.query(cashBookQuery, [
           'CASH1',                                             // headcode
           `Loan disbursement to ${voucher.member_name}`,       // headname
@@ -1114,7 +1239,7 @@ export class MemberService {
           new Date()                                           // trans_date
         ]);
       }
-      
+
       // 7. Create Active Loan in loan_master (if table exists)
       try {
         const loanMasterQuery = `
@@ -1123,7 +1248,7 @@ export class MemberService {
             no_of_instal, instal_amt, balance, openbalance, purpose, penalrate
           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         `;
-        
+
         await queryRunner.query(loanMasterQuery, [
           voucher.memberId,                     // mbno
           voucher.loantype,                     // loantype
@@ -1141,7 +1266,7 @@ export class MemberService {
       } catch (error) {
         console.log('⚠️ loan_master table not found, skipping loan master entry');
       }
-      
+
       // 8. Mark Loan as Disbursed in loan_pending
       const updateLoanQuery = `
         UPDATE loan_pending SET
@@ -1149,12 +1274,12 @@ export class MemberService {
           payment_date = $1
         WHERE loancaseno = $2
       `;
-      
+
       await queryRunner.query(updateLoanQuery, [
         new Date(),
         loanCaseNo
       ]);
-      
+
       // 9. Mark Voucher as Posted in vouchers table
       const updateVoucherQuery = `
         UPDATE vouchers SET
@@ -1163,17 +1288,17 @@ export class MemberService {
           "authorizedAt" = $1
         WHERE "voucherNumber" = $2
       `;
-      
+
       await queryRunner.query(updateVoucherQuery, [
         new Date(),
         voucherNo
       ]);
-      
+
       // Commit transaction
       await queryRunner.commitTransaction();
-      
+
       console.log(`✅ Transaction posted successfully for voucher: ${voucherNo}`);
-      
+
       return {
         success: true,
         message: 'Transaction posted successfully',
@@ -1181,7 +1306,7 @@ export class MemberService {
         postedBy: postedBy,
         postedAt: new Date()
       };
-      
+
     } catch (error) {
       await queryRunner.rollbackTransaction();
       console.error('❌ Error in pass transaction:', error);
@@ -1202,7 +1327,7 @@ export class MemberService {
       'Short Term': 'LOAN4',
       'Long Term': 'LOAN5'
     };
-    
+
     return loanTypeCodes[loanType] || 'LOAN1';
   }
 
