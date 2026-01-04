@@ -46,7 +46,7 @@ export class MemberController {
   constructor(
     private readonly memberService: MemberService,
     private readonly signatureService: SignatureService,
-  ) {}
+  ) { }
 
   @Post()
   @ApiOperation({ summary: 'Create a new member' })
@@ -225,6 +225,21 @@ export class MemberController {
       return await this.memberService.getAllLoanCases();
     } catch (error) {
       console.error('Error getting loan cases:', error);
+      return [];
+    }
+  }
+
+  @Get('loans/sanctioned')
+  @ApiOperation({ summary: 'Get all sanctioned loan cases ready for disbursement' })
+  @ApiResponse({
+    status: 200,
+    description: 'Sanctioned loan cases retrieved successfully',
+  })
+  async getSanctionedLoanCases() {
+    try {
+      return await this.memberService.getSanctionedLoanCases();
+    } catch (error) {
+      console.error('Error getting sanctioned loan cases:', error);
       return [];
     }
   }
@@ -487,13 +502,13 @@ export class MemberController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
     const { filePath, mimeType } = await this.signatureService.getSignature(id);
-    
+
     const file = fs.createReadStream(filePath);
     res.set({
       'Content-Type': mimeType,
       'Content-Disposition': `inline; filename="member_${id}_signature"`,
     });
-    
+
     return new StreamableFile(file);
   }
 

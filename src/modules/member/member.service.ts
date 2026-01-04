@@ -779,8 +779,8 @@ export class MemberService {
       const insertQuery = `
         INSERT INTO loan_pending (
           mbno, loantype, loancaseno, applied_amt, sanctioned_amt, app_date,
-          no_of_instal, purpose, flg_sanctioned, flg_paid
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+          no_of_instal, purpose, flg_sanctioned, flg_paid, form_number, g1mbno, g2mbno
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
         RETURNING *
       `;
 
@@ -794,7 +794,10 @@ export class MemberService {
         loanData.noOfInstallments || 60,
         loanData.reason || loanData.purpose || '',
         'N', // flg_sanctioned = 'N' (not sanctioned yet)
-        'N'  // flg_paid = 'N' (not paid yet)
+        'N', // flg_paid = 'N' (not paid yet)
+        loanData.formNumber || '0',
+        loanData.surety1 || '0',
+        loanData.surety2 || '0'
       ]);
 
       console.log(`✅ Loan application saved successfully. Case No: ${loanCaseNo}`);
@@ -829,7 +832,7 @@ export class MemberService {
           lp.app_date as application_date
         FROM loan_pending lp
         JOIN member_master mm ON lp.mbno = mm.mbno
-        WHERE lp.flg_sanctioned = 'Y' AND lp.flg_paid = 'N'
+        WHERE lp.flg_paid = 'N'
         ORDER BY lp.app_date DESC
       `;
 
@@ -842,10 +845,51 @@ export class MemberService {
         loanType: loan.loantype,
         appliedAmount: loan.applied_amt,
         sanctionedAmount: loan.sanctioned_amt,
-        applicationDate: loan.application_date
+        applicationDate: loan.application_date,
+        sanctioned: loan.flg_sanctioned === 'Y'
       }));
     } catch (error) {
       console.error('Error getting loan cases:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get all sanctioned loan cases ready for disbursement
+   */
+  async getSanctionedLoanCases() {
+    try {
+      const query = `
+        SELECT 
+          lp.loancaseno,
+          lp.mbno,
+          TRIM(COALESCE(mm.f_name, '') || ' ' || COALESCE(mm.m_name, '') || ' ' || COALESCE(mm.l_name, '')) as member_name,
+          lp.loantype,
+          lp.applied_amt,
+          lp.sanctioned_amt,
+          lp.flg_sanctioned,
+          lp.flg_paid,
+          lp.app_date as application_date
+        FROM loan_pending lp
+        JOIN member_master mm ON lp.mbno = mm.mbno
+        WHERE lp.flg_sanctioned = 'Y' AND lp.flg_paid = 'N'
+        ORDER BY lp.app_date ASC
+      `;
+
+      const result = await this.memberMasterRepository.query(query);
+
+      return result.map((loan: any) => ({
+        loanCaseNo: loan.loancaseno,
+        memberNo: loan.mbno,
+        memberName: loan.member_name,
+        loanType: loan.loantype,
+        appliedAmount: loan.applied_amt,
+        sanctionedAmount: loan.sanctioned_amt,
+        applicationDate: loan.application_date,
+        sanctioned: true
+      }));
+    } catch (error) {
+      console.error('Error getting sanctioned loan cases:', error);
       return [];
     }
   }
@@ -858,9 +902,53 @@ export class MemberService {
       const query = `
         SELECT 
           lp.*,
-          TRIM(COALESCE(mm.f_name, '') || ' ' || COALESCE(mm.m_name, '') || ' ' || COALESCE(mm.l_name, '')) as member_name
+          TRIM(COALESCE(mm.f_name, '') || ' ' || COALESCE(mm.m_name, '') || ' ' || COALESCE(mm.l_name, '')) as member_name,
+          mm.officeno,
+          mm.basic_pay,
+          COALESCE(d.name, 'Unknown Office') as office_name,
+          COALESCE(mb.shares, 0) as share_amount,
+          COALESCE(mb.regularloan, 0) as regular_loan_balance,
+          COALESCE(mb.emergency_loan_balance, 0) as emergency_loan_balance,
+          
+          -- Derive Account Head Code & Name based on Loan Type
+          CASE 
+            WHEN lp.loantype = 'R' OR lp.loantype = 'REG' THEN 'A1002'
+            WHEN lp.loantype = 'E' OR lp.loantype = 'EMR' THEN 'A1047'
+            -- Add other types if known, e.g., 'M' -> 'Axxxx'
+            ELSE 'A1047' -- Default to Emergency/General Loan if unknown
+          END as h_code,
+          
+          CASE 
+            WHEN lp.loantype = 'R' OR lp.loantype = 'REG' THEN 'REGULAR LOAN'
+            WHEN lp.loantype = 'E' OR lp.loantype = 'EMR' THEN 'EMERGENCY LOAN'
+            ELSE 'LOAN ACCOUNT'
+          END as h_name,
+
+          -- Surety 1 Details
+          TRIM(COALESCE(s1.f_name, '') || ' ' || COALESCE(s1.m_name, '') || ' ' || COALESCE(s1.l_name, '')) as s1_name,
+          COALESCE(s1_d.name, 'Unknown Office') as s1_office,
+          (COALESCE(s1_mb.regularloan, 0) + COALESCE(s1_mb.emergency_loan_balance, 0)) as s1_loan_balance,
+
+          -- Surety 2 Details
+          TRIM(COALESCE(s2.f_name, '') || ' ' || COALESCE(s2.m_name, '') || ' ' || COALESCE(s2.l_name, '')) as s2_name,
+          COALESCE(s2_d.name, 'Unknown Office') as s2_office,
+          (COALESCE(s2_mb.regularloan, 0) + COALESCE(s2_mb.emergency_loan_balance, 0)) as s2_loan_balance
+
         FROM loan_pending lp
         JOIN member_master mm ON lp.mbno = mm.mbno
+        LEFT JOIN division_master d ON mm.officeno = d.officeno AND mm.wingno = d.wingno
+        LEFT JOIN member_balances mb ON lp.mbno = mb.mbno
+
+        -- Join for Surety 1
+        LEFT JOIN member_master s1 ON lp.g1mbno = s1.mbno
+        LEFT JOIN division_master s1_d ON s1.officeno = s1_d.officeno AND s1.wingno = s1_d.wingno
+        LEFT JOIN member_balances s1_mb ON s1.mbno = s1_mb.mbno
+
+        -- Join for Surety 2
+        LEFT JOIN member_master s2 ON lp.g2mbno = s2.mbno
+        LEFT JOIN division_master s2_d ON s2.officeno = s2_d.officeno AND s2.wingno = s2_d.wingno
+        LEFT JOIN member_balances s2_mb ON s2.mbno = s2_mb.mbno
+
         WHERE lp.loancaseno = $1
       `;
 
@@ -871,12 +959,17 @@ export class MemberService {
       }
 
       const loan = result[0];
+      console.log('DEBUG: Fetched Loan Details for Case:', caseNo, JSON.stringify(loan, null, 2));
 
-      return {
+      const response = {
         loanCaseNo: loan.loancaseno,
         memberNo: loan.mbno,
         memberName: loan.member_name,
+        officeNo: loan.officeno,
+        officeName: loan.office_name,
         loanType: loan.loantype,
+        hCode: loan.h_code, // Mapped
+        hName: loan.h_name, // Mapped
         appliedAmount: loan.applied_amt,
         sanctionedAmount: loan.sanctioned_amt,
         applicationDate: loan.app_date,
@@ -884,10 +977,25 @@ export class MemberService {
         noOfInstallments: loan.no_of_instal,
         purpose: loan.purpose,
         formNumber: loan.form_number || '0',
+        basicPay: loan.basic_pay || '0',
+        shareAmount: loan.share_amount || '0',
+        currentBalance: (parseFloat(loan.regular_loan_balance || 0) + parseFloat(loan.emergency_loan_balance || 0)).toString(),
+
         surety1: loan.g1mbno || '0',
+        surety1Name: loan.s1_name || '',
+        surety1Office: loan.s1_office || '',
+        surety1LoanBalance: loan.s1_loan_balance || '0',
+
         surety2: loan.g2mbno || '0',
+        surety2Name: loan.s2_name || '',
+        surety2Office: loan.s2_office || '',
+        surety2LoanBalance: loan.s2_loan_balance || '0',
+
         surety3: loan.g3mbno || '0'
       };
+
+      console.log('DEBUG: Final Mapped Response:', JSON.stringify(response, null, 2));
+      return response;
     } catch (error) {
       console.error('Error getting loan details:', error);
       throw error;
@@ -936,23 +1044,24 @@ export class MemberService {
    * Uses existing vouchers table with sequential number
    */
   async generateLoanVoucher(voucherData: any) {
+    const queryRunner = this.memberMasterRepository.manager.connection.createQueryRunner();
     try {
+      await queryRunner.connect();
+      await queryRunner.startTransaction();
+
       console.log('🎯 Generating voucher for loan disbursement:', voucherData);
 
       // 1. Get and increment voucher number
       const voucherNumber = await this.getNextVoucherNumber();
 
-      // 2. Get next voucher ID
-      const voucherId = await this.getNextVoucherId();
-
-      // 3. Validate loan case exists and is sanctioned
+      // 2. Validate loan case exists and is sanctioned
       const loanQuery = `
         SELECT loancaseno, mbno, sanctioned_amt, flg_sanctioned, flg_paid
         FROM loan_pending 
         WHERE loancaseno = $1 AND flg_sanctioned = 'Y' AND flg_paid = 'N'
       `;
 
-      const loanResult = await this.memberMasterRepository.query(loanQuery, [voucherData.loanCaseNo]);
+      const loanResult = await queryRunner.query(loanQuery, [voucherData.loanCaseNo]);
 
       if (loanResult.length === 0) {
         throw new Error('Loan case not found or not sanctioned or already disbursed');
@@ -960,36 +1069,52 @@ export class MemberService {
 
       const loan = loanResult[0];
 
-      // 4. Insert voucher to existing vouchers table
+      // 3. Insert voucher to voucher_staging table
       const insertQuery = `
-        INSERT INTO vouchers (
-          "id", "voucherNumber", "voucherDate", "voucherType", "totalAmount", 
-          "description", "memberId", "payeeName", "chequeNumber", 
-          "chequeDate", "bankName", "status", "remarks", "createdAt"
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        INSERT INTO voucher_staging (
+          "voucher_no", "loan_case_no", "amount", "payment_mode", 
+          "bank_details", "cheque_no", "cheque_date", "narration", "is_posted", "created_at", "status"
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         RETURNING *
       `;
 
       const insertValues = [
-        voucherId,
         voucherNumber,
-        new Date(),
-        'LOAN_DISBURSEMENT',
-        voucherData.amount || loan.sanctioned_amt,
-        voucherData.narration || `Loan disbursement for case ${voucherData.loanCaseNo}`,
-        parseInt(loan.mbno),
-        `Loan Case: ${voucherData.loanCaseNo}`,
-        voucherData.chequeNo || null,
-        voucherData.chequeDate || null,
+        voucherData.loanCaseNo,
+        voucherData.actualAmount || loan.sanctioned_amt,
+        voucherData.paymentMode,
         voucherData.bankName || null,
-        'PENDING', // Status: PENDING until posted to ledger
-        `Loan Case: ${voucherData.loanCaseNo}, Payment Mode: ${voucherData.paymentMode}`,
-        new Date()
+        voucherData.chequeNo || null,
+        voucherData.chequeDate ? new Date(voucherData.chequeDate) : null,
+        voucherData.narration || `Loan disbursement for case ${voucherData.loanCaseNo}`,
+        false, // is_posted
+        new Date(),
+        'PENDING'
       ];
 
-      const voucherResult = await this.memberMasterRepository.query(insertQuery, insertValues);
+      const voucherResult = await queryRunner.query(insertQuery, insertValues);
 
-      console.log(`✅ Voucher ${voucherNumber} generated successfully`);
+      // 4. Insert Breakdown Details
+      if (voucherData.breakdown && Array.isArray(voucherData.breakdown)) {
+        for (const entry of voucherData.breakdown) {
+          const detailQuery = `
+            INSERT INTO voucher_staging_details (
+              voucher_no, sr_no, code, name, type, amount
+            ) VALUES ($1, $2, $3, $4, $5, $6)
+          `;
+          await queryRunner.query(detailQuery, [
+            voucherNumber,
+            parseInt(entry.srNo) || 0,
+            entry.code,
+            entry.name,
+            entry.rp,
+            entry.amount
+          ]);
+        }
+      }
+
+      await queryRunner.commitTransaction();
+      console.log(`✅ Voucher ${voucherNumber} generated successfully with details`);
 
       return {
         success: true,
@@ -999,8 +1124,11 @@ export class MemberService {
       };
 
     } catch (error) {
+      await queryRunner.rollbackTransaction();
       console.error('❌ Error generating voucher:', error);
       throw new Error('Failed to generate voucher: ' + error.message);
+    } finally {
+      await queryRunner.release();
     }
   }
 
@@ -1011,21 +1139,27 @@ export class MemberService {
    */
   private async getNextVoucherNumber(): Promise<string> {
     try {
-      // Get current max voucher number from vouchers table
+      // Get current max voucher number from both permanent and staging tables
       const getMaxQuery = `
-        SELECT COALESCE(MAX(CAST(SUBSTRING("voucherNumber" FROM 4) AS INTEGER)), 0) as max_num
-        FROM vouchers 
-        WHERE "voucherNumber" LIKE 'VCH%'
+        SELECT MAX(num) as max_num FROM (
+          SELECT COALESCE(MAX(CAST(SUBSTRING("voucherNumber" FROM 4) AS INTEGER)), 0) as num
+          FROM vouchers 
+          WHERE "voucherNumber" LIKE 'VCH%'
+          UNION ALL
+          SELECT COALESCE(MAX(CAST(SUBSTRING(voucher_no FROM 4) AS INTEGER)), 0) as num
+          FROM voucher_staging
+          WHERE voucher_no LIKE 'VCH%'
+        ) combined
       `;
 
       const maxResult = await this.memberMasterRepository.query(getMaxQuery);
       const currentMax = maxResult[0]?.max_num || 0;
       const nextNumber = currentMax + 1;
 
-      // Format as VCH001, VCH002, etc.
+      // Format as VCH001, VCH002, etc. (using 3 digits padding as per current style)
       const voucherNumber = `VCH${nextNumber.toString().padStart(3, '0')}`;
 
-      console.log(`📄 Generated voucher number: ${voucherNumber}`);
+      console.log(`📄 Generated safe voucher number: ${voucherNumber}`);
       return voucherNumber;
 
     } catch (error) {
@@ -1063,36 +1197,55 @@ export class MemberService {
     try {
       const query = `
         SELECT 
-          v.*,
+          vs.*,
           lp.loantype,
-          TRIM(COALESCE(mm.f_name, '') || ' ' || COALESCE(mm.m_name, '') || ' ' || COALESCE(mm.l_name, '')) as member_name
-        FROM vouchers v
-        JOIN loan_pending lp ON v.remarks LIKE '%Loan Case: ' || lp.loancaseno || '%'
-        JOIN member_master mm ON v."memberId" = mm.mbno
-        WHERE v.status = 'PENDING' AND v."voucherType" = 'LOAN_DISBURSEMENT'
-        ORDER BY v."voucherDate" DESC
+          TRIM(COALESCE(mm.f_name, '') || ' ' || COALESCE(mm.m_name, '') || ' ' || COALESCE(mm.l_name, '')) as member_name,
+          mm.mbno
+        FROM voucher_staging vs
+        JOIN loan_pending lp ON vs.loan_case_no = lp.loancaseno::text
+        JOIN member_master mm ON lp.mbno = mm.mbno
+        WHERE vs.status = 'PENDING' AND vs.is_posted = FALSE
+        ORDER BY vs.created_at DESC
       `;
 
       const result = await this.memberMasterRepository.query(query);
 
-      console.log(`📋 Found ${result.length} pending vouchers`);
+      // For each voucher, fetch its details
+      const vouchersWithDetails = [];
+      for (const row of result) {
+        const detailsQuery = `SELECT * FROM voucher_staging_details WHERE voucher_no = $1 ORDER BY sr_no`;
+        const details = await this.memberMasterRepository.query(detailsQuery, [row.voucher_no]);
 
-      return result.map((voucher: any) => ({
-        id: voucher.id,
-        voucherNo: voucher.voucherNumber,
-        loanCaseNo: voucher.remarks.match(/Loan Case: ([^,]+)/)?.[1] || '',
-        memberNo: voucher.memberId,
-        memberName: voucher.member_name,
-        loanType: voucher.loantype,
-        amount: voucher.totalAmount,
-        paymentMode: voucher.remarks.match(/Payment Mode: ([^,]+)/)?.[1] || '',
-        chequeNo: voucher.chequeNumber,
-        bankName: voucher.bankName,
-        chequeDate: voucher.chequeDate,
-        narration: voucher.description,
-        createdDate: voucher.voucherDate,
-        createdBy: 'system'
-      }));
+        vouchersWithDetails.push({
+          id: row.id,
+          trNo: '', // Placeholder as it's not yet posted
+          voucherNo: row.voucher_no,
+          memberNo: row.mbno,
+          memberName: row.member_name,
+          noOfAcc: '1', // Default
+          head: row.loantype,
+          transType: 'Payment',
+          amount: parseFloat(row.amount),
+          vchrType: 'Loan Disbursement',
+          chequeNo: row.cheque_no,
+          chequeDate: row.cheque_date,
+          chequeAmount: row.payment_mode === 'BANK' || row.payment_mode === 'bank' ? parseFloat(row.amount) : 0,
+          bankName: row.bank_details,
+          passFlag: row.status,
+          narration: row.narration,
+          loanCaseNo: row.loan_case_no,
+          createdDate: row.created_at,
+          breakdown: details.map((d: any) => ({
+            srNo: d.sr_no.toString(),
+            code: d.code,
+            name: d.name,
+            rp: d.type,
+            amount: parseFloat(d.amount)
+          }))
+        });
+      }
+
+      return vouchersWithDetails;
 
     } catch (error) {
       console.error('❌ Error fetching pending vouchers:', error);
@@ -1102,7 +1255,7 @@ export class MemberService {
 
   /**
    * Pass Transaction - Final Posting (Step 4)
-   * Move voucher from vouchers table to permanent ledger (IRREVERSIBLE)
+   * Move voucher from staging to permanent ledger, activate loan, and update cashbook.
    */
   async passTransaction(voucherNo: string, postedBy: string = 'admin') {
     const queryRunner = this.memberMasterRepository.manager.connection.createQueryRunner();
@@ -1113,203 +1266,132 @@ export class MemberService {
 
       console.log(`🔒 Starting Pass Transaction for voucher: ${voucherNo}`);
 
-      // 1. Fetch voucher details with loan and member info
-      const voucherQuery = `
-        SELECT 
-          v.*,
-          lp.loantype, lp.sanctioned_amt, lp.no_of_instal, 
-          lp.purpose,
-          TRIM(COALESCE(mm.f_name, '') || ' ' || COALESCE(mm.m_name, '') || ' ' || COALESCE(mm.l_name, '')) as member_name
-        FROM vouchers v
-        JOIN loan_pending lp ON v.remarks LIKE '%Loan Case: ' || lp.loancaseno || '%'
-        JOIN member_master mm ON v."memberId" = mm.mbno
-        WHERE v."voucherNumber" = $1 AND v.status = 'PENDING'
-      `;
-
+      // 1. Fetch voucher from staging
+      const voucherQuery = `SELECT * FROM voucher_staging WHERE voucher_no = $1 AND status = 'PENDING'`;
       const voucherResult = await queryRunner.query(voucherQuery, [voucherNo]);
-
       if (voucherResult.length === 0) {
         throw new Error('Voucher not found or already posted');
       }
+      const stagingVoucher = voucherResult[0];
 
-      const voucher = voucherResult[0];
-      const loanCaseNo = voucher.remarks.match(/Loan Case: ([^,]+)/)?.[1] || '';
-      const paymentMode = voucher.remarks.match(/Payment Mode: ([^,]+)/)?.[1] || 'CASH';
+      // 2. Fetch breakdown details
+      const detailsQuery = `SELECT * FROM voucher_staging_details WHERE voucher_no = $1 ORDER BY sr_no`;
+      const details = await queryRunner.query(detailsQuery, [voucherNo]);
 
-      console.log(`📄 Processing voucher for member: ${voucher.member_name}`);
+      // 3. Fetch loan pending data
+      const lpQuery = `SELECT * FROM loan_pending WHERE loancaseno::text = $1`;
+      const lpResult = await queryRunner.query(lpQuery, [stagingVoucher.loan_case_no]);
+      if (lpResult.length === 0) throw new Error('Loan case not found in loan_pending');
+      const loan = lpResult[0];
 
-      // 2. Get next transaction number
-      const transNoQuery = `SELECT COALESCE(MAX(trans_no), 0) + 1 as next_trans_no FROM transactions`;
-      const transNoResult = await queryRunner.query(transNoQuery);
-      const nextTransNo = transNoResult[0].next_trans_no;
+      // 4. Fetch rates from busrules
+      const brQuery = `SELECT rlnrate, rlnpenalrate, elnrate FROM busrules ORDER BY appdate DESC LIMIT 1`;
+      const brResult = await queryRunner.query(brQuery);
+      const br = brResult[0] || {};
 
-      // 3. Insert to transactions table (staging for ledger)
-      const transactionQuery = `
-        INSERT INTO transactions (
-          trans_no, trans_type, trans_date, mbno, acc_type, trans_amt,
-          receipt_vchr_no, vchr_type, modeofpay, cheq_no, cheq_amt,
-          cheq_date, bankname, pass_flag, narration, username
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-      `;
-
-      await queryRunner.query(transactionQuery, [
-        nextTransNo,                           // trans_no
-        'LN',                                  // trans_type (Loan)
-        new Date(),                            // trans_date
-        voucher.memberId,                      // mbno
-        'LOAN',                               // acc_type
-        voucher.totalAmount,                   // trans_amt
-        voucherNo,                            // receipt_vchr_no
-        'LN',                                 // vchr_type
-        paymentMode === 'BANK' ? 'BK' : 'CS', // modeofpay (2 chars max for transactions table)
-        voucher.chequeNumber || null,          // cheq_no
-        voucher.totalAmount,                   // cheq_amt
-        voucher.chequeDate || null,            // cheq_date
-        voucher.bankName || null,              // bankname
-        'Y',                                  // pass_flag (posted)
-        voucher.description,                   // narration
-        postedBy                              // username
-      ]);
-
-      // 4. Insert Debit Entry to Ledger (Loan Account)
-      const ledgerIdQuery = `SELECT COALESCE(MAX(ledgerid), 0) + 1 as next_ledger_id FROM ledger`;
-      const ledgerIdResult = await queryRunner.query(ledgerIdQuery);
-      let nextLedgerId = ledgerIdResult[0].next_ledger_id;
-
-      const debitLedgerQuery = `
-        INSERT INTO ledger (
-          trans_no, trans_date, trans_type, code, mbno, acc_type, trans_amt,
-          receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-      `;
-
-      const loanAccountCode = this.getLoanAccountCode(voucher.loantype);
-      const debitNarration = `Loan disbursement - ${voucherNo} - ${voucher.member_name}`;
-
-      await queryRunner.query(debitLedgerQuery, [
-        nextTransNo,                          // trans_no
-        new Date(),                           // trans_date
-        'LN',                                // trans_type
-        loanAccountCode,                      // code (loan account)
-        voucher.memberId,                     // mbno
-        'LOAN',                              // acc_type
-        voucher.totalAmount,                  // trans_amt (debit)
-        voucherNo,                           // receipt_vchr_no
-        'LN',                                // vchr_type
-        paymentMode === 'BANK' ? 'B' : 'C',  // modeofpay (1 char max: B=Bank, C=Cash)
-        voucher.totalAmount,                  // pl_balance (loan balance)
-        debitNarration,                       // narration
-        postedBy,                            // username
-        nextLedgerId++                       // ledgerid
-      ]);
-
-      // 5. Insert Credit Entry to Ledger (Bank/Cash Account)
-      const creditAccountCode = paymentMode === 'BANK' ? 'BANK1' : 'CASH1';
-      const creditNarration = `Loan disbursement payment - ${voucherNo} - ${voucher.member_name}`;
-
-      await queryRunner.query(debitLedgerQuery, [
-        nextTransNo,                          // trans_no
-        new Date(),                           // trans_date
-        'LN',                                // trans_type
-        creditAccountCode,                    // code (bank/cash account)
-        voucher.memberId,                     // mbno
-        paymentMode === 'BANK' ? 'BANK' : 'CASH', // acc_type
-        -voucher.totalAmount,                 // trans_amt (credit - negative)
-        voucherNo,                           // receipt_vchr_no
-        'LN',                                // vchr_type
-        paymentMode === 'BANK' ? 'B' : 'C',  // modeofpay (1 char max: B=Bank, C=Cash)
-        -voucher.totalAmount,                 // pl_balance (negative for outflow)
-        creditNarration,                      // narration
-        postedBy,                            // username
-        nextLedgerId++                       // ledgerid
-      ]);
-
-      // 6. Insert Cash Book Entry (if cash payment)
-      if (paymentMode === 'CASH') {
-        const cashBookQuery = `
-          INSERT INTO tblcashbook (
-            headcode, headname, pcash, trans_date
-          ) VALUES ($1, $2, $3, $4)
-        `;
-
-        await queryRunner.query(cashBookQuery, [
-          'CASH1',                                             // headcode
-          `Loan disbursement to ${voucher.member_name}`,       // headname
-          voucher.totalAmount,                                 // pcash (payment cash)
-          new Date()                                           // trans_date
-        ]);
+      let rate = 12;
+      let penalrate = 2;
+      if (loan.loantype === 'R' || loan.loantype === 'REG') {
+        rate = br.rlnrate || 12;
+        penalrate = br.rlnpenalrate || 2;
+      } else if (loan.loantype === 'E' || loan.loantype === 'EMR') {
+        rate = br.elnrate || 12;
+        penalrate = 2;
       }
 
-      // 7. Create Active Loan in loan_master (if table exists)
-      try {
-        const loanMasterQuery = `
-          INSERT INTO loan_master (
-            mbno, loantype, loancaseno, loan_amt, payment_date, rate,
-            no_of_instal, instal_amt, balance, openbalance, purpose, penalrate
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      // Convert money types/strings to float
+      const parseMoney = (val: any) => parseFloat(val.toString().replace(/[^0-9.-]+/g, "")) || 0;
+      const sanctionedAmt = parseMoney(loan.sanctioned_amt);
+      const noOfInstal = loan.no_of_instal || 1;
+      const instalAmt = Math.round(sanctionedAmt / noOfInstal);
+
+      // 5. Activate Loan: Insert into loan_master
+      const insertLoanMasterQuery = `
+        INSERT INTO loan_master (
+          mbno, loantype, loancaseno, loan_amt, payment_date, 
+          rate, no_of_instal, instal_amt, balance, openbalance, 
+          purpose, intt_amount, penalrate
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      `;
+      await queryRunner.query(insertLoanMasterQuery, [
+        loan.mbno, loan.loantype, loan.loancaseno, sanctionedAmt, new Date(),
+        rate, noOfInstal, instalAmt, sanctionedAmt, sanctionedAmt,
+        loan.purpose, 0, penalrate
+      ]);
+
+      // 6. Update loan_pending status
+      await queryRunner.query(
+        `UPDATE loan_pending SET flg_paid = 'Y' WHERE loancaseno::text = $1`,
+        [loan.loancaseno]
+      );
+
+      // 7. Core Financial Posting: Ledger and Cashbook
+      const maxLedgerIdResult = await queryRunner.query("SELECT COALESCE(MAX(ledgerid), 0) as max_id FROM ledger");
+      let nextLedgerId = parseInt(maxLedgerIdResult[0].max_id) + 1;
+
+      const maxTransNoResult = await queryRunner.query("SELECT COALESCE(MAX(trans_no), 0) as max_no FROM ledger");
+      let nextTransNo = parseInt(maxTransNoResult[0].max_no) + 1;
+
+      for (const entry of details) {
+        const amt = parseFloat(entry.amount);
+        const type = entry.type; // 'Receipt' or 'Payment'
+        const mode = stagingVoucher.payment_mode === 'CASH' ? 'C' : 'T'; // C=Cash, T=Transfer
+
+        // Ledger Insert
+        const ledgerInsert = `
+          INSERT INTO ledger (
+            trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type,
+            trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance,
+            narration, username, ledgerid
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
         `;
 
-        await queryRunner.query(loanMasterQuery, [
-          voucher.memberId,                     // mbno
-          voucher.loantype,                     // loantype
-          loanCaseNo,                          // loancaseno
-          voucher.sanctioned_amt,               // loan_amt (money type)
-          new Date(),                           // payment_date (disbursement date)
-          12.5,                                // rate (money type - default rate)
-          voucher.no_of_instal || 60,           // no_of_instal
-          Math.round(voucher.sanctioned_amt / (voucher.no_of_instal || 60)), // instal_amt (money type)
-          voucher.sanctioned_amt,               // balance (initial = full amount)
-          voucher.sanctioned_amt,               // openbalance (opening = full amount)
-          voucher.purpose || '',                // purpose
-          2.0                                  // penalrate (default penalty rate)
+        await queryRunner.query(ledgerInsert, [
+          nextTransNo, new Date(), type === 'Receipt' ? 'R' : 'P', entry.code, loan.mbno,
+          loan.loancaseno, loan.loantype,
+          amt, stagingVoucher.voucher_no, 'JV', mode, 0,
+          stagingVoucher.narration, postedBy, nextLedgerId
         ]);
-      } catch (error) {
-        console.log('⚠️ loan_master table not found, skipping loan master entry');
+
+        // Cashbook Insert/Log
+        const cbQuery = `
+          INSERT INTO tblcashbook (headcode, headname, rcash, rtransfer, pcash, ptransfer, trans_date)
+          VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `;
+
+        let rcash = 0, rtransfer = 0, pcash = 0, ptransfer = 0;
+        if (type === 'Receipt') {
+          if (mode === 'C') rcash = amt; else rtransfer = amt;
+        } else {
+          if (mode === 'C') pcash = amt; else ptransfer = amt;
+        }
+
+        await queryRunner.query(cbQuery, [
+          entry.code, entry.name, rcash, rtransfer, pcash, ptransfer, new Date()
+        ]);
+
+        nextLedgerId++;
+        nextTransNo++;
       }
 
-      // 8. Mark Loan as Disbursed in loan_pending
-      const updateLoanQuery = `
-        UPDATE loan_pending SET
-          flg_paid = 'Y',
-          payment_date = $1
-        WHERE loancaseno = $2
-      `;
+      // 8. Lock Voucher in staging
+      await queryRunner.query(
+        `UPDATE voucher_staging SET status = 'POSTED', is_posted = TRUE WHERE voucher_no = $1`,
+        [voucherNo]
+      );
 
-      await queryRunner.query(updateLoanQuery, [
-        new Date(),
-        loanCaseNo
-      ]);
-
-      // 9. Mark Voucher as Posted in vouchers table
-      const updateVoucherQuery = `
-        UPDATE vouchers SET
-          status = 'POSTED',
-          "authorizedBy" = 1,
-          "authorizedAt" = $1
-        WHERE "voucherNumber" = $2
-      `;
-
-      await queryRunner.query(updateVoucherQuery, [
-        new Date(),
-        voucherNo
-      ]);
-
-      // Commit transaction
       await queryRunner.commitTransaction();
-
-      console.log(`✅ Transaction posted successfully for voucher: ${voucherNo}`);
+      console.log(`✅ Final Posting Complete for voucher: ${voucherNo}`);
 
       return {
         success: true,
-        message: 'Transaction posted successfully',
-        voucherNo: voucherNo,
-        postedBy: postedBy,
-        postedAt: new Date()
+        message: 'Transaction passed and posted successfully to Ledger and Cashbook',
+        voucherNo: voucherNo
       };
 
     } catch (error) {
       await queryRunner.rollbackTransaction();
-      console.error('❌ Error in pass transaction:', error);
+      console.error('❌ Error in pass transaction final posting:', error);
       throw new Error('Failed to post transaction: ' + error.message);
     } finally {
       await queryRunner.release();
