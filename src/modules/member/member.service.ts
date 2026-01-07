@@ -1013,13 +1013,13 @@ export class MemberService {
           sanctioned_date = $2,
           no_of_instal = $3,
           flg_sanctioned = 'Y'
-        WHERE loancaseno = $4
+        WHERE loancaseno::numeric = $4::numeric
         RETURNING *
       `;
 
       const result = await this.memberMasterRepository.query(updateQuery, [
         sanctionData.sanctionedAmount,
-        sanctionData.sanctionDate,
+        sanctionData.sanctionDate || new Date(),
         sanctionData.noOfInstallments,
         caseNo
       ]);
@@ -1451,5 +1451,60 @@ export class MemberService {
     });
 
     return new MemberResponseDto(restoredMember!);
+  }
+  async changeLoanSurety(caseNo: string, suretyData: { surety1: string, surety2?: string }) {
+    const queryRunner = this.memberMasterRepository.manager.connection.createQueryRunner();
+    try {
+      await queryRunner.connect();
+      await queryRunner.startTransaction();
+
+      console.log(`🔄 Changing sureties for loan case: ${caseNo}`);
+
+      // 1. Update loan_pending
+      const updateLpQuery = `
+        UPDATE loan_pending 
+        SET g1mbno = $1, g2mbno = $2 
+        WHERE loancaseno::text = $3
+        RETURNING mbno
+      `;
+      const lpResult = await queryRunner.query(updateLpQuery, [
+        suretyData.surety1,
+        suretyData.surety2 || '0',
+        caseNo
+      ]);
+
+      if (lpResult.length === 0) {
+        throw new Error('Loan case not found');
+      }
+
+      const mbNo = lpResult[0].mbno;
+
+      // 2. Update suretymaster if exists
+      const updateSmQuery = `
+        UPDATE suretymaster 
+        SET g1mbno = $1, g2mbno = $2 
+        WHERE mbno = $3
+      `;
+      await queryRunner.query(updateSmQuery, [
+        suretyData.surety1,
+        suretyData.surety2 || '0',
+        mbNo
+      ]);
+
+      await queryRunner.commitTransaction();
+      console.log('✅ Sureties changed and committed successfully');
+
+      return {
+        success: true,
+        message: 'Loan sureties updated successfully'
+      };
+
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      console.error('❌ Error changing loan sureties:', error);
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
   }
 }

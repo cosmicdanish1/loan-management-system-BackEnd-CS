@@ -540,4 +540,20 @@ export class MemberController {
   async getSignatureStatistics() {
     return this.signatureService.getSignatureStatistics();
   }
+
+  @Patch('loans/change-surety/:caseNo')
+  @ApiOperation({ summary: 'Change Loan Sureties/Guarantors' })
+  @ApiParam({ name: 'caseNo', type: 'string', description: 'Loan Case Number' })
+  @ApiResponse({ status: 200, description: 'Sureties updated successfully' })
+  async changeLoanSurety(
+    @Param('caseNo') caseNo: string,
+    @Body() suretyData: { surety1: string, surety2?: string }
+  ) {
+    try {
+      return await this.memberService.changeLoanSurety(caseNo, suretyData);
+    } catch (error) {
+      console.error('❌ Error in changeLoanSurety:', error);
+      throw error;
+    }
+  }
 }
