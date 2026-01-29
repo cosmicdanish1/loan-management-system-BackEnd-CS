@@ -37,6 +37,7 @@ import {
   UpdateDepositSlabDto,
   DepositSlabResponseDto,
 } from '../dto';
+import { BulkUpdateBusinessRulesDto } from '../dto/bulk-update-rules.dto';
 import {
   ConfigCategory,
 } from '../entities/system-config.entity';
@@ -52,7 +53,7 @@ import {
 @UseGuards(JwtAuthGuard, RoleGuard, PermissionsGuard)
 @Controller('admin/config')
 export class SystemConfigController {
-  constructor(private readonly systemConfigService: SystemConfigService) {}
+  constructor(private readonly systemConfigService: SystemConfigService) { }
 
   // System Configuration Endpoints
   @Post('system')
@@ -147,6 +148,32 @@ export class SystemConfigController {
   async initializeDefaultConfigs(): Promise<{ message: string }> {
     await this.systemConfigService.initializeDefaultConfigs();
     return { message: 'Default configurations initialized successfully' };
+  }
+
+  @Get('business-rules')
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @ApiOperation({ summary: 'Get all business rules in a flat structure' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Business rules retrieved successfuly',
+  })
+  async getBusinessRules(): Promise<any> {
+    return this.systemConfigService.getBusinessRules();
+  }
+
+  @Post('business-rules/bulk')
+  @Roles(UserRole.ADMIN)
+  @RequirePermissions(UserPermission.MANAGE_SYSTEM_CONFIG)
+  @ApiOperation({ summary: 'Update multiple business rules at once' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Business rules updated successfully',
+  })
+  async bulkUpdateBusinessRules(
+    @Body() updateDto: BulkUpdateBusinessRulesDto,
+  ): Promise<{ message: string }> {
+    await this.systemConfigService.bulkUpdateBusinessRules(updateDto.rules);
+    return { message: 'Business rules updated successfully' };
   }
 
   // Interest Rate Endpoints

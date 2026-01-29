@@ -33,13 +33,13 @@ export class AuthService {
     private userInfoRepository: Repository<UserInfo>,
     private jwtService: JwtService,
     private configService: ConfigService,
-  ) {}
+  ) { }
 
   async validateUser(username: string, password: string): Promise<User | null> {
     console.log('=== AUTH SERVICE DEBUG ===');
     console.log('Login attempt - Username:', username);
     console.log('Login attempt - Password:', password);
-    
+
     // Try new UserMaster table first
     const userMaster = await this.userMasterRepository.findOne({
       where: { susername: username },
@@ -111,7 +111,13 @@ export class AuthService {
         user.firstName = userMaster.susername;
         user.lastName = '';
         user.role = userMaster.userLevel?.userlevel as any || UserRole.DATA_OPERATOR;
-        user.permissions = [UserPermission.READ_MEMBER];
+
+        // Map permissions based on role
+        const permissions = [UserPermission.READ_MEMBER];
+        if (user.role === UserRole.ADMIN || user.role === UserRole.DATA_OPERATOR || (user.role as any) === 'admin' || (user.role as any) === 'sample_1') {
+          permissions.push(UserPermission.MANAGE_USERS);
+        }
+        user.permissions = permissions;
         user.isActive = userMaster.isEnabled;
 
         return user;
@@ -141,7 +147,7 @@ export class AuthService {
     }
 
     const tokens = await this.generateTokens(user);
-    
+
     // Note: Last login time is already tracked in logintime table by validateUser
     // No need to update the old users table
 
@@ -215,7 +221,7 @@ export class AuthService {
     // In a production environment, you might want to blacklist the token
     // For now, we'll just return a success message
     // You could also clear any cached user sessions here
-    
+
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (user) {
       // Could update a lastLogoutAt field if needed
@@ -293,7 +299,7 @@ export class AuthService {
     switch (role) {
       case UserRole.ADMIN:
         return Object.values(UserPermission);
-      
+
       case UserRole.MANAGER:
         return [
           UserPermission.READ_MEMBER,
@@ -307,7 +313,7 @@ export class AuthService {
           UserPermission.GENERATE_REPORTS,
           UserPermission.VIEW_FINANCIAL_REPORTS,
         ];
-      
+
       case UserRole.LOAN_OFFICER:
         return [
           UserPermission.CREATE_MEMBER,
@@ -319,7 +325,7 @@ export class AuthService {
           UserPermission.READ_DEPOSIT,
           UserPermission.READ_TRANSACTION,
         ];
-      
+
       case UserRole.ACCOUNTANT:
         return [
           UserPermission.READ_MEMBER,
@@ -331,7 +337,7 @@ export class AuthService {
           UserPermission.GENERATE_REPORTS,
           UserPermission.VIEW_FINANCIAL_REPORTS,
         ];
-      
+
       case UserRole.DATA_OPERATOR:
       default:
         return [

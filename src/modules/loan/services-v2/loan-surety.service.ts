@@ -1,0 +1,188 @@
+import { Injectable } from '@nestjs/common';
+import { DataSource } from 'typeorm';
+
+/**
+ * Loan Surety Service - Handles guarantor/surety management for loans.
+ * 
+ * @version 2.0 - Part of backend restructuring
+ * 
+ * ⭐ This service was extracted to fix the Change Loan Surety feature.
+ * It provides clean, isolated logic for updating loan guarantors.
+ */
+@Injectable()
+export class LoanSuretyService {
+    constructor(private readonly dataSource: DataSource) { }
+
+    /**
+     * Change loan sureties (guarantors)
+     * Updates both loan_pending and suretymaster tables in a transaction
+     */
+    /**
+     * Change loan sureties (guarantors)
+     * Updates loan_pending, suretymaster, and loan_master tables in a transaction.
+     * If records are missing in certain tables, it attempts to "repair" or skip gracefully.
+     */
+    async changeLoanSurety(caseNo: string, suretyData: { surety1: string; surety2?: string }) {
+        const queryRunner = this.dataSource.createQueryRunner();
+
+        try {
+            await queryRunner.connect();
+            await queryRunner.startTransaction();
+
+            console.log(`[LoanSurety] 🔄 Changing sureties for loan case: ${caseNo}`);
+            console.log(`[LoanSurety] New Surety1: ${suretyData.surety1}, Surety2: ${suretyData.surety2 || 'none'}`);
+
+            // 1. First, fetch the loan case to get member number and verify it exists
+            const selectQuery = `
+                SELECT mbno, loancaseno, g1mbno, g2mbno
+                FROM loan_pending 
+                WHERE loancaseno::text = $1
+            `;
+
+            const selectResult = await queryRunner.query(selectQuery, [caseNo]);
+
+            if (selectResult.length === 0) {
+                throw new Error(`Loan case ${caseNo} not found in loan_pending`);
+            }
+
+            const currentData = selectResult[0];
+            const memberNo = String(currentData.mbno);
+
+            console.log(`[LoanSurety] Found loan case for member: ${memberNo}`);
+            console.log(`[LoanSurety] Current guarantors: G1=${currentData.g1mbno}, G2=${currentData.g2mbno}`);
+
+            // Validate we have a valid member number
+            if (!memberNo || memberNo === 'undefined' || memberNo === 'null') {
+                throw new Error(`Invalid member number for loan case ${caseNo}`);
+            }
+
+            // 2. Update loan_pending table with new guarantors
+            const updateLpQuery = `
+                UPDATE loan_pending 
+                SET g1mbno = $1, g2mbno = $2 
+                WHERE loancaseno::text = $3
+            `;
+
+            await queryRunner.query(updateLpQuery, [
+                suretyData.surety1,
+                suretyData.surety2 || '0',
+                caseNo
+            ]);
+
+            console.log(`[LoanSurety] ✅ Updated loan_pending for member: ${memberNo}, case: ${caseNo}`);
+            console.log(`[LoanSurety] New guarantors: G1=${suretyData.surety1}, G2=${suretyData.surety2 || '0'}`);
+
+            // 3. Update suretymaster table if record exists
+            // Note: suretymaster table has no 'id' column, only mbno as identifier
+            const updateSmQuery = `
+                UPDATE suretymaster 
+                SET g1mbno = $1, g2mbno = $2 
+                WHERE mbno = $3
+                RETURNING mbno
+            `;
+
+            const smResult = await queryRunner.query(updateSmQuery, [
+                suretyData.surety1,
+                suretyData.surety2 || '0',
+                memberNo
+            ]);
+
+            if (smResult.length > 0) {
+                console.log(`[LoanSurety] ✅ Updated suretymaster for member: ${memberNo}`);
+            } else {
+                console.log(`[LoanSurety] ⚠️ No suretymaster record found for member: ${memberNo} (this is okay - not all loans have suretymaster entries)`);
+            }
+
+            await queryRunner.commitTransaction();
+            console.log(`[LoanSurety] ✅ All surety changes committed successfully`);
+
+            return {
+                success: true,
+                message: 'Loan sureties updated successfully',
+                memberNo: memberNo,
+                loanCaseNo: caseNo,
+                updatedTables: {
+                    loan_pending: true,
+                    suretymaster: smResult.length > 0
+                }
+            };
+
+        } catch (error: any) {
+            await queryRunner.rollbackTransaction();
+            console.error(`[LoanSurety] ❌ Error changing loan sureties:`, error);
+            throw new Error(`Failed to update loan sureties: ${error.message}`);
+        } finally {
+            await queryRunner.release();
+        }
+    }
+
+    /**
+     * Get current sureties for a loan case
+     */
+    async getLoanSureties(caseNo: string) {
+        try {
+            const query = `
+        SELECT 
+          lp.loancaseno,
+          lp.mbno,
+          lp.g1mbno as surety1,
+          lp.g2mbno as surety2,
+          TRIM(COALESCE(s1.f_name, '') || ' ' || COALESCE(s1.m_name, '') || ' ' || COALESCE(s1.l_name, '')) as surety1_name,
+          TRIM(COALESCE(s2.f_name, '') || ' ' || COALESCE(s2.m_name, '') || ' ' || COALESCE(s2.l_name, '')) as surety2_name
+        FROM loan_pending lp
+        LEFT JOIN member_master s1 ON lp.g1mbno = s1.mbno
+        LEFT JOIN member_master s2 ON lp.g2mbno = s2.mbno
+        WHERE lp.loancaseno::text = $1
+      `;
+
+            const result = await this.dataSource.query(query, [caseNo]);
+
+            if (result.length === 0) {
+                return null;
+            }
+
+            const loan = result[0];
+            return {
+                loanCaseNo: loan.loancaseno,
+                memberNo: loan.mbno,
+                surety1: loan.surety1 || '',
+                surety1Name: loan.surety1_name || '',
+                surety2: loan.surety2 || '',
+                surety2Name: loan.surety2_name || ''
+            };
+        } catch (error) {
+            console.error('[LoanSurety] Error getting loan sureties:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Validate surety member exists and is active
+     */
+    async validateSurety(memberNo: string): Promise<{ valid: boolean; message?: string }> {
+        try {
+            const query = `
+        SELECT mbno, isactive, 
+               TRIM(COALESCE(f_name, '') || ' ' || COALESCE(l_name, '')) as name
+        FROM member_master 
+        WHERE mbno = $1
+      `;
+
+            const result = await this.dataSource.query(query, [memberNo]);
+
+            if (result.length === 0) {
+                return { valid: false, message: `Member ${memberNo} not found` };
+            }
+
+            const member = result[0];
+            if (member.isactive !== 'Y' && member.isactive !== '1') {
+                return { valid: false, message: `Member ${memberNo} (${member.name}) is not active` };
+            }
+
+            return { valid: true };
+        } catch (error) {
+            console.error('[LoanSurety] Error validating surety:', error);
+            return { valid: false, message: 'Error validating surety member' };
+        }
+    }
+}

@@ -24,7 +24,7 @@ export class InterestService {
     @InjectRepository(MemberMaster)
     private readonly memberMasterRepository: Repository<MemberMaster>,
     private readonly dataSource: DataSource,
-  ) {}
+  ) { }
 
   /**
    * Calculate and update saving interest for all eligible members
@@ -40,7 +40,7 @@ export class InterestService {
       // Validate dates
       const fromDate = new Date(dto.fromDate);
       const toDate = new Date(dto.toDate);
-      
+
       if (fromDate >= toDate) {
         throw new BadRequestException('From date must be before to date');
       }
@@ -184,10 +184,10 @@ export class InterestService {
 
     // Calculate daily balances
     const dailyBalances = this.calculateDailyBalances(transactions, fromDate, toDate);
-    
+
     // Calculate minimum daily balance (average of all daily minimums)
     const averageMinimumBalance = this.calculateAverageMinimumBalance(dailyBalances);
-    
+
     // Calculate interest
     const days = Math.ceil((toDate.getTime() - fromDate.getTime()) / (1000 * 60 * 60 * 24));
     const dailyRate = annualRate / 100 / 365;
@@ -195,14 +195,24 @@ export class InterestService {
 
     // Get opening and closing balances
     const openingBalance = dailyBalances.length > 0 ? dailyBalances[0].balance : 0;
-    const closingBalance = dailyBalances.length > 0 ? 
+    const closingBalance = dailyBalances.length > 0 ?
       dailyBalances[dailyBalances.length - 1].balance + interestAmount : interestAmount;
+
+    // Calculate total debits and credits
+    let totalDebit = 0;
+    let totalCredit = 0;
+    transactions.forEach(t => {
+      if (t.transactionType === 'DR') totalDebit += Number(t.transactionAmount);
+      else if (t.transactionType === 'CR') totalCredit += Number(t.transactionAmount);
+    });
 
     return {
       memberNumber: member.mbno,
       memberName: member.fullName,
       accountNumber: member.mbno, // Assuming member number is account number
       openingBalance,
+      totalDebit,
+      totalCredit,
       averageBalance: averageMinimumBalance,
       interestAmount,
       closingBalance,
@@ -216,20 +226,20 @@ export class InterestService {
   private calculateDailyBalances(transactions: Ledger[], fromDate: Date, toDate: Date) {
     const dailyBalances = [];
     let currentBalance = 0;
-    
+
     // Get opening balance (balance before the period)
     // This would typically come from the last transaction before fromDate
     // For now, we'll start with 0 and build from transactions
-    
+
     const currentDate = new Date(fromDate);
     let transactionIndex = 0;
-    
+
     while (currentDate <= toDate) {
       // Process all transactions for this date
       while (transactionIndex < transactions.length) {
         const transaction = transactions[transactionIndex];
         const transDate = new Date(transaction.transactionDate);
-        
+
         if (transDate.toDateString() === currentDate.toDateString()) {
           // Apply transaction to balance
           if (transaction.transactionType === 'CR') {
@@ -242,15 +252,15 @@ export class InterestService {
           break;
         }
       }
-      
+
       dailyBalances.push({
         date: new Date(currentDate),
         balance: currentBalance,
       });
-      
+
       currentDate.setDate(currentDate.getDate() + 1);
     }
-    
+
     return dailyBalances;
   }
 
@@ -259,16 +269,16 @@ export class InterestService {
    */
   private calculateAverageMinimumBalance(dailyBalances: any[]): number {
     if (dailyBalances.length === 0) return 0;
-    
+
     // Find minimum balance for each month, then average them
     const monthlyMinimums = new Map();
-    
+
     dailyBalances.forEach(day => {
       const monthKey = `${day.date.getFullYear()}-${day.date.getMonth()}`;
       const currentMin = monthlyMinimums.get(monthKey) || day.balance;
       monthlyMinimums.set(monthKey, Math.min(currentMin, day.balance));
     });
-    
+
     const minimums = Array.from(monthlyMinimums.values());
     return minimums.reduce((sum, min) => sum + min, 0) / minimums.length;
   }
@@ -284,7 +294,7 @@ export class InterestService {
     manager: any,
   ) {
     const transactionNumber = await this.generateTransactionNumber();
-    
+
     await manager.save(Ledger, {
       transactionNumber,
       transactionDate: new Date(),
@@ -393,7 +403,7 @@ export class InterestService {
   async previewInterestCalculation(dto: UpdateSavingInterestDto): Promise<InterestRunSummaryDto> {
     const fromDate = new Date(dto.fromDate);
     const toDate = new Date(dto.toDate);
-    
+
     if (fromDate >= toDate) {
       throw new BadRequestException('From date must be before to date');
     }
@@ -445,7 +455,7 @@ export class InterestService {
     try {
       const fromDate = new Date(dto.fromDate);
       const toDate = new Date(dto.toDate);
-      
+
       // Check date validity
       if (fromDate >= toDate) {
         return { valid: false, message: 'From date must be before to date' };

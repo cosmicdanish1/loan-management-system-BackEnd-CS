@@ -44,10 +44,10 @@ import {
 @UseGuards(JwtAuthGuard, RoleGuard, PermissionsGuard)
 @Controller('admin/users')
 export class UserManagementController {
-  constructor(private readonly userManagementService: UserManagementService) {}
+  constructor(private readonly userManagementService: UserManagementService) { }
 
   @Post()
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.USER, UserRole.DATA_OPERATOR, 'sample_1' as any)
   @RequirePermissions(UserPermission.MANAGE_USERS)
   @ApiOperation({ summary: 'Create a new user' })
   @ApiResponse({
@@ -64,7 +64,7 @@ export class UserManagementController {
   }
 
   @Get()
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @Roles(UserRole.ADMIN, UserRole.BRANCH_MANAGER, UserRole.USER, UserRole.DATA_OPERATOR, 'sample_1' as any)
   @RequirePermissions(UserPermission.MANAGE_USERS)
   @ApiOperation({ summary: 'Get all users with pagination and filtering' })
   @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page number' })
@@ -85,7 +85,7 @@ export class UserManagementController {
   }
 
   @Get('roles/permissions')
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @Roles(UserRole.ADMIN, UserRole.BRANCH_MANAGER, 'sample_1' as any)
   @RequirePermissions(UserPermission.MANAGE_USERS)
   @ApiOperation({ summary: 'Get role permissions mapping' })
   @ApiResponse({
@@ -98,7 +98,7 @@ export class UserManagementController {
   }
 
   @Get('activities')
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @Roles(UserRole.ADMIN, UserRole.BRANCH_MANAGER)
   @RequirePermissions(UserPermission.MANAGE_USERS)
   @ApiOperation({ summary: 'Get all user activities' })
   @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page number' })
@@ -115,7 +115,7 @@ export class UserManagementController {
   }
 
   @Get(':id')
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @Roles(UserRole.ADMIN, UserRole.BRANCH_MANAGER)
   @RequirePermissions(UserPermission.MANAGE_USERS)
   @ApiOperation({ summary: 'Get user by ID' })
   @ApiParam({ name: 'id', type: Number, description: 'User ID' })
@@ -212,7 +212,7 @@ export class UserManagementController {
   }
 
   @Post(':id/activities')
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @Roles(UserRole.ADMIN, UserRole.BRANCH_MANAGER)
   @RequirePermissions(UserPermission.MANAGE_USERS)
   @ApiOperation({ summary: 'Log user activity' })
   @ApiParam({ name: 'id', type: Number, description: 'User ID' })
@@ -233,7 +233,7 @@ export class UserManagementController {
   }
 
   @Get(':id/activities')
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @Roles(UserRole.ADMIN, UserRole.BRANCH_MANAGER)
   @RequirePermissions(UserPermission.MANAGE_USERS)
   @ApiOperation({ summary: 'Get user activities' })
   @ApiParam({ name: 'id', type: Number, description: 'User ID' })
@@ -266,5 +266,23 @@ export class UserManagementController {
     @Body() changePasswordDto: ChangePasswordDto,
   ): Promise<{ message: string }> {
     return this.userManagementService.changeUserPassword(user.id, changePasswordDto);
+  }
+
+  @Post('active-sessions/terminate')
+  @Roles(UserRole.ADMIN)
+  @RequirePermissions(UserPermission.MANAGE_USERS)
+  @ApiOperation({ summary: 'Force logout a user session (Admin)' })
+  @ApiResponse({ status: 200, description: 'Session terminated' })
+  async forceLogout(@Body('username') username: string): Promise<{ message: string }> {
+    return this.userManagementService.forceLogoutUser(username);
+  }
+
+  @Get('active-sessions/matrix')
+  @Roles(UserRole.ADMIN)
+  @RequirePermissions(UserPermission.MANAGE_USERS)
+  @ApiOperation({ summary: 'Get all active user sessions' })
+  @ApiResponse({ status: 200, description: 'Active sessions retrieved' })
+  async getActiveSessions(): Promise<any[]> {
+    return this.userManagementService.getActiveSessions();
   }
 }

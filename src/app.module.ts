@@ -10,11 +10,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { DatabaseConfig } from './config/database.config';
 import { AuthModule } from './modules/auth/auth.module';
-import { MemberModule } from './modules/member/member.module';
-import { LoanModule } from './modules/loan/loan.module';
 import { DepositModule } from './modules/deposit/deposit.module';
-import { TransactionModule } from './modules/transaction/transaction.module';
-import { ReportModule } from './modules/report/report.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { UtilityModule } from './modules/utility/utility.module';
 import { UtilitiesModule } from './modules/utilities/utilities.module';
@@ -28,6 +24,11 @@ import { MemberLedgerModule } from './modules/member-ledger/member-ledger.module
 import { GeneralLedgerModule } from './modules/general-ledger/general-ledger.module';
 import { PrintVoucherModule } from './modules/print-voucher/print-voucher.module';
 import { JottingReportModule } from './modules/jotting-report/jotting-report.module';
+import { SharedModule } from './modules/shared/shared.module';
+import { MemberV2Module } from './modules/member/member-v2.module';
+import { LoanV2Module } from './modules/loan/loan-v2.module';
+import { TransactionV2Module } from './modules/transaction/transaction-v2.module';
+import { ReportV2Module } from './modules/report/report-v2.module';
 
 @Module({
   imports: [
@@ -126,12 +127,13 @@ import { JottingReportModule } from './modules/jotting-report/jotting-report.mod
     }),
 
     // Feature modules
+    SharedModule, // Global shared services (sequences, utilities)
     AuthModule,
-    MemberModule,
-    LoanModule,
+    MemberV2Module, // Restructured member services
+    LoanV2Module, // Restructured loan services
     DepositModule,
-    TransactionModule,
-    ReportModule,
+    TransactionV2Module, // Restructured transaction services
+    ReportV2Module, // Restructured report services
     AdminModule,
     UtilityModule,
     UtilitiesModule,

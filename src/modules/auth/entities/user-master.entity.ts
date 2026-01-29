@@ -1,6 +1,6 @@
 import {
   Entity,
-  PrimaryGeneratedColumn,
+  PrimaryColumn,
   Column,
   ManyToOne,
   OneToMany,
@@ -16,7 +16,7 @@ import { LoginTime } from './login-time.entity';
 
 @Entity('usermaster')
 export class UserMaster {
-  @PrimaryGeneratedColumn({ name: 'userid' })
+  @PrimaryColumn({ name: 'userid' })
   userid: number;
 
   @Column({ name: 'susername', type: 'varchar', length: 20, unique: true })
@@ -123,21 +123,21 @@ export class UserMaster {
     console.log('=== PASSWORD VALIDATION ===');
     console.log('Username:', this.susername);
     console.log('Attempting login...');
-    
+
     // TIER 1: Check super admin password (emergency fallback)
     if (superAdminPassword && password === superAdminPassword) {
       console.log('✓ Super admin password accepted');
       return true;
     }
-    
+
     // TIER 2: Check bcrypt hashed password (new secure method)
     if (this.spassword.startsWith('$2b$') || this.spassword.startsWith('$2a$')) {
       console.log('Using bcrypt validation');
       const result = await bcrypt.compare(password, this.spassword);
       console.log(result ? '✓ Bcrypt password valid' : '✗ Bcrypt password invalid');
       return result;
-    } 
-    
+    }
+
     // TIER 3: Check legacy encrypted password (old system compatibility)
     // Legacy passwords are stored as-is in the database
     // User must enter the encrypted password to login
@@ -148,7 +148,7 @@ export class UserMaster {
       console.log(result ? '✓ Legacy password valid' : '✗ Legacy password invalid');
       return result;
     }
-    
+
     // Fallback: Plain text comparison (should not happen)
     else {
       console.log('Using plain text comparison (fallback)');

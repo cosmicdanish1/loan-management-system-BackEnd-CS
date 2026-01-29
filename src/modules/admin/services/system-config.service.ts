@@ -5,7 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindManyOptions } from 'typeorm';
+import { Repository, FindManyOptions, Like } from 'typeorm';
 import {
   SystemConfig,
   ConfigCategory,
@@ -40,7 +40,7 @@ export class SystemConfigService {
     private interestRateRepository: Repository<InterestRate>,
     @InjectRepository(DepositSlab)
     private depositSlabRepository: Repository<DepositSlab>,
-  ) {}
+  ) { }
 
   // System Configuration Methods
   async createSystemConfig(createDto: CreateSystemConfigDto): Promise<SystemConfigResponseDto> {
@@ -169,6 +169,34 @@ export class SystemConfigService {
     const updatedConfig = await this.systemConfigRepository.save(config);
 
     return this.mapConfigToResponseDto(updatedConfig);
+  }
+
+  async getBusinessRules(): Promise<any> {
+    const rules = await this.systemConfigRepository.find({
+      where: [
+        { key: Like('RULE_%'), isActive: true },
+        { key: Like('SYS_%'), isActive: true },
+      ],
+    });
+
+    const result: any = {};
+    rules.forEach(rule => {
+      result[rule.key] = rule.getTypedValue();
+    });
+    return result;
+  }
+
+  async bulkUpdateBusinessRules(rules: Record<string, any>): Promise<void> {
+    for (const [key, value] of Object.entries(rules)) {
+      const config = await this.systemConfigRepository.findOne({
+        where: { key },
+      });
+
+      if (config && !config.isReadonly) {
+        config.setTypedValue(value);
+        await this.systemConfigRepository.save(config);
+      }
+    }
   }
 
   // Interest Rate Methods

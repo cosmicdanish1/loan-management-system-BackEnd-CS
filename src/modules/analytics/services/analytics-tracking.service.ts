@@ -39,10 +39,10 @@ export class AnalyticsTrackingService {
     try {
       const configs = await this.analyticsConfigRepository.find();
       const configMap = new Map(configs.map(c => [c.config_key, c.config_value]));
-      
+
       this.isAnalyticsEnabled = configMap.get('analytics_enabled') === 'true';
       this.trackingLevel = configMap.get('tracking_level') || 'standard';
-      
+
       this.logger.log(`Analytics configuration loaded: enabled=${this.isAnalyticsEnabled}, level=${this.trackingLevel}`);
     } catch (error) {
       this.logger.error('Failed to load analytics configuration:', error);
@@ -74,7 +74,7 @@ export class AnalyticsTrackingService {
       });
 
       const savedSession = await this.userSessionRepository.save(session);
-      
+
       this.logger.log(`Session tracked: ${dto.session_id} for user ${dto.username}`);
       return { success: true, session_id: savedSession.session_id };
     } catch (error) {
@@ -118,7 +118,7 @@ export class AnalyticsTrackingService {
       });
 
       const savedVisit = await this.pageVisitRepository.save(pageVisit);
-      
+
       this.logger.debug(`Page visit tracked: ${dto.page_name} for session ${dto.session_id}`);
       return { success: true, visit_id: savedVisit.id };
     } catch (error) {
@@ -175,7 +175,7 @@ export class AnalyticsTrackingService {
       });
 
       const savedUsage = await this.featureUsageRepository.save(featureUsage);
-      
+
       this.logger.debug(`Feature usage tracked: ${dto.feature_name}/${dto.action_type} for session ${dto.session_id}`);
       return { success: true, usage_id: savedUsage.id };
     } catch (error) {
@@ -216,7 +216,7 @@ export class AnalyticsTrackingService {
       });
 
       await this.errorLogRepository.save(errorLog);
-      
+
       this.logger.error(`Error tracked: ${errorId} - ${dto.error_message}`);
       return { success: true, error_id: errorId };
     } catch (error) {
@@ -283,7 +283,7 @@ export class AnalyticsTrackingService {
   async updateAnalyticsSettings(settings: AnalyticsSettingsDto, updatedBy: string): Promise<{ success: boolean }> {
     try {
       const updates = Object.entries(settings).filter(([_, value]) => value !== undefined);
-      
+
       for (const [key, value] of updates) {
         await this.updateAnalyticsConfig({
           config_key: key,
@@ -588,7 +588,6 @@ export class AnalyticsTrackingService {
     }
   }
 
-  // Get all users with analytics data
   async getAllUsersAnalytics(query: {
     start_date?: string;
     end_date?: string;
@@ -597,57 +596,53 @@ export class AnalyticsTrackingService {
     sort_order?: string;
   }): Promise<any> {
     try {
-      const { start_date, end_date, limit = 50, sort_by = 'activity', sort_order = 'desc' } = query;
+      const { start_date, end_date, limit = 50, sort_order = 'desc' } = query;
 
-      // Get unique users with their latest session info
-      let userQuery = this.userSessionRepository
-        .createQueryBuilder('us')
-        .select([
-          'us.user_id',
-          'us.username',
-          'us.member_number',
-          'us.user_role',
-          'MAX(us.login_time) as last_activity',
-          'COUNT(DISTINCT us.session_id) as session_count',
-        ]);
+      // SQL query to get users with session count, error count and feature usage count in one go
+      // We use subqueries for counts to avoid multiplying rows during joins
+      let sql = `
+        SELECT 
+          us.user_id,
+          us.username,
+          us.member_number,
+          us.user_role,
+          MAX(us.login_time) as last_activity,
+          COUNT(DISTINCT us.session_id) as session_count,
+          (SELECT COUNT(*) FROM analytics_error_logs el 
+           WHERE el.session_id IN (SELECT session_id FROM analytics_user_sessions WHERE user_id = us.user_id)) as error_count,
+          (SELECT COUNT(*) FROM analytics_feature_usage fu 
+           WHERE fu.session_id IN (SELECT session_id FROM analytics_user_sessions WHERE user_id = us.user_id)) as feature_usage_count
+        FROM analytics_user_sessions us
+        WHERE 1=1
+      `;
 
-      if (start_date) userQuery = userQuery.where('us.login_time >= :start_date', { start_date });
-      if (end_date) userQuery = userQuery.andWhere('us.login_time <= :end_date', { end_date });
-
-      const users = await userQuery
-        .groupBy('us.user_id, us.username, us.member_number, us.user_role')
-        .orderBy('last_activity', sort_order.toUpperCase() as 'ASC' | 'DESC')
-        .limit(limit)
-        .getRawMany();
-
-      const result = [];
-
-      for (const user of users) {
-        // Get error count for this user
-        const errorCount = await this.errorLogRepository
-          .createQueryBuilder('el')
-          .innerJoin('analytics_user_sessions', 'us', 'us.session_id = el.session_id')
-          .where('us.user_id = :userId', { userId: user.us_user_id })
-          .getCount();
-
-        // Get feature usage count
-        const featureCount = await this.featureUsageRepository
-          .createQueryBuilder('fu')
-          .innerJoin('analytics_user_sessions', 'us', 'us.session_id = fu.session_id')
-          .where('us.user_id = :userId', { userId: user.us_user_id })
-          .getCount();
-
-        result.push({
-          user_id: user.us_user_id,
-          username: user.us_username,
-          member_number: user.us_member_number,
-          user_role: user.us_user_role,
-          last_activity: user.last_activity,
-          session_count: parseInt(user.session_count),
-          error_count: errorCount,
-          feature_usage_count: featureCount,
-        });
+      const params: any[] = [];
+      if (start_date) {
+        sql += ` AND us.login_time >= $${params.length + 1}`;
+        params.push(start_date);
       }
+      if (end_date) {
+        sql += ` AND us.login_time <= $${params.length + 1}`;
+        params.push(end_date);
+      }
+
+      sql += ` GROUP BY us.user_id, us.username, us.member_number, us.user_role`;
+      sql += ` ORDER BY last_activity ${sort_order.toUpperCase() === 'ASC' ? 'ASC' : 'DESC'}`;
+      sql += ` LIMIT $${params.length + 1}`;
+      params.push(limit);
+
+      const users = await this.userSessionRepository.query(sql, params);
+
+      const result = users.map(user => ({
+        user_id: user.user_id,
+        username: user.username,
+        member_number: user.member_number,
+        user_role: user.user_role,
+        last_activity: user.last_activity,
+        session_count: parseInt(user.session_count),
+        error_count: parseInt(user.error_count),
+        feature_usage_count: parseInt(user.feature_usage_count),
+      }));
 
       return {
         success: true,

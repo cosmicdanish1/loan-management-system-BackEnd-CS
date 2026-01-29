@@ -68,9 +68,11 @@ export class MemberMaster {
   @Column({ type: 'char', length: 1, nullable: true })
   isactive: string;
 
-  // Computed property for full name
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  full_name: string;
+
+  // For backward compatibility while migration is in progress
   get fullName(): string {
-    const parts = [this.f_name, this.m_name, this.l_name].filter(Boolean);
-    return parts.join(' ').trim();
+    return this.full_name || [this.f_name, this.m_name, this.l_name].filter(Boolean).join(' ').trim();
   }
 }

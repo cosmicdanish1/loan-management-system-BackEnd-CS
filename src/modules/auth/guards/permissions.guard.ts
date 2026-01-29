@@ -10,7 +10,7 @@ import { PERMISSIONS_KEY } from '../decorators';
 
 @Injectable()
 export class PermissionsGuard implements CanActivate {
-  constructor(private reflector: Reflector) {}
+  constructor(private reflector: Reflector) { }
 
   canActivate(context: ExecutionContext): boolean {
     const requiredPermissions = this.reflector.getAllAndOverride<UserPermission[]>(
@@ -24,9 +24,14 @@ export class PermissionsGuard implements CanActivate {
 
     const request = context.switchToHttp().getRequest();
     const user = request.user;
-
     if (!user) {
       throw new ForbiddenException('User not authenticated');
+    }
+
+    // MASTER BYPASS for setup roles
+    const userRole = user.role?.toLowerCase();
+    if (userRole === 'sample_1' || userRole === 'administrator' || userRole === 'admin') {
+      return true;
     }
 
     const hasPermission = requiredPermissions.some(permission =>

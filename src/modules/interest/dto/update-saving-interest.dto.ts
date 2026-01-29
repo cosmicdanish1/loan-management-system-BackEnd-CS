@@ -68,6 +68,12 @@ export class InterestCalculationResultDto {
   @ApiProperty({ description: 'Opening balance for the period' })
   openingBalance: number;
 
+  @ApiProperty({ description: 'Total debits during the period' })
+  totalDebit: number;
+
+  @ApiProperty({ description: 'Total credits during the period' })
+  totalCredit: number;
+
   @ApiProperty({ description: 'Average minimum daily balance' })
   averageBalance: number;
 

@@ -4,10 +4,12 @@ import {
   ConflictException,
   BadRequestException,
   ForbiddenException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindManyOptions } from 'typeorm';
+import { Repository, FindManyOptions, ILike } from 'typeorm';
 import { User, UserRole, UserPermission } from '../../auth/entities/user.entity';
+import { UserMaster, UserLevelMaster, LoginTime } from '../../auth/entities';
 import { UserActivity } from '../entities/user-activity.entity';
 import {
   CreateUserDto,
@@ -23,13 +25,38 @@ import { UserResponseDto } from '../../auth/dto';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
-export class UserManagementService {
+export class UserManagementService implements OnModuleInit {
   constructor(
     @InjectRepository(User)
     private userRepository: Repository<User>,
     @InjectRepository(UserActivity)
     private userActivityRepository: Repository<UserActivity>,
-  ) {}
+    @InjectRepository(UserMaster)
+    private userMasterRepository: Repository<UserMaster>,
+    @InjectRepository(UserLevelMaster)
+    private userLevelMasterRepository: Repository<UserLevelMaster>,
+    @InjectRepository(LoginTime)
+    private loginTimeRepository: Repository<LoginTime>,
+  ) { }
+
+  async onModuleInit() {
+    await this.repairDatabaseSchema();
+  }
+
+  private async repairDatabaseSchema() {
+    try {
+      // Increase column sizes in legacy usermaster to accommodate modern hashes/long usernames
+      await this.userMasterRepository.query(`
+        ALTER TABLE "usermaster" 
+        ALTER COLUMN "susername" TYPE varchar(50),
+        ALTER COLUMN "spassword" TYPE varchar(255)
+      `);
+      console.log('Successfully updated legacy usermaster schema for synchronization.');
+    } catch (err) {
+      // If column doesn't exist or already updated, this might fail silently which is fine
+      console.log('Legacy usermaster schema check/update skipped:', err.message);
+    }
+  }
 
   async createUser(createUserDto: CreateUserDto): Promise<UserResponseDto> {
     // Check if username already exists
@@ -53,14 +80,64 @@ export class UserManagementService {
     // Set default permissions if not provided
     const permissions = createUserDto.permissions || this.getDefaultPermissions(createUserDto.role);
 
-    // Create new user
+    // Find the next available ID manually (fallback for schemas without auto-increment)
+    const lastUser = await this.userRepository.find({
+      order: { id: 'DESC' } as any,
+      take: 1
+    });
+    const nextId = lastUser.length > 0 ? lastUser[0].id + 1 : 1;
+
+    // Create new user in modern table
     const user = this.userRepository.create({
       ...createUserDto,
+      id: nextId,
       permissions,
     });
 
     const savedUser = await this.userRepository.save(user);
+
+    // SYNCHRONIZATION: Create in legacy UserMaster table
+    try {
+      // Find or create appropriate user level
+      let userLevel = await this.userLevelMasterRepository.findOne({
+        where: { userlevel: createUserDto.role }
+      });
+
+      if (!userLevel) {
+        // Fallback or create default levels if missing
+        const levelId = this.getLegacyLevelId(createUserDto.role);
+        userLevel = this.userLevelMasterRepository.create({
+          userlevelid: levelId,
+          userlevel: createUserDto.role
+        });
+        await this.userLevelMasterRepository.save(userLevel);
+      }
+
+      const userMaster = this.userMasterRepository.create({
+        userid: savedUser.id,
+        susername: createUserDto.username,
+        spassword: createUserDto.password, // Will be hashed by BeforeInsert
+        userlevelid: userLevel.userlevelid,
+        enableDisable: 'E',
+        loginStatus: 'N',
+        passTransactionFlag: 'Y'
+      });
+      await this.userMasterRepository.save(userMaster);
+    } catch (err) {
+      console.error('Failed to sync legacy UserMaster:', err.message);
+    }
+
     return this.mapUserToResponseDto(savedUser);
+  }
+
+  private getLegacyLevelId(role: UserRole): number {
+    switch (role) {
+      case UserRole.ADMIN: return 1;
+      case UserRole.BRANCH_MANAGER: return 2;
+      case UserRole.OFFICER: return 3;
+      case UserRole.DATA_OPERATOR: return 4;
+      default: return 5;
+    }
   }
 
   async findAllUsers(
@@ -75,9 +152,12 @@ export class UserManagementService {
     limit: number;
     totalPages: number;
   }> {
+    const p = Number(page) || 1;
+    const l = Number(limit) || 10;
+
     const options: FindManyOptions<User> = {
-      skip: (page - 1) * limit,
-      take: limit,
+      skip: (p - 1) * l,
+      take: l,
       order: { createdAt: 'DESC' },
     };
 
@@ -132,6 +212,17 @@ export class UserManagementService {
       }
     }
 
+    // Check if username is being updated and already exists
+    if (updateUserDto.username && updateUserDto.username !== user.username) {
+      const existingUsername = await this.userRepository.findOne({
+        where: { username: updateUserDto.username },
+      });
+
+      if (existingUsername) {
+        throw new ConflictException('Username already exists');
+      }
+    }
+
     // If role is being updated, set default permissions for new role
     if (updateUserDto.role && updateUserDto.role !== user.role) {
       if (!updateUserDto.permissions) {
@@ -141,6 +232,32 @@ export class UserManagementService {
 
     Object.assign(user, updateUserDto);
     const updatedUser = await this.userRepository.save(user);
+
+    // SYNCHRONIZATION: Update legacy UserMaster table
+    try {
+      const userMaster = await this.userMasterRepository.findOne({
+        where: { userid: id }
+      });
+
+      if (userMaster) {
+        if (updateUserDto.username) userMaster.susername = updateUserDto.username;
+        if (updateUserDto.password) userMaster.spassword = updateUserDto.password;
+        if (updateUserDto.isActive !== undefined) {
+          userMaster.enableDisable = updateUserDto.isActive ? 'E' : 'D';
+        }
+        if (updateUserDto.role) {
+          const userLevel = await this.userLevelMasterRepository.findOne({
+            where: { userlevel: updateUserDto.role }
+          });
+          if (userLevel) {
+            userMaster.userlevelid = userLevel.userlevelid;
+          }
+        }
+        await this.userMasterRepository.save(userMaster);
+      }
+    } catch (err) {
+      console.error('Failed to sync legacy UserMaster update:', err.message);
+    }
 
     return this.mapUserToResponseDto(updatedUser);
   }
@@ -166,6 +283,19 @@ export class UserManagementService {
     }
 
     await this.userRepository.remove(user);
+
+    // SYNCHRONIZATION: Remove from legacy table
+    try {
+      const userMaster = await this.userMasterRepository.findOne({
+        where: { userid: id }
+      });
+      if (userMaster) {
+        await this.userMasterRepository.remove(userMaster);
+      }
+    } catch (err) {
+      console.error('Failed to sync legacy UserMaster deletion:', err.message);
+    }
+
     return { message: 'User deleted successfully' };
   }
 
@@ -261,7 +391,7 @@ export class UserManagementService {
     });
 
     const savedActivity = await this.userActivityRepository.save(activity);
-    
+
     return {
       ...savedActivity,
       user: {
@@ -368,10 +498,11 @@ export class UserManagementService {
 
   private getDefaultPermissions(role: UserRole): UserPermission[] {
     switch (role) {
+      case UserRole.SYSTEM:
       case UserRole.ADMIN:
         return Object.values(UserPermission);
-      
-      case UserRole.MANAGER:
+
+      case UserRole.BRANCH_MANAGER:
         return [
           UserPermission.READ_MEMBER,
           UserPermission.UPDATE_MEMBER,
@@ -384,8 +515,9 @@ export class UserManagementService {
           UserPermission.GENERATE_REPORTS,
           UserPermission.VIEW_FINANCIAL_REPORTS,
         ];
-      
-      case UserRole.LOAN_OFFICER:
+
+      case UserRole.OFFICER:
+      case UserRole.PASSING_OFFICER:
         return [
           UserPermission.CREATE_MEMBER,
           UserPermission.READ_MEMBER,
@@ -396,8 +528,19 @@ export class UserManagementService {
           UserPermission.READ_DEPOSIT,
           UserPermission.READ_TRANSACTION,
         ];
-      
-      case UserRole.ACCOUNTANT:
+
+      case UserRole.AUDITOR:
+        return [
+          UserPermission.READ_MEMBER,
+          UserPermission.READ_LOAN,
+          UserPermission.READ_DEPOSIT,
+          UserPermission.READ_TRANSACTION,
+          UserPermission.GENERATE_REPORTS,
+          UserPermission.VIEW_FINANCIAL_REPORTS,
+        ];
+
+      case UserRole.CASHIER:
+      case UserRole.CLERK:
         return [
           UserPermission.READ_MEMBER,
           UserPermission.READ_LOAN,
@@ -405,11 +548,9 @@ export class UserManagementService {
           UserPermission.CREATE_TRANSACTION,
           UserPermission.READ_TRANSACTION,
           UserPermission.UPDATE_TRANSACTION,
-          UserPermission.GENERATE_REPORTS,
-          UserPermission.VIEW_FINANCIAL_REPORTS,
         ];
-      
-      case UserRole.DATA_OPERATOR:
+
+      case UserRole.USER:
       default:
         return [
           UserPermission.READ_MEMBER,
@@ -418,5 +559,63 @@ export class UserManagementService {
           UserPermission.READ_TRANSACTION,
         ];
     }
+  }
+
+  async forceLogoutUser(username: string): Promise<{ message: string }> {
+    const trimmedUsername = username.trim();
+
+    // Use ILike for case-insensitive lookup to avoid 404s due to casing differences
+    const userMaster = await this.userMasterRepository.findOne({
+      where: { susername: ILike(trimmedUsername) }
+    });
+
+    if (!userMaster) {
+      throw new NotFoundException(`User identity '${trimmedUsername}' not found in matrix`);
+    }
+
+    // Update login status
+    userMaster.loginStatus = 'N';
+    await this.userMasterRepository.save(userMaster);
+
+    // Update active sessions in logintime table
+    const activeSessions = await this.loginTimeRepository.find({
+      where: { userid: userMaster.userid, logoutTime: '' }
+    });
+
+    const now = new Date();
+    const logoutTimeStr = now.toTimeString().split(' ')[0].substring(0, 8);
+
+    for (const session of activeSessions) {
+      session.logoutTime = logoutTimeStr;
+      await this.loginTimeRepository.save(session);
+    }
+
+    return { message: `Session for '${username}' terminated successfully` };
+  }
+
+  async getActiveSessions(): Promise<any[]> {
+    const activeUsers = await this.userMasterRepository.find({
+      where: { loginStatus: 'Y' },
+      relations: ['userLevel']
+    });
+
+    const activeSessions = [];
+
+    for (const user of activeUsers) {
+      const lastSession = await this.loginTimeRepository.findOne({
+        where: { userid: user.userid, logoutTime: '' },
+        order: { loginDate: 'DESC' }
+      });
+
+      activeSessions.push({
+        userId: user.userid,
+        username: user.susername,
+        role: user.userLevel?.userlevel,
+        loginDate: lastSession?.loginDate,
+        loginTime: lastSession?.loginTime || 'Unknown'
+      });
+    }
+
+    return activeSessions;
   }
 }

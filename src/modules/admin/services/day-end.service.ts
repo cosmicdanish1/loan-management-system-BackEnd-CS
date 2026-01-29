@@ -48,14 +48,14 @@ export class DayEndService {
     private memberRepository: Repository<Member>,
     private dataSource: DataSource,
     private backupService: BackupService,
-  ) {}
+  ) { }
 
   async initiateDayEnd(
     initiateDayEndDto: InitiateDayEndDto,
     userId: number,
   ): Promise<DayEndProcessResponseDto> {
     const processDate = new Date(initiateDayEndDto.processDate);
-    
+
     // Check if day-end already completed for this date
     if (!initiateDayEndDto.forceReprocess) {
       const existingProcess = await this.dayEndProcessRepository.findOne({
@@ -83,9 +83,20 @@ export class DayEndService {
       throw new BadRequestException('Another day-end process is currently in progress');
     }
 
+
     // Create new day-end process
     const processSteps = this.getProcessSteps(initiateDayEndDto.processTypes);
+
+    // Manually generate ID since the table doesn't have auto-increment
+    const maxIdResult = await this.dayEndProcessRepository
+      .createQueryBuilder('dep')
+      .select('MAX(dep.id)', 'maxId')
+      .getRawOne();
+
+    const nextId = (maxIdResult?.maxId || 0) + 1;
+
     const dayEndProcess = this.dayEndProcessRepository.create({
+      id: nextId, // Manually set the ID
       processDate,
       status: DayEndStatus.IN_PROGRESS,
       startedAt: new Date(),
@@ -168,6 +179,97 @@ export class DayEndService {
       backupInfo: process.processResults?.backupInfo,
       validationResults: process.processResults?.validationResults,
     };
+  }
+
+  async getCurrentDayEndSummary(): Promise<any> {
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      // Get opening balance from previous day's closing or system parameter
+      // For now, we'll calculate from transactions
+      const openingBalance = await this.calculateOpeningBalance(today);
+
+      // Get today's credits (receipts)
+      const totalCredit = await this.calculateTodayCredits(today);
+
+      // Get today's debits (payments)
+      const totalDebit = await this.calculateTodayDebits(today);
+
+      // Calculate closing balance
+      const closingBalance = openingBalance + totalCredit - totalDebit;
+
+      return {
+        date: today.toISOString().split('T')[0],
+        openingBalance: Number(openingBalance.toFixed(2)),
+        totalCredit: Number(totalCredit.toFixed(2)),
+        totalDebit: Number(totalDebit.toFixed(2)),
+        closingBalance: Number(closingBalance.toFixed(2)),
+      };
+    } catch (error) {
+      this.logger.error('Error fetching current day-end summary:', error);
+      throw error;
+    }
+  }
+
+  private async calculateOpeningBalance(date: Date): Promise<number> {
+    // Get the previous day's closing balance
+    const previousDay = new Date(date);
+    previousDay.setDate(previousDay.getDate() - 1);
+
+    // Check if there's a completed day-end process for previous day
+    const previousProcess = await this.dayEndProcessRepository.findOne({
+      where: {
+        processDate: previousDay,
+        status: DayEndStatus.COMPLETED,
+      },
+      order: { processDate: 'DESC' },
+    });
+
+    if (previousProcess && previousProcess.processResults?.closingBalance) {
+      return previousProcess.processResults.closingBalance;
+    }
+
+    // If no previous process, calculate from cash book or return default
+    // This would query your cash_book or ledger table
+    // For now, return a placeholder - you should implement actual query
+    return 0;
+  }
+
+  private async calculateTodayCredits(date: Date): Promise<number> {
+    // Query the 'vouchers' table found in DATABASE_SCHEMA.sql
+    const query = `
+      SELECT COALESCE(SUM("totalAmount"), 0) as total
+      FROM "vouchers"
+      WHERE "voucherDate" = $1
+      AND "voucherType" ILIKE '%receipt%'
+    `;
+
+    try {
+      const result = await this.dataSource.query(query, [date]);
+      return Number(result[0]?.total || 0);
+    } catch (error) {
+      this.logger.warn('Could not calculate today credits from vouchers table');
+      return 0;
+    }
+  }
+
+  private async calculateTodayDebits(date: Date): Promise<number> {
+    // Query the 'vouchers' table found in DATABASE_SCHEMA.sql
+    const query = `
+      SELECT COALESCE(SUM("totalAmount"), 0) as total
+      FROM "vouchers"
+      WHERE "voucherDate" = $1
+      AND "voucherType" ILIKE '%payment%'
+    `;
+
+    try {
+      const result = await this.dataSource.query(query, [date]);
+      return Number(result[0]?.total || 0);
+    } catch (error) {
+      this.logger.warn('Could not calculate today debits from vouchers table');
+      return 0;
+    }
   }
 
   async getInterestCalculationResults(
@@ -319,12 +421,12 @@ export class DayEndService {
       this.logger.log(`Day-end process ${processId} completed successfully`);
     } catch (error) {
       await queryRunner.rollbackTransaction();
-      
+
       // Update process as failed
       const process = await this.dayEndProcessRepository.findOne({
         where: { id: processId },
       });
-      
+
       if (process) {
         process.status = DayEndStatus.FAILED;
         process.failedAt = new Date();
@@ -372,7 +474,7 @@ export class DayEndService {
         });
 
         await queryRunner.manager.save(interestPosting);
-        
+
         // Update loan outstanding balance
         loan.outstandingBalance += interestAmount;
         await queryRunner.manager.save(loan);

@@ -1,41 +1,54 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEnum, IsArray, IsOptional } from 'class-validator';
+import { IsNumber, IsArray, IsString, IsEnum, IsOptional } from 'class-validator';
 import { UserRole, UserPermission } from '../../auth/entities/user.entity';
 
+export class UserLevelResponseDto {
+  @ApiProperty()
+  userlevelid: number;
+
+  @ApiProperty()
+  userlevel: string;
+}
+
+export class MenuResponseDto {
+  @ApiProperty()
+  menuid: number;
+
+  @ApiProperty()
+  menuname: string;
+
+  @ApiProperty()
+  menudesc: string;
+
+  @ApiProperty()
+  visibleflag: string;
+}
+
+export class UpdateDefaultRightsDto {
+  @ApiProperty()
+  @IsNumber()
+  userlevelid: number;
+
+  @ApiProperty({ type: [Number] })
+  @IsArray()
+  @IsNumber({}, { each: true })
+  menuIds: number[];
+}
+
 export class RolePermissionsDto {
-  @ApiProperty({
-    description: 'User role',
-    enum: UserRole,
-    example: UserRole.LOAN_OFFICER,
-  })
-  @IsEnum(UserRole)
+  @ApiProperty({ enum: UserRole })
   role: UserRole;
 
-  @ApiProperty({
-    description: 'Permissions for the role',
-    enum: UserPermission,
-    isArray: true,
-  })
-  @IsArray()
-  @IsEnum(UserPermission, { each: true })
+  @ApiProperty({ enum: UserPermission, isArray: true })
   permissions: UserPermission[];
 }
 
 export class UpdateUserRoleDto {
-  @ApiProperty({
-    description: 'New role for the user',
-    enum: UserRole,
-    example: UserRole.LOAN_OFFICER,
-  })
+  @ApiProperty({ enum: UserRole })
   @IsEnum(UserRole)
   role: UserRole;
 
-  @ApiProperty({
-    description: 'Custom permissions (optional, will use role defaults if not provided)',
-    enum: UserPermission,
-    isArray: true,
-    required: false,
-  })
+  @ApiProperty({ enum: UserPermission, isArray: true, required: false })
   @IsArray()
   @IsEnum(UserPermission, { each: true })
   @IsOptional()

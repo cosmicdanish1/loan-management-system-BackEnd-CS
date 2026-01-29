@@ -26,7 +26,7 @@ export class DepositService {
     @InjectRepository(Member)
     private readonly memberRepository: Repository<Member>,
     private readonly dataSource: DataSource,
-  ) {}
+  ) { }
 
   // Fixed Deposit Operations
   async createFixedDeposit(createFixedDepositDto: CreateFixedDepositDto): Promise<FixedDeposit> {
@@ -91,6 +91,25 @@ export class DepositService {
       relations: ['member'],
       order: { createdAt: 'DESC' },
     });
+  }
+
+  async findDepositsByMemberNo(memberNo: string): Promise<{ fixedDeposits: FixedDeposit[], recurringDeposits: RecurringDeposit[] }> {
+    const member = await this.memberRepository.findOne({ where: { memberNumber: memberNo } });
+    if (!member) {
+      throw new NotFoundException(`Member with number ${memberNo} not found`);
+    }
+
+    const fixedDeposits = await this.fixedDepositRepository.find({
+      where: { memberId: member.id },
+      order: { createdAt: 'DESC' },
+    });
+
+    const recurringDeposits = await this.recurringDepositRepository.find({
+      where: { memberId: member.id },
+      order: { createdAt: 'DESC' },
+    });
+
+    return { fixedDeposits, recurringDeposits };
   }
 
   async updateFixedDeposit(id: number, updateFixedDepositDto: UpdateFixedDepositDto): Promise<FixedDeposit> {
@@ -319,11 +338,11 @@ export class DepositService {
     const prefix = type;
     const year = new Date().getFullYear().toString().slice(-2);
     const month = (new Date().getMonth() + 1).toString().padStart(2, '0');
-    
+
     // Get the count of deposits for this month
     const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
     const endOfMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0);
-    
+
     let count: number;
     if (type === 'FD') {
       count = await this.fixedDepositRepository.count({
@@ -344,18 +363,18 @@ export class DepositService {
         },
       });
     }
-    
+
     const sequence = (count + 1).toString().padStart(4, '0');
     return `${prefix}${year}${month}${sequence}`;
   }
 
   private async generateRdInstallmentSchedule(rd: RecurringDeposit): Promise<void> {
     const installments: Partial<RdInstallment>[] = [];
-    
+
     for (let i = 1; i <= rd.tenureMonths; i++) {
       const dueDate = new Date(rd.startDate);
       dueDate.setMonth(dueDate.getMonth() + (i - 1));
-      
+
       installments.push({
         recurringDepositId: rd.id,
         installmentNumber: i,
@@ -364,7 +383,7 @@ export class DepositService {
         status: 'PENDING',
       });
     }
-    
+
     await this.rdInstallmentRepository.save(installments);
   }
 
@@ -391,7 +410,7 @@ export class DepositService {
   private async calculateFixedDepositInterest(fd: FixedDeposit): Promise<void> {
     const today = new Date();
     const lastCalculationDate = fd.lastInterestCalculationDate || fd.depositDate;
-    
+
     if (lastCalculationDate >= today) return;
 
     const daysDiff = Math.floor((today.getTime() - lastCalculationDate.getTime()) / (1000 * 60 * 60 * 24));
@@ -409,7 +428,7 @@ export class DepositService {
     // This is a simplified version
     const today = new Date();
     const monthlyRate = Number(rd.interestRate) / 100 / 12;
-    
+
     // Calculate interest on the deposited amount
     const interestForMonth = Number(rd.totalDeposited) * monthlyRate;
     rd.interestAccrued = Number(rd.interestAccrued) + interestForMonth;

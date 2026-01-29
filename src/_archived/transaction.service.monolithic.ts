@@ -18,6 +18,8 @@ import {
 } from './dto';
 import { plainToClass } from 'class-transformer';
 
+import { SequenceGeneratorService } from '../shared/services/sequence-generator.service';
+
 @Injectable()
 export class TransactionService {
   constructor(
@@ -26,7 +28,8 @@ export class TransactionService {
     @InjectRepository(Voucher)
     private voucherRepository: Repository<Voucher>,
     private dataSource: DataSource,
-  ) {}
+    private sequenceGenerator: SequenceGeneratorService,
+  ) { }
 
   async createTransaction(createTransactionDto: CreateTransactionDto): Promise<TransactionResponseDto> {
     const queryRunner = this.dataSource.createQueryRunner();
@@ -44,7 +47,7 @@ export class TransactionService {
       const transaction = queryRunner.manager.create(Transaction, {
         ...createTransactionDto,
         transactionNumber,
-        transactionDate: createTransactionDto.transactionDate 
+        transactionDate: createTransactionDto.transactionDate
           ? new Date(createTransactionDto.transactionDate)
           : new Date(),
         status: 'POSTED',
@@ -85,10 +88,10 @@ export class TransactionService {
         ...createVoucherDto,
         voucherNumber,
         totalAmount,
-        voucherDate: createVoucherDto.voucherDate 
+        voucherDate: createVoucherDto.voucherDate
           ? new Date(createVoucherDto.voucherDate)
           : new Date(),
-        chequeDate: createVoucherDto.chequeDate 
+        chequeDate: createVoucherDto.chequeDate
           ? new Date(createVoucherDto.chequeDate)
           : null,
         status: 'ACTIVE',
@@ -100,7 +103,7 @@ export class TransactionService {
       const transactions = [];
       for (const txnDto of createVoucherDto.transactions) {
         const transactionNumber = await this.generateTransactionNumber(queryRunner);
-        
+
         const transaction = queryRunner.manager.create(Transaction, {
           transactionNumber,
           transactionDate: savedVoucher.voucherDate,
@@ -274,7 +277,7 @@ export class TransactionService {
 
       // Create reversal transaction
       const reversalTransactionNumber = await this.generateTransactionNumber(queryRunner);
-      
+
       const reversalTransaction = queryRunner.manager.create(Transaction, {
         transactionNumber: reversalTransactionNumber,
         transactionDate: new Date(),
@@ -349,41 +352,13 @@ export class TransactionService {
 
   private async generateTransactionNumber(queryRunner: QueryRunner): Promise<string> {
     const year = new Date().getFullYear();
-    const prefix = `TXN${year}`;
-    
-    const lastTransaction = await queryRunner.manager
-      .createQueryBuilder(Transaction, 'transaction')
-      .where('transaction.transactionNumber LIKE :prefix', { prefix: `${prefix}%` })
-      .orderBy('transaction.transactionNumber', 'DESC')
-      .getOne();
-
-    let nextNumber = 1;
-    if (lastTransaction) {
-      const lastNumber = parseInt(lastTransaction.transactionNumber.substring(prefix.length));
-      nextNumber = lastNumber + 1;
-    }
-
-    return `${prefix}${nextNumber.toString().padStart(6, '0')}`;
+    return await this.sequenceGenerator.generateSequence(`TXN_NO_${year}`, `TXN${year}`, 6);
   }
 
   private async generateVoucherNumber(queryRunner: QueryRunner, voucherType: string): Promise<string> {
     const year = new Date().getFullYear();
     const typePrefix = voucherType.substring(0, 2); // PY, RE, JO, CO
-    const prefix = `${typePrefix}${year}`;
-    
-    const lastVoucher = await queryRunner.manager
-      .createQueryBuilder(Voucher, 'voucher')
-      .where('voucher.voucherNumber LIKE :prefix', { prefix: `${prefix}%` })
-      .orderBy('voucher.voucherNumber', 'DESC')
-      .getOne();
-
-    let nextNumber = 1;
-    if (lastVoucher) {
-      const lastNumber = parseInt(lastVoucher.voucherNumber.substring(prefix.length));
-      nextNumber = lastNumber + 1;
-    }
-
-    return `${prefix}${nextNumber.toString().padStart(4, '0')}`;
+    return await this.sequenceGenerator.generateSequence(`VCH_NO_${voucherType}_${year}`, `${typePrefix}${year}`, 4);
   }
 
   private mapVoucherTypeToTransactionType(voucherType: string): string {

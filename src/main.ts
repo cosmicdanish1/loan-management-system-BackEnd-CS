@@ -5,15 +5,17 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
+import * as compression from 'compression';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  app.use(compression());
   const configService = app.get(ConfigService);
   const logger = new Logger('Bootstrap');
 
   // Global configuration
   app.setGlobalPrefix(configService.get('API_PREFIX', 'api/v1'));
-  
+
   // Enable CORS for frontend
   app.enableCors({
     origin: ['http://localhost:5177', 'http://localhost:3000'],

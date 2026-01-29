@@ -1,6 +1,6 @@
 import {
   Entity,
-  PrimaryGeneratedColumn,
+  PrimaryColumn,
   Column,
   CreateDateColumn,
   UpdateDateColumn,
@@ -10,11 +10,19 @@ import {
 import * as bcrypt from 'bcrypt';
 
 export enum UserRole {
-  ADMIN = 'admin',
+  SYSTEM = 'system',
+  ADMIN = 'administrator',
   MANAGER = 'manager',
-  LOAN_OFFICER = 'loan_officer',
+  BRANCH_MANAGER = 'branch_manager',
+  OFFICER = 'officer',
+  PASSING_OFFICER = 'passing_officer',
+  CLERK = 'clerk',
+  AUDITOR = 'auditor',
+  CASHIER = 'cashier',
   ACCOUNTANT = 'accountant',
+  LOAN_OFFICER = 'loan_officer',
   DATA_OPERATOR = 'data_operator',
+  USER = 'user',
 }
 
 export enum UserPermission {
@@ -23,30 +31,30 @@ export enum UserPermission {
   READ_MEMBER = 'read_member',
   UPDATE_MEMBER = 'update_member',
   DELETE_MEMBER = 'delete_member',
-  
+
   // Loan permissions
   CREATE_LOAN = 'create_loan',
   READ_LOAN = 'read_loan',
   UPDATE_LOAN = 'update_loan',
   DELETE_LOAN = 'delete_loan',
   APPROVE_LOAN = 'approve_loan',
-  
+
   // Deposit permissions
   CREATE_DEPOSIT = 'create_deposit',
   READ_DEPOSIT = 'read_deposit',
   UPDATE_DEPOSIT = 'update_deposit',
   DELETE_DEPOSIT = 'delete_deposit',
-  
+
   // Transaction permissions
   CREATE_TRANSACTION = 'create_transaction',
   READ_TRANSACTION = 'read_transaction',
   UPDATE_TRANSACTION = 'update_transaction',
   DELETE_TRANSACTION = 'delete_transaction',
-  
+
   // Report permissions
   GENERATE_REPORTS = 'generate_reports',
   VIEW_FINANCIAL_REPORTS = 'view_financial_reports',
-  
+
   // Admin permissions
   MANAGE_USERS = 'manage_users',
   MANAGE_SYSTEM_CONFIG = 'manage_system_config',
@@ -56,7 +64,7 @@ export enum UserPermission {
 
 @Entity('users')
 export class User {
-  @PrimaryGeneratedColumn()
+  @PrimaryColumn()
   id: number;
 
   @Column({ unique: true })

@@ -10,21 +10,24 @@ import { Member } from '../member/entities/member.entity';
 import { MemberMaster } from '../member/entities/member-master.entity';
 import { InterestCalculationService, DefaulterTrackingService, PaymentProcessingService } from './services';
 
+import { AdminModule } from '../admin/admin.module';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([
-      LoanAccount, 
-      LoanPayment, 
-      LoanMaster, 
-      LoanPending, 
-      Member, 
+      LoanAccount,
+      LoanPayment,
+      LoanMaster,
+      LoanPending,
+      Member,
       MemberMaster,
       DemandMaster
     ]),
     ScheduleModule.forRoot(),
+    AdminModule,
   ],
   controllers: [LoanController],
   providers: [LoanService, InterestCalculationService, DefaulterTrackingService, PaymentProcessingService],
   exports: [LoanService, InterestCalculationService, DefaulterTrackingService, PaymentProcessingService],
 })
-export class LoanModule {}
+export class LoanModule { }

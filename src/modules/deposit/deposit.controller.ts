@@ -50,7 +50,7 @@ export class DepositController {
   constructor(
     private readonly depositService: DepositService,
     private readonly certificateService: CertificateService,
-  ) {}
+  ) { }
 
   // Fixed Deposit Endpoints
   @Post('fixed-deposits')
@@ -101,6 +101,18 @@ export class DepositController {
   })
   async findFixedDepositsByMember(@Param('memberId', ParseIntPipe) memberId: number) {
     return await this.depositService.findFixedDepositsByMember(memberId);
+  }
+
+  @Get('member/:memberNo')
+  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.LOAN_OFFICER, UserRole.ACCOUNTANT)
+  @ApiOperation({ summary: 'Get deposits by member Number (e.g. M-001)' })
+  @ApiParam({ name: 'memberNo', description: 'Member Number' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Member deposits (FD and RD)',
+  })
+  async findDepositsByMemberNo(@Param('memberNo') memberNo: string) {
+    return await this.depositService.findDepositsByMemberNo(memberNo);
   }
 
   @Put('fixed-deposits/:id')
@@ -246,7 +258,7 @@ export class DepositController {
   })
   async generateFixedDepositCertificate(@Param('id', ParseIntPipe) id: number) {
     const fileName = await this.certificateService.generateFixedDepositCertificate(id);
-    return { 
+    return {
       message: 'Certificate generated successfully',
       fileName,
       downloadUrl: `/api/v1/deposits/certificates/download/${fileName}`
@@ -263,7 +275,7 @@ export class DepositController {
   })
   async generateRecurringDepositCertificate(@Param('id', ParseIntPipe) id: number) {
     const fileName = await this.certificateService.generateRecurringDepositCertificate(id);
-    return { 
+    return {
       message: 'Certificate generated successfully',
       fileName,
       downloadUrl: `/api/v1/deposits/certificates/download/${fileName}`
@@ -283,7 +295,7 @@ export class DepositController {
     @Body() body: { shareAmount: number },
   ) {
     const fileName = await this.certificateService.generateShareCertificate(memberId, body.shareAmount);
-    return { 
+    return {
       message: 'Share certificate generated successfully',
       fileName,
       downloadUrl: `/api/v1/deposits/certificates/download/${fileName}`
@@ -303,13 +315,13 @@ export class DepositController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
     const filePath = this.certificateService.getCertificateFilePath(fileName);
-    
+
     if (!fs.existsSync(filePath)) {
       throw new NotFoundException('Certificate file not found');
     }
 
     const file = fs.createReadStream(filePath);
-    
+
     res.set({
       'Content-Type': 'application/pdf',
       'Content-Disposition': `attachment; filename="${fileName}"`,

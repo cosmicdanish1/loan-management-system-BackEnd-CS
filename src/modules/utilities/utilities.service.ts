@@ -7,7 +7,7 @@ export class UtilitiesService {
 
   constructor(
     private readonly dataSource: DataSource
-  ) {}
+  ) { }
 
   async searchDeposits(memberNo: string, type: 'RD' | 'FD'): Promise<any[]> {
     try {
@@ -71,20 +71,20 @@ export class UtilitiesService {
     try {
       this.logger.log(`Searching SB accounts for member: ${memberNo}`);
 
+      // We synthesize an SB account from the ledger table since there's no dedicated savings_accounts table
       const query = `
         SELECT 
-          "accountNumber",
-          "memberId",
-          "interestRate",
-          "currentBalance",
-          "openingDate",
-          "minimumBalance",
-          "status",
-          "lastTransactionDate"
-        FROM savings_accounts 
-        WHERE "memberId" = $1 
-        AND ("status" = 'ACTIVE' OR "status" IS NULL)
-        ORDER BY "openingDate" DESC
+          'SB-' || mbno as "accountNumber",
+          mbno as "memberId",
+          (SELECT COALESCE(rate::numeric, 4.0) FROM interestmaster WHERE inttype = 'SB' ORDER BY todt DESC LIMIT 1) as "interestRate",
+          SUM(CASE WHEN trans_type = 'CR' THEN trans_amt::numeric ELSE -trans_amt::numeric END) as "currentBalance",
+          MIN(trans_date) as "openingDate",
+          (SELECT COALESCE(minsavingbalance, 1000) FROM busrules ORDER BY appdate DESC LIMIT 1) as "minimumBalance",
+          'ACTIVE' as "status",
+          MAX(trans_date) as "lastTransactionDate"
+        FROM ledger 
+        WHERE mbno = $1 AND acc_type = 'SB'
+        GROUP BY mbno
       `;
 
       const result = await this.dataSource.query(query, [parseInt(memberNo)]);
@@ -113,7 +113,7 @@ export class UtilitiesService {
       `;
 
       const memberResult = await this.dataSource.query(memberQuery, [parseInt(memberNo)]);
-      
+
       if (memberResult.length === 0) {
         return null;
       }
@@ -148,11 +148,10 @@ export class UtilitiesService {
       // Get SB summary
       const sbQuery = `
         SELECT 
-          COUNT(*) as sb_accounts,
-          COALESCE(SUM("currentBalance"), 0) as total_sb_balance
-        FROM savings_accounts 
-        WHERE "memberId" = $1 
-        AND ("status" = 'ACTIVE' OR "status" IS NULL)
+          CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END as sb_accounts,
+          COALESCE(SUM(CASE WHEN trans_type = 'CR' THEN trans_amt::numeric ELSE -trans_amt::numeric END), 0) as total_sb_balance
+        FROM ledger 
+        WHERE mbno = $1 AND acc_type = 'SB'
       `;
 
       const sbResult = await this.dataSource.query(sbQuery, [parseInt(memberNo)]);
@@ -237,7 +236,7 @@ export class UtilitiesService {
       `;
 
       const result = await this.dataSource.query(query);
-      
+
       // Convert numeric values and filter out null rates
       const loanTypes = result
         .filter(loan => loan.rate && parseFloat(loan.rate) > 0)
@@ -275,7 +274,7 @@ export class UtilitiesService {
       `;
 
       const memberResult = await this.dataSource.query(memberQuery, [parseInt(memberNo)]);
-      
+
       if (memberResult.length === 0) {
         return null;
       }
@@ -308,17 +307,17 @@ export class UtilitiesService {
       `;
 
       const businessRules = await this.dataSource.query(businessRulesQuery);
-      const rules = businessRules[0] || { 
-        loanmaxlimit: 500000, 
-        loanagainstbasic: 10, 
-        loanagainstdeppercent: 80 
+      const rules = businessRules[0] || {
+        loanmaxlimit: 500000,
+        loanagainstbasic: 10,
+        loanagainstdeppercent: 80
       };
 
       // Calculate eligibility
       const basicPay = parseFloat(member.basic_pay || 0);
       const maxLoanLimit = parseFloat(rules.loanmaxlimit || 500000);
       const loanAgainstBasic = parseFloat(rules.loanagainstbasic || 10);
-      
+
       // If basic pay is 0, use a default eligibility of 50,000
       const eligibleBasedOnSalary = basicPay > 0 ? basicPay * loanAgainstBasic : 50000;
       const maxEligible = Math.min(eligibleBasedOnSalary, maxLoanLimit);
