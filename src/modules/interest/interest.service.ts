@@ -55,10 +55,10 @@ export class InterestService {
       });
 
       if (existingRun) {
-        throw new BadRequestException('Interest has already been calculated for this period');
+        throw new BadRequestException('Interest has already been calculated for this period or dates overlap with existing records');
       }
 
-      // Get all eligible members (active members with savings accounts)
+      // Get all eligible members (active members)
       const eligibleMembers = await this.getEligibleMembers();
       this.logger.log(`Found ${eligibleMembers.length} eligible members`);
 
@@ -94,6 +94,8 @@ export class InterestService {
               mbno: member.mbno,
               wrno: voucherNumber,
               openingBalance: calculation.openingBalance,
+              totalDebit: calculation.totalDebit,
+              totalCredit: calculation.totalCredit,
               closingBalance: calculation.closingBalance,
               amount: calculation.averageBalance,
               interest: calculation.interestAmount,
@@ -110,6 +112,7 @@ export class InterestService {
               voucherNumber,
               dto.narration || `Interest credited for period ${dto.fromDate} to ${dto.toDate}`,
               queryRunner.manager,
+              dto.accountHead || 'A1001'
             );
 
             memberCalculations.push(calculation);
@@ -151,13 +154,31 @@ export class InterestService {
   private async getEligibleMembers(): Promise<MemberMaster[]> {
     return this.memberMasterRepository.find({
       where: {
-        // Add conditions for active members
-        // This depends on your member status field structure
+        isactive: 'Y'
       },
       order: {
         mbno: 'ASC',
       },
     });
+  }
+
+  /**
+   * Get opening balance for a member as of a specific date
+   */
+  private async getOpeningBalance(memberNo: string, date: Date, manager: any): Promise<number> {
+    const lastTransaction = await manager.findOne(Ledger, {
+      where: {
+        memberNumber: memberNo,
+        accountType: 'SB',
+        transactionDate: Between(new Date(0), new Date(date.getTime() - 1)),
+      },
+      order: {
+        transactionDate: 'DESC',
+        transactionNumber: 'DESC',
+      },
+    });
+
+    return lastTransaction ? Number(lastTransaction.balance) : 0;
   }
 
   /**
@@ -170,33 +191,38 @@ export class InterestService {
     annualRate: number,
     manager: any,
   ): Promise<InterestCalculationResultDto> {
+    // Get opening balance
+    const openingBalance = await this.getOpeningBalance(member.mbno, fromDate, manager);
+
     // Get member's ledger transactions for the period
     const transactions = await manager.find(Ledger, {
       where: {
         memberNumber: member.mbno,
-        accountType: 'SB', // Savings Bank
+        accountType: 'SB',
         transactionDate: Between(fromDate, toDate),
       },
       order: {
         transactionDate: 'ASC',
+        transactionNumber: 'ASC',
       },
     });
 
-    // Calculate daily balances
-    const dailyBalances = this.calculateDailyBalances(transactions, fromDate, toDate);
+    // Calculate daily balances starting from openingBalance
+    const dailyBalances = this.calculateDailyBalances(transactions, fromDate, toDate, openingBalance);
 
-    // Calculate minimum daily balance (average of all daily minimums)
-    const averageMinimumBalance = this.calculateAverageMinimumBalance(dailyBalances);
+    // Calculate interest (Daily Product Method: Sum of daily balances * Daily Rate)
+    // Most credit societies use (Sum of Daily Balances / Period Days) * Daily Rate * Period Days
+    // Which simplifies to: Sum of Daily Balances * (AnnualRate / 100 / 365)
 
-    // Calculate interest
-    const days = Math.ceil((toDate.getTime() - fromDate.getTime()) / (1000 * 60 * 60 * 24));
+    const sumOfBalances = dailyBalances.reduce((sum, day) => sum + day.balance, 0);
+    const dayCount = dailyBalances.length;
     const dailyRate = annualRate / 100 / 365;
-    const interestAmount = Math.round(averageMinimumBalance * dailyRate * days * 100) / 100;
 
-    // Get opening and closing balances
-    const openingBalance = dailyBalances.length > 0 ? dailyBalances[0].balance : 0;
-    const closingBalance = dailyBalances.length > 0 ?
-      dailyBalances[dailyBalances.length - 1].balance + interestAmount : interestAmount;
+    // Using simple daily product method
+    const interestAmount = Math.round(sumOfBalances * dailyRate * 100) / 100;
+
+    // The average balance for display/logging
+    const averageBalance = sumOfBalances / dayCount;
 
     // Calculate total debits and credits
     let totalDebit = 0;
@@ -206,30 +232,28 @@ export class InterestService {
       else if (t.transactionType === 'CR') totalCredit += Number(t.transactionAmount);
     });
 
+    const closingBalance = openingBalance + totalCredit - totalDebit + interestAmount;
+
     return {
       memberNumber: member.mbno,
       memberName: member.fullName,
-      accountNumber: member.mbno, // Assuming member number is account number
+      accountNumber: member.mbno,
       openingBalance,
       totalDebit,
       totalCredit,
-      averageBalance: averageMinimumBalance,
+      averageBalance,
       interestAmount,
       closingBalance,
-      days,
+      days: dayCount,
     };
   }
 
   /**
    * Calculate daily balances for the period
    */
-  private calculateDailyBalances(transactions: Ledger[], fromDate: Date, toDate: Date) {
+  private calculateDailyBalances(transactions: Ledger[], fromDate: Date, toDate: Date, startBalance: number) {
     const dailyBalances = [];
-    let currentBalance = 0;
-
-    // Get opening balance (balance before the period)
-    // This would typically come from the last transaction before fromDate
-    // For now, we'll start with 0 and build from transactions
+    let currentBalance = startBalance;
 
     const currentDate = new Date(fromDate);
     let transactionIndex = 0;
@@ -240,16 +264,20 @@ export class InterestService {
         const transaction = transactions[transactionIndex];
         const transDate = new Date(transaction.transactionDate);
 
-        if (transDate.toDateString() === currentDate.toDateString()) {
-          // Apply transaction to balance
+        // Compare dates without time
+        if (transDate.toLocaleDateString() === currentDate.toLocaleDateString()) {
+          const amount = Number(transaction.transactionAmount);
           if (transaction.transactionType === 'CR') {
-            currentBalance += transaction.transactionAmount;
+            currentBalance += amount;
           } else if (transaction.transactionType === 'DR') {
-            currentBalance -= transaction.transactionAmount;
+            currentBalance -= amount;
           }
           transactionIndex++;
-        } else {
+        } else if (transDate > currentDate) {
           break;
+        } else {
+          // Transaction date is before current date (shouldn't happen with sorted query but good to handle)
+          transactionIndex++;
         }
       }
 
@@ -265,25 +293,6 @@ export class InterestService {
   }
 
   /**
-   * Calculate average minimum balance
-   */
-  private calculateAverageMinimumBalance(dailyBalances: any[]): number {
-    if (dailyBalances.length === 0) return 0;
-
-    // Find minimum balance for each month, then average them
-    const monthlyMinimums = new Map();
-
-    dailyBalances.forEach(day => {
-      const monthKey = `${day.date.getFullYear()}-${day.date.getMonth()}`;
-      const currentMin = monthlyMinimums.get(monthKey) || day.balance;
-      monthlyMinimums.set(monthKey, Math.min(currentMin, day.balance));
-    });
-
-    const minimums = Array.from(monthlyMinimums.values());
-    return minimums.reduce((sum, min) => sum + min, 0) / minimums.length;
-  }
-
-  /**
    * Create ledger entry for interest credit
    */
   private async createInterestLedgerEntry(
@@ -292,6 +301,7 @@ export class InterestService {
     voucherNumber: string,
     narration: string,
     manager: any,
+    accountHead: string
   ) {
     const transactionNumber = await this.generateTransactionNumber();
 
@@ -299,14 +309,14 @@ export class InterestService {
       transactionNumber,
       transactionDate: new Date(),
       transactionType: 'CR',
-      code: 'A1001', // Savings account code
+      code: accountHead,
       memberNumber: member.mbno,
       accountNumber: calculation.accountNumber,
       accountType: 'SB',
       transactionAmount: calculation.interestAmount,
       receiptVoucherNumber: voucherNumber,
-      voucherType: 'IN', // Interest
-      modeOfPayment: 'T', // Transfer
+      voucherType: 'IN',
+      modeOfPayment: 'T',
       balance: calculation.closingBalance,
       narration,
       username: 'SYSTEM',
@@ -320,14 +330,14 @@ export class InterestService {
     const year = new Date().getFullYear();
     const lastVoucher = await this.interestPaidRepository
       .createQueryBuilder('ip')
-      .where('ip.vchrno LIKE :pattern', { pattern: `INT${year}%` })
-      .orderBy('ip.vchrno', 'DESC')
+      .where('ip.voucherNumber LIKE :pattern', { pattern: `INT${year}%` })
+      .orderBy('ip.voucherNumber', 'DESC')
       .getOne();
 
     let sequence = 1;
     if (lastVoucher && lastVoucher.voucherNumber) {
       const lastSequence = parseInt(lastVoucher.voucherNumber.slice(-3));
-      sequence = lastSequence + 1;
+      sequence = isNaN(lastSequence) ? 1 : lastSequence + 1;
     }
 
     return `INT${year}${sequence.toString().padStart(3, '0')}`;
@@ -339,11 +349,11 @@ export class InterestService {
   private async generateTransactionNumber(): Promise<string> {
     const lastTransaction = await this.ledgerRepository
       .createQueryBuilder('l')
-      .orderBy('l.trans_no', 'DESC')
+      .orderBy('l.transactionNumber', 'DESC')
       .getOne();
 
     let nextNumber = 1;
-    if (lastTransaction) {
+    if (lastTransaction && lastTransaction.transactionNumber) {
       nextNumber = parseInt(lastTransaction.transactionNumber) + 1;
     }
 

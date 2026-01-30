@@ -5,12 +5,12 @@ import { Transactions } from '../cashbook/entities/transactions.entity';
 import { Ledger } from '../cashbook/entities/ledger.entity';
 import { MemberMaster } from '../member/entities/member-master.entity';
 import { InterestMaster } from '../interest/entities/interest-master.entity';
-import { 
-  GetDayBookDto, 
-  DayBookSummaryDto, 
+import {
+  GetDayBookDto,
+  DayBookSummaryDto,
   DayBookEntryDto,
   InterestCalculationDto,
-  InterestPaymentDto 
+  InterestPaymentDto
 } from './dto/daybook.dto';
 
 @Injectable()
@@ -26,85 +26,101 @@ export class DayBookService {
     private memberRepository: Repository<MemberMaster>,
     @InjectRepository(InterestMaster)
     private interestMasterRepository: Repository<InterestMaster>
-  ) {}
+  ) { }
 
   async getDayBookReport(dto: GetDayBookDto): Promise<DayBookSummaryDto> {
     try {
       const reportDate = new Date(dto.date);
       const startOfDay = new Date(reportDate);
       startOfDay.setHours(0, 0, 0, 0);
-      
+
       const endOfDay = new Date(reportDate);
       endOfDay.setHours(23, 59, 59, 999);
 
-      // Get transactions for the selected date
-      let query = this.transactionsRepository
-        .createQueryBuilder('t')
-        .where('t.trans_date >= :startDate AND t.trans_date <= :endDate', {
+      // Get transactions from ledger for the selected date
+      let query = this.ledgerRepository
+        .createQueryBuilder('l')
+        .where('l.trans_date >= :startDate AND l.trans_date <= :endDate', {
           startDate: startOfDay,
           endDate: endOfDay
         });
 
       // Add filtering for SB (Savings Bank) transactions if specified
       if (dto.filterType === 'sb' || dto.filterType === 'savings') {
-        // Filter for Savings Bank related transactions
-        // Using A1001 (Cash in Hand) and other savings-related codes
-        query = query.andWhere('(t.code = :savingsCode OR t.code LIKE :savingsPattern)', {
-          savingsCode: 'A1001',
-          savingsPattern: 'A%' // All asset codes that might be savings-related
+        // Filter for Savings Bank related transactions (acc_type = 'SB' or code relates to savings)
+        query = query.andWhere('(l.acc_type = :sbType OR l.code = :sbCode)', {
+          sbType: 'SB',
+          sbCode: 'A1001'
         });
       }
 
-      const transactions = await query
-        .orderBy('t.trans_date', 'ASC')
-        .addOrderBy('t.trans_no', 'ASC')
+      const ledgerEntries = await query
+        .orderBy('l.trans_date', 'ASC')
+        .addOrderBy('l.trans_no', 'ASC')
         .getMany();
 
-      // Transform transactions to day book entries with member and head information
+      // Get all head names for the codes found in ledger
+      const codes = [...new Set(ledgerEntries.map(l => l.code))].filter(Boolean);
+      const headNames = new Map<string, string>();
+
+      if (codes.length > 0) {
+        // We can query head_master via raw query if repository is not available, 
+        // but let's assume we can get it from our list or inject HeadMaster later.
+        // For now, I'll use the existing helper but more robustly.
+        const heads = await this.ledgerRepository.query(
+          `SELECT code, head_name FROM head_master WHERE code IN (${codes.map((_, i) => `$${i + 1}`).join(',')})`,
+          codes
+        );
+        heads.forEach((h: any) => headNames.set(h.code.trim(), h.head_name));
+      }
+
+      // Transform ledger entries to day book entries
       const entries: DayBookEntryDto[] = await Promise.all(
-        transactions.map(async (t) => {
+        ledgerEntries.map(async (l) => {
           // Get member information
           let memberName = 'Unknown';
-          if (t.mbno && t.mbno > 0) {
+          const mbNoStr = l.mbno?.toString();
+
+          if (mbNoStr && mbNoStr !== '0') {
             try {
               const member = await this.memberRepository.findOne({
-                where: { mbno: t.mbno?.toString() }
+                where: { mbno: mbNoStr }
               });
               if (member) {
                 memberName = `${member.f_name || ''} ${member.m_name || ''} ${member.l_name || ''}`.trim();
               }
             } catch (error) {
-              this.logger.warn(`Failed to fetch member ${t.mbno}:`, error.message);
+              this.logger.warn(`Failed to fetch member ${l.mbno}:`, error.message);
             }
           }
 
           return {
-            mbNo: t.mbno?.toString() || '0',
+            mbNo: mbNoStr || '0',
             memberName,
-            voucherNo: t.receipt_vchr_no || '',
-            transactionType: t.trans_type as 'CR' | 'DR',
-            amount: this.parseMoneyAmount(t.trans_amt),
-            headCode: t.code || '',
-            headName: this.getHeadNameByCode(t.code || ''),
-            narration: t.narration || '',
-            username: t.username || '',
-            transactionTime: t.trans_date
+            voucherNo: l.receipt_vchr_no || '-',
+            transactionType: l.trans_type as 'CR' | 'DR',
+            amount: Number(l.trans_amt) || 0,
+            headCode: (l.code || '').trim(),
+            headName: headNames.get((l.code || '').trim()) || this.getHeadNameByCode((l.code || '').trim()),
+            narration: l.narration || '',
+            username: l.username || '',
+            transactionTime: l.trans_date
           };
         })
       );
 
-      // Calculate opening balance (transactions before the selected date)
+      // Calculate opening balance (balance before the selected date)
       const openingBalance = await this.calculateOpeningBalance(reportDate, dto.filterType);
 
       // Calculate totals
       const totalReceipts = entries
         .filter(e => e.transactionType === 'CR')
         .reduce((sum, e) => sum + e.amount, 0);
-      
+
       const totalPayments = entries
         .filter(e => e.transactionType === 'DR')
         .reduce((sum, e) => sum + e.amount, 0);
-      
+
       const netBalance = totalReceipts - totalPayments;
       const closingBalance = openingBalance + netBalance;
 
@@ -133,7 +149,7 @@ export class DayBookService {
         .select([
           'm.mbno',
           'm.f_name',
-          'm.m_name', 
+          'm.m_name',
           'm.l_name',
           'm.isactive'
         ])
@@ -184,18 +200,18 @@ export class DayBookService {
         } else {
           runningBalance -= amount;
         }
-        
+
         if (minBalance === 0 || runningBalance < minBalance) {
           minBalance = runningBalance;
         }
-        
+
         balanceSum += runningBalance;
         totalDays++;
       }
 
       const averageBalance = totalDays > 0 ? balanceSum / totalDays : 0;
       const interestRate = dto.interestRate || await this.getCurrentInterestRate();
-      
+
       // Calculate interest on minimum balance (conservative approach)
       const principalAmount = Math.max(0, minBalance);
       const daysDiff = Math.ceil((toDate.getTime() - fromDate.getTime()) / (1000 * 60 * 60 * 24));
@@ -332,35 +348,32 @@ export class DayBookService {
       'A1004': 'Cash in Hand',
       'A1005': 'Bank Account'
     };
-    
+
     return codeMap[code] || `Head Code ${code}`;
   }
 
   private async calculateOpeningBalance(date: Date, filterType?: string): Promise<number> {
     try {
-      let query = this.transactionsRepository
-        .createQueryBuilder('t')
-        .where('t.trans_date < :date', { date });
+      let query = this.ledgerRepository
+        .createQueryBuilder('l')
+        .where('l.trans_date < :date', { date });
 
       // Add filtering for SB transactions if specified
       if (filterType === 'sb' || filterType === 'savings') {
-        query = query.andWhere('(t.code = :savingsCode OR t.code LIKE :savingsPattern)', {
-          savingsCode: 'A1001',
-          savingsPattern: 'A%'
+        query = query.andWhere('(l.acc_type = :sbType OR l.code = :sbCode)', {
+          sbType: 'SB',
+          sbCode: 'A1001'
         });
       }
 
-      const transactions = await query.getMany();
+      const results = await query
+        .select(`
+          SUM(CASE WHEN l.trans_type = 'CR' THEN l.trans_amt ELSE 0 END) - 
+          SUM(CASE WHEN l.trans_type = 'DR' THEN l.trans_amt ELSE 0 END)
+        `, 'balance')
+        .getRawOne();
 
-      const totalCredits = transactions
-        .filter(t => t.trans_type === 'CR')
-        .reduce((sum, t) => sum + this.parseMoneyAmount(t.trans_amt), 0);
-      
-      const totalDebits = transactions
-        .filter(t => t.trans_type === 'DR')
-        .reduce((sum, t) => sum + this.parseMoneyAmount(t.trans_amt), 0);
-
-      return totalCredits - totalDebits;
+      return Number(results?.balance || 0);
     } catch (error) {
       this.logger.error('Error calculating opening balance:', error);
       return 0;
@@ -373,7 +386,7 @@ export class DayBookService {
         .createQueryBuilder('t')
         .select('MAX(t.trans_no)', 'maxTransNo')
         .getRawOne();
-      
+
       return (Number(result?.maxTransNo) || 0) + 1;
     } catch (error) {
       this.logger.error('Error getting next transaction number:', error);

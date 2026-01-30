@@ -138,6 +138,12 @@ export class ReportV2Controller {
         return this.loanReports.getLoanTypes();
     }
 
+    @Post('loans/interest-statement')
+    @ApiOperation({ summary: 'Get interest receivable/received statement' })
+    async getInterestStatement(@Body() dto: { fromMonth?: number; fromYear?: number; toMonth?: number; toYear?: number; branch?: string; fromMember?: string; toMember?: string }) {
+        return this.loanReports.getInterestStatement(dto);
+    }
+
     // ==================== Dividend Reports ====================
 
     @Post('dividend')

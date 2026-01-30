@@ -443,4 +443,123 @@ export class LoanReportsService {
 
     return result;
   }
+
+  /**
+   * Get Interest Receivable/Received Statement
+   * Calculates monthly interest demand (receivable) vs actual collections (received)
+   */
+  async getInterestStatement(dto: { fromMonth?: number; fromYear?: number; toMonth?: number; toYear?: number; branch?: string; fromMember?: string; toMember?: string }) {
+    const { fromMonth = 1, fromYear = 2020, toMonth = 12, toYear = 2025 } = dto;
+
+    // 1. Get Interest Receivable (Demand) from demand_master
+    let receivableQuery = `
+      SELECT 
+        demand_for_month as month,
+        demand_for_year as year,
+        SUM(COALESCE(rln_interest, 0) + COALESCE(eln_interest, 0) + COALESCE(aln_interest, 0) + 
+            COALESCE(mln_interest, 0) + COALESCE(fln_interest, 0) + COALESCE(edl_interest, 0)) as receivable
+      FROM demand_master
+      WHERE (demand_for_year > $1 OR (demand_for_year = $1 AND demand_for_month >= $2))
+        AND (demand_for_year < $3 OR (demand_for_year = $3 AND demand_for_month <= $4))
+    `;
+
+    const receivableParams: any[] = [fromYear, fromMonth, toYear, toMonth];
+
+    if (dto.fromMember) {
+      receivableQuery += ` AND mbno >= $${receivableParams.length + 1}`;
+      receivableParams.push(dto.fromMember);
+    }
+    if (dto.toMember) {
+      receivableQuery += ` AND mbno <= $${receivableParams.length + 1}`;
+      receivableParams.push(dto.toMember);
+    }
+    if (dto.branch) {
+      // Assuming officeno represents branch
+      receivableQuery += ` AND officeno = $${receivableParams.length + 1}`;
+      receivableParams.push(dto.branch);
+    }
+
+    receivableQuery += ` GROUP BY demand_for_year, demand_for_month ORDER BY demand_for_year, demand_for_month`;
+
+    const receivables = await this.dataSource.query(receivableQuery, receivableParams);
+
+    // 2. Get Interest Received (Actual) from ledger
+    // Using Income heads I1002 and I1008 as identified
+    let receivedQuery = `
+      SELECT 
+        EXTRACT(MONTH FROM trans_date) as month,
+        EXTRACT(YEAR FROM trans_date) as year,
+        SUM(CASE WHEN trans_type = 'CR' THEN COALESCE(trans_amt, 0) ELSE -COALESCE(trans_amt, 0) END) as received
+      FROM ledger
+      WHERE code IN ('I1002', 'I1008')
+        AND trans_date >= $1 AND trans_date <= $2
+    `;
+
+    // Convert month/year to date strings for range
+    const startDate = `${fromYear}-${fromMonth.toString().padStart(2, '0')}-01`;
+    const endDate = `${toYear}-${toMonth.toString().padStart(2, '0')}-31`; // Simplified
+    const receivedParams: any[] = [startDate, endDate];
+
+    if (dto.fromMember) {
+      receivedQuery += ` AND mbno >= $${receivedParams.length + 1}`;
+      receivedParams.push(dto.fromMember);
+    }
+    if (dto.toMember) {
+      receivedQuery += ` AND mbno <= $${receivedParams.length + 1}`;
+      receivedParams.push(dto.toMember);
+    }
+
+    receivedQuery += ` GROUP BY EXTRACT(YEAR FROM trans_date), EXTRACT(MONTH FROM trans_date)
+                       ORDER BY EXTRACT(YEAR FROM trans_date), EXTRACT(MONTH FROM trans_date)`;
+
+    const receivedData = await this.dataSource.query(receivedQuery, receivedParams);
+
+    // 3. Merging results
+    const resultsMap = new Map();
+
+    const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+    receivables.forEach((r: any) => {
+      const key = `${r.year}-${r.month}`;
+      resultsMap.set(key, {
+        month: r.month,
+        year: r.year,
+        demandForMonth: `${monthNames[r.month - 1]} ${r.year}`,
+        balanceForMonth: 0, // In this context, it could mean opening balance of interest receivable, but for now 0
+        interestReceived: 0,
+        interestReceivable: parseFloat(r.receivable) || 0,
+        amount: 0 // Will be calculated after merging received
+      });
+    });
+
+    receivedData.forEach((rec: any) => {
+      const key = `${rec.year}-${rec.month}`;
+      if (resultsMap.has(key)) {
+        const entry = resultsMap.get(key);
+        entry.interestReceived = parseFloat(rec.received) || 0;
+      } else {
+        // If there's collection without demand registered in that month range
+        resultsMap.set(key, {
+          month: rec.month,
+          year: rec.year,
+          demandForMonth: `${monthNames[rec.month - 1]} ${rec.year}`,
+          balanceForMonth: 0,
+          interestReceived: parseFloat(rec.received) || 0,
+          interestReceivable: 0,
+          amount: 0
+        });
+      }
+    });
+
+    // Final formatting
+    const finalResults = Array.from(resultsMap.values())
+      .map((item, idx) => ({
+        key: idx.toString(),
+        ...item,
+        amount: item.interestReceivable + item.interestReceived // Total volume
+      }))
+      .sort((a, b) => (a.year !== b.year ? a.year - b.year : a.month - b.month));
+
+    return finalResults;
+  }
 }

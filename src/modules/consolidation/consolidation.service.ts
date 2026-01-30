@@ -3,10 +3,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Transactions } from '../cashbook/entities/transactions.entity';
 import { HeadMaster } from './entities/head-master.entity';
-import { 
-  GetConsolidationDto, 
-  ConsolidationSummaryDto, 
-  ConsolidationEntryDto 
+import {
+  GetConsolidationDto,
+  ConsolidationSummaryDto,
+  ConsolidationEntryDto
 } from './dto/consolidation.dto';
 
 @Injectable()
@@ -18,80 +18,38 @@ export class ConsolidationService {
     private transactionsRepository: Repository<Transactions>,
     @InjectRepository(HeadMaster)
     private headMasterRepository: Repository<HeadMaster>
-  ) {}
+  ) { }
 
   async getConsolidationReport(dto: GetConsolidationDto): Promise<ConsolidationSummaryDto> {
     try {
       const reportDate = new Date(dto.date);
       const startOfDay = new Date(reportDate);
       startOfDay.setHours(0, 0, 0, 0);
-      
+
       const endOfDay = new Date(reportDate);
       endOfDay.setHours(23, 59, 59, 999);
 
-      // Get all transactions for the selected date
-      const transactions = await this.transactionsRepository
-        .createQueryBuilder('t')
-        .where('t.trans_date >= :startDate AND t.trans_date <= :endDate', {
-          startDate: startOfDay,
-          endDate: endOfDay
-        })
-        .getMany();
+      // Get summary from ledger for the selected date
+      const ledgerSummary = await this.transactionsRepository.query(`
+        SELECT 
+          l.code as "headCode",
+          MAX(h.head_name) as "headName",
+          SUM(CASE WHEN l.trans_type = 'CR' THEN l.trans_amt ELSE 0 END) as receipts,
+          SUM(CASE WHEN l.trans_type = 'DR' THEN l.trans_amt ELSE 0 END) as payments
+        FROM ledger l
+        LEFT JOIN head_master h ON l.code = h.code
+        WHERE l.trans_date >= $1 AND l.trans_date <= $2
+        GROUP BY l.code
+        ORDER BY l.code ASC
+      `, [startOfDay, endOfDay]);
 
-      // Group transactions by head code and calculate totals
-      const consolidationMap = new Map<string, {
-        headCode: string;
-        headName: string;
-        receipts: number;
-        payments: number;
-      }>();
-
-      // Process each transaction
-      for (const transaction of transactions) {
-        const headCode = transaction.code || 'UNKNOWN';
-        
-        if (!consolidationMap.has(headCode)) {
-          // Get head name from headmaster table
-          let headName = 'Unknown Head';
-          try {
-            const headMaster = await this.headMasterRepository.findOne({
-              where: { code: headCode }
-            });
-            if (headMaster) {
-              headName = headMaster.head_name || headCode;
-            }
-          } catch (error) {
-            this.logger.warn(`Failed to fetch head name for code ${headCode}:`, error.message);
-          }
-
-          consolidationMap.set(headCode, {
-            headCode,
-            headName,
-            receipts: 0,
-            payments: 0
-          });
-        }
-
-        const entry = consolidationMap.get(headCode)!;
-        const amount = this.parseMoneyAmount(transaction.trans_amt);
-
-        if (transaction.trans_type === 'CR') {
-          entry.receipts += amount;
-        } else if (transaction.trans_type === 'DR') {
-          entry.payments += amount;
-        }
-      }
-
-      // Convert map to array and calculate net amounts
-      const entries: ConsolidationEntryDto[] = Array.from(consolidationMap.values())
-        .map(entry => ({
-          headCode: entry.headCode,
-          headName: entry.headName,
-          receipts: entry.receipts,
-          payments: entry.payments,
-          netAmount: entry.receipts - entry.payments
-        }))
-        .sort((a, b) => a.headCode.localeCompare(b.headCode));
+      const entries: ConsolidationEntryDto[] = ledgerSummary.map((item: any) => ({
+        headCode: (item.headCode || '').trim(),
+        headName: item.headName || `Head ${item.headCode}`,
+        receipts: Number(item.receipts) || 0,
+        payments: Number(item.payments) || 0,
+        netAmount: (Number(item.receipts) || 0) - (Number(item.payments) || 0)
+      }));
 
       // Calculate overall totals
       const totalReceipts = entries.reduce((sum, entry) => sum + entry.receipts, 0);

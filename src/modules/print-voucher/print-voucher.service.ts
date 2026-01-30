@@ -6,7 +6,7 @@ import { HeadMaster } from './entities/head-master.entity';
 import { MemberMaster } from '@modules/member/entities/member-master.entity';
 import { Ledger } from './entities/ledger.entity';
 import { JournalVoucherDto, JournalEntryDto } from './dto/journal-voucher.dto';
-import { VoucherPrintDto } from './dto/print-voucher.dto';
+import { VoucherPrintDto, VoucherPrintEntryDto } from './dto/print-voucher.dto';
 
 @Injectable()
 export class PrintVoucherService {
@@ -22,41 +22,59 @@ export class PrintVoucherService {
     ) { }
 
     async getVoucherByNo(voucherNo: string): Promise<VoucherPrintDto> {
-        const transaction = await this.transactionsRepository.findOne({
+        const transactions = await this.transactionsRepository.find({
             where: { receipt_vchr_no: voucherNo },
+            order: { trans_no: 'ASC' }
         });
 
-        if (!transaction) {
+        if (!transactions || transactions.length === 0) {
             throw new NotFoundException(`Voucher ${voucherNo} not found`);
         }
 
-        const member = await this.memberMasterRepository.findOne({
-            where: { mbno: transaction.mbno.toString() },
-        });
-
-        const head = await this.headMasterRepository.findOne({
-            where: { code: transaction.code },
-        });
+        const firstTrans = transactions[0];
 
         const dto = new VoucherPrintDto();
-        dto.voucher_no = transaction.receipt_vchr_no;
-        dto.trans_date = transaction.trans_date;
-        dto.amount = transaction.trans_amt;
-        dto.narration = transaction.narration;
-        dto.dr_cr = transaction.trans_type === 'DR' ? 'Payment' : 'Receipt';
+        dto.voucher_no = voucherNo;
+        dto.trans_date = firstTrans.trans_date;
+        dto.narration = firstTrans.narration;
+        dto.dr_cr = firstTrans.trans_type === 'DR' ? 'Payment' : 'Receipt';
+        dto.mode = firstTrans.modeofpay === 'C' ? 'Cash' : (firstTrans.modeofpay === 'Q' ? 'Cheque' : 'Bank');
+        if (firstTrans.modeofpay === 'B') dto.mode = 'Bank Transfer';
 
-        dto.mode = transaction.modeofpay === 'C' ? 'Cheque' : 'Cash'; // Adjust mapping as needed
-        if (transaction.modeofpay === 'B') dto.mode = 'Bank Transfer';
+        dto.cheque_no = firstTrans.cheq_no;
+        dto.cheque_date = firstTrans.cheq_date;
+        dto.bank_name = firstTrans.bankname;
 
-        dto.cheque_no = transaction.cheq_no;
-        dto.cheque_date = transaction.cheq_date;
-        dto.bank_name = transaction.bankname;
+        // Fetch member name for the first transaction
+        if (firstTrans.mbno) {
+            const member = await this.memberMasterRepository.findOne({
+                where: { mbno: firstTrans.mbno.toString() },
+            });
+            dto.member_no = firstTrans.mbno;
+            dto.member_name = member ? member.fullName : 'Unknown Member';
+        }
 
-        dto.member_no = transaction.mbno;
-        dto.member_name = member ? member.fullName : 'Unknown Member';
+        dto.entries = [];
+        let total = 0;
 
-        dto.head_code = transaction.code;
-        dto.head_name = head ? head.head_name : 'Unknown Head';
+        for (const trans of transactions) {
+            const entryDto = new VoucherPrintEntryDto();
+            entryDto.trans_no = trans.trans_no;
+            entryDto.head_code = trans.code;
+            entryDto.amount = Number(trans.trans_amt);
+            entryDto.narration = trans.narration;
+            entryDto.mbno = trans.mbno;
+
+            const head = await this.headMasterRepository.findOne({
+                where: { code: trans.code },
+            });
+            entryDto.head_name = head ? head.head_name : 'Unknown Head';
+
+            dto.entries.push(entryDto);
+            total += entryDto.amount;
+        }
+
+        dto.total_amount = total;
 
         return dto;
     }

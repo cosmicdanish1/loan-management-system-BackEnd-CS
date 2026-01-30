@@ -39,43 +39,41 @@ export class CashBookService {
       const endOfDay = new Date(reportDate);
       endOfDay.setHours(23, 59, 59, 999);
 
-      // Get all transactions for the selected date
-      const transactions = await this.transactionsRepository
-        .createQueryBuilder('t')
-        .where('t.trans_date >= :startDate AND t.trans_date <= :endDate', {
+      // Get transactions from ledger for the selected date
+      const ledgerEntries = await this.ledgerRepository
+        .createQueryBuilder('l')
+        .where('l.trans_date >= :startDate AND l.trans_date <= :endDate', {
           startDate: startOfDay,
           endDate: endOfDay
         })
-        .orderBy('t.code', 'ASC')
+        .orderBy('l.code', 'ASC')
         .getMany();
 
-      // Get all head names for the codes found in transactions
-      const codes = [...new Set(transactions.map(t => t.code))].filter(Boolean);
-      console.log('Fetching head names for codes:', codes);
+      // Get all head names for the codes found in ledger
+      const codes = [...new Set(ledgerEntries.map(l => l.code))].filter(Boolean);
+      const headMap = new Map<string, string>();
 
-      const heads = codes.length > 0
-        ? await this.headMasterRepository.find({
+      if (codes.length > 0) {
+        const heads = await this.headMasterRepository.find({
           where: { code: require('typeorm').In(codes) }
-        })
-        : [];
+        });
+        heads.forEach(h => headMap.set(h.code.trim(), h.head_name));
+      }
 
-      console.log('Fetched heads from DB:', heads.map(h => `${h.code}:${h.head_name}`));
-      const headMap = new Map(heads.map(h => [h.code.trim(), h.head_name]));
+      // Group transactions by code (head code) - using the same logic but with ledger entities
+      const groupedTransactions = this.groupLedgerByCode(ledgerEntries, headMap);
 
-      // Group transactions by code (head code)
-      const groupedTransactions = this.groupTransactionsByCode(transactions, headMap);
-
-      // Calculate opening balance (transactions before the selected date)
+      // Calculate opening balance (balance before the selected date)
       const openingBalance = await this.calculateOpeningBalance(reportDate);
 
-      // Calculate totals - receipts are CR type, payments are DR type
-      const totalReceipts = transactions
-        .filter(t => t.trans_type === 'CR')
-        .reduce((sum, t) => sum + this.parseMoneyAmount(t.trans_amt), 0);
+      // Calculate totals
+      const totalReceipts = ledgerEntries
+        .filter(l => l.trans_type === 'CR')
+        .reduce((sum, l) => sum + Number(l.trans_amt), 0);
 
-      const totalPayments = transactions
-        .filter(t => t.trans_type === 'DR')
-        .reduce((sum, t) => sum + this.parseMoneyAmount(t.trans_amt), 0);
+      const totalPayments = ledgerEntries
+        .filter(l => l.trans_type === 'DR')
+        .reduce((sum, l) => sum + Number(l.trans_amt), 0);
 
       const netBalance = totalReceipts - totalPayments;
       const closingBalance = openingBalance + netBalance;
@@ -96,11 +94,11 @@ export class CashBookService {
     }
   }
 
-  private groupTransactionsByCode(transactions: Transactions[], headMap: Map<string, string>): CashBookEntryDto[] {
+  private groupLedgerByCode(entries: Ledger[], headMap: Map<string, string>): CashBookEntryDto[] {
     const grouped = new Map<string, CashBookEntryDto>();
 
-    transactions.forEach(transaction => {
-      const code = transaction.code ? transaction.code.trim() : '';
+    entries.forEach(l => {
+      const code = l.code ? l.code.trim() : '';
 
       if (!grouped.has(code)) {
         grouped.set(code, {
@@ -112,40 +110,28 @@ export class CashBookService {
       }
 
       const entry = grouped.get(code)!;
-      if (transaction.trans_type === 'CR') {
-        entry.receipt += this.parseMoneyAmount(transaction.trans_amt);
-      } else if (transaction.trans_type === 'DR') {
-        entry.payment += this.parseMoneyAmount(transaction.trans_amt);
+      if (l.trans_type === 'CR') {
+        entry.receipt += Number(l.trans_amt) || 0;
+      } else if (l.trans_type === 'DR') {
+        entry.payment += Number(l.trans_amt) || 0;
       }
     });
 
     return Array.from(grouped.values()).sort((a, b) => a.code.localeCompare(b.code));
   }
 
-  private parseMoneyAmount(moneyValue: string): number {
-    // PostgreSQL money type returns values like "$1,234.56" or "₹1,234.56" or "? 1,234.56"
-    // Remove currency symbols, question marks, and commas, then parse as float
-    if (!moneyValue) return 0;
-    const cleanValue = moneyValue.toString().replace(/[$₹,?]/g, '').trim();
-    return parseFloat(cleanValue) || 0;
-  }
-
   private async calculateOpeningBalance(date: Date): Promise<number> {
     try {
-      const transactions = await this.transactionsRepository
-        .createQueryBuilder('t')
-        .where('t.trans_date < :date', { date })
-        .getMany();
+      const result = await this.ledgerRepository
+        .createQueryBuilder('l')
+        .select(`
+          SUM(CASE WHEN l.trans_type = 'CR' THEN l.trans_amt ELSE 0 END) - 
+          SUM(CASE WHEN l.trans_type = 'DR' THEN l.trans_amt ELSE 0 END)
+        `, 'balance')
+        .where('l.trans_date < :date', { date })
+        .getRawOne();
 
-      const totalCredits = transactions
-        .filter(t => t.trans_type === 'CR')
-        .reduce((sum, t) => sum + this.parseMoneyAmount(t.trans_amt), 0);
-
-      const totalDebits = transactions
-        .filter(t => t.trans_type === 'DR')
-        .reduce((sum, t) => sum + this.parseMoneyAmount(t.trans_amt), 0);
-
-      return totalCredits - totalDebits;
+      return Number(result?.balance || 0);
     } catch (error) {
       this.logger.error('Error calculating opening balance:', error);
       return 0;
