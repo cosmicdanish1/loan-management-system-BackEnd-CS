@@ -14,7 +14,9 @@ import {
     DividendReportsService,
     DepositReportsService,
     UtilityReportsService,
+    FinancialStatementsService,
 } from './services-v2';
+import { FinancialSummaryDto } from './dto/financial-summary.dto';
 
 /**
  * Report V2 Controller - Restructured endpoints using separated services.
@@ -34,6 +36,7 @@ export class ReportV2Controller {
         private readonly dividendReports: DividendReportsService,
         private readonly depositReports: DepositReportsService,
         private readonly utilityReports: UtilityReportsService,
+        private readonly financialStatements: FinancialStatementsService,
     ) { }
 
     // ==================== Cash Book Reports ====================
@@ -82,9 +85,16 @@ export class ReportV2Controller {
         return this.memberReports.getMemberStatement(dto);
     }
 
-    @Post('voters-list')
+    @Get('voters-list')
     @ApiOperation({ summary: 'Get voters list' })
-    async getVotersList(@Body() dto: { wingNo?: string; officeNo?: string; limit?: number; offset?: number }) {
+    async getVotersList(@Query() dto: {
+        division?: string;
+        branch?: string;
+        memberStatus?: string;
+        sortBy?: string;
+        limit?: number;
+        offset?: number
+    }) {
         return this.memberReports.getVotersList(dto);
     }
 
@@ -94,10 +104,34 @@ export class ReportV2Controller {
         return this.memberReports.getMemberBalanceRangeReport(dto);
     }
 
+    @Get('member-balance-range')
+    @ApiOperation({ summary: 'Get members by account number range' })
+    async getMemberBalanceByMemberRange(@Query() dto: { fromAccountNo: string; toAccountNo: string }) {
+        return this.memberReports.getAccountBalanceReport(dto);
+    }
+
     @Post('jotting')
     @ApiOperation({ summary: 'Get jotting report' })
     async getJottingReport(@Body() dto: { wingNo?: string; officeNo?: string; loanType?: string; limit?: number; offset?: number }) {
         return this.memberReports.getJottingReport(dto);
+    }
+
+    @Get('member-ledger')
+    @ApiOperation({ summary: 'Get member ledger' })
+    async getMemberLedger(@Query() dto: { memberNo: string; fromDate: string; toDate: string }) {
+        return this.memberReports.getMemberLedger(dto);
+    }
+
+    @Get('annual-member-statement')
+    @ApiOperation({ summary: 'Get annual member statement' })
+    async getAnnualMemberStatement(@Query() dto: { wingNo?: string; officeNo?: string }) {
+        return this.memberReports.getAnnualMemberStatement(dto);
+    }
+
+    @Get('yearly-member-statement')
+    @ApiOperation({ summary: 'Get yearly member statement' })
+    async getYearlyMemberStatement(@Query() dto: { fromDate: string; toDate: string; wingNo?: string; officeNo?: string; fromMemberNo: string; toMemberNo: string; sortBy?: string }) {
+        return this.memberReports.getYearlyMemberStatement(dto);
     }
 
     // ==================== Loan Reports ====================
@@ -120,15 +154,27 @@ export class ReportV2Controller {
         return this.loanReports.getMemberLoanLedger(dto);
     }
 
-    @Post('member/loan-detail')
-    @ApiOperation({ summary: 'Get member loan details' })
-    async getMemberLoanDetail(@Body() dto: { memberNo?: string; loanType?: string; limit?: number; offset?: number }) {
+    @Get('member-loan-detail')
+    @ApiOperation({ summary: 'Get member loan detail report' })
+    async getMemberLoanDetail(@Query() dto: { memberFrom: string; memberTo: string; loanType?: string }) {
         return this.loanReports.getMemberLoanDetail(dto);
     }
 
-    @Post('surety-register')
+    @Get('loan-contributions-register')
+    @ApiOperation({ summary: 'Get loan contributions register' })
+    async getLoanContributionsRegister(@Query() dto: { memberNo: string; fromDate: string; toDate: string }) {
+        return this.loanReports.getLoanContributionsRegister(dto);
+    }
+
+    @Get('adhoc-reports')
+    @ApiOperation({ summary: 'Get AdHoc reports' })
+    async getAdHocReports(@Query() dto: any) {
+        return this.utilityReports.getAdHocReports(dto);
+    }
+
+    @Get('surety-register')
     @ApiOperation({ summary: 'Get surety register' })
-    async getSuretyRegister(@Body() dto: { memberNo?: string; limit?: number; offset?: number }) {
+    async getSuretyRegister(@Query() dto: { memberFrom?: string; memberTo?: string; memberNo?: string; loanType?: string; limit?: number; offset?: number }) {
         return this.loanReports.getSuretyRegister(dto);
     }
 
@@ -136,6 +182,12 @@ export class ReportV2Controller {
     @ApiOperation({ summary: 'Get loan types' })
     async getLoanTypes() {
         return this.loanReports.getLoanTypes();
+    }
+
+    @Get('loan-nil-certificate/:memberNo')
+    @ApiOperation({ summary: 'Get loan nil certificate' })
+    async getLoanNilCertificate(@Param('memberNo') memberNo: string) {
+        return this.loanReports.getLoanNilCertificate(memberNo);
     }
 
     @Post('loans/interest-statement')
@@ -146,34 +198,65 @@ export class ReportV2Controller {
 
     // ==================== Dividend Reports ====================
 
-    @Post('dividend')
+    // ==================== Dividend Reports ====================
+
+    @Get('dividend-report')
     @ApiOperation({ summary: 'Get dividend report' })
-    async getDividendReport(@Body() dto: { year: number; wingNo?: string; officeNo?: string; limit?: number; offset?: number }) {
-        return this.dividendReports.getDividendReport(dto);
+    async getDividendReport(@Query() dto: { year?: string; financialYear?: string; wingName?: string; officeName?: string; dividendRate?: number; limit?: number; offset?: number; sortBy?: string }) {
+        // Frontend sends financialYear like "2024-2025" or year
+        const year = dto.year ? parseInt(dto.year) : (dto.financialYear ? parseInt(dto.financialYear.split('-')[0]) : new Date().getFullYear());
+        return this.dividendReports.getDividendReport({
+            year,
+            wingNo: dto.wingName,
+            officeNo: dto.officeName,
+            limit: dto.limit,
+            offset: dto.offset
+        });
     }
 
-    @Post('dividend/paid')
+    @Get('dividend-paid')
     @ApiOperation({ summary: 'Get dividend paid report' })
-    async getDividendPaid(@Body() dto: { year: number; fromDate?: string; toDate?: string; limit?: number; offset?: number }) {
-        return this.dividendReports.getDividendPaid(dto);
+    async getDividendPaid(@Query() dto: { wingName?: string; fromDate?: string; toDate?: string; limit?: number; offset?: number }) {
+        return this.dividendReports.getDividendPaid({
+            year: new Date().getFullYear(), // Placeholder, logic uses date range
+            wingNo: dto.wingName,
+            fromDate: dto.fromDate,
+            toDate: dto.toDate,
+            limit: dto.limit,
+            offset: dto.offset
+        });
     }
 
-    @Post('dividend/warrant')
+    @Get('dividend-warrant')
     @ApiOperation({ summary: 'Get dividend warrant' })
-    async getDividendWarrant(@Body() dto: { memberNo: string; year: number }) {
-        return this.dividendReports.getDividendWarrant(dto);
+    async getDividendWarrant(@Query() dto: { wingName?: string; officeName?: string; fromDate?: string; uptoDate?: string; memberNo?: string; sortBy?: string }) {
+        return this.dividendReports.getDividendWarrant({
+            memberNo: dto.memberNo,
+            year: dto.fromDate ? new Date(dto.fromDate).getFullYear() : new Date().getFullYear(), // Estimating year from date
+            wingNo: dto.wingName,
+            officeNo: dto.officeName,
+            fromDate: dto.fromDate,
+            toDate: dto.uptoDate
+        });
     }
 
-    @Get('share/warrant/:memberNo')
-    @ApiOperation({ summary: 'Get share warrant' })
-    async getShareWarrant(@Param('memberNo') memberNo: string) {
-        return this.dividendReports.getShareWarrant({ memberNo });
-    }
-
-    @Post('interest-list')
+    @Get('interest-list')
     @ApiOperation({ summary: 'Get interest list' })
-    async getInterestList(@Body() dto: { year: number; type?: string; limit?: number; offset?: number }) {
-        return this.dividendReports.getInterestList(dto);
+    async getInterestList(@Query() dto: { financialYear?: string; wingName?: string; accountType?: string; sortBy?: string; limit?: number; offset?: number }) {
+        const year = dto.financialYear ? parseInt(dto.financialYear.split('-')[0]) : new Date().getFullYear();
+        return this.dividendReports.getInterestList({
+            year,
+            wingNo: dto.wingName,
+            type: dto.accountType,
+            limit: dto.limit,
+            offset: dto.offset
+        });
+    }
+
+    @Get('share-warrant')
+    @ApiOperation({ summary: 'Get share warrant' })
+    async getShareWarrant(@Query() dto: { memberFrom: string; memberTo: string; warrantDate?: string }) {
+        return this.dividendReports.getShareWarrant(dto);
     }
 
     @Post('interest-certificate')
@@ -208,16 +291,71 @@ export class ReportV2Controller {
         return this.depositReports.getDepositMaturity(dto);
     }
 
-    @Get('fd/certificate/:accountNo')
+    @Get('fd-certificate')
     @ApiOperation({ summary: 'Get FD certificate' })
-    async getFDCertificate(@Param('accountNo') accountNo: string) {
-        return this.depositReports.getFixedDepositCertificate({ accountNo });
+    async getFDCertificate(@Query() dto: { memberNo: string; accountNo?: string; certificateNo?: string }) {
+        return this.depositReports.getFixedDepositCertificate(dto);
     }
 
-    @Get('share/certificate/:memberNo')
+    @Get('share-certificate')
     @ApiOperation({ summary: 'Get share certificate' })
-    async getShareCertificate(@Param('memberNo') memberNo: string) {
-        return this.depositReports.getShareCertificate({ memberNo });
+    async getShareCertificate(@Query() dto: { memberNo: string; certificateNo?: string }) {
+        return this.depositReports.getShareCertificate(dto);
+    }
+
+    @Get('recurring-details')
+    @ApiOperation({ summary: 'Get recurring details' })
+    async getRecurringDetails(@Query() dto: { memberNo: string }) {
+        return this.depositReports.getRecurringDetails(dto);
+    }
+
+    @Get('lien-account-information')
+    @ApiOperation({ summary: 'Get lien account information' })
+    async getLienAccountInformation() {
+        return this.depositReports.getLienAccountInformation();
+    }
+
+    @Get('passbook-printing')
+    @ApiOperation({ summary: 'Get passbook printing data' })
+    async getPassBookPrinting(@Query() dto: any) {
+        return this.depositReports.getPassBookPrinting(dto);
+    }
+
+    // ==================== Financial Statements (Trial/BS/PL) ====================
+
+    @Get('schedule')
+    @ApiOperation({ summary: 'Get all report schedules' })
+    async getAllReportSchedules(@Query('type') type?: string) {
+        return this.financialStatements.getAllReportSchedules(type);
+    }
+
+    @Get('schedule/:id')
+    @ApiOperation({ summary: 'Get report schedule details' })
+    async getReportScheduleDetails(@Param('id') id: string) {
+        return this.financialStatements.getReportScheduleDetails(parseInt(id));
+    }
+
+    @Post('schedule')
+    @ApiOperation({ summary: 'Create or update report schedule' })
+    async createReportSchedule(@Body() dto: {
+        schedule_name: string;
+        template_name: string;
+        report_type: string;
+        details: { particulars: string; code_from: string; code_to: string }[];
+        id?: number;
+    }) {
+        return this.financialStatements.createReportSchedule(dto);
+    }
+
+    @Post('schedule/execute')
+    @ApiOperation({ summary: 'Execute report schedule' })
+    async executeReportSchedule(@Body() dto: {
+        scheduleId: number;
+        fromDate: string;
+        toDate: string;
+        financialYearStart: string;
+    }) {
+        return this.financialStatements.executeReportSchedule(dto);
     }
 
     // ==================== Utility Reports ====================
@@ -240,21 +378,21 @@ export class ReportV2Controller {
         return this.utilityReports.getDivisionList(wingNo);
     }
 
-    @Post('financial-summary')
-    @ApiOperation({ summary: 'Get financial summary' })
-    async getFinancialSummary(@Body() dto: { fromDate: string; toDate: string }) {
+    @Get('financial-summary')
+    @ApiOperation({ summary: 'Get financial summary (Trial Balance)' })
+    async getFinancialSummary(@Query() dto: FinancialSummaryDto) {
         return this.utilityReports.getFinancialSummary(dto);
     }
 
-    @Post('account-closing')
+    @Get('account-closing')
     @ApiOperation({ summary: 'Get account closing register' })
-    async getAccountClosingRegister(@Body() dto: { fromDate: string; toDate: string; accountType?: string }) {
+    async getAccountClosingRegister(@Query() dto: { month: number; year: number; accountType?: string }) {
         return this.utilityReports.getAccountClosingRegister(dto);
     }
 
-    @Post('recovery-details')
+    @Get('recovery-details')
     @ApiOperation({ summary: 'Get recovery details' })
-    async getRecoveryDetails(@Body() dto: { month: string; year: number; wingNo?: string }) {
+    async getRecoveryDetails(@Query() dto: { memberNo: string; month: string; year: number; wingNo?: string }) {
         return this.utilityReports.getRecoveryDetails(dto);
     }
 

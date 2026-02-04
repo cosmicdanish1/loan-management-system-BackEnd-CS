@@ -27,9 +27,16 @@ export class TransactionV2Controller {
     // ==================== Voucher Operations ====================
 
     @Post('voucher')
+    @ApiOperation({ summary: 'Create a generic voucher (Payment/Receipt/Journal)' })
+    @ApiResponse({ status: 201, description: 'Voucher created successfully' })
+    async createVoucher(@Body() voucherData: any) {
+        return this.voucherService.createVoucher(voucherData);
+    }
+
+    @Post('loan-voucher')
     @ApiOperation({ summary: 'Generate a loan disbursement voucher' })
-    @ApiResponse({ status: 201, description: 'Voucher generated successfully' })
-    async generateVoucher(@Body() voucherData: any) {
+    @ApiResponse({ status: 201, description: 'Loan voucher generated successfully' })
+    async generateLoanVoucher(@Body() voucherData: any) {
         return this.voucherService.generateLoanVoucher(voucherData);
     }
 

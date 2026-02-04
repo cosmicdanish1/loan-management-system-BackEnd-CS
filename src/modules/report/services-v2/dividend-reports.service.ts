@@ -91,18 +91,26 @@ export class DividendReportsService {
   /**
    * Get dividend paid report
    */
-  async getDividendPaid(dto: { year: number; fromDate?: string; toDate?: string; limit?: number; offset?: number }) {
-    const { year, fromDate, toDate, limit, offset } = dto;
+  async getDividendPaid(dto: { year: number; wingNo?: string; fromDate?: string; toDate?: string; limit?: number; offset?: number }) {
+    const { year, wingNo, fromDate, toDate, limit, offset } = dto;
 
     const baseQuery = `
       FROM dividend_master div
       LEFT JOIN member_master m ON m.mbno = div.mbno
       LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
-      WHERE div.year = $1 AND div.is_paid = 'Y'
+      WHERE div.is_paid = 'Y'
     `;
 
-    const params: any[] = [year];
+    const params: any[] = [];
     let whereClause = '';
+
+    // If year is provided but no dates, we could use year, but dates are preferred for strict ranges
+    // Usually dividend paid is for a specific year's dividend but paid later. 
+    // If year param is the "Financial Year of Dividend", use div.year.
+    if (!fromDate && !toDate) {
+      whereClause += ` AND div.year = $${params.length + 1}`;
+      params.push(year);
+    }
 
     if (fromDate) {
       whereClause += ` AND div.payment_date >= $${params.length + 1}`;
@@ -112,6 +120,11 @@ export class DividendReportsService {
     if (toDate) {
       whereClause += ` AND div.payment_date <= $${params.length + 1}`;
       params.push(toDate);
+    }
+
+    if (wingNo) {
+      whereClause += ` AND m.wingno = $${params.length + 1}`;
+      params.push(wingNo);
     }
 
     // Get total count
@@ -126,7 +139,8 @@ export class DividendReportsService {
         div.dividend_amount,
         div.payment_date,
         div.payment_mode,
-        div.cheque_no
+        div.cheque_no,
+        div.voucher_no
       ${baseQuery} ${whereClause}
       ORDER BY div.payment_date DESC
     `;
@@ -158,7 +172,8 @@ export class DividendReportsService {
         dividendAmount: parseFloat(r.dividend_amount) || 0,
         paymentDate: r.payment_date,
         paymentMode: r.payment_mode,
-        chequeNo: r.cheque_no
+        chequeNo: r.cheque_no,
+        voucherNo: r.voucher_no
       }))
     };
   }
@@ -166,104 +181,139 @@ export class DividendReportsService {
   /**
    * Get dividend warrant
    */
-  async getDividendWarrant(dto: { memberNo: string; year: number }) {
-    const { memberNo, year } = dto;
+  async getDividendWarrant(dto: { memberNo?: string; year: number; wingNo?: string; officeNo?: string; fromDate?: string; toDate?: string }) {
+    const { memberNo, year, wingNo, officeNo, fromDate, toDate } = dto;
+
+    const baseQuery = `
+      FROM dividend_master div
+      JOIN member_master m ON m.mbno = div.mbno
+      LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
+      LEFT JOIN member_balances mb ON m.mbno = mb.mbno
+      WHERE div.year = $1
+    `;
+
+    const params: any[] = [year];
+    let whereClause = '';
+
+    if (memberNo) {
+      whereClause += ` AND m.mbno = $${params.length + 1}`;
+      params.push(memberNo);
+    }
+
+    if (wingNo) {
+      whereClause += ` AND m.wingno = $${params.length + 1}`;
+      params.push(wingNo);
+    }
+
+    if (officeNo) {
+      whereClause += ` AND m.officeno = $${params.length + 1}`;
+      params.push(officeNo);
+    }
+
+    if (fromDate) {
+      whereClause += ` AND div.payment_date >= $${params.length + 1}`;
+      params.push(fromDate);
+    }
+
+    if (toDate) {
+      whereClause += ` AND div.payment_date <= $${params.length + 1}`;
+      params.push(toDate);
+    }
 
     const query = `
       SELECT 
         m.mbno as member_no,
-        TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
+        TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
         m.present_address as address,
         d.name as office_name,
         COALESCE(mb.shares, 0) as share_balance,
         div.dividend_amount,
         div.dividend_rate,
+        div.cheque_no,
         div.year,
         div.payment_date
-      FROM member_master m
-      LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
-      LEFT JOIN member_balances mb ON m.mbno = mb.mbno
-      LEFT JOIN dividend_master div ON m.mbno = div.mbno AND div.year = $2
-      WHERE m.mbno = $1
+      ${baseQuery} ${whereClause}
+      ORDER BY m.mbno
     `;
 
-    const result = await this.dataSource.query(query, [memberNo, year]);
+    const result = await this.dataSource.query(query, params);
 
-    if (result.length === 0) {
-      return null;
-    }
-
-    const r = result[0];
     return {
-      memberNo: r.member_no,
-      memberName: r.member_name,
-      address: r.address,
-      officeName: r.office_name,
-      shareBalance: parseFloat(r.share_balance) || 0,
-      dividendAmount: parseFloat(r.dividend_amount) || 0,
-      dividendRate: parseFloat(r.dividend_rate) || 0,
-      year: r.year,
-      paymentDate: r.payment_date
+      data: result.map((r: any) => ({
+        memberNo: r.member_no,
+        memberName: r.member_name,
+        address: r.address,
+        officeName: r.office_name,
+        shareBalance: parseFloat(r.share_balance) || 0,
+        dividendAmount: parseFloat(r.dividend_amount) || 0,
+        dividendRate: parseFloat(r.dividend_rate) || 0,
+        chequeNo: r.cheque_no,
+        year: r.year,
+        paymentDate: r.payment_date
+      }))
     };
   }
 
   /**
    * Get share warrant
    */
-  async getShareWarrant(dto: { memberNo: string }) {
-    const { memberNo } = dto;
+  async getShareWarrant(dto: { memberFrom: string; memberTo: string; warrantDate?: string }) {
+    const { memberFrom, memberTo, warrantDate } = dto;
+    const date = warrantDate || new Date().toISOString().split('T')[0];
 
     const query = `
       SELECT 
-        m.mbno as member_no,
-        TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
-        m.present_address as address,
-        m.memb_date as membership_date,
-        d.name as office_name,
-        COALESCE(mb.shares, 0) as share_balance
-      FROM member_master m
-      LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
-      LEFT JOIN member_balances mb ON m.mbno = mb.mbno
-      WHERE m.mbno = $1
+        mb.srno as "srno",
+        mb.mbno as "mbno",
+        mb.member_name as "memberName",
+        mb.pfno as "pfno",
+        mb.officeno as "officeno",
+        mb.shares as "shareAmount",
+        $3 as "warrantDate"
+      FROM member_balances mb
+      WHERE mb.mbno::numeric >= $1 AND mb.mbno::numeric <= $2
+      AND mb.shares > 0
+      ORDER BY mb.mbno::numeric ASC
     `;
 
-    const result = await this.dataSource.query(query, [memberNo]);
+    const result = await this.dataSource.query(query, [memberFrom, memberTo, date]);
 
-    if (result.length === 0) {
-      return null;
-    }
-
-    const r = result[0];
-    return {
-      memberNo: r.member_no,
-      memberName: r.member_name,
-      address: r.address,
-      membershipDate: r.membership_date,
-      officeName: r.office_name,
-      shareBalance: parseFloat(r.share_balance) || 0
-    };
+    return result.map((item, index) => ({
+      key: index.toString(),
+      srno: (index + 1).toString(),
+      mbno: item.mbno,
+      memberName: item.memberName || 'Unknown',
+      pfno: item.pfno || '-',
+      officeno: item.officeno || '-',
+      shareAmount: parseFloat(item.shareAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 }),
+      warrantDate: item.warrantDate
+    }));
   }
 
   /**
    * Get interest list
    */
-  async getInterestList(dto: { year: number; type?: string; limit?: number; offset?: number }) {
-    const { year, type, limit, offset } = dto;
+  async getInterestList(dto: { year: number; type?: string; wingNo?: string; limit?: number; offset?: number }) {
+    const { year, type, wingNo, limit, offset } = dto;
 
+    // Use interestpaid table
     const baseQuery = `
-      FROM interest_ledger il
-      LEFT JOIN member_master m ON m.mbno = il.mbno
+      FROM interestpaid ip
+      LEFT JOIN member_master m ON m.mbno = ip.mbno::text
       LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
-      WHERE EXTRACT(YEAR FROM il.to_date) = $1
+      WHERE EXTRACT(YEAR FROM ip.paydate) = $1
     `;
 
     const params: any[] = [year];
     let whereClause = '';
 
-    if (type) {
-      whereClause += ` AND il.deposit_type = $${params.length + 1}`;
-      params.push(type);
+    if (wingNo) {
+      whereClause += ` AND m.wingno = $${params.length + 1}`;
+      params.push(wingNo);
     }
+
+    // Type filtering logic if mapped
+    // if (type) { ... }
 
     // Get total count
     const totalCountRes = await this.dataSource.query(`SELECT COUNT(*) ${baseQuery} ${whereClause}`, params);
@@ -274,14 +324,12 @@ export class DividendReportsService {
         m.mbno as member_no,
         TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
         d.name as office_name,
-        il.deposit_type,
-        il.principal_amount,
-        il.interest_amount,
-        il.interest_rate,
-        il.from_date,
-        il.to_date
+        ip.account_number,
+        ip.interest as interest_amount,
+        ip.paydate,
+        ip.opbal as principal_amount
       ${baseQuery} ${whereClause}
-      ORDER BY il.to_date DESC, m.mbno
+      ORDER BY ip.paydate DESC, m.mbno
     `;
 
     const queryParams = [...params];
@@ -308,12 +356,11 @@ export class DividendReportsService {
         memberNo: r.member_no,
         memberName: r.member_name,
         officeName: r.office_name,
-        depositType: r.deposit_type,
+        depositType: 'DEPOSIT',
         principalAmount: parseFloat(r.principal_amount) || 0,
         interestAmount: parseFloat(r.interest_amount) || 0,
-        interestRate: parseFloat(r.interest_rate) || 0,
-        fromDate: r.from_date,
-        toDate: r.to_date
+        fromDate: r.paydate,
+        toDate: r.paydate
       }))
     };
   }

@@ -5,6 +5,7 @@ import { Transaction } from './entities/transaction.entity';
 import { Voucher } from './entities/voucher.entity';
 import { DemandMaster } from './entities/demand-master.entity';
 import { ShortRecoveryAdjustment } from './entities/short-recovery-adjustment.entity';
+import { MemberMaster } from '../member/entities/member-master.entity';
 import { TransactionV2Controller } from './transaction-v2.controller';
 import { ShortRecoveryController } from './short-recovery.controller';
 import { DemandGenerationController } from './demand-generation.controller'; // New
@@ -18,10 +19,14 @@ import {
     LedgerPostingService,
     DemandReportService,
     CompulsoryDepositService,
-    JournalTransferService
+    JournalTransferService,
+    DividendPaymentService,
+    FixedDepositService
 } from './services-v2';
 import { CompulsoryDepositController } from './compulsory-deposit.controller';
 import { JournalTransferController } from './journal-transfer.controller';
+import { DividendPaymentController } from './dividend-payment.controller';
+import { FixedDepositController } from './fixed-deposit.controller';
 
 @Module({
     imports: [
@@ -30,7 +35,8 @@ import { JournalTransferController } from './journal-transfer.controller';
             Transaction,
             Voucher,
             DemandMaster,
-            ShortRecoveryAdjustment
+            ShortRecoveryAdjustment,
+            MemberMaster
         ]),
     ],
     controllers: [
@@ -40,7 +46,9 @@ import { JournalTransferController } from './journal-transfer.controller';
         LedgerPostingController, // Register
         DemandReportController, // Register
         CompulsoryDepositController,
-        JournalTransferController
+        JournalTransferController,
+        DividendPaymentController,
+        FixedDepositController
     ],
     providers: [
         VoucherService,
@@ -50,7 +58,9 @@ import { JournalTransferController } from './journal-transfer.controller';
         LedgerPostingService, // Register
         DemandReportService, // Register
         CompulsoryDepositService,
-        JournalTransferService
+        JournalTransferService,
+        DividendPaymentService,
+        FixedDepositService
     ],
     exports: [
         VoucherService,
@@ -60,7 +70,9 @@ import { JournalTransferController } from './journal-transfer.controller';
         LedgerPostingService,
         DemandReportService,
         CompulsoryDepositService,
-        JournalTransferService
+        JournalTransferService,
+        DividendPaymentService,
+        FixedDepositService
     ]
 })
 export class TransactionV2Module { }

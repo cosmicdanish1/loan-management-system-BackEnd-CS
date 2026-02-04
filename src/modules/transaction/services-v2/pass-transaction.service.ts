@@ -24,7 +24,7 @@ export class PassTransactionService {
             await queryRunner.connect();
             await queryRunner.startTransaction();
 
-            console.log(`[PassTransaction] 🔒 Starting Pass Transaction (Standard Mode) for voucher: ${voucherNo}`);
+            console.log(`[PassTransaction] 🔒 Starting Pass Transaction for voucher: ${voucherNo}`);
 
             // 1. Fetch voucher from header table
             const voucherQuery = `SELECT * FROM vouchers WHERE "voucherNumber" = $1 AND status = 'PENDING'`;
@@ -34,90 +34,85 @@ export class PassTransactionService {
             }
             const header = headerResult[0];
 
-            // 2. Extract loan case no from remarks
+            // 2. Determine if this is a Loan Disbursement or Generic Voucher
             const remarksMatch = (header.remarks || '').match(/LOAN_CASE:([^|]+)/);
-            if (!remarksMatch) throw new Error('Voucher does not contain meta-data for Loan Case mapping');
-            const loanCaseNo = remarksMatch[1];
+            const isLoanVoucher = !!remarksMatch;
+            const loanCaseNo = remarksMatch ? remarksMatch[1] : null;
 
             // 3. Fetch breakdown details from transactions table
             const detailsQuery = `SELECT * FROM transactions WHERE receipt_vchr_no = $1 AND pass_flag = 'N'`;
             const details = await queryRunner.query(detailsQuery, [voucherNo]);
 
-            // 4. Fetch loan pending data
-            const lpQuery = `SELECT * FROM loan_pending WHERE loancaseno::text = $1`;
-            const lpResult = await queryRunner.query(lpQuery, [loanCaseNo]);
-            if (lpResult.length === 0) throw new Error('Loan case not found in loan_pending');
-            const loan = lpResult[0];
+            if (isLoanVoucher) {
+                // ==================== LOAN SPECIFIC LOGIC ====================
+                const lpQuery = `SELECT * FROM loan_pending WHERE loancaseno::text = $1`;
+                const lpResult = await queryRunner.query(lpQuery, [loanCaseNo]);
+                if (lpResult.length === 0) throw new Error('Loan case not found in loan_pending');
+                const loan = lpResult[0];
 
-            // 5. Determine rates
-            let rate = 12;
-            let penalrate = 2;
+                let rate = 12, penalrate = 2;
+                try {
+                    const rateKey = (loan.loantype === 'R' || loan.loantype === 'REG') ? 'RULE_LOAN_LT_INTEREST_RATE' : 'RULE_LOAN_EL_INTEREST_RATE';
+                    rate = await this.systemConfigService.getConfigValue(rateKey);
+                } catch (e) { }
 
-            try {
-                if (loan.loantype === 'R' || loan.loantype === 'REG' || loan.loantype === 'RLN') {
-                    rate = await this.systemConfigService.getConfigValue('RULE_LOAN_LT_INTEREST_RATE');
-                    penalrate = await this.systemConfigService.getConfigValue('RULE_LOAN_LT_PENAL_RATE');
-                } else {
-                    rate = await this.systemConfigService.getConfigValue('RULE_LOAN_EL_INTEREST_RATE');
-                    penalrate = await this.systemConfigService.getConfigValue('RULE_LOAN_EL_PENAL_RATE');
+                const parseMoney = (val: any) => parseFloat(val.toString().replace(/[^0-9.-]+/g, "")) || 0;
+                const sanctionedAmt = parseMoney(loan.sanctioned_amt);
+                const noOfInstal = loan.no_of_instal || 1;
+
+                // Activate Loan
+                const insertLoanMasterQuery = `
+                    INSERT INTO loan_master (
+                        mbno, loantype, loancaseno, loan_amt, payment_date, 
+                        rate, no_of_instal, instal_amt, balance, openbalance, 
+                        purpose, intt_amount, penalrate
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                `;
+                await queryRunner.query(insertLoanMasterQuery, [
+                    loan.mbno, loan.loantype, loan.loancaseno, sanctionedAmt, new Date(),
+                    rate, noOfInstal, Math.round(sanctionedAmt / noOfInstal), sanctionedAmt, sanctionedAmt,
+                    loan.purpose, 0, penalrate
+                ]);
+
+                // Post Breakdown for Loan
+                for (const detail of details) {
+                    await queryRunner.query(`
+                        INSERT INTO ledger (mbno, loantype, loancaseno, particulars, vchr_no, vchr_date, dr_amt, cr_amt, balance)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                    `, [loan.mbno, loan.loantype, loan.loancaseno, detail.particulars, voucherNo, new Date(), detail.trans_amt, 0, sanctionedAmt]);
+
+                    await queryRunner.query(`
+                        INSERT INTO tblcashbook (mbno, particulars, vchr_no, vchr_date, payment, receipt, balance, trans_type)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    `, [loan.mbno, detail.particulars, voucherNo, new Date(), detail.trans_amt, 0, 0, 'P']);
                 }
-            } catch (e) {
-                rate = 12; penalrate = 2;
+
+                await queryRunner.query(`UPDATE loan_pending SET flg_paid = 'Y', p_date = NOW() WHERE loancaseno::text = $1`, [loanCaseNo]);
+
+            } else {
+                // ==================== GENERIC POSTING LOGIC ====================
+                for (const detail of details) {
+                    // Post to generic ledger if member ID exists, otherwise just cashbook
+                    if (header.memberId) {
+                        await queryRunner.query(`
+                            INSERT INTO ledger (mbno, particulars, vchr_no, vchr_date, dr_amt, cr_amt)
+                            VALUES ($1, $2, $3, $4, $5, $6)
+                        `, [header.memberId, detail.particulars || header.description, voucherNo, new Date(), detail.trans_amt, 0]);
+                    }
+
+                    await queryRunner.query(`
+                        INSERT INTO tblcashbook (mbno, particulars, vchr_no, vchr_date, payment, receipt, trans_type)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    `, [header.memberId || 0, detail.particulars || header.description, voucherNo, new Date(), detail.trans_amt, 0, 'P']);
+                }
             }
 
-            const parseMoney = (val: any) => parseFloat(val.toString().replace(/[^0-9.-]+/g, "")) || 0;
-            const sanctionedAmt = parseMoney(loan.sanctioned_amt);
-            const noOfInstal = loan.no_of_instal || 1;
-            const instalAmt = Math.round(sanctionedAmt / noOfInstal);
-
-            // 6. Activate Loan: Insert into loan_master
-            const insertLoanMasterQuery = `
-                INSERT INTO loan_master (
-                    mbno, loantype, loancaseno, loan_amt, payment_date, 
-                    rate, no_of_instal, instal_amt, balance, openbalance, 
-                    purpose, intt_amount, penalrate
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-            `;
-            await queryRunner.query(insertLoanMasterQuery, [
-                loan.mbno, loan.loantype, loan.loancaseno, sanctionedAmt, new Date(),
-                rate, noOfInstal, instalAmt, sanctionedAmt, sanctionedAmt,
-                loan.purpose, 0, penalrate
-            ]);
-
-            // 7. Post to Ledger and Cashbook for each breakdown entry
-            for (const detail of details) {
-                // a. Insert into Ledger
-                const ledgerQuery = `
-                    INSERT INTO ledger (
-                        mbno, loantype, loancaseno, particulars, vchr_no, 
-                        vchr_date, dr_amt, cr_amt, balance
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                `;
-                // Simple logic: If it's loan disbursement, we are giving money (Debiting member's loan ledger)
-                await queryRunner.query(ledgerQuery, [
-                    loan.mbno, loan.loantype, loan.loancaseno, detail.particulars, voucherNo,
-                    new Date(), detail.trans_amt, 0, sanctionedAmt // Simplified balance
-                ]);
-
-                // b. Insert into tblcashbook
-                const cashbookQuery = `
-                    INSERT INTO tblcashbook (
-                        mbno, particulars, vchr_no, vchr_date, payment, receipt, balance, trans_type
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                `;
-                await queryRunner.query(cashbookQuery, [
-                    loan.mbno, detail.particulars, voucherNo, new Date(),
-                    detail.trans_amt, 0, 0, 'P'
-                ]);
-            }
-
-            // 8. Update Flags and Status
+            // 8. Update Voucher and Transaction flags
             await queryRunner.query(`UPDATE vouchers SET status = 'POSTED', "authorizedAt" = NOW() WHERE "voucherNumber" = $1`, [voucherNo]);
             await queryRunner.query(`UPDATE transactions SET pass_flag = 'Y' WHERE receipt_vchr_no = $1`, [voucherNo]);
-            await queryRunner.query(`UPDATE loan_pending SET flg_paid = 'Y', p_date = NOW() WHERE loancaseno::text = $1`, [loanCaseNo]);
 
             await queryRunner.commitTransaction();
-            console.log(`[PassTransaction] ✅ Transaction passed successfully for voucher ${voucherNo}`);
+            console.log(`[PassTransaction] ✅ Transaction passed successfully: ${voucherNo}`);
 
             return { success: true, message: 'Transaction posted successfully' };
 

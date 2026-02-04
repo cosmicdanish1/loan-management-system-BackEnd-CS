@@ -1,49 +1,32 @@
-import { Controller, Get, Query, Logger } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
+import { Controller, Get, Patch, Body, Query, Param, Logger, UseGuards, Req } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { UtilitiesService } from './utilities.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import {
+  SearchDepositsDto,
+  SearchSBAccountsDto,
+  MemberEligibilityDto,
+  MemberBalanceDto
+} from './dto/search-params.dto';
+import { UpdateUserPreferenceDto } from './dto/update-user-preference.dto';
 
 @ApiTags('Utilities')
 @Controller('utilities')
 export class UtilitiesController {
   private readonly logger = new Logger(UtilitiesController.name);
 
-  constructor(private readonly utilitiesService: UtilitiesService) {}
+  constructor(private readonly utilitiesService: UtilitiesService) { }
 
   @Get('search/deposits')
   @ApiOperation({ summary: 'Search for deposit accounts (RD/FD) by member number' })
-  @ApiQuery({ name: 'memberNo', type: 'string', description: 'Member number' })
-  @ApiQuery({ name: 'type', type: 'string', enum: ['RD', 'FD'], description: 'Deposit type' })
-  @ApiResponse({
-    status: 200,
-    description: 'Deposit accounts retrieved successfully',
-    schema: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          accountNumber: { type: 'string' },
-          memberId: { type: 'number' },
-          monthlyInstallment: { type: 'number' },
-          interestRate: { type: 'number' },
-          startDate: { type: 'string', format: 'date' },
-          maturityDate: { type: 'string', format: 'date' },
-          tenureMonths: { type: 'number' },
-          maturityAmount: { type: 'number' },
-          totalDeposited: { type: 'number' },
-          installmentsPaid: { type: 'number' },
-          status: { type: 'string' }
-        }
-      }
-    }
-  })
   async searchDeposits(
-    @Query('memberNo') memberNo: string,
-    @Query('type') type: 'RD' | 'FD'
+    @Query() query: SearchDepositsDto
   ): Promise<{
     success: boolean;
     data: any[];
     message: string;
   }> {
+    const { memberNo, type } = query;
     this.logger.log(`Searching ${type} deposits for member: ${memberNo}`);
 
     const deposits = await this.utilitiesService.searchDeposits(memberNo, type);
@@ -57,34 +40,14 @@ export class UtilitiesController {
 
   @Get('search/sb-accounts')
   @ApiOperation({ summary: 'Search for savings bank accounts by member number' })
-  @ApiQuery({ name: 'memberNo', type: 'string', description: 'Member number' })
-  @ApiResponse({
-    status: 200,
-    description: 'SB accounts retrieved successfully',
-    schema: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          accountNumber: { type: 'string' },
-          memberId: { type: 'number' },
-          interestRate: { type: 'number' },
-          currentBalance: { type: 'number' },
-          openingDate: { type: 'string', format: 'date' },
-          minimumBalance: { type: 'number' },
-          status: { type: 'string' },
-          lastTransactionDate: { type: 'string', format: 'date' }
-        }
-      }
-    }
-  })
   async searchSBAccounts(
-    @Query('memberNo') memberNo: string
+    @Query() query: SearchSBAccountsDto
   ): Promise<{
     success: boolean;
     data: any[];
     message: string;
   }> {
+    const { memberNo } = query;
     this.logger.log(`Searching SB accounts for member: ${memberNo}`);
 
     const sbAccounts = await this.utilitiesService.searchSBAccounts(memberNo);
@@ -120,18 +83,14 @@ export class UtilitiesController {
 
   @Get('calculator/member-eligibility')
   @ApiOperation({ summary: 'Check loan eligibility for a member' })
-  @ApiQuery({ name: 'memberNo', type: 'string', description: 'Member number' })
-  @ApiResponse({
-    status: 200,
-    description: 'Member eligibility retrieved successfully'
-  })
   async getMemberEligibility(
-    @Query('memberNo') memberNo: string
+    @Query() query: MemberEligibilityDto
   ): Promise<{
     success: boolean;
     data: any;
     message: string;
   }> {
+    const { memberNo } = query;
     this.logger.log(`Getting loan eligibility for member: ${memberNo}`);
 
     const eligibility = await this.utilitiesService.getMemberEligibility(memberNo);
@@ -145,18 +104,14 @@ export class UtilitiesController {
 
   @Get('member/balance')
   @ApiOperation({ summary: 'Get member balance information' })
-  @ApiQuery({ name: 'memberNo', type: 'string', description: 'Member number' })
-  @ApiResponse({
-    status: 200,
-    description: 'Member balance retrieved successfully'
-  })
   async getMemberBalance(
-    @Query('memberNo') memberNo: string
+    @Query() query: MemberBalanceDto
   ): Promise<{
     success: boolean;
     data: any;
     message: string;
   }> {
+    const { memberNo } = query;
     this.logger.log(`Getting balance for member: ${memberNo}`);
 
     const balance = await this.utilitiesService.getMemberBalance(memberNo);
@@ -165,6 +120,57 @@ export class UtilitiesController {
       success: true,
       data: balance,
       message: 'Member balance retrieved successfully'
+    };
+  }
+
+  @Get('preferences')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Get current user UI preferences' })
+  async getPreferences(@Req() req: any) {
+    const userId = req.user.id;
+    const data = await this.utilitiesService.getUserPreferences(userId);
+    return {
+      success: true,
+      data,
+      message: 'User preferences retrieved successfully'
+    };
+  }
+
+  @Patch('preferences')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Update user UI preferences' })
+  async updatePreferences(@Req() req: any, @Body() updateDto: UpdateUserPreferenceDto) {
+    const userId = req.user.id;
+    const data = await this.utilitiesService.updateUserPreferences(userId, updateDto);
+    return {
+      success: true,
+      data,
+      message: 'User preferences updated successfully'
+    };
+  }
+
+  @Get('system-settings/:key')
+  @ApiOperation({ summary: 'Get global system setting' })
+  async getSystemSetting(@Param('key') key: string) {
+    const value = await this.utilitiesService.getSystemSetting(key);
+    return {
+      success: true,
+      data: value
+    };
+  }
+
+  @Patch('system-settings/:key')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Update global system setting' })
+  async updateSystemSetting(@Param('key') key: string, @Body('value') value: string) {
+    const data = await this.utilitiesService.updateSystemSetting(key, value);
+    return {
+      success: true,
+      data,
+      message: 'System setting updated successfully'
     };
   }
 }

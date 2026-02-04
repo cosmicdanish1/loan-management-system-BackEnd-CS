@@ -225,9 +225,6 @@ export class LoanReportsService {
 
     const transactions = await this.dataSource.query(query, queryParams);
 
-    // Calculate running balance (Note: Running balance for paginated ledger is mathematically difficult 
-    // unless we fetch historical transactions. In this case, we'll return it as is or handle it 
-    // differently if specific offsets are requested). For now, we calculate per-set balance.
     let runningBalance = 0;
     const ledgerData = transactions.map((t: any, idx: number) => {
       const amount = parseFloat(t.amount) || 0;
@@ -266,7 +263,7 @@ export class LoanReportsService {
   /**
    * Get member loan detail
    */
-  async getMemberLoanDetail(dto: { memberNo?: string; loanType?: string; limit?: number; offset?: number }) {
+  async getMemberLoanDetail(dto: { memberFrom?: string; memberTo?: string; loanType?: string; limit?: number; offset?: number }) {
     const { limit, offset } = dto;
 
     const baseQuery = `
@@ -279,12 +276,17 @@ export class LoanReportsService {
     const params: any[] = [];
     let whereClause = '';
 
-    if (dto.memberNo) {
-      whereClause += ` AND loan.mbno = $${params.length + 1}`;
-      params.push(dto.memberNo);
+    if (dto.memberFrom) {
+      whereClause += ` AND loan.mbno::numeric >= $${params.length + 1}`;
+      params.push(dto.memberFrom);
     }
 
-    if (dto.loanType) {
+    if (dto.memberTo) {
+      whereClause += ` AND loan.mbno::numeric <= $${params.length + 1}`;
+      params.push(dto.memberTo);
+    }
+
+    if (dto.loanType && dto.loanType !== 'ALL') {
       whereClause += ` AND loan.loantype = $${params.length + 1}`;
       params.push(dto.loanType);
     }
@@ -296,7 +298,7 @@ export class LoanReportsService {
     let query = `
       SELECT 
         loan.mbno as member_no,
-        TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
+        TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
         d.name as office_name,
         loan.loantype as loan_type,
         loan.loancaseno as loan_case_no,
@@ -307,7 +309,7 @@ export class LoanReportsService {
         loan.instal_amt as installment_amount,
         loan.payment_date as disbursement_date
       ${baseQuery} ${whereClause}
-      ORDER BY loan.mbno, loan.loancaseno
+      ORDER BY loan.mbno::numeric, loan.loancaseno
     `;
 
     const queryParams = [...params];
@@ -322,6 +324,10 @@ export class LoanReportsService {
     }
 
     const result = await this.dataSource.query(query, queryParams);
+
+    // Fetch Society Details
+    const societyDetails = await this.dataSource.query('SELECT * FROM society_details LIMIT 1');
+    const society = societyDetails[0] || {};
 
     return {
       metadata: {
@@ -342,30 +348,43 @@ export class LoanReportsService {
         totalInstallments: l.total_installments,
         installmentAmount: parseFloat(l.installment_amount) || 0,
         disbursementDate: l.disbursement_date
-      }))
+      })),
+      societyName: society.name || 'EMP ESPAT EMPLOYEES CO-OP CREDIT SOCIETY LTD.',
+      societyAddress: society.address || 'Sector 27A, Nigdi, Pradhikaran, Pune - 411044',
     };
   }
 
   /**
    * Get surety register
    */
-  async getSuretyRegister(dto: { memberNo?: string; limit?: number; offset?: number }) {
-    const { limit, offset } = dto;
+  async getSuretyRegister(dto: { memberFrom?: string; memberTo?: string; memberNo?: string; loanType?: string; limit?: number; offset?: number }) {
+    const { limit, offset, memberFrom, memberTo, memberNo, loanType } = dto;
 
     const baseQuery = `
       FROM loan_pending lp
-      LEFT JOIN member_master m ON m.mbno = lp.mbno
-      LEFT JOIN member_master s1 ON s1.mbno = lp.g1mbno
-      LEFT JOIN member_master s2 ON s2.mbno = lp.g2mbno
+      LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(lp.mbno AS text)
+      LEFT JOIN member_master s1 ON CAST(s1.mbno AS text) = CAST(lp.g1mbno AS text)
+      LEFT JOIN member_master s2 ON CAST(s2.mbno AS text) = CAST(lp.g2mbno AS text)
+      LEFT JOIN loan_master lm ON lp.loancaseno = lm.loancaseno
       WHERE 1=1
     `;
 
     const params: any[] = [];
     let whereClause = '';
 
-    if (dto.memberNo) {
-      whereClause += ` AND (lp.mbno = $${params.length + 1} OR lp.g1mbno = $${params.length + 1} OR lp.g2mbno = $${params.length + 1})`;
-      params.push(dto.memberNo);
+    // Handle member range filter
+    if (memberFrom && memberTo) {
+      whereClause += ` AND CAST(lp.mbno AS integer) BETWEEN $${params.length + 1} AND $${params.length + 2}`;
+      params.push(parseInt(memberFrom), parseInt(memberTo));
+    } else if (memberNo) {
+      whereClause += ` AND (CAST(lp.mbno AS text) = $${params.length + 1} OR CAST(lp.g1mbno AS text) = $${params.length + 1} OR CAST(lp.g2mbno AS text) = $${params.length + 1})`;
+      params.push(memberNo);
+    }
+
+    // Handle loan type filter
+    if (loanType) {
+      whereClause += ` AND lp.loantype = $${params.length + 1}`;
+      params.push(loanType);
     }
 
     // Get total count
@@ -376,13 +395,12 @@ export class LoanReportsService {
       SELECT 
         lp.mbno as member_no,
         TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
-        lp.loancaseno as loan_case_no,
+        lp.loancaseno as loan_no,
         lp.loantype as loan_type,
-        lp.sanctioned_amt as loan_amount,
-        lp.g1mbno as surety1_no,
-        TRIM(COALESCE(s1.f_name, '') || ' ' || COALESCE(s1.l_name, '')) as surety1_name,
-        lp.g2mbno as surety2_no,
-        TRIM(COALESCE(s2.f_name, '') || ' ' || COALESCE(s2.l_name, '')) as surety2_name
+        CAST(lp.sanctioned_amt AS numeric) as loan_amount,
+        lp.g1mbno as surety_mbno,
+        TRIM(COALESCE(s1.f_name, '') || ' ' || COALESCE(s1.l_name, '')) as surety_name,
+        CAST(COALESCE(lm.balance, 0) AS numeric) as outstanding_balance
       ${baseQuery} ${whereClause}
       ORDER BY lp.loancaseno DESC
     `;
@@ -399,29 +417,18 @@ export class LoanReportsService {
 
     const result = await this.dataSource.query(query, queryParams);
 
-    return {
-      metadata: {
-        totalCount,
-        limit: finalLimit,
-        offset: offset || 0
-      },
-      data: result.map((r: any, idx: number) => ({
-        key: ((offset || 0) + idx).toString(),
-        memberNo: r.member_no,
-        memberName: r.member_name,
-        loanCaseNo: r.loan_case_no,
-        loanType: r.loan_type,
-        loanAmount: parseFloat(r.loan_amount) || 0,
-        surety1: {
-          memberNo: r.surety1_no,
-          name: r.surety1_name
-        },
-        surety2: {
-          memberNo: r.surety2_no,
-          name: r.surety2_name
-        }
-      }))
-    };
+    // Transform data to match frontend expectations
+    return result.map((r: any, idx: number) => ({
+      key: ((offset || 0) + idx).toString(),
+      mbno: r.member_no,
+      memberName: r.member_name,
+      loanNo: r.loan_no,
+      loanType: r.loan_type,
+      loanAmount: parseFloat(r.loan_amount) || 0,
+      suretyMbno: r.surety_mbno,
+      suretyName: r.surety_name,
+      outstandingBalance: parseFloat(r.outstanding_balance) || 0
+    }));
   }
 
   /**
@@ -446,12 +453,10 @@ export class LoanReportsService {
 
   /**
    * Get Interest Receivable/Received Statement
-   * Calculates monthly interest demand (receivable) vs actual collections (received)
    */
   async getInterestStatement(dto: { fromMonth?: number; fromYear?: number; toMonth?: number; toYear?: number; branch?: string; fromMember?: string; toMember?: string }) {
     const { fromMonth = 1, fromYear = 2020, toMonth = 12, toYear = 2025 } = dto;
 
-    // 1. Get Interest Receivable (Demand) from demand_master
     let receivableQuery = `
       SELECT 
         demand_for_month as month,
@@ -474,7 +479,6 @@ export class LoanReportsService {
       receivableParams.push(dto.toMember);
     }
     if (dto.branch) {
-      // Assuming officeno represents branch
       receivableQuery += ` AND officeno = $${receivableParams.length + 1}`;
       receivableParams.push(dto.branch);
     }
@@ -483,8 +487,6 @@ export class LoanReportsService {
 
     const receivables = await this.dataSource.query(receivableQuery, receivableParams);
 
-    // 2. Get Interest Received (Actual) from ledger
-    // Using Income heads I1002 and I1008 as identified
     let receivedQuery = `
       SELECT 
         EXTRACT(MONTH FROM trans_date) as month,
@@ -495,9 +497,8 @@ export class LoanReportsService {
         AND trans_date >= $1 AND trans_date <= $2
     `;
 
-    // Convert month/year to date strings for range
     const startDate = `${fromYear}-${fromMonth.toString().padStart(2, '0')}-01`;
-    const endDate = `${toYear}-${toMonth.toString().padStart(2, '0')}-31`; // Simplified
+    const endDate = `${toYear}-${toMonth.toString().padStart(2, '0')}-31`;
     const receivedParams: any[] = [startDate, endDate];
 
     if (dto.fromMember) {
@@ -514,9 +515,7 @@ export class LoanReportsService {
 
     const receivedData = await this.dataSource.query(receivedQuery, receivedParams);
 
-    // 3. Merging results
     const resultsMap = new Map();
-
     const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
     receivables.forEach((r: any) => {
@@ -525,10 +524,8 @@ export class LoanReportsService {
         month: r.month,
         year: r.year,
         demandForMonth: `${monthNames[r.month - 1]} ${r.year}`,
-        balanceForMonth: 0, // In this context, it could mean opening balance of interest receivable, but for now 0
         interestReceived: 0,
         interestReceivable: parseFloat(r.receivable) || 0,
-        amount: 0 // Will be calculated after merging received
       });
     });
 
@@ -538,28 +535,165 @@ export class LoanReportsService {
         const entry = resultsMap.get(key);
         entry.interestReceived = parseFloat(rec.received) || 0;
       } else {
-        // If there's collection without demand registered in that month range
         resultsMap.set(key, {
           month: rec.month,
           year: rec.year,
           demandForMonth: `${monthNames[rec.month - 1]} ${rec.year}`,
-          balanceForMonth: 0,
           interestReceived: parseFloat(rec.received) || 0,
           interestReceivable: 0,
-          amount: 0
         });
       }
     });
 
-    // Final formatting
-    const finalResults = Array.from(resultsMap.values())
+    return Array.from(resultsMap.values())
       .map((item, idx) => ({
         key: idx.toString(),
         ...item,
-        amount: item.interestReceivable + item.interestReceived // Total volume
+        amount: item.interestReceivable + item.interestReceived
       }))
       .sort((a, b) => (a.year !== b.year ? a.year - b.year : a.month - b.month));
+  }
+  /**
+   * Get Loan Nil Certificate (NOC)
+   */
+  async getLoanNilCertificate(memberNo: string) {
+    // Check for active loans (balance > 0)
+    const activeLoans = await this.dataSource.query(`
+      SELECT 
+        loantype as head_name,
+        loancaseno as head_code,
+        CAST(balance AS numeric) as balance
+      FROM loan_master 
+      WHERE mbno = $1 AND CAST(balance AS numeric) > 0
+    `, [memberNo]);
 
-    return finalResults;
+    // Get member info
+    const memberRes = await this.dataSource.query(`
+      SELECT TRIM(COALESCE(f_name, '') || ' ' || COALESCE(l_name, '')) as member_name, doj
+      FROM member_master WHERE mbno = $1
+    `, [memberNo]);
+
+    const member = memberRes[0] || { member_name: `Member ${memberNo}`, doj: null };
+
+    return {
+      success: true,
+      data: {
+        memberNo,
+        memberName: member.member_name,
+        joiningDate: member.doj,
+        isNil: activeLoans.length === 0,
+        outstandingLoans: activeLoans.map((l: any) => ({
+          headName: l.head_name === 'RLN' ? 'Regular Loan' :
+            l.head_name === 'ELN' ? 'Emergency Loan' :
+              l.head_name === 'ALN' ? 'Against Deposit Loan' : l.head_name,
+          headCode: l.head_code,
+          balance: parseFloat(l.balance) || 0
+        }))
+      }
+    };
+  }
+
+  /**
+   * Get loan contributions register
+   * Shows loan details and related transactions for a member
+   */
+  async getLoanContributionsRegister(dto: { memberNo: string; fromDate: string; toDate: string }) {
+    const { memberNo, fromDate, toDate } = dto;
+
+    // 1. Get Member Info
+    const memberRes = await this.dataSource.query(`
+      SELECT 
+        mbno, 
+        TRIM(COALESCE(f_name, '') || ' ' || COALESCE(l_name, '')) as name,
+        present_address as address
+      FROM member_master 
+      WHERE CAST(mbno AS text) = $1
+    `, [memberNo]);
+
+    if (memberRes.length === 0) {
+      throw new Error('Member not found');
+    }
+
+    const member = memberRes[0];
+
+    // 2. Get Loans for this member
+    const loans = await this.dataSource.query(`
+      SELECT 
+        loancaseno, loantype, CAST(loan_amt AS numeric) as loan_amt,
+        payment_date as disbursement_date, CAST(rate AS numeric) as rate,
+        no_of_instal, CAST(instal_amt AS numeric) as instal_amt,
+        CAST(balance AS numeric) as balance, purpose
+      FROM loan_master
+      WHERE CAST(mbno AS text) = $1
+    `, [memberNo]);
+
+    const loanContributions = [];
+    let totalCredits = 0;
+    let totalDebits = 0;
+    let totalTransactions = 0;
+
+    for (const loan of loans) {
+      // 3. Get transactions for each loan within date range
+      // In this system, transactions are stored in the 'ledger' table
+      // We look for entries matching the loancaseno in narration or specific head_code if applicable
+      const transactions = await this.dataSource.query(`
+        SELECT 
+          date as transaction_date,
+          voucherno as voucher_no,
+          particulars as narration,
+          CAST(debit AS numeric) as debit,
+          CAST(credit AS numeric) as credit
+        FROM ledger
+        WHERE mbno = $1 
+          AND particulars LIKE '%' || $2 || '%'
+          AND date >= $3 AND date <= $4
+        ORDER BY date ASC
+      `, [memberNo, loan.loancaseno, fromDate, toDate]);
+
+      const mappedTransactions = transactions.map((t: any) => {
+        const debit = parseFloat(t.debit) || 0;
+        const credit = parseFloat(t.credit) || 0;
+        totalDebits += debit;
+        totalCredits += credit;
+        totalTransactions++;
+
+        return {
+          transactionDate: t.transaction_date,
+          transactionType: credit > 0 ? 'CR' : 'DR',
+          transactionAmount: credit > 0 ? credit : debit,
+          narration: t.narration,
+          voucherNo: t.voucher_no
+        };
+      });
+
+      loanContributions.push({
+        loanDetails: {
+          loanType: loan.loantype,
+          loanCaseNo: loan.loancaseno,
+          loanAmount: parseFloat(loan.loan_amt) || 0,
+          disbursementDate: loan.disbursement_date,
+          interestRate: parseFloat(loan.rate) || 0,
+          numberOfInstallments: parseInt(loan.no_of_instal) || 0,
+          installmentAmount: parseFloat(loan.instal_amt) || 0,
+          outstandingBalance: parseFloat(loan.balance) || 0,
+          purpose: loan.purpose
+        },
+        transactions: mappedTransactions
+      });
+    }
+
+    return {
+      memberNo: member.mbno,
+      memberName: member.name,
+      address: member.address || 'Address not available',
+      fromDate,
+      toDate,
+      loanContributions,
+      totalTransactions,
+      summary: {
+        totalDebits,
+        totalCredits
+      }
+    };
   }
 }

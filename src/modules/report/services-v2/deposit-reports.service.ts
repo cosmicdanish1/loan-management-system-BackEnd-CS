@@ -221,31 +221,56 @@ export class DepositReportsService {
     async getDepositMaturity(dto: { fromDate: string; toDate: string; depositType?: string }) {
         const { fromDate, toDate, depositType } = dto;
 
-        let query = `
+        // Query fixed deposits
+        let fdQuery = `
       SELECT 
-        dm.account_no,
-        dm.mbno as member_no,
+        fd.accountNumber as account_no,
+        fd.memberId as member_no,
         TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
         d.name as office_name,
-        dm.deposit_type,
-        dm.principal_amount,
-        dm.maturity_amount,
-        dm.maturity_date
-      FROM deposit_master dm
-      LEFT JOIN member_master m ON m.mbno = dm.mbno
+        'Fixed Deposit' as deposit_type,
+        CAST(fd.principalAmount AS numeric) as amount,
+        fd.maturityDate as due_date,
+        CAST(fd.interestRate AS numeric) as interest_rate,
+        CAST(fd.maturityAmount AS numeric) as maturity_amount
+      FROM fixed_deposits fd
+      LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(fd.memberId AS text)
       LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
-      WHERE dm.maturity_date >= $1 AND dm.maturity_date <= $2
-        AND dm.status = 'ACTIVE'
+      WHERE fd.maturityDate >= $1 AND fd.maturityDate <= $2
+        AND fd.status = 'ACTIVE'
+    `;
+
+        // Query recurring deposits
+        let rdQuery = `
+      SELECT 
+        rd.accountNumber as account_no,
+        rd.memberId as member_no,
+        TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
+        d.name as office_name,
+        'Recurring Deposit' as deposit_type,
+        CAST(rd.monthlyInstallment AS numeric) as amount,
+        rd.maturityDate as due_date,
+        CAST(rd.interestRate AS numeric) as interest_rate,
+        CAST(rd.maturityAmount AS numeric) as maturity_amount
+      FROM recurring_deposits rd
+      LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(rd.memberId AS text)
+      LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
+      WHERE rd.maturityDate >= $1 AND rd.maturityDate <= $2
+        AND rd.status = 'ACTIVE'
     `;
 
         const params: any[] = [fromDate, toDate];
 
-        if (depositType) {
-            query += ` AND dm.deposit_type = $${params.length + 1}`;
-            params.push(depositType);
+        // If deposit type is specified, only query that type
+        let query = '';
+        if (depositType === 'Fixed Deposit') {
+            query = fdQuery + ` ORDER BY fd.maturityDate ASC`;
+        } else if (depositType === 'Recurring Deposit') {
+            query = rdQuery + ` ORDER BY rd.maturityDate ASC`;
+        } else {
+            // Union both queries for all types
+            query = `(${fdQuery}) UNION ALL (${rdQuery}) ORDER BY due_date ASC`;
         }
-
-        query += ` ORDER BY dm.maturity_date ASC`;
 
         const result = await this.dataSource.query(query, params);
 
@@ -254,40 +279,49 @@ export class DepositReportsService {
             accountNo: r.account_no,
             memberNo: r.member_no,
             memberName: r.member_name,
-            officeName: r.office_name,
             depositType: r.deposit_type,
-            principalAmount: parseFloat(r.principal_amount) || 0,
-            maturityAmount: parseFloat(r.maturity_amount) || 0,
-            maturityDate: r.maturity_date
+            amount: parseFloat(r.amount) || 0,
+            dueDate: r.due_date,
+            interestRate: parseFloat(r.interest_rate) || 0,
+            maturityAmount: parseFloat(r.maturity_amount) || 0
         }));
     }
 
     /**
      * Get FD certificate
      */
-    async getFixedDepositCertificate(dto: { accountNo: string }) {
-        const { accountNo } = dto;
+    /**
+     * Get FD certificate
+     */
+    async getFixedDepositCertificate(dto: { memberNo: string; accountNo?: string; certificateNo?: string }) {
+        const { memberNo, accountNo, certificateNo } = dto;
 
-        const query = `
+        let query = `
       SELECT 
-        dm.account_no,
-        dm.mbno as member_no,
+        fd.accountNumber as account_no,
+        fd.memberId as member_no,
         TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
         m.present_address as address,
         d.name as office_name,
-        dm.principal_amount,
-        dm.interest_rate,
-        dm.deposit_date,
-        dm.maturity_date,
-        dm.maturity_amount,
-        dm.duration_months
-      FROM deposit_master dm
-      LEFT JOIN member_master m ON m.mbno = dm.mbno
+        CAST(fd.principalAmount AS numeric) as principal_amount,
+        CAST(fd.interestRate AS numeric) as interest_rate,
+        fd.depositDate as deposit_date,
+        fd.maturityDate as maturity_date,
+        CAST(fd.maturityAmount AS numeric) as maturity_amount,
+        fd.tenureMonths as duration_months
+      FROM fixed_deposits fd
+      LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(fd.memberId AS text)
       LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
-      WHERE dm.account_no = $1
+      WHERE CAST(fd.memberId AS text) = $1
     `;
 
-        const result = await this.dataSource.query(query, [accountNo]);
+        const params: any[] = [memberNo];
+        if (accountNo) {
+            query += ` AND fd.accountNumber = $2`;
+            params.push(accountNo);
+        }
+
+        const result = await this.dataSource.query(query, params);
 
         if (result.length === 0) {
             return null;
@@ -312,7 +346,7 @@ export class DepositReportsService {
     /**
      * Get share certificate
      */
-    async getShareCertificate(dto: { memberNo: string }) {
+    async getShareCertificate(dto: { memberNo: string; certificateNo?: string }) {
         const { memberNo } = dto;
 
         const query = `
@@ -322,11 +356,10 @@ export class DepositReportsService {
         m.present_address as address,
         m.memb_date as membership_date,
         d.name as office_name,
-        COALESCE(mb.shares, 0) as share_balance
+        COALESCE((SELECT balance FROM fundsmaster WHERE mbno = m.mbno AND head_code = '001' LIMIT 1), 0) as share_balance
       FROM member_master m
       LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
-      LEFT JOIN member_balances mb ON m.mbno = mb.mbno
-      WHERE m.mbno = $1
+      WHERE CAST(m.mbno AS text) = $1
     `;
 
         const result = await this.dataSource.query(query, [memberNo]);
@@ -343,6 +376,221 @@ export class DepositReportsService {
             membershipDate: r.membership_date,
             officeName: r.office_name,
             shareBalance: parseFloat(r.share_balance) || 0
+        };
+    }
+
+    /**
+     * Get recurring details
+     */
+    async getRecurringDetails(dto: { memberNo: string }) {
+        const { memberNo } = dto;
+
+        const query = `
+      SELECT 
+        rd.accountNumber as account_no,
+        rd.memberId as member_no,
+        TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
+        'RD' as account_type,
+        rd.startDate as start_date,
+        rd.maturityDate as maturity_date,
+        CAST(rd.monthlyInstallment AS numeric) as amount,
+        rd.installmentsPaid as installments_paid,
+        rd.installmentsMissed as installments_missed,
+        CAST(rd.totalDeposited AS numeric) as total_deposited,
+        rd.status
+      FROM recurring_deposits rd
+      LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(rd.memberId AS text)
+      WHERE CAST(rd.memberId AS text) = $1
+    `;
+
+        const result = await this.dataSource.query(query, [memberNo]);
+
+        return result.map((r: any, idx: number) => ({
+            key: idx.toString(),
+            accountNo: r.account_no,
+            memberNo: r.member_no,
+            memberName: r.member_name,
+            startDate: r.start_date,
+            maturityDate: r.maturity_date,
+            amount: parseFloat(r.amount) || 0,
+            installmentsPaid: r.installments_paid,
+            installmentsMissed: r.installments_missed,
+            totalDeposited: parseFloat(r.total_deposited) || 0,
+            status: r.status
+        }));
+    }
+
+    /**
+     * Get lien account information
+     */
+    async getLienAccountInformation() {
+        const query = `
+      SELECT 
+        l.mbno as member_no,
+        TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
+        m.present_address as address,
+        l.loancaseno as loan_case_no,
+        l.fdrdaccountno as fdrd_account_no,
+        l.fromdate as lien_from_date,
+        l.certificate_no,
+        l.principal_amt as account_amount,
+        l.rate as interest_rate,
+        l.deposit_date,
+        l.maturity_date,
+        l.type as account_type,
+        l.loan_amt as loan_amount,
+        l.loan_bal as loan_balance,
+        l.loan_date,
+        l.loan_type
+      FROM fdrdlienmaster l
+      LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(l.mbno AS text)
+      ORDER BY l.fromdate DESC
+    `;
+
+        const results = await this.dataSource.query(query);
+
+        return results.map((r: any, idx: number) => ({
+            key: idx.toString(),
+            memberNo: r.member_no,
+            memberName: r.member_name,
+            address: r.address || 'Address not available',
+            loanCaseNo: r.loan_case_no,
+            fdrdAccountNumber: r.fdrd_account_no,
+            lienFromDate: r.lien_from_date,
+            accountDetails: {
+                certificateNo: r.certificate_no,
+                accountAmount: parseFloat(r.account_amount) || 0,
+                interestRate: parseFloat(r.interest_rate) || 0,
+                depositDate: r.deposit_date,
+                maturityDate: r.maturity_date,
+                accountType: r.account_type === 'F' ? 'Fixed Deposit' : r.account_type === 'R' ? 'Recurring Deposit' : 'Savings',
+            },
+            loanDetails: {
+                loanAmount: parseFloat(r.loan_amount) || 0,
+                loanBalance: parseFloat(r.loan_balance) || 0,
+                loanDate: r.loan_date,
+                loanType: r.loan_type || 'Not specified'
+            }
+        }));
+    }
+
+    /**
+     * Get passbook mapping/printing data
+     */
+    async getPassBookPrinting(dto: {
+        memberNo: string;
+        accountNo?: string;
+        accountType?: string;
+        fromDate?: string;
+        toDate?: string;
+        includeZeroBalance?: boolean;
+    }) {
+        const { memberNo, accountNo, accountType, fromDate, toDate, includeZeroBalance } = dto;
+
+        // 1. Get Member details
+        const memberRes = await this.dataSource.query(`
+      SELECT 
+        mbno as "memberNo",
+        TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) as "memberName",
+        m.present_address as "address",
+        m.memb_date as "membershipDate"
+      FROM member_master m
+      WHERE CAST(m.mbno AS text) = $1
+    `, [memberNo]);
+
+        if (memberRes.length === 0) throw new Error('Member not found');
+
+        // 2. Get Accounts (FD and RD)
+        let accountsQuery = `
+      SELECT * FROM (
+        SELECT 
+          accountNumber as "accountNo",
+          'Fixed Deposit' as "accountType",
+          CAST(principalAmount AS numeric) as "currentBalance",
+          CAST(interestRate AS numeric) as "interestRate",
+          depositDate as "openDate",
+          status
+        FROM fixed_deposits
+        WHERE CAST(memberId AS text) = $1
+        UNION ALL
+        SELECT 
+          accountNumber as "accountNo",
+          'Recurring Deposit' as "accountType",
+          CAST(totalDeposited AS numeric) as "currentBalance",
+          0 as "interestRate",
+          startDate as "openDate",
+          status
+        FROM recurring_deposits
+        WHERE CAST(memberId AS text) = $1
+      ) accs
+      WHERE 1=1
+    `;
+        const accountParams: any[] = [memberNo];
+        if (accountNo) {
+            accountsQuery += ` AND "accountNo" = $2`;
+            accountParams.push(accountNo);
+        }
+
+        const accounts = await this.dataSource.query(accountsQuery, accountParams);
+
+        // 3. Get Transactions from Ledger
+        let ledgerQuery = `
+      SELECT 
+        trans_date as "transactionDate",
+        trans_type as "transactionType",
+        CAST(trans_amt AS numeric) as "amount",
+        narration,
+        receipt_vchr_no as "voucherNo",
+        acc_no as "accountNo"
+      FROM ledger
+      WHERE CAST(mbno AS text) = $1
+    `;
+        const ledgerParams: any[] = [memberNo];
+        if (accountNo) {
+            ledgerQuery += ` AND CAST(acc_no AS text) = $${ledgerParams.length + 1}`;
+            ledgerParams.push(accountNo);
+        }
+        if (fromDate && toDate) {
+            ledgerQuery += ` AND trans_date >= $${ledgerParams.length + 1} AND trans_date <= $${ledgerParams.length + 2}`;
+            ledgerParams.push(fromDate, toDate);
+        }
+        ledgerQuery += ' ORDER BY trans_date ASC, trans_no ASC';
+
+        const allTransactions = await this.dataSource.query(ledgerQuery, ledgerParams);
+
+        // 4. Map transactions to accounts and calculate running balance
+        const accountsWithDetails = accounts.map(acc => {
+            const accTrans = allTransactions.filter(t => t.accountNo === acc.accountNo || (!t.accountNo && accounts.length === 1));
+
+            let runningBalance = 0;
+            const mappedTrans = accTrans.map(t => {
+                const amt = parseFloat(t.amount) || 0;
+                if (t.transactionType === 'CR') runningBalance += amt;
+                else runningBalance -= amt;
+
+                return {
+                    ...t,
+                    amount: amt,
+                    runningBalance
+                };
+            });
+
+            return {
+                ...acc,
+                currentBalance: parseFloat(acc.currentBalance) || 0,
+                transactions: mappedTrans,
+                transactionCount: mappedTrans.length,
+                totalCredits: mappedTrans.filter(t => t.transactionType === 'CR').reduce((sum, t) => sum + t.amount, 0),
+                totalDebits: mappedTrans.filter(t => t.transactionType === 'DR').reduce((sum, t) => sum + t.amount, 0),
+            };
+        });
+
+        return {
+            memberDetails: memberRes[0],
+            accounts: accountsWithDetails,
+            totalAccounts: accountsWithDetails.length,
+            totalTransactions: allTransactions.length,
+            generatedAt: new Date().toISOString()
         };
     }
 }

@@ -1,12 +1,20 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
+import { InjectRepository } from '@nestjs/typeorm';
+import { UserPreference } from './entities/user-preference.entity';
+import { SystemSetting } from './entities/system-setting.entity';
+import { UpdateUserPreferenceDto } from './dto/update-user-preference.dto';
 
 @Injectable()
 export class UtilitiesService {
   private readonly logger = new Logger(UtilitiesService.name);
 
   constructor(
-    private readonly dataSource: DataSource
+    private readonly dataSource: DataSource,
+    @InjectRepository(UserPreference)
+    private readonly preferenceRepo: Repository<UserPreference>,
+    @InjectRepository(SystemSetting)
+    private readonly systemRepo: Repository<SystemSetting>
   ) { }
 
   async searchDeposits(memberNo: string, type: 'RD' | 'FD'): Promise<any[]> {
@@ -341,5 +349,39 @@ export class UtilitiesService {
       this.logger.error(`Error getting member eligibility for ${memberNo}:`, error);
       return null;
     }
+  }
+
+  async getUserPreferences(userId: number): Promise<UserPreference> {
+    let prefs = await this.preferenceRepo.findOne({ where: { userId } });
+    if (!prefs) {
+      prefs = this.preferenceRepo.create({ userId });
+      await this.preferenceRepo.save(prefs);
+    }
+    return prefs;
+  }
+
+  async updateUserPreferences(userId: number, updateDto: UpdateUserPreferenceDto): Promise<UserPreference> {
+    let prefs = await this.preferenceRepo.findOne({ where: { userId } });
+    if (!prefs) {
+      prefs = this.preferenceRepo.create({ userId, ...updateDto });
+    } else {
+      Object.assign(prefs, updateDto);
+    }
+    return await this.preferenceRepo.save(prefs);
+  }
+
+  async getSystemSetting(key: string): Promise<string> {
+    const setting = await this.systemRepo.findOne({ where: { key } });
+    return setting ? setting.value : '';
+  }
+
+  async updateSystemSetting(key: string, value: string): Promise<SystemSetting> {
+    let setting = await this.systemRepo.findOne({ where: { key } });
+    if (!setting) {
+      setting = this.systemRepo.create({ key, value });
+    } else {
+      setting.value = value;
+    }
+    return await this.systemRepo.save(setting);
   }
 }

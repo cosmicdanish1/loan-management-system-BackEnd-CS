@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { FinancialSummaryDto } from '../dto/financial-summary.dto';
 
 /**
  * Utility Reports Service - Handles utility and miscellaneous reports.
@@ -9,13 +10,13 @@ import { DataSource } from 'typeorm';
  */
 @Injectable()
 export class UtilityReportsService {
-    constructor(private readonly dataSource: DataSource) { }
+  constructor(private readonly dataSource: DataSource) { }
 
-    /**
-     * Get wing list
-     */
-    async getWingList() {
-        const result = await this.dataSource.query(`
+  /**
+   * Get wing list
+   */
+  async getWingList() {
+    const result = await this.dataSource.query(`
       SELECT DISTINCT wingno, MAX(name) as name
       FROM division_master
       WHERE wingno IS NOT NULL
@@ -23,208 +24,452 @@ export class UtilityReportsService {
       ORDER BY wingno
     `);
 
-        return result.map((w: any) => ({
-            wingNo: w.wingno,
-            name: w.name
-        }));
-    }
+    return result.map((w: any) => ({
+      wingNo: w.wingno,
+      name: w.name
+    }));
+  }
 
-    /**
-     * Get office list (division list)
-     */
-    async getOfficeList(wingNo?: string) {
-        let query = `
+  /**
+   * Get office list (division list)
+   */
+  async getOfficeList(wingNo?: string) {
+    let query = `
       SELECT officeno, wingno, name
       FROM division_master
       WHERE officeno IS NOT NULL
     `;
 
-        const params: any[] = [];
+    const params: any[] = [];
 
-        if (wingNo) {
-            query += ` AND wingno = $1`;
-            params.push(wingNo);
-        }
-
-        query += ` ORDER BY name`;
-
-        const result = await this.dataSource.query(query, params);
-
-        return result.map((o: any) => ({
-            officeNo: o.officeno,
-            wingNo: o.wingno,
-            name: o.name
-        }));
+    if (wingNo) {
+      query += ` AND wingno = $1`;
+      params.push(wingNo);
     }
 
-    /**
-     * Get division list (alias for office list)
-     */
-    async getDivisionList(wingNo?: string) {
-        return this.getOfficeList(wingNo);
+    query += ` ORDER BY name`;
+
+    const result = await this.dataSource.query(query, params);
+
+    return result.map((o: any) => ({
+      officeNo: o.officeno,
+      wingNo: o.wingno,
+      name: o.name
+    }));
+  }
+
+  /**
+   * Get division list (alias for office list)
+   */
+  async getDivisionList(wingNo?: string) {
+    return this.getOfficeList(wingNo);
+  }
+
+  /**
+   * Get financial summary (Trial Balance logic)
+   */
+  async getFinancialSummary(dto: FinancialSummaryDto) {
+    const { fromDate, toDate, includeOpBal, hideZeroClosing, hideZeroTrans } = dto;
+
+    try {
+      // Build the raw SQL query with conditional aggregation
+      const query = `
+        SELECT 
+          h.code as head_code,
+          h.head_name,
+          h.headtype,
+          
+          -- 1. Calculate Opening Balance (Everything BEFORE fromDate)
+          COALESCE(SUM(CASE 
+            WHEN $3::boolean = true AND l.trans_date < $1::date
+            THEN (
+              CASE 
+                WHEN l.trans_type = 'CR' THEN l.trans_amt::numeric
+                WHEN l.trans_type = 'DR' THEN -l.trans_amt::numeric
+                ELSE 0
+              END
+            )
+            ELSE 0 
+          END), 0) AS opening_balance,
+
+          -- 2. Calculate Period Activity (Between Dates)
+          COALESCE(SUM(CASE 
+            WHEN l.trans_date >= $1::date AND l.trans_date <= $2::date AND l.trans_type = 'DR'
+            THEN l.trans_amt::numeric
+            ELSE 0 
+          END), 0) AS period_debit,
+          
+          COALESCE(SUM(CASE 
+            WHEN l.trans_date >= $1::date AND l.trans_date <= $2::date AND l.trans_type = 'CR'
+            THEN l.trans_amt::numeric
+            ELSE 0 
+          END), 0) AS period_credit,
+
+          -- 3. Calculate Total Closing Balance (All transactions up to toDate)
+          COALESCE(SUM(CASE
+            WHEN l.trans_date <= $2::date
+            THEN (
+              CASE 
+                WHEN l.trans_type = 'CR' THEN l.trans_amt::numeric
+                WHEN l.trans_type = 'DR' THEN -l.trans_amt::numeric
+                ELSE 0
+              END
+            )
+            ELSE 0
+          END), 0) AS closing_balance
+
+        FROM 
+          headmaster h
+        LEFT JOIN 
+          ledger l ON h.code = l.code
+        GROUP BY 
+          h.code, h.head_name, h.headtype
+        ORDER BY 
+          h.code
+      `;
+
+      const rawResults = await this.dataSource.query(query, [
+        fromDate,
+        toDate,
+        includeOpBal
+      ]);
+
+      // Filter results based on suppression options
+      let filteredResults = rawResults;
+
+      if (hideZeroClosing) {
+        filteredResults = filteredResults.filter((row: any) =>
+          Math.abs(parseFloat(row.closing_balance || '0')) > 0.01
+        );
+      }
+
+      if (hideZeroTrans) {
+        filteredResults = filteredResults.filter((row: any) => {
+          const periodActivity = parseFloat(row.period_debit || '0') + parseFloat(row.period_credit || '0');
+          return periodActivity > 0.01;
+        });
+      }
+
+      // Format the results
+      return filteredResults.map((row: any, index: number) => ({
+        key: index.toString(),
+        headCode: row.head_code,
+        headName: row.head_name,
+        headType: row.headtype,
+        openingBalance: parseFloat(row.opening_balance || '0'),
+        periodDebit: parseFloat(row.period_debit || '0'),
+        periodCredit: parseFloat(row.period_credit || '0'),
+        closingBalance: parseFloat(row.closing_balance || '0')
+      }));
+    } catch (error) {
+      console.error('Error in getFinancialSummary:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get account closing register
+   */
+  /**
+   * Get account closing register
+   */
+  async getAccountClosingRegister(dto: { month: number; year: number; accountType?: string }) {
+    const { month, year, accountType } = dto;
+    const fromDate = `${year}-${month.toString().padStart(2, '0')}-01`;
+    const toDate = `${year}-${month.toString().padStart(2, '0')}-${new Date(year, month, 0).getDate()}`;
+
+    // Collect from multiple tables since account_closing_register doesn't exist
+    let results: any[] = [];
+
+    if (!accountType || accountType === 'FD' || accountType === 'ALL') {
+      const fdClosures = await this.dataSource.query(`
+        SELECT 
+          fd.accountNumber as account_no,
+          fd.memberId as member_no,
+          TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
+          'FD' as account_type,
+          fd.closureDate as closing_date,
+          CAST(fd.closureAmount AS numeric) as final_amount,
+          fd.closureReason as description
+        FROM fixed_deposits fd
+        LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(fd.memberId AS text)
+        WHERE fd.status = 'CLOSED' 
+          AND fd.closureDate >= $1 AND fd.closureDate <= $2
+      `, [fromDate, toDate]);
+      results = results.concat(fdClosures);
     }
 
-    /**
-     * Get financial summary
-     */
-    async getFinancialSummary(dto: { fromDate: string; toDate: string }) {
-        const { fromDate, toDate } = dto;
-
-        // Get receipt totals
-        const receiptQuery = `
-      SELECT 
-        SUM(COALESCE(rcash, 0)) as receipt_cash,
-        SUM(COALESCE(rtransfer, 0)) as receipt_transfer
-      FROM tblcashbook
-      WHERE trans_date >= $1 AND trans_date <= $2
-    `;
-        const receiptResult = await this.dataSource.query(receiptQuery, [fromDate, toDate]);
-
-        // Get payment totals
-        const paymentQuery = `
-      SELECT 
-        SUM(COALESCE(pcash, 0)) as payment_cash,
-        SUM(COALESCE(ptransfer, 0)) as payment_transfer
-      FROM tblcashbook
-      WHERE trans_date >= $1 AND trans_date <= $2
-    `;
-        const paymentResult = await this.dataSource.query(paymentQuery, [fromDate, toDate]);
-
-        const receiptCash = parseFloat(receiptResult[0]?.receipt_cash) || 0;
-        const receiptTransfer = parseFloat(receiptResult[0]?.receipt_transfer) || 0;
-        const paymentCash = parseFloat(paymentResult[0]?.payment_cash) || 0;
-        const paymentTransfer = parseFloat(paymentResult[0]?.payment_transfer) || 0;
-
-        return {
-            fromDate,
-            toDate,
-            receipts: {
-                cash: receiptCash,
-                transfer: receiptTransfer,
-                total: receiptCash + receiptTransfer
-            },
-            payments: {
-                cash: paymentCash,
-                transfer: paymentTransfer,
-                total: paymentCash + paymentTransfer
-            },
-            netBalance: (receiptCash + receiptTransfer) - (paymentCash + paymentTransfer)
-        };
+    if (!accountType || accountType === 'RD' || accountType === 'ALL') {
+      const rdClosures = await this.dataSource.query(`
+        SELECT 
+          rd.accountNumber as account_no,
+          rd.memberId as member_no,
+          TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
+          'RD' as account_type,
+          rd.closureDate as closing_date,
+          CAST(rd.closureAmount AS numeric) as final_amount,
+          rd.closureReason as description
+        FROM recurring_deposits rd
+        LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(rd.memberId AS text)
+        WHERE rd.status = 'CLOSED'
+          AND rd.closureDate >= $1 AND rd.closureDate <= $2
+      `, [fromDate, toDate]);
+      results = results.concat(rdClosures);
     }
 
-    /**
-     * Get account closing register
-     */
-    async getAccountClosingRegister(dto: { fromDate: string; toDate: string; accountType?: string }) {
-        const { fromDate, toDate, accountType } = dto;
+    // Add logic for loans if needed, but the above covers common deposit cases
 
-        let query = `
+    return results.map((r: any, idx: number) => ({
+      key: idx.toString(),
+      memberCode: r.member_no,
+      memberName: r.member_name,
+      accountNo: r.account_no,
+      accountType: r.account_type,
+      closingDate: r.closing_date,
+      finalAmount: parseFloat(r.final_amount) || 0,
+      description: r.description || 'Account Closed'
+    }));
+  }
+
+  /**
+   * Get recovery details
+   */
+  async getRecoveryDetails(dto: { memberNo: string; month: string; year: number; wingNo?: string }) {
+    const { memberNo, month, year } = dto;
+
+    // Map month name to number if needed, though demand_master usually has month as number or short name
+    // Based on frontend, month is 'JAN', 'FEB', etc.
+    // Based on demand_master check, demand_for_month is likely a string or number
+
+    let query = `
       SELECT 
-        ac.account_no,
-        ac.mbno as member_no,
+        d.mbno as member_no,
         TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
-        ac.account_type,
-        ac.closing_date,
-        ac.closing_amount,
-        ac.closing_reason
-      FROM account_closing_register ac
-      LEFT JOIN member_master m ON m.mbno = ac.mbno
-      WHERE ac.closing_date >= $1 AND ac.closing_date <= $2
+        m.present_address as address,
+        d.demand_for_month,
+        d.demand_for_year,
+        d.total_demand,
+        COALESCE(d.rln_installment_amount, 0) as rln_amt,
+        COALESCE(d.eln_installment_amount, 0) as eln_amt,
+        COALESCE(d.aln_installment_amount, 0) as aln_amt,
+        COALESCE(d.rdbalance, 0) as rd_amt,
+        COALESCE(d.mdbalance, 0) as md_amt,
+        COALESCE(d.cdbalance, 0) as cd_amt,
+        COALESCE(d.sd_amount, 0) as sd_amt,
+        COALESCE(d.bank_charges, 0) as bank_charges,
+        COALESCE(d.other_charges, 0) as other_charges,
+        d.demand_posted
+      FROM demand_master d
+      LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(d.mbno AS text)
+      WHERE CAST(d.mbno AS text) = $1 
+        AND UPPER(d.demand_for_month) = UPPER($2)
+        AND CAST(d.demand_for_year AS integer) = $3
     `;
 
-        const params: any[] = [fromDate, toDate];
+    const results = await this.dataSource.query(query, [memberNo, month, year]);
 
-        if (accountType) {
-            query += ` AND ac.account_type = $${params.length + 1}`;
-            params.push(accountType);
-        }
-
-        query += ` ORDER BY ac.closing_date DESC`;
-
-        const result = await this.dataSource.query(query, params);
-
-        return result.map((r: any, idx: number) => ({
-            key: idx.toString(),
-            accountNo: r.account_no,
-            memberNo: r.member_no,
-            memberName: r.member_name,
-            accountType: r.account_type,
-            closingDate: r.closing_date,
-            closingAmount: parseFloat(r.closing_amount) || 0,
-            closingReason: r.closing_reason
-        }));
+    if (results.length === 0) {
+      throw new Error('No recovery details found for the selected member and period');
     }
 
-    /**
-     * Get recovery details
-     */
-    async getRecoveryDetails(dto: { month: string; year: number; wingNo?: string }) {
-        const { month, year, wingNo } = dto;
+    const r = results[0];
+    return {
+      memberNo: r.member_no,
+      memberName: r.member_name,
+      address: r.address || 'Address not available',
+      demandMonth: r.demand_for_month,
+      demandYear: r.demand_for_year,
+      period: `${r.demand_for_month} ${r.demand_for_year}`,
+      totalDemand: parseFloat(r.total_demand) || 0,
+      loanRecoveries: {
+        regularLoan: parseFloat(r.rln_amt) || 0,
+        emergencyLoan: parseFloat(r.eln_amt) || 0,
+        advanceLoan: parseFloat(r.aln_amt) || 0,
+        miscLoan: 0
+      },
+      depositRecoveries: {
+        recurringDeposit: parseFloat(r.rd_amt) || 0,
+        monthlyDeposit: parseFloat(r.md_amt) || 0,
+        compulsoryDeposit: parseFloat(r.cd_amt) || 0,
+        shareAmount: parseFloat(r.sd_amt) || 0
+      },
+      charges: {
+        bankCharges: parseFloat(r.bank_charges) || 0,
+        otherCharges: parseFloat(r.other_charges) || 0
+      },
+      balanceForMonth: 0,
+      demandGeneratedDate: null,
+      demandPostedDate: r.demand_posted ? 'Posted' : null,
+      status: r.demand_posted ? 'Posted' : 'Generated'
+    };
+  }
 
-        const monthMap: { [key: string]: number } = {
-            'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
-            'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
-        };
+  /**
+   * Diagnostic check
+   */
+  async diagnosticCheck() {
+    try {
+      const memberCount = await this.dataSource.query(`SELECT COUNT(*)::text as count FROM member_master`);
+      const loanCount = await this.dataSource.query(`SELECT COUNT(*)::text as count FROM loan_master`);
+      const depositCount = await this.dataSource.query(`SELECT (SELECT COUNT(*) FROM fixed_deposits) + (SELECT COUNT(*) FROM recurring_deposits) as count`);
 
-        const monthNum = monthMap[month.substring(0, 3)];
+      return {
+        status: 'OK',
+        members: memberCount[0]?.count || '0',
+        loans: loanCount[0]?.count || '0',
+        deposits: depositCount[0]?.count || '0'
+      };
+    } catch (error) {
+      return {
+        status: 'ERROR',
+        message: error.message
+      };
+    }
+  }
 
-        let query = `
-      SELECT 
-        m.mbno as member_no,
-        TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
-        d.name as office_name,
-        rd.recovery_type,
-        rd.amount,
-        rd.recovery_date
-      FROM recovery_details rd
-      LEFT JOIN member_master m ON m.mbno = rd.mbno
-      LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
-      WHERE EXTRACT(MONTH FROM rd.recovery_date) = $1
-        AND EXTRACT(YEAR FROM rd.recovery_date) = $2
-    `;
+  /**
+   * Get AdHoc Reports
+   */
+  async getAdHocReports(dto: {
+    reportType: string;
+    fromDate?: string;
+    toDate?: string;
+    memberNo?: string;
+    accountType?: string;
+    customQuery?: string;
+  }) {
+    const { reportType, fromDate, toDate, memberNo, accountType, customQuery } = dto;
 
-        const params: any[] = [monthNum, year];
+    let query = '';
+    let params: any[] = [];
 
-        if (wingNo) {
-            query += ` AND m.wingno = $${params.length + 1}`;
-            params.push(wingNo);
+    switch (reportType) {
+      case 'member_wise':
+        query = `
+          SELECT 
+            m.mbno as "memberNo",
+            TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) as "memberName",
+            m.present_address as "address",
+            m.desig as "designation",
+            d.name as "officeName",
+            m.memb_date as "membershipDate",
+            m.isactive as "status"
+          FROM member_master m
+          LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
+          WHERE 1=1
+        `;
+        if (memberNo) {
+          query += ' AND CAST(m.mbno AS text) = $1';
+          params.push(memberNo);
         }
+        query += ' ORDER BY m.mbno LIMIT 500';
+        break;
 
-        query += ` ORDER BY rd.recovery_date, m.mbno`;
+      case 'account_wise':
+        // Joining fixed_deposits and recurring_deposits
+        query = `
+          SELECT * FROM (
+            SELECT 
+              fd.accountNumber as "accountNo",
+              fd.memberId as "memberNo",
+              'Fixed Deposit' as "type",
+              CAST(fd.principalAmount AS numeric) as "amount",
+              fd.depositDate as "date",
+              fd.status
+            FROM fixed_deposits fd
+            UNION ALL
+            SELECT 
+              rd.accountNumber as "accountNo",
+              rd.memberId as "memberNo",
+              'Recurring Deposit' as "type",
+              CAST(rd.totalDeposited AS numeric) as "amount",
+              rd.startDate as "date",
+              rd.status
+            FROM recurring_deposits rd
+          ) accounts
+          WHERE 1=1
+        `;
+        if (fromDate && toDate) {
+          query += ' AND "date" >= $1 AND "date" <= $2';
+          params.push(fromDate, toDate);
+        }
+        if (memberNo) {
+          query += ` AND "memberNo" = $${params.length + 1}`;
+          params.push(memberNo);
+        }
+        query += ' ORDER BY "date" DESC LIMIT 500';
+        break;
 
-        const result = await this.dataSource.query(query, params);
+      case 'transaction_wise':
+        query = `
+          SELECT 
+            l.trans_date as "date",
+            l.mbno as "memberNo",
+            TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as "memberName",
+            l.trans_type as "type",
+            CAST(l.trans_amt AS numeric) as "amount",
+            l.narration,
+            l.receipt_vchr_no as "voucherNo"
+          FROM ledger l
+          LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(l.mbno AS text)
+          WHERE 1=1
+        `;
+        if (fromDate && toDate) {
+          query += ' AND l.trans_date >= $1 AND l.trans_date <= $2';
+          params.push(fromDate, toDate);
+        }
+        if (memberNo) {
+          query += ` AND CAST(l.mbno AS text) = $${params.length + 1}`;
+          params.push(memberNo);
+        }
+        query += ' ORDER BY l.trans_date DESC LIMIT 1000';
+        break;
 
-        return result.map((r: any, idx: number) => ({
-            key: idx.toString(),
-            memberNo: r.member_no,
-            memberName: r.member_name,
-            officeName: r.office_name,
-            recoveryType: r.recovery_type,
-            amount: parseFloat(r.amount) || 0,
-            recoveryDate: r.recovery_date
-        }));
+      case 'balance_summary':
+        query = `
+          SELECT 
+            'Fixed Deposits' as "category",
+            COUNT(*) as "count",
+            SUM(CAST(principalAmount AS numeric)) as "totalAmount"
+          FROM fixed_deposits
+          GROUP BY 1
+          UNION ALL
+          SELECT 
+            'Recurring Deposits' as "category",
+            COUNT(*) as "count",
+            SUM(CAST(totalDeposited AS numeric)) as "totalAmount"
+          FROM recurring_deposits
+          GROUP BY 1
+          UNION ALL
+          SELECT 
+            'Loans' as "category",
+            COUNT(*) as "count",
+            SUM(CAST(balance AS numeric)) as "totalAmount"
+          FROM loan_master
+          GROUP BY 1
+        `;
+        break;
+
+      case 'custom':
+        if (!customQuery) throw new Error('Custom query is required');
+        const upper = customQuery.trim().toUpperCase();
+        if (!upper.startsWith('SELECT')) throw new Error('Only SELECT queries allowed');
+        const forbidden = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE', 'TRUNCATE'];
+        if (forbidden.some(word => upper.includes(word))) throw new Error('Restricted operation detected');
+        query = customQuery;
+        break;
+
+      default:
+        throw new Error('Unsupported report type');
     }
 
-    /**
-     * Diagnostic check
-     */
-    async diagnosticCheck() {
-        try {
-            const memberCount = await this.dataSource.query(`SELECT COUNT(*)::text as count FROM member_master`);
-            const loanCount = await this.dataSource.query(`SELECT COUNT(*)::text as count FROM loan_master`);
-            const depositCount = await this.dataSource.query(`SELECT COUNT(*)::text as count FROM deposit_master`);
+    const results = await this.dataSource.query(query, params);
 
-            return {
-                status: 'OK',
-                members: memberCount[0]?.count || '0',
-                loans: loanCount[0]?.count || '0',
-                deposits: depositCount[0]?.count || '0'
-            };
-        } catch (error) {
-            return {
-                status: 'ERROR',
-                message: error.message
-            };
-        }
-    }
+    return {
+      reportType,
+      totalRecords: results.length,
+      data: results,
+      generatedAt: new Date().toISOString()
+    };
+  }
 }

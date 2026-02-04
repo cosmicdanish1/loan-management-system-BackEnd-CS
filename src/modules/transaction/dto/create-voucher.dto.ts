@@ -73,6 +73,15 @@ export class VoucherTransactionDto {
   @IsOptional()
   @IsNumber()
   referenceId?: number;
+
+  @ApiPropertyOptional({
+    description: 'RD Serial Number',
+    example: 'RD/001',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  rdSrNo?: string;
 }
 
 export class CreateVoucherDto {
