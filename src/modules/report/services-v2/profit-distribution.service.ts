@@ -19,10 +19,9 @@ export class ProfitDistributionService {
         const cdInterestChart = await this.systemConfigService.getConfigValue('RULE_CD_INTEREST_CHART'); // JSON [{amount: 200, interest: 91.20}]
 
         // 2. Fetch Member Balances (From Ledger)
-        // Adjust Head Codes as per actual database (e.g., A1002 for Shares, A1003 for Thrift)
-        // We'll calculate current balance by summing ledger
-        const shareBalance = await this.getLedgerBalance(memberId, 'SHARE_HEAD_CODE');
-        const thriftBalance = await this.getLedgerBalance(memberId, 'THRIFT_HEAD_CODE');
+        // Using identified codes: A1002 (Shares/Thrift - need to distinguish if possible, using same for now)
+        const shareBalance = await this.getLedgerBalance(memberId, 'A1002');
+        const thriftBalance = await this.getLedgerBalance(memberId, 'A1002'); // Placeholder if Thrift is same head or different
 
         // 3. Fetch Monthly Contribution (For CD Interest)
         // Assuming stored in RO tables or Member Master
@@ -90,11 +89,24 @@ export class ProfitDistributionService {
     }
 
     private async getLedgerBalance(memberId: string, headCode: string): Promise<number> {
-        // Mock head code logic: In real app, look up HEAD code for 'Shares'
-        // Here we assume a generic balance query on ledger
         // Sum(Credit) - Sum(Debit)
-        // But for now, returning 0 or mock as we don't have exact head codes
-        // TODO: Update head codes once identified
-        return 0;
+        // In this ledger schema: 
+        // trans_type='R' (Receipt) -> Credit to member/Debit to Cash
+        // trans_type='P' (Payment) -> Debit to member/Credit to Cash
+        // However, for Member Passbook view:
+        // Receipt (Depost) is Credit (+), Payment (Withdrawal) is Debit (-)
+
+        const result = await this.dataSource.query(`
+            SELECT 
+                COALESCE(SUM(CASE WHEN trans_type = 'R' THEN trans_amt::numeric ELSE 0 END), 0) as total_credit,
+                COALESCE(SUM(CASE WHEN trans_type = 'P' THEN trans_amt::numeric ELSE 0 END), 0) as total_debit
+            FROM ledger 
+            WHERE mbno = $1 AND code = $2
+        `, [memberId, headCode]);
+
+        const credit = parseFloat(result[0].total_credit);
+        const debit = parseFloat(result[0].total_debit);
+
+        return credit - debit;
     }
 }

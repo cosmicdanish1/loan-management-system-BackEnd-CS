@@ -11,3 +11,4 @@ export * from './dividend-reports.service';
 export * from './deposit-reports.service';
 export * from './utility-reports.service';
 export * from './financial-statements.service';
+export * from './profit-distribution.service';
