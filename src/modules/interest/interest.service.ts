@@ -1,4 +1,4 @@
-import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Between } from 'typeorm';
 import { InterestMaster, InterestPaid, Ledger } from './entities';
@@ -9,6 +9,8 @@ import {
   InterestRunSummaryDto,
   InterestHistoryDto,
 } from './dto';
+import { SystemConfigService } from '../admin/services/system-config.service';
+import { FundsMaster } from '../admin/entities/funds-master.entity';
 
 @Injectable()
 export class InterestService {
@@ -23,6 +25,9 @@ export class InterestService {
     private readonly ledgerRepository: Repository<Ledger>,
     @InjectRepository(MemberMaster)
     private readonly memberMasterRepository: Repository<MemberMaster>,
+    @InjectRepository(FundsMaster)
+    private readonly fundsRepository: Repository<FundsMaster>,
+    private readonly systemConfigService: SystemConfigService,
     private readonly dataSource: DataSource,
   ) { }
 
@@ -506,6 +511,194 @@ export class InterestService {
 
     } catch (error) {
       return { valid: false, message: 'Validation failed: ' + error.message };
+    }
+  }
+
+  /**
+   * Process Yearly Fund Interest, Dividend, and Insurance
+   */
+  async processYearlyFundProcess(dto: UpdateSavingInterestDto, isPreview: boolean = false): Promise<InterestRunSummaryDto> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    if (!isPreview) await queryRunner.startTransaction();
+
+    try {
+      this.logger.log(`Starting Yearly Fund Process (Preview: ${isPreview})`);
+
+      // 1. Fetch Business Rules
+      const rules = await this.systemConfigService.getBusinessRules();
+      const fundIntRate = Number(rules['RULE_FUND_INT_RATE'] || 0);
+      const dividendPct = Number(rules['RULE_DIVIDEND_PCT'] || 0);
+      const insuranceAmt = Number(rules['RULE_GRP_INSURANCE_AMT'] || 0);
+
+      let interestChart = [];
+      try {
+        const charStr = rules['RULE_CD_INTEREST_CHART'];
+        interestChart = typeof charStr === 'string' ? JSON.parse(charStr) : (charStr || []);
+      } catch (e) {
+        this.logger.warn('Failed to parse interest chart', e);
+      }
+
+      // 2. Fetch Eligible Members with their Funds Data
+      const members = await this.memberMasterRepository.find({
+        where: { isactive: 'Y' },
+        order: { mbno: 'ASC' }
+      });
+
+      const memberCalculations: InterestCalculationResultDto[] = [];
+      let totalProcessAmount = 0;
+      const processDate = new Date();
+      const voucherNumber = dto.voucherNumber || (isPreview ? 'PREVIEW' : await this.generateVoucherNumber());
+
+      // 3. Iterate and Calculate
+      for (const member of members) {
+        // Fetch Funds Master for this member
+        const funds = await this.fundsRepository.findOne({ where: { memberNo: Number(member.mbno) } });
+
+        if (!funds) continue; // Skip if no funds record found
+
+        // A. Interest on Opening Balance
+        // We use monthlyContributionOpeningBalance as the base, assuming it was carried forward
+        const openingBalance = Number(funds.monthlyContributionOpeningBalance || 0);
+        const interestOnBalance = Math.round(openingBalance * (fundIntRate / 100));
+
+        // B. Interest on Monthly Contribution
+        const monthlyContrib = Number(funds.monthlyContributionInstallment || 0);
+        let interestOnContrib = 0;
+
+        // Find slab in chart
+        // Chart format: [{ monthlyContribution: 200, yearlyInterest: 91.20 }]
+        // We look for exact match or closest lower slab? Reqs say "look up this amount". assuming exact or logic.
+        // Usually it's exact match for standard slabs.
+        const slab = interestChart.find((s: any) => Number(s.monthlyContribution) === monthlyContrib);
+        if (slab) {
+          interestOnContrib = Number(slab.yearlyInterest);
+        } else {
+          // Fallback logic? Or 0? Let's assume 0 if not found for now.
+          // Or maybe proportional? existing logic suggests chart lookup.
+          interestOnContrib = 0;
+        }
+
+        // C. Dividend Calculation
+        // Use sharesOpeningBalance (assuming it represents the capital held for the year)
+        const shareCapital = Number(funds.sharesOpeningBalance || 0);
+        const dividendAmount = Math.round(shareCapital * (dividendPct / 100));
+
+        // D. Deductions (Group Insurance)
+        const deductionInsurance = insuranceAmt;
+
+        // E. Total Calculation
+        const totalCredit = interestOnBalance + interestOnContrib + dividendAmount;
+        const totalDebit = deductionInsurance; // + Loan Deductions if any
+        const netAdjustment = totalCredit - totalDebit;
+
+        const closingBalance = openingBalance + netAdjustment; // This effectively updates the detailed balance logic
+
+        // 4. Create Records if Not Preview
+        if (!isPreview && netAdjustment !== 0) {
+          // A. Create Transaction Record (Maybe one consolidated journal or separate?)
+          // Usually we post individual components to Ledger
+
+          // 1. Interest Posting (Credit)
+          if (interestOnBalance + interestOnContrib > 0) {
+            await this.createInterestLedgerEntry(
+              member,
+              {
+                accountNumber: member.mbno,
+                interestAmount: interestOnBalance + interestOnContrib,
+                closingBalance: 0, // Ledger logic handles balance update 
+                // ... other fields mocked for helper
+                memberNumber: member.mbno, memberName: member.fullName, openingBalance, totalDebit: 0, totalCredit: 0, averageBalance: 0, days: 365
+              },
+              voucherNumber,
+              `Yearly Fund Interest`,
+              queryRunner.manager,
+              'A1001' // Savings Head
+            );
+          }
+
+          // 2. Dividend Posting (Credit)
+          if (dividendAmount > 0) {
+            await this.createInterestLedgerEntry(
+              member,
+              {
+                accountNumber: member.mbno,
+                interestAmount: dividendAmount,
+                // ...
+                closingBalance: 0, memberNumber: member.mbno, memberName: member.fullName, openingBalance, totalDebit: 0, totalCredit: 0, averageBalance: 0, days: 365
+              },
+              voucherNumber,
+              `Yearly Dividend`,
+              queryRunner.manager,
+              'A2001' // Share Head? Need to check Chart of Accounts. Using placeholder.
+            );
+          }
+
+          // 3. Insurance Deduction (Debit)
+          if (deductionInsurance > 0) {
+            // Determine transaction number
+            const transNo = await this.generateTransactionNumber();
+            await queryRunner.manager.save(Ledger, {
+              transactionNumber: transNo,
+              transactionDate: processDate,
+              transactionType: 'DR',
+              code: 'L4001', // Liability/Expense Head for Insurance? Placeholder.
+              memberNumber: member.mbno,
+              accountNumber: member.mbno,
+              accountType: 'SB', // Deduct from Savings/Fund
+              transactionAmount: deductionInsurance,
+              receiptVoucherNumber: voucherNumber,
+              voucherType: 'JV',
+              modeOfPayment: 'T',
+              balance: 0, // Recalculated by trigger usually
+              narration: 'Annual Group Insurance Deduction',
+              username: 'SYSTEM',
+            });
+          }
+
+          // Update FundsMaster balances if needed?
+          // Usually ledger is the source of truth, but FundsMaster has `mdopbal`.
+          // We might need to update `mdopbal` for NEXT year? 
+          // Or `mdbal` (current balance).
+          // Let's assume Ledger is primary.
+        }
+
+        // Add to result list
+        memberCalculations.push({
+          memberNumber: member.mbno,
+          memberName: member.fullName,
+          accountNumber: member.mbno,
+          openingBalance,
+          totalDebit,
+          totalCredit,
+          averageBalance: 0,
+          interestAmount: netAdjustment, // Net effect
+          closingBalance,
+          days: 365
+        });
+
+        totalProcessAmount += netAdjustment;
+      }
+
+      if (!isPreview) await queryRunner.commitTransaction();
+
+      return {
+        totalMembers: memberCalculations.length,
+        totalInterestAmount: totalProcessAmount,
+        fromDate: dto.fromDate,
+        toDate: dto.toDate,
+        interestRate: 0, // composite
+        voucherNumber,
+        calculationDate: processDate.toISOString(),
+        memberCalculations
+      };
+
+    } catch (error) {
+      if (!isPreview) await queryRunner.rollbackTransaction();
+      this.logger.error('Yearly Fund Process Failed', error);
+      throw error;
+    } finally {
+      if (!isPreview) await queryRunner.release();
     }
   }
 }

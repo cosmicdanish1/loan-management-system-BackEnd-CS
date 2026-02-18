@@ -40,8 +40,8 @@ export class Transaction {
   @JoinColumn({ name: 'memberId' })
   member: Member;
 
-  @Column({ nullable: true })
-  memberId: number;
+  @Column({ name: 'mbno', type: 'numeric', nullable: true })
+  memberId: string;
 
   @Column({ length: 20, nullable: true })
   voucherNumber: string;

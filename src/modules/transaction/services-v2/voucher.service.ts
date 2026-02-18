@@ -28,6 +28,17 @@ export class VoucherService {
 
             console.log(`[Voucher] 🚀 Creating generic ${dto.voucherType} voucher:`, dto);
 
+            // Normalize: accept 'transactions' or 'breakdown' from frontend callers
+            const transactions: any[] = Array.isArray(dto.transactions)
+                ? dto.transactions
+                : Array.isArray(dto.breakdown)
+                    ? dto.breakdown
+                    : [];
+
+            if (transactions.length === 0) {
+                throw new Error('No transaction entries provided. At least one entry is required.');
+            }
+
             // 1. Get sequential voucher number
             const voucherNumber = await this.sequenceGenerator.getNextVoucherNumber();
 
@@ -41,7 +52,7 @@ export class VoucherService {
             `;
 
             const nextVoucherId = await this.getNextId('vouchers');
-            const totalAmount = dto.transactions.reduce((sum: number, t: any) => sum + (t.amount || 0), 0);
+            const totalAmount = transactions.reduce((sum: number, t: any) => sum + (t.amount || 0), 0);
 
             await queryRunner.query(voucherHeaderQuery, [
                 nextVoucherId,
@@ -61,35 +72,33 @@ export class VoucherService {
             ]);
 
             // 3. Insert breakdown into 'transactions' table
-            if (dto.transactions && Array.isArray(dto.transactions)) {
-                for (const entry of dto.transactions) {
-                    const transNo = await this.getNextId('transactions');
-                    const transQuery = `
-                        INSERT INTO transactions (
-                            trans_no, trans_type, trans_date, mbno, trans_amt, 
-                            receipt_vchr_no, vchr_type, modeofpay, pass_flag, cashier_flag,
-                            narration, code, username, acc_no, cheq_amt
-                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-                    `;
+            for (const entry of transactions) {
+                const transNo = await this.getNextId('transactions');
+                const transQuery = `
+                    INSERT INTO transactions (
+                        trans_no, trans_type, trans_date, mbno, trans_amt, 
+                        receipt_vchr_no, vchr_type, modeofpay, pass_flag, cashier_flag,
+                        narration, code, username, acc_no, cheq_amt
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                `;
 
-                    await queryRunner.query(transQuery, [
-                        transNo,
-                        dto.voucherType === 'PAYMENT' ? 'P' : 'R', // P for Payment, R for Receipt
-                        dto.voucherDate || new Date(),
-                        dto.memberId || null,
-                        entry.amount,
-                        voucherNumber,
-                        dto.voucherType === 'PAYMENT' ? 'PV' : 'RV', // PV: Payment Voucher, RV: Receipt Voucher
-                        dto.paymentMethod === 'CASH' ? 'C' : 'B',
-                        'N', // pass_flag (pending approval)
-                        'N', // cashier_flag
-                        entry.description || dto.description,
-                        entry.debitAccount || entry.code || null,
-                        'admin', // Should be from auth context in real app
-                        entry.rdSrNo ? parseInt(entry.rdSrNo.replace(/[^0-9]/g, '')) || null : null,
-                        0 // cheq_amt default
-                    ]);
-                }
+                await queryRunner.query(transQuery, [
+                    transNo,
+                    dto.voucherType === 'PAYMENT' ? 'P' : 'R', // P for Payment, R for Receipt
+                    dto.voucherDate || new Date(),
+                    dto.memberId || null,
+                    entry.amount,
+                    voucherNumber,
+                    dto.voucherType === 'PAYMENT' ? 'PV' : 'RV', // PV: Payment Voucher, RV: Receipt Voucher
+                    dto.paymentMethod === 'CASH' ? 'C' : 'B',
+                    'N', // pass_flag (pending approval)
+                    'N', // cashier_flag
+                    entry.description || dto.description,
+                    entry.debitAccount || entry.code || null,
+                    'admin', // Should be from auth context in real app
+                    entry.rdSrNo ? parseInt(entry.rdSrNo.replace(/[^0-9]/g, '')) || null : null,
+                    0 // cheq_amt default
+                ]);
             }
 
             await queryRunner.commitTransaction();
@@ -173,8 +182,8 @@ export class VoucherService {
                         INSERT INTO transactions (
                             trans_no, trans_type, trans_date, mbno, trans_amt, 
                             receipt_vchr_no, vchr_type, modeofpay, pass_flag, cashier_flag,
-                            particulars
-                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                            narration, code, cheq_amt
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
                     `;
 
                     await queryRunner.query(transQuery, [
@@ -188,7 +197,9 @@ export class VoucherService {
                         voucherData.paymentMode === 'CASH' ? 'C' : 'B',
                         'N', // pass_flag
                         'N', // cashier_flag
-                        `${entry.name} [Code: ${entry.code}]`
+                        `${entry.name} [Code: ${entry.code}]`,
+                        entry.code || null,
+                        0 // cheq_amt default
                     ]);
                 }
             }
@@ -220,6 +231,56 @@ export class VoucherService {
 
         const result = await this.dataSource.query(`SELECT COALESCE(MAX(${idColumn}), 0) + 1 as next_id FROM ${tableName}`);
         return parseInt(result[0].next_id);
+    }
+
+    /**
+     * Delete/Reject a pending voucher (only PENDING status)
+     */
+    async deleteVoucher(voucherNo: string) {
+        const queryRunner = this.dataSource.createQueryRunner();
+
+        try {
+            await queryRunner.connect();
+            await queryRunner.startTransaction();
+
+            console.log(`[Voucher] 🗑️ Deleting pending voucher: ${voucherNo}`);
+
+            // 1. Verify voucher exists and is PENDING
+            const voucherResult = await queryRunner.query(
+                `SELECT * FROM vouchers WHERE "voucherNumber" = $1`, [voucherNo]
+            );
+
+            if (voucherResult.length === 0) {
+                throw new Error(`Voucher ${voucherNo} not found`);
+            }
+
+            if (voucherResult[0].status !== 'PENDING') {
+                throw new Error(`Cannot delete voucher ${voucherNo} - status is ${voucherResult[0].status}. Only PENDING vouchers can be deleted.`);
+            }
+
+            // 2. Delete transaction rows linked to this voucher
+            const deletedTrans = await queryRunner.query(
+                `DELETE FROM transactions WHERE receipt_vchr_no = $1`, [voucherNo]
+            );
+            console.log(`[Voucher] Deleted ${deletedTrans[1] || 0} transaction rows for ${voucherNo}`);
+
+            // 3. Delete the voucher header
+            await queryRunner.query(
+                `DELETE FROM vouchers WHERE "voucherNumber" = $1`, [voucherNo]
+            );
+
+            await queryRunner.commitTransaction();
+            console.log(`[Voucher] ✅ Voucher ${voucherNo} deleted successfully`);
+
+            return { success: true, message: `Voucher ${voucherNo} deleted successfully` };
+
+        } catch (error: any) {
+            await queryRunner.rollbackTransaction();
+            console.error('[Voucher] ❌ Error deleting voucher:', error);
+            throw new Error('Failed to delete voucher: ' + error.message);
+        } finally {
+            await queryRunner.release();
+        }
     }
 
     /**

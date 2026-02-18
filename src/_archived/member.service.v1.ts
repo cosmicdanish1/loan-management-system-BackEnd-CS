@@ -872,7 +872,13 @@ export class MemberService {
           lp.app_date as application_date
         FROM loan_pending lp
         JOIN member_master mm ON lp.mbno = mm.mbno
-        WHERE lp.flg_sanctioned = 'Y' AND lp.flg_paid = 'N'
+        WHERE lp.flg_sanctioned = 'Y' 
+          AND lp.flg_paid = 'N'
+          AND NOT EXISTS (
+              SELECT 1 FROM voucher_staging vs 
+              WHERE vs.loan_case_no = lp.loancaseno::text 
+              AND vs.status = 'PENDING'
+          )
         ORDER BY lp.app_date ASC
       `;
 

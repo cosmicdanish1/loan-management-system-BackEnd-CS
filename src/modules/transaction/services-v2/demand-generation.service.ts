@@ -56,14 +56,6 @@ export class DemandGenerationService {
     async generateDemand(dto: DemandGenerationDto) {
         this.logger.log(`Starting demand generation for ${dto.month} ${dto.year}`);
 
-        // Note: Real logic would involve:
-        // 1. Fetching all active members (optionally filtered by division/branch range).
-        // 2. For each member, calculating Loan Installments, Interest, RD amounts, Share contributions, etc.
-        // 3. Ensuring no duplicates for the same month/year/member.
-        // 4. Batch inserting into demand_master.
-
-        // Since we are mocking the heavy calculation logic for this step to ensure architectural connectivity:
-
         const monthMap: { [key: string]: number } = {
             'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4, 'MAY': 5, 'JUN': 6,
             'JUL': 7, 'AUG': 8, 'SEP': 9, 'OCT': 10, 'NOV': 11, 'DEC': 12
@@ -75,38 +67,102 @@ export class DemandGenerationService {
             throw new Error('Invalid date parameters');
         }
 
-        // --- SIMULATED GENERATION ---
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
 
-        // Let's check if we already have demand for this period to prevent duplicates (simplified check)
-        const count = await this.demandRepository.count({
-            where: { month: monthNum, year: yearNum }
-        });
+        try {
+            // 1. Check for existing demand
+            const count = await this.demandRepository.count({
+                where: { month: monthNum, year: yearNum }
+            });
 
-        if (count > 0) {
+            if (count > 0) {
+                await queryRunner.release();
+                return {
+                    success: true,
+                    message: `Demand for ${dto.month} ${dto.year} already exists (${count} records). Process skipped.`
+                };
+            }
+
+            // 2. Fetch Active Members
+            // In a real scenario, filter by status = 'ACTIVE'
+            const members = await queryRunner.query(`SELECT mbno FROM member_master WHERE status = 'ACTIVE'`);
+
+            this.logger.log(`Generating demand for ${members.length} active members...`);
+
+            // 3. Batched Processing (simplified for this context)
+            const demands: any[] = [];
+
+            // Fetch All Active Loans efficiently
+            const activeLoans = await queryRunner.query(`
+                SELECT mbno, COALESCE(SUM(instal_amt), 0) as total_emi 
+                FROM loan_master 
+                WHERE balance > 0 
+                GROUP BY mbno
+            `);
+            const loanMap = new Map(activeLoans.map((l: any) => [l.mbno, parseFloat(l.total_emi)]));
+
+            // Fetch RO/RD Details (Placeholder - usually from ro_national/united)
+            // const roDetails = await queryRunner.query(`...`); 
+
+            for (const member of members) {
+                const mbno = member.mbno;
+                let totalDemand = 0;
+
+                // A. Loan EMI
+                const loanEmi: number = Number(loanMap.get(mbno)) || 0;
+                totalDemand += loanEmi;
+
+                // B. Share/RD (Default 0 for now as tables checked empty)
+                const shareAmt = 0;
+                const rdAmt = 0;
+                totalDemand += shareAmt + rdAmt;
+
+                // C. Insurance (If applicable month)
+                // const insuranceAmt = ... (fetch from SystemConfig)
+
+                if (totalDemand > 0) {
+                    demands.push({
+                        month: monthNum,
+                        year: yearNum,
+                        memberNo: mbno,
+                        balance: totalDemand, // Initial balance = total demand (unpaid)
+                        totalDemand: totalDemand,
+                        // Add detailed breakdown columns if schema supports
+                    });
+                }
+            }
+
+            // 4. Batch Insert
+            if (demands.length > 0) {
+                // Using raw insert for performance and to handle potential column mismatches in entity
+                // Assuming demand_master has (month, year, mbno, balance, totaldemand)
+                // We chunk inserts to avoid query limit
+                const chunkSize = 500;
+                for (let i = 0; i < demands.length; i += chunkSize) {
+                    const chunk = demands.slice(i, i + chunkSize);
+                    const values = chunk.map(d => `(${d.month}, ${d.year}, ${d.memberNo}, ${d.totalDemand}, ${d.balance})`).join(',');
+                    await queryRunner.query(`
+                        INSERT INTO demand_master (demand_for_month, demand_for_year, mbno, totaldemand, balance_for_month)
+                        VALUES ${values}
+                    `);
+                }
+            }
+
+            await queryRunner.commitTransaction();
+
             return {
                 success: true,
-                message: `Demand for ${dto.month} ${dto.year} already exists (${count} records). Process skipped or partial update.`
+                message: `Successfully generated demand for ${demands.length} members for ${dto.month} ${dto.year}.`
             };
+
+        } catch (error: any) {
+            await queryRunner.rollbackTransaction();
+            this.logger.error('Demand generation failed', error);
+            throw new Error('Failed to generate demand: ' + error.message);
+        } finally {
+            await queryRunner.release();
         }
-
-        // Create dummy demands for a few members to pretend we did work
-        const dummyDemands: DemandMaster[] = [];
-        for (let i = 1; i <= 5; i++) {
-            const d = new DemandMaster();
-            d.id = Math.floor(Date.now() / 1000) + i; // Generating a pseudo-unique ID
-            d.month = monthNum;
-            d.year = yearNum;
-            d.memberNo = 1000 + i;
-            d.balance = 500 * i; // Random shortfall
-            d.totalDemand = 1000 * i;
-            dummyDemands.push(d);
-        }
-
-        await this.demandRepository.save(dummyDemands);
-
-        return {
-            success: true,
-            message: `Successfully generated demand for ${dummyDemands.length} members for ${dto.month} ${dto.year}.`
-        };
     }
 }

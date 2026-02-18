@@ -2,6 +2,7 @@ import {
     Controller,
     Get,
     Post,
+    Delete,
     Body,
     Param,
 } from '@nestjs/common';
@@ -50,6 +51,13 @@ export class TransactionV2Controller {
     @ApiOperation({ summary: 'Get voucher details by number' })
     async getVoucherDetails(@Param('voucherNo') voucherNo: string) {
         return this.voucherService.getVoucherDetails(voucherNo);
+    }
+
+    @Delete('voucher/:voucherNo')
+    @ApiOperation({ summary: 'Delete/Reject a pending voucher' })
+    @ApiResponse({ status: 200, description: 'Voucher deleted successfully' })
+    async deleteVoucher(@Param('voucherNo') voucherNo: string) {
+        return this.voucherService.deleteVoucher(voucherNo);
     }
 
     // ==================== Pass Transaction Operations ====================

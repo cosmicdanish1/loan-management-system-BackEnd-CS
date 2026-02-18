@@ -456,6 +456,43 @@ export class SystemConfigService {
         category: ConfigCategory.DEPOSIT_SLABS,
         unit: '%',
       },
+      // Fund Management Rules
+      {
+        key: 'RULE_FUND_INT_RATE',
+        name: 'Annual Fund Interest Rate',
+        description: 'Fixed interest rate on current balance annually',
+        value: '7.0',
+        dataType: ConfigDataType.PERCENTAGE,
+        category: ConfigCategory.BUSINESS_RULES,
+        unit: '%',
+      },
+      {
+        key: 'RULE_DIVIDEND_PCT',
+        name: 'Dividend Profit Percentage',
+        description: 'Dividend profit percentage on current stakes',
+        value: '0.0',
+        dataType: ConfigDataType.PERCENTAGE,
+        category: ConfigCategory.BUSINESS_RULES,
+        unit: '%',
+      },
+      {
+        key: 'RULE_GRP_INSURANCE_AMT',
+        name: 'Group Insurance Amount',
+        description: 'Fixed group insurance deduction amount',
+        value: '0',
+        dataType: ConfigDataType.NUMBER,
+        category: ConfigCategory.BUSINESS_RULES,
+        unit: 'INR',
+      },
+      {
+        key: 'RULE_CD_INTEREST_CHART',
+        name: 'Monthly Contribution Interest Chart',
+        description: 'Chart defining yearly interest for monthly fixed deposits',
+        value: '[]',
+        dataType: ConfigDataType.JSON,
+        category: ConfigCategory.BUSINESS_RULES,
+        unit: '',
+      },
     ];
 
     for (const configData of defaultConfigs) {

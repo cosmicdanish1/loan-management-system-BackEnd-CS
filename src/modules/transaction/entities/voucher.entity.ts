@@ -36,8 +36,8 @@ export class Voucher {
   @JoinColumn({ name: 'memberId' })
   member: Member;
 
-  @Column({ nullable: true })
-  memberId: number;
+  @Column({ type: 'numeric', nullable: true })
+  memberId: string;
 
   @Column({ length: 100, nullable: true })
   payeeName: string;
@@ -57,8 +57,8 @@ export class Voucher {
   @Column({ type: 'text', nullable: true })
   remarks: string;
 
-  @Column({ nullable: true })
-  authorizedBy: number;
+  @Column({ type: 'numeric', nullable: true })
+  authorizedBy: string;
 
   @Column({ type: 'timestamp', nullable: true })
   authorizedAt: Date;

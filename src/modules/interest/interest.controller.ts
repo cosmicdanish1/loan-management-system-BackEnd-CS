@@ -24,7 +24,7 @@ import {
 @Controller('interest')
 @ApiBearerAuth()
 export class InterestController {
-  constructor(private readonly interestService: InterestService) {}
+  constructor(private readonly interestService: InterestService) { }
 
   @Post('update-saving-interest')
   @HttpCode(HttpStatus.OK)
@@ -56,6 +56,34 @@ export class InterestController {
     @Body() dto: UpdateSavingInterestDto,
   ): Promise<InterestRunSummaryDto> {
     return this.interestService.previewInterestCalculation(dto);
+  }
+
+  @Post('preview-yearly-fund')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Preview yearly fund (Interest, Dividend, Insurance) calculation' })
+  @ApiResponse({
+    status: 200,
+    description: 'Yearly fund preview generated successfully',
+    type: InterestRunSummaryDto,
+  })
+  async previewYearlyFund(
+    @Body() dto: UpdateSavingInterestDto,
+  ): Promise<InterestRunSummaryDto> {
+    return this.interestService.processYearlyFundProcess(dto, true);
+  }
+
+  @Post('process-yearly-fund')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Process yearly fund calculation and post to ledger' })
+  @ApiResponse({
+    status: 200,
+    description: 'Yearly fund processed successfully',
+    type: InterestRunSummaryDto,
+  })
+  async processYearlyFund(
+    @Body() dto: UpdateSavingInterestDto,
+  ): Promise<InterestRunSummaryDto> {
+    return this.interestService.processYearlyFundProcess(dto, false);
   }
 
   @Post('validate-parameters')

@@ -1,4 +1,5 @@
 import { PartialType } from '@nestjs/swagger';
+
 import { IsOptional, IsString, IsIn } from 'class-validator';
 import { CreateFixedDepositDto } from './create-fixed-deposit.dto';
 

@@ -104,22 +104,7 @@ export class AuthService {
         await this.userInfoRepository.save(userInfo);
 
         // Map to old User format for compatibility
-        const user = new User();
-        user.id = userMaster.userid;
-        user.username = userMaster.susername;
-        user.email = `${userMaster.susername}@example.com`;
-        user.firstName = userMaster.susername;
-        user.lastName = '';
-        user.role = userMaster.userLevel?.userlevel as any || UserRole.DATA_OPERATOR;
-
-        // Map permissions based on role
-        const permissions = [UserPermission.READ_MEMBER];
-        if (user.role === UserRole.ADMIN || user.role === UserRole.DATA_OPERATOR || (user.role as any) === 'admin' || (user.role as any) === 'sample_1') {
-          permissions.push(UserPermission.MANAGE_USERS);
-        }
-        user.permissions = permissions;
-        user.isActive = userMaster.isEnabled;
-
+        const user = this.mapUserMasterToUser(userMaster);
         return user;
       }
     }
@@ -137,6 +122,26 @@ export class AuthService {
     }
 
     return null;
+  }
+
+  private mapUserMasterToUser(userMaster: UserMaster): User {
+    const user = new User();
+    user.id = userMaster.userid;
+    user.username = userMaster.susername;
+    user.email = `${userMaster.susername}@example.com`;
+    user.firstName = userMaster.susername;
+    user.lastName = '';
+    user.role = userMaster.userLevel?.userlevel as any || UserRole.DATA_OPERATOR;
+
+    // Map permissions based on role
+    const permissions = [UserPermission.READ_MEMBER];
+    if (user.role === UserRole.ADMIN || user.role === UserRole.DATA_OPERATOR || (user.role as any) === 'admin' || (user.role as any) === 'sample_1') {
+      permissions.push(UserPermission.MANAGE_USERS);
+    }
+    user.permissions = permissions;
+    user.isActive = userMaster.isEnabled;
+
+    return user;
   }
 
   async login(loginDto: LoginDto): Promise<AuthResponseDto> {
@@ -198,9 +203,27 @@ export class AuthService {
         secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
       });
 
-      const user = await this.userRepository.findOne({
-        where: { id: payload.sub, isActive: true },
+      console.log('Refresh token payload:', payload);
+
+      // 1. Try UserMaster (new system)
+      const userMaster = await this.userMasterRepository.findOne({
+        where: { userid: payload.sub },
+        relations: ['userLevel'],
       });
+
+      let user: User | null = null;
+
+      if (userMaster) {
+        if (userMaster.enableDisable !== 'E') {
+          throw new UnauthorizedException('User account is disabled');
+        }
+        user = this.mapUserMasterToUser(userMaster);
+      } else {
+        // 2. Fallback to User (old system)
+        user = await this.userRepository.findOne({
+          where: { id: payload.sub, isActive: true },
+        });
+      }
 
       if (!user) {
         throw new UnauthorizedException('User not found');
@@ -213,6 +236,7 @@ export class AuthService {
         user: this.mapUserToResponseDto(user),
       };
     } catch (error) {
+      console.error('Refresh token error:', error);
       throw new UnauthorizedException('Invalid refresh token');
     }
   }
