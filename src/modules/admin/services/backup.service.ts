@@ -60,7 +60,7 @@ export class BackupService {
   async createDatabaseBackup(backupName?: string): Promise<BackupResult> {
     try {
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const filename = backupName 
+      const filename = backupName
         ? `${backupName}_${timestamp}.sql`
         : `backup_${timestamp}.sql`;
       const backupPath = path.join(this.backupDir, filename);
@@ -69,13 +69,15 @@ export class BackupService {
 
       // Create pg_dump command
       const dumpCommand = this.buildPgDumpCommand(backupPath);
-      
+
       // Execute backup
-      await execAsync(dumpCommand);
+      await execAsync(dumpCommand, {
+        env: { ...process.env, PGPASSWORD: this.dbConfig.password }
+      });
 
       // Verify backup file exists and get stats
       const stats = await fs.promises.stat(backupPath);
-      
+
       // Calculate checksum
       const checksum = await this.calculateFileChecksum(backupPath);
 
@@ -119,7 +121,9 @@ export class BackupService {
       const restoreCommand = this.buildPsqlCommand(backupPath);
 
       // Execute restore
-      await execAsync(restoreCommand);
+      await execAsync(restoreCommand, {
+        env: { ...process.env, PGPASSWORD: this.dbConfig.password }
+      });
 
       const result: RestoreResult = {
         success: true,
@@ -149,10 +153,10 @@ export class BackupService {
       for (const filename of backupFiles) {
         const filePath = path.join(this.backupDir, filename);
         const stats = await fs.promises.stat(filePath);
-        
+
         // Try to load metadata
         const metadata = await this.loadBackupMetadata(filename);
-        
+
         // Verify integrity
         const isValid = await this.verifyBackupIntegrity(filePath);
 
@@ -213,7 +217,7 @@ export class BackupService {
       // Try to load metadata and verify checksum
       const filename = path.basename(backupPath);
       const metadata = await this.loadBackupMetadata(filename);
-      
+
       if (metadata?.checksum) {
         const currentChecksum = await this.calculateFileChecksum(backupPath);
         return currentChecksum === metadata.checksum;
@@ -249,8 +253,8 @@ export class BackupService {
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
 
-      const oldBackups = backups.filter(backup => 
-        backup.createdAt < cutoffDate && 
+      const oldBackups = backups.filter(backup =>
+        backup.createdAt < cutoffDate &&
         backup.filename.startsWith('auto_')
       );
 
@@ -268,18 +272,15 @@ export class BackupService {
   }
 
   private buildPgDumpCommand(outputPath: string): string {
-    const { host, port, username, password, database } = this.dbConfig;
-    
-    // Set PGPASSWORD environment variable for authentication
-    const env = { ...process.env, PGPASSWORD: password };
-    
-    return `PGPASSWORD="${password}" pg_dump -h ${host} -p ${port} -U ${username} -d ${database} -f "${outputPath}" --verbose --no-password`;
+    const { host, port, username, database } = this.dbConfig;
+
+    return `pg_dump -h ${host} -p ${port} -U ${username} -d ${database} -f "${outputPath}" --verbose --no-password`;
   }
 
   private buildPsqlCommand(inputPath: string): string {
-    const { host, port, username, password, database } = this.dbConfig;
-    
-    return `PGPASSWORD="${password}" psql -h ${host} -p ${port} -U ${username} -d ${database} -f "${inputPath}" --quiet`;
+    const { host, port, username, database } = this.dbConfig;
+
+    return `psql -h ${host} -p ${port} -U ${username} -d ${database} -f "${inputPath}" --quiet --no-password`;
   }
 
   private async calculateFileChecksum(filePath: string): Promise<string> {
@@ -312,14 +313,14 @@ export class BackupService {
   private async loadBackupMetadata(filename: string): Promise<any> {
     try {
       const metadataPath = path.join(this.backupDir, `${filename}.meta`);
-      
+
       if (!fs.existsSync(metadataPath)) {
         return null;
       }
 
       const content = await fs.promises.readFile(metadataPath, 'utf8');
       const metadata = JSON.parse(content);
-      
+
       // Convert date string back to Date object
       if (metadata.createdAt) {
         metadata.createdAt = new Date(metadata.createdAt);

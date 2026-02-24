@@ -37,7 +37,7 @@ export class Transaction {
   creditAccount: string;
 
   @ManyToOne(() => Member, { nullable: true, eager: true })
-  @JoinColumn({ name: 'memberId' })
+  @JoinColumn({ name: 'mbno' })
   member: Member;
 
   @Column({ name: 'mbno', type: 'numeric', nullable: true })

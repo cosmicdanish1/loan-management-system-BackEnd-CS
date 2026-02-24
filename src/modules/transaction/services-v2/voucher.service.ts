@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { SequenceGeneratorService } from '../../shared/services';
+import { NotificationService } from '../../notification/services/notification.service';
+import { NotificationChannel } from '../../notification/entities/notification-log.entity';
 
 /**
  * Voucher Service - Handles voucher generation and staging.
@@ -13,6 +15,7 @@ export class VoucherService {
     constructor(
         private readonly dataSource: DataSource,
         private readonly sequenceGenerator: SequenceGeneratorService,
+        private readonly notificationService: NotificationService,
     ) { }
 
     /**
@@ -103,6 +106,17 @@ export class VoucherService {
 
             await queryRunner.commitTransaction();
             console.log(`[Voucher] ✅ Generic voucher ${voucherNumber} created successfully`);
+
+            // 4. Send Notification (Async/Non-blocking)
+            if (dto.memberId) {
+                const totalAmount = transactions.reduce((sum: number, t: any) => sum + (t.amount || 0), 0);
+                this.notificationService.sendManualNotification({
+                    memberNo: dto.memberId.toString(),
+                    channel: NotificationChannel.SMS,
+                    message: `Transaction Confirmed: Your ${dto.voucherType} of ₹${totalAmount} has been processed. Voucher: ${voucherNumber}. - Espat Society`,
+                    recipient: '' // Service will fetch if empty
+                }).catch(e => console.error('Failed to send auto-notification:', e));
+            }
 
             return {
                 success: true,

@@ -29,6 +29,7 @@ import { MemberV2Module } from './modules/member/member-v2.module';
 import { LoanV2Module } from './modules/loan/loan-v2.module';
 import { TransactionV2Module } from './modules/transaction/transaction-v2.module';
 import { ReportV2Module } from './modules/report/report-v2.module';
+import { NotificationModule } from './modules/notification/notification.module';
 
 @Module({
   imports: [
@@ -147,6 +148,7 @@ import { ReportV2Module } from './modules/report/report-v2.module';
     GeneralLedgerModule,
     PrintVoucherModule,
     JottingReportModule,
+    NotificationModule,
   ],
   controllers: [AppController],
   providers: [AppService],

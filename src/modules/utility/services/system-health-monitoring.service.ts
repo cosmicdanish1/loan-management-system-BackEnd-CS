@@ -12,6 +12,7 @@ import { DataConsistencyService } from './data-consistency.service';
 import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
+import { LessThan } from 'typeorm';
 
 export interface SystemHealthMetrics {
   database: DatabaseHealthMetrics;
@@ -247,7 +248,7 @@ export class SystemHealthMonitoringService {
     if (existing) {
       // Update existing metrics
       const totalRequests = existing.requestCount + 1;
-      existing.averageResponseTime = 
+      existing.averageResponseTime =
         (existing.averageResponseTime * existing.requestCount + responseTime) / totalRequests;
       existing.requestCount = totalRequests;
       existing.errorCount += isError ? 1 : 0;
@@ -292,7 +293,7 @@ export class SystemHealthMonitoringService {
   private async getDatabaseHealthMetrics(): Promise<DatabaseHealthMetrics> {
     try {
       const startTime = Date.now();
-      
+
       // Test database connection
       await this.dataSource.query('SELECT 1');
       const responseTime = Date.now() - startTime;
@@ -302,7 +303,7 @@ export class SystemHealthMonitoringService {
 
       // Run quick data integrity check
       const integrityCheck = await this.dataConsistencyService.runConsistencyChecks();
-      
+
       let integrityStatus: 'HEALTHY' | 'ISSUES_FOUND' | 'CRITICAL_ISSUES' = 'HEALTHY';
       if (integrityCheck.overallStatus === 'CRITICAL_ISSUES') {
         integrityStatus = 'CRITICAL_ISSUES';
@@ -369,7 +370,7 @@ export class SystemHealthMonitoringService {
     const errorRate = totalRequests > 0 ? (totalErrors / totalRequests) * 100 : 0;
 
     // Calculate average response time
-    const avgResponseTime = allMetrics.length > 0 
+    const avgResponseTime = allMetrics.length > 0
       ? allMetrics.reduce((sum, m) => sum + m.averageResponseTime, 0) / allMetrics.length
       : 0;
 
@@ -454,11 +455,11 @@ export class SystemHealthMonitoringService {
       // Calculate defaulters (loans overdue by more than 30 days)
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      
+
       const defaulterCount = await this.loanAccountRepository.count({
         where: {
           status: 'ACTIVE',
-          maturityDate: { $lt: thirtyDaysAgo } as any,
+          maturityDate: LessThan(thirtyDaysAgo) as any,
         },
       });
 
@@ -617,7 +618,7 @@ export class SystemHealthMonitoringService {
     timestamp: Date,
   ): void {
     const alertId = `${component}-${type}-${timestamp.getTime()}`;
-    
+
     // Check if similar alert already exists
     const existingAlert = this.activeAlerts.find(
       alert => alert.component === component && alert.message === message && !alert.resolved
@@ -655,7 +656,7 @@ export class SystemHealthMonitoringService {
     // Add performance recommendations
     const performanceMetrics = this.getPerformanceMetrics();
     const slowEndpoints = performanceMetrics.filter(m => m.averageResponseTime > 2000);
-    
+
     if (slowEndpoints.length > 0) {
       recommendations.push('Optimize slow API endpoints for better performance');
     }

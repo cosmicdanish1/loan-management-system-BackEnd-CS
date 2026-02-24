@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AdminModule } from '../admin/admin.module';
+import { NotificationModule } from '../notification/notification.module';
 import { Transaction } from './entities/transaction.entity';
 import { Voucher } from './entities/voucher.entity';
 import { DemandMaster } from './entities/demand-master.entity';
@@ -31,6 +32,7 @@ import { FixedDepositController } from './fixed-deposit.controller';
 @Module({
     imports: [
         AdminModule,
+        NotificationModule,
         TypeOrmModule.forFeature([
             Transaction,
             Voucher,
