@@ -6,7 +6,7 @@ import { LicenseKey, LicenseStatus } from './entities/license-key.entity';
 import { ActivateLicenseDto, GenerateLicenseDto, LicenseStatusResponse } from './dto/license.dto';
 
 // Secret used to sign/verify keys — keep this private
-const LICENSE_SECRET = process.env.LICENSE_SECRET || 'BICAN_LMS_SECRET_2025';
+const LICENSE_SECRET = process.env.LICENSE_SECRET || 'PWT_LMS_SECRET_2025';
 
 // License duration constants
 const LICENSE_DURATION_DAYS = 365;   // 1 year

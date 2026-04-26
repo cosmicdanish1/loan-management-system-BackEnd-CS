@@ -4,10 +4,10 @@ import { Injectable } from '@nestjs/common';
 export class AppService {
   getAppInfo(): object {
     return {
-      name: 'Loan Management System API',
+      name: 'Paper White Technology - LMS API',
       version: '1.0.0',
-      description: 'Comprehensive backend API for Loan Management System',
-      author: 'Bican Pvt. Ltd',
+      description: 'Comprehensive backend API for Paper White Technology LMS',
+      author: 'Paper White Technology',
       documentation: '/api/docs',
       environment: process.env.NODE_ENV || 'development',
       timestamp: new Date().toISOString(),

@@ -42,8 +42,8 @@ async function bootstrap() {
 
   // Swagger documentation
   const config = new DocumentBuilder()
-    .setTitle('Loan Management System API')
-    .setDescription('Comprehensive API for Loan Management System')
+    .setTitle('Paper White Technology - LMS API')
+    .setDescription('Comprehensive API for Paper White Technology Loan Management System')
     .setVersion('1.0')
     .addBearerAuth(
       {
