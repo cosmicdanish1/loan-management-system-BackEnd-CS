@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { parseSafeDate } from '../../shared/utils/date-utils';
 
 /**
  * Deposit Reports Service - Handles deposit-related reports.
@@ -43,12 +44,12 @@ export class DepositReportsService {
 
         if (dto.fromDate) {
             query += ` AND dm.deposit_date >= $${params.length + 1}`;
-            params.push(dto.fromDate);
+            params.push(parseSafeDate(dto.fromDate));
         }
 
         if (dto.toDate) {
             query += ` AND dm.deposit_date <= $${params.length + 1}`;
-            params.push(dto.toDate);
+            params.push(parseSafeDate(dto.toDate));
         }
 
         query += ` ORDER BY dm.deposit_date DESC`;
@@ -103,12 +104,12 @@ export class DepositReportsService {
 
         if (dto.fromDate) {
             query += ` AND dm.deposit_date >= $${params.length + 1}`;
-            params.push(dto.fromDate);
+            params.push(parseSafeDate(dto.fromDate));
         }
 
         if (dto.toDate) {
             query += ` AND dm.deposit_date <= $${params.length + 1}`;
-            params.push(dto.toDate);
+            params.push(parseSafeDate(dto.toDate));
         }
 
         query += ` ORDER BY dm.deposit_date DESC`;
@@ -158,7 +159,7 @@ export class DepositReportsService {
                 FROM ledger
                 WHERE mbno = $1 AND code = $2 AND trans_date < $3
             `;
-            const opBalResult = await this.dataSource.query(opBalQuery, [memberNo, headCode, fromDate]);
+            const opBalResult = await this.dataSource.query(opBalQuery, [memberNo, headCode, parseSafeDate(fromDate)]);
             openingBalance = parseFloat(opBalResult[0]?.balance || '0');
         }
 
@@ -177,11 +178,11 @@ export class DepositReportsService {
         const params: any[] = [memberNo, headCode];
         if (fromDate) {
             transQuery += ` AND trans_date >= $${params.length + 1}`;
-            params.push(fromDate);
+            params.push(parseSafeDate(fromDate));
         }
         if (toDate) {
             transQuery += ` AND trans_date <= $${params.length + 1}`;
-            params.push(toDate);
+            params.push(parseSafeDate(toDate));
         }
 
         transQuery += ` ORDER BY trans_date ASC, trans_no ASC`;
@@ -259,7 +260,7 @@ export class DepositReportsService {
         AND rd.status = 'ACTIVE'
     `;
 
-        const params: any[] = [fromDate, toDate];
+        const params: any[] = [parseSafeDate(fromDate), parseSafeDate(toDate)];
 
         // If deposit type is specified, only query that type
         let query = '';
@@ -287,9 +288,6 @@ export class DepositReportsService {
         }));
     }
 
-    /**
-     * Get FD certificate
-     */
     /**
      * Get FD certificate
      */
@@ -552,7 +550,7 @@ export class DepositReportsService {
         }
         if (fromDate && toDate) {
             ledgerQuery += ` AND trans_date >= $${ledgerParams.length + 1} AND trans_date <= $${ledgerParams.length + 2}`;
-            ledgerParams.push(fromDate, toDate);
+            ledgerParams.push(parseSafeDate(fromDate), parseSafeDate(toDate));
         }
         ledgerQuery += ' ORDER BY trans_date ASC, trans_no ASC';
 

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { parseSafeDate } from '../../shared/utils/date-utils';
 
 /**
  * Loan Sanction Service - Handles loan sanction and approval operations.
@@ -178,7 +179,7 @@ export class LoanSanctionService {
 
             const result = await this.dataSource.query(updateQuery, [
                 sanctionData.sanctionedAmount,
-                sanctionData.sanctionDate || new Date(),
+                parseSafeDate(sanctionData.sanctionDate),
                 sanctionData.noOfInstallments,
                 caseNo
             ]);

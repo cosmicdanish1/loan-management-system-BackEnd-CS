@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { parseSafeDate } from '../../shared/utils/date-utils';
 
 /**
  * Cash Book Reports Service - Handles cash book and ledger reports.
@@ -11,9 +12,6 @@ import { DataSource } from 'typeorm';
 export class CashBookReportsService {
     constructor(private readonly dataSource: DataSource) { }
 
-    /**
-     * Get monthly cash book summary
-     */
     /**
      * Get monthly cash book summary
      */
@@ -98,7 +96,7 @@ export class CashBookReportsService {
         // Get total count
         const countRes = await this.dataSource.query(`
             SELECT COUNT(*) FROM ledger WHERE code = $1 AND trans_date >= $2 AND trans_date <= $3
-        `, [head_code, from_date, to_date]);
+        `, [head_code, parseSafeDate(from_date), parseSafeDate(to_date)]);
         const totalCount = parseInt(countRes[0].count);
 
         // Get transactions
@@ -114,7 +112,7 @@ export class CashBookReportsService {
       ORDER BY trans_date ASC, trans_no ASC
     `;
 
-        const params: any[] = [head_code, from_date, to_date];
+        const params: any[] = [head_code, parseSafeDate(from_date), parseSafeDate(to_date)];
         if (limit !== undefined) {
             query += ` LIMIT $${params.length + 1}`;
             params.push(limit);
@@ -184,7 +182,7 @@ export class CashBookReportsService {
         // Get total count
         const countRes = await this.dataSource.query(`
             SELECT COUNT(*) FROM ledger WHERE code = $1 AND trans_date >= $2 AND trans_date <= $3
-        `, [bank_head_code, from_date, to_date]);
+        `, [bank_head_code, parseSafeDate(from_date), parseSafeDate(to_date)]);
         const totalCount = parseInt(countRes[0].count);
 
         // Get transactions
@@ -200,7 +198,7 @@ export class CashBookReportsService {
       ORDER BY trans_date ASC, trans_no ASC
     `;
 
-        const params: any[] = [bank_head_code, from_date, to_date];
+        const params: any[] = [bank_head_code, parseSafeDate(from_date), parseSafeDate(to_date)];
         if (limit !== undefined) {
             query += ` LIMIT $${params.length + 1}`;
             params.push(limit);

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { parseSafeDate } from '../../shared/utils/date-utils';
 
 /**
  * Dividend Reports Service - Handles dividend and interest reports.
@@ -11,9 +12,6 @@ import { DataSource } from 'typeorm';
 export class DividendReportsService {
   constructor(private readonly dataSource: DataSource) { }
 
-  /**
-   * Get dividend report
-   */
   /**
    * Get dividend report
    */
@@ -105,8 +103,6 @@ export class DividendReportsService {
     let whereClause = '';
 
     // If year is provided but no dates, we could use year, but dates are preferred for strict ranges
-    // Usually dividend paid is for a specific year's dividend but paid later. 
-    // If year param is the "Financial Year of Dividend", use div.year.
     if (!fromDate && !toDate) {
       whereClause += ` AND div.year = $${params.length + 1}`;
       params.push(year);
@@ -114,12 +110,12 @@ export class DividendReportsService {
 
     if (fromDate) {
       whereClause += ` AND div.payment_date >= $${params.length + 1}`;
-      params.push(fromDate);
+      params.push(parseSafeDate(fromDate));
     }
 
     if (toDate) {
       whereClause += ` AND div.payment_date <= $${params.length + 1}`;
-      params.push(toDate);
+      params.push(parseSafeDate(toDate));
     }
 
     if (wingNo) {
@@ -212,12 +208,12 @@ export class DividendReportsService {
 
     if (fromDate) {
       whereClause += ` AND div.payment_date >= $${params.length + 1}`;
-      params.push(fromDate);
+      params.push(parseSafeDate(fromDate));
     }
 
     if (toDate) {
       whereClause += ` AND div.payment_date <= $${params.length + 1}`;
-      params.push(toDate);
+      params.push(parseSafeDate(toDate));
     }
 
     const query = `
@@ -259,7 +255,7 @@ export class DividendReportsService {
    */
   async getShareWarrant(dto: { memberFrom: string; memberTo: string; warrantDate?: string }) {
     const { memberFrom, memberTo, warrantDate } = dto;
-    const date = warrantDate || new Date().toISOString().split('T')[0];
+    const date = parseSafeDate(warrantDate);
 
     const query = `
       SELECT 
@@ -311,9 +307,6 @@ export class DividendReportsService {
       whereClause += ` AND m.wingno = $${params.length + 1}`;
       params.push(wingNo);
     }
-
-    // Type filtering logic if mapped
-    // if (type) { ... }
 
     // Get total count
     const totalCountRes = await this.dataSource.query(`SELECT COUNT(*) ${baseQuery} ${whereClause}`, params);

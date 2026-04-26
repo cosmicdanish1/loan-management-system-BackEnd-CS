@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { parseSafeDate } from '../../shared/utils/date-utils';
 
 /**
  * Loan Reports Service - Handles loan-focused reports.
@@ -99,7 +100,7 @@ export class LoanReportsService {
       WHERE loan.payment_date >= $1 AND loan.payment_date <= $2
     `;
 
-    const params: any[] = [fromDate, toDate];
+    const params: any[] = [parseSafeDate(fromDate), parseSafeDate(toDate)];
     let whereClause = '';
 
     if (loanType) {

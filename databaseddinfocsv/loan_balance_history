@@ -1,9 +1,0 @@
-"column_name","data_type","is_nullable","column_default","constraint_type"
-"mbno","integer","YES",NULL,NULL
-"headtype","character varying","YES",NULL,NULL
-"opbal","money","YES",NULL,NULL
-"debit","money","YES",NULL,NULL
-"credit","money","YES",NULL,NULL
-"balance","money","YES",NULL,NULL
-"bal_date","timestamp without time zone","YES",NULL,NULL
-"intrate","money","YES",NULL,NULL

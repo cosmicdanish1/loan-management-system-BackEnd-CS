@@ -1,8 +1,0 @@
-"column_name","data_type","is_nullable","column_default","constraint_type"
-"mbno","numeric","YES",NULL,NULL
-"amount","money","NO",NULL,NULL
-"g1mbno","numeric","YES",NULL,NULL
-"g2mbno","numeric","YES",NULL,NULL
-"g1amt","money","NO",NULL,NULL
-"g2amt","money","NO",NULL,NULL
-"addflag","character varying","YES",NULL,NULL

@@ -30,6 +30,7 @@ import { LoanV2Module } from './modules/loan/loan-v2.module';
 import { TransactionV2Module } from './modules/transaction/transaction-v2.module';
 import { ReportV2Module } from './modules/report/report-v2.module';
 import { NotificationModule } from './modules/notification/notification.module';
+import { LicenseModule } from './modules/license/license.module';
 
 @Module({
   imports: [
@@ -149,6 +150,7 @@ import { NotificationModule } from './modules/notification/notification.module';
     PrintVoucherModule,
     JottingReportModule,
     NotificationModule,
+    LicenseModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { parseSafeDate } from '../../shared/utils/date-utils';
 
 /**
  * Member Reports Service - Handles member-focused reports.
@@ -94,11 +95,11 @@ export class MemberReportsService {
     const countParams: any[] = [memberNo];
     if (fromDate) {
       countQuery += ` AND trans_date >= $${countParams.length + 1}`;
-      countParams.push(fromDate);
+      countParams.push(parseSafeDate(fromDate));
     }
     if (toDate) {
       countQuery += ` AND trans_date <= $${countParams.length + 1}`;
-      countParams.push(toDate);
+      countParams.push(parseSafeDate(toDate));
     }
     const totalCountRes = await this.dataSource.query(countQuery, countParams);
     const totalCount = parseInt(totalCountRes[0].count);
@@ -120,12 +121,12 @@ export class MemberReportsService {
 
     if (fromDate) {
       transactionQuery += ` AND trans_date >= $${params.length + 1}`;
-      params.push(fromDate);
+      params.push(parseSafeDate(fromDate));
     }
 
     if (toDate) {
       transactionQuery += ` AND trans_date <= $${params.length + 1}`;
-      params.push(toDate);
+      params.push(parseSafeDate(toDate));
     }
 
     transactionQuery += ` ORDER BY trans_date ASC, trans_no ASC`;
@@ -477,7 +478,7 @@ export class MemberReportsService {
       ORDER BY l.trans_date ASC, l.ledgerid ASC
     `;
 
-    const result = await this.dataSource.query(query, [memberNo, fromDate, toDate]);
+    const result = await this.dataSource.query(query, [memberNo, parseSafeDate(fromDate), parseSafeDate(toDate)]);
 
     // Calculate running balance
     let runningBalance = 0;

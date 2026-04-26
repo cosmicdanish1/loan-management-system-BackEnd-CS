@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { FinancialSummaryDto } from '../dto/financial-summary.dto';
+import { parseSafeDate } from '../../shared/utils/date-utils';
 
 /**
  * Utility Reports Service - Handles utility and miscellaneous reports.
@@ -129,8 +130,8 @@ export class UtilityReportsService {
       `;
 
       const rawResults = await this.dataSource.query(query, [
-        fromDate,
-        toDate,
+        parseSafeDate(fromDate),
+        parseSafeDate(toDate),
         includeOpBal
       ]);
 
@@ -170,13 +171,11 @@ export class UtilityReportsService {
   /**
    * Get account closing register
    */
-  /**
-   * Get account closing register
-   */
   async getAccountClosingRegister(dto: { month: number; year: number; accountType?: string }) {
     const { month, year, accountType } = dto;
-    const fromDate = `${year}-${month.toString().padStart(2, '0')}-01`;
-    const toDate = `${year}-${month.toString().padStart(2, '0')}-${new Date(year, month, 0).getDate()}`;
+    const fromDate = parseSafeDate(`${year}-${month.toString().padStart(2, '0')}-01`);
+    const dateObj = new Date(year, month, 0);
+    const toDate = parseSafeDate(`${year}-${month.toString().padStart(2, '0')}-${dateObj.getDate()}`);
 
     // Collect from multiple tables since account_closing_register doesn't exist
     let results: any[] = [];
@@ -217,8 +216,6 @@ export class UtilityReportsService {
       results = results.concat(rdClosures);
     }
 
-    // Add logic for loans if needed, but the above covers common deposit cases
-
     return results.map((r: any, idx: number) => ({
       key: idx.toString(),
       memberCode: r.member_no,
@@ -236,10 +233,6 @@ export class UtilityReportsService {
    */
   async getRecoveryDetails(dto: { memberNo: string; month: string; year: number; wingNo?: string }) {
     const { memberNo, month, year } = dto;
-
-    // Map month name to number if needed, though demand_master usually has month as number or short name
-    // Based on frontend, month is 'JAN', 'FEB', etc.
-    // Based on demand_master check, demand_for_month is likely a string or number
 
     let query = `
       SELECT 
@@ -366,7 +359,6 @@ export class UtilityReportsService {
         break;
 
       case 'account_wise':
-        // Joining fixed_deposits and recurring_deposits
         query = `
           SELECT * FROM (
             SELECT 
@@ -391,7 +383,7 @@ export class UtilityReportsService {
         `;
         if (fromDate && toDate) {
           query += ' AND "date" >= $1 AND "date" <= $2';
-          params.push(fromDate, toDate);
+          params.push(parseSafeDate(fromDate), parseSafeDate(toDate));
         }
         if (memberNo) {
           query += ` AND "memberNo" = $${params.length + 1}`;
@@ -416,7 +408,7 @@ export class UtilityReportsService {
         `;
         if (fromDate && toDate) {
           query += ' AND l.trans_date >= $1 AND l.trans_date <= $2';
-          params.push(fromDate, toDate);
+          params.push(parseSafeDate(fromDate), parseSafeDate(toDate));
         }
         if (memberNo) {
           query += ` AND CAST(l.mbno AS text) = $${params.length + 1}`;

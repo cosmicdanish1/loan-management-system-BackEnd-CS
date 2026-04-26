@@ -8,6 +8,7 @@ import {
     Query,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { parseSafeDate } from '../shared/utils/date-utils';
 import {
     LoanApplicationService,
     LoanSanctionService,
@@ -182,7 +183,7 @@ export class LoanV2Controller {
             body.principal,
             body.annualRate,
             body.tenureMonths,
-            body.startDate ? new Date(body.startDate) : undefined
+            parseSafeDate(body.startDate)
         );
     }
 }
