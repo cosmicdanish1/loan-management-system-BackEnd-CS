@@ -174,10 +174,11 @@ export class MemberReportsService {
     branch?: string;
     memberStatus?: string;
     sortBy?: string;
+    search?: string;
     limit?: number;
     offset?: number
   }) {
-    const { division, branch, memberStatus, sortBy, limit, offset } = dto;
+    const { division, branch, memberStatus, sortBy, search, limit, offset } = dto;
 
     let baseQuery = `
       FROM member_master m
@@ -200,17 +201,27 @@ export class MemberReportsService {
       params.push(branch);
     }
 
+    if (search) {
+      // Search by member number or name
+      whereClause += ` AND (
+        CAST(m.mbno AS TEXT) ILIKE $${params.length + 1} OR
+        TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) ILIKE $${params.length + 1}
+      )`;
+      params.push(`%${search}%`);
+    }
+
     if (memberStatus === 'ACTIVE') {
       whereClause += ` AND (m.isactive = 'Y' OR m.isactive = '1')`;
     } else if (memberStatus === 'INACTIVE') {
-      whereClause += ` AND (m.isactive = 'N' OR m.isactive = ' ' OR m.isactive IS NULL)`;
+      whereClause += ` AND (m.isactive = 'N' OR m.isactive = '0' OR m.isactive = '' OR m.isactive IS NULL)`;
     }
+    // If memberStatus is 'ALL' or undefined, don't add any filter (show all members)
 
     // Get total count
     const totalCountRes = await this.dataSource.query(`SELECT COUNT(*) ${baseQuery} ${whereClause}`, params);
     const totalCount = parseInt(totalCountRes[0].count);
 
-    let orderBy = 'm.mbno::INTEGER'; // Cast to integer for correct numerical sorting
+    let orderBy = 'm.mbno'; // Simple ordering by member number
     if (sortBy === 'NAME') {
       orderBy = 'member_name';
     } else if (sortBy === 'DOJ') {
@@ -219,6 +230,7 @@ export class MemberReportsService {
 
     let query = `
       SELECT 
+        ROW_NUMBER() OVER (ORDER BY ${orderBy}) as row_num,
         m.mbno as member_no,
         TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
         m.desig as designation,
@@ -253,7 +265,7 @@ export class MemberReportsService {
         offset: offset || 0
       },
       data: result.map((m: any, idx: number) => ({
-        key: ((offset || 0) + idx).toString(),
+        key: m.row_num ? m.row_num.toString() : `${m.member_no}-${idx}`,
         memberNo: m.member_no,
         memberName: m.member_name,
         designation: m.designation,
@@ -399,7 +411,14 @@ export class MemberReportsService {
    * Get yearly member statement
    */
   async getYearlyMemberStatement(dto: { fromDate: string; toDate: string; wingNo?: string; officeNo?: string; fromMemberNo: string; toMemberNo: string; sortBy?: string }) {
-    const { fromMemberNo, toMemberNo, wingNo, officeNo, sortBy = 'MBNO' } = dto;
+    let { fromMemberNo, toMemberNo, wingNo, officeNo, sortBy = 'MBNO' } = dto;
+
+    // Auto-swap if fromMemberNo > toMemberNo
+    const fromNum = parseFloat(fromMemberNo);
+    const toNum = parseFloat(toMemberNo);
+    if (fromNum > toNum) {
+      [fromMemberNo, toMemberNo] = [toMemberNo, fromMemberNo];
+    }
 
     let query = `
       SELECT 
@@ -459,10 +478,10 @@ export class MemberReportsService {
   /**
    * Get member ledger
    */
-  async getMemberLedger(dto: { memberNo: string; fromDate: string; toDate: string }) {
-    const { memberNo, fromDate, toDate } = dto;
+  async getMemberLedger(dto: { memberNo: string; fromDate: string; toDate: string; headCode?: string }) {
+    const { memberNo, fromDate, toDate, headCode } = dto;
 
-    const query = `
+    let query = `
       SELECT 
         l.trans_date as "transDate",
         l.trans_type as "transType",
@@ -475,10 +494,19 @@ export class MemberReportsService {
       WHERE l.mbno = $1
       AND l.trans_date >= $2::date
       AND l.trans_date <= $3::date
-      ORDER BY l.trans_date ASC, l.ledgerid ASC
     `;
 
-    const result = await this.dataSource.query(query, [memberNo, parseSafeDate(fromDate), parseSafeDate(toDate)]);
+    const params: any[] = [memberNo, parseSafeDate(fromDate), parseSafeDate(toDate)];
+
+    // Add head code filter if provided
+    if (headCode) {
+      query += ` AND l.code = $4`;
+      params.push(headCode);
+    }
+
+    query += ` ORDER BY l.trans_date ASC, l.ledgerid ASC`;
+
+    const result = await this.dataSource.query(query, params);
 
     // Calculate running balance
     let runningBalance = 0;
@@ -581,29 +609,33 @@ export class MemberReportsService {
    * Get account balance report by member range
    */
   async getAccountBalanceReport(dto: { fromAccountNo: string; toAccountNo: string }) {
-    const { fromAccountNo, toAccountNo } = dto;
+    let { fromAccountNo, toAccountNo } = dto;
 
+    // Auto-swap if fromAccountNo > toAccountNo
+    const fromNum = parseFloat(fromAccountNo);
+    const toNum = parseFloat(toAccountNo);
+    if (fromNum > toNum) {
+      [fromAccountNo, toAccountNo] = [toAccountNo, fromAccountNo];
+    }
+
+    // Use member_balances as primary table to avoid duplicates from member_master
     const query = `
       SELECT 
-        m.mbno as "memberNo",
-        TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '')) as "memberName",
+        mb.mbno as "memberNo",
+        mb.member_name as "memberName",
         (COALESCE(mb.shares, 0) + COALESCE(mb.compulsory_deposit, 0) - COALESCE(mb.regularloan, 0) - COALESCE(mb.emergency_loan_balance, 0)) as "currentBalance"
-      FROM member_master m
-      LEFT JOIN member_balances mb ON m.mbno = mb.mbno
-      WHERE m.mbno::numeric >= $1::numeric AND m.mbno::numeric <= $2::numeric
-      ORDER BY m.mbno::numeric
+      FROM member_balances mb
+      WHERE mb.mbno::numeric >= $1::numeric AND mb.mbno::numeric <= $2::numeric
+      ORDER BY mb.mbno::numeric
     `;
 
     const result = await this.dataSource.query(query, [fromAccountNo, toAccountNo]);
 
-    return {
-      success: true,
-      data: result.map((r, idx) => ({
-        key: idx.toString(),
-        memberNo: r.memberNo,
-        memberName: r.memberName,
-        currentBalance: parseFloat(r.currentBalance) || 0
-      }))
-    };
+    return result.map((r, idx) => ({
+      key: idx.toString(),
+      memberNo: r.memberNo,
+      memberName: r.memberName,
+      currentBalance: parseFloat(r.currentBalance) || 0
+    }));
   }
 }

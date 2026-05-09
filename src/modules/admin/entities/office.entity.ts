@@ -5,7 +5,7 @@ export class Office {
     @PrimaryColumn({ name: 'officeno', type: 'int' })
     officeId: number;
 
-    @Column({ name: 'officename', length: 100, nullable: true })
+    @Column({ name: 'office_name', length: 100, nullable: true })
     officeName: string;
 
     @Column({ name: 'division', length: 50, nullable: true })

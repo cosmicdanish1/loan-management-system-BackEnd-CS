@@ -13,6 +13,160 @@ export class CashBookReportsService {
     constructor(private readonly dataSource: DataSource) { }
 
     /**
+     * Get daily cash book report (voucher-wise) - Using legacy ledger table
+     */
+    async getCashBookDaily(date: string) {
+        const targetDate = parseSafeDate(date);
+
+        // Get all unique vouchers for the date from ledger
+        const vouchers = await this.dataSource.query(`
+            SELECT DISTINCT 
+                receipt_vchr_no as voucher_no,
+                mbno as member_no,
+                vchr_type as voucher_type,
+                modeofpay as mode_of_payment
+            FROM ledger
+            WHERE trans_date::date = $1::date
+            AND receipt_vchr_no IS NOT NULL 
+            AND receipt_vchr_no != ''
+            ORDER BY receipt_vchr_no
+        `, [targetDate]);
+
+        // For each voucher, get transactions
+        const voucherDetails = await Promise.all(vouchers.map(async (voucher: any) => {
+            const transactions = await this.dataSource.query(`
+                SELECT 
+                    l.code as head_code,
+                    h.head_name,
+                    l.narration as description,
+                    CAST(l.trans_amt AS numeric) as amount,
+                    l.trans_type
+                FROM ledger l
+                LEFT JOIN head_master h ON l.code = h.code
+                WHERE l.receipt_vchr_no = $1 AND l.trans_date::date = $2::date
+                ORDER BY l.trans_no
+            `, [voucher.voucher_no, targetDate]);
+
+            // Get member name
+            let memberName = '';
+            if (voucher.member_no) {
+                const memberResult = await this.dataSource.query(`
+                    SELECT f_name, m_name, l_name FROM member_master WHERE mbno = $1
+                `, [voucher.member_no]);
+                if (memberResult[0]) {
+                    memberName = `${memberResult[0].f_name || ''} ${memberResult[0].m_name || ''} ${memberResult[0].l_name || ''}`.trim();
+                }
+            }
+
+            let voucherPayment = 0;
+            let voucherReceipt = 0;
+
+            const entries = transactions.map((t: any, index: number) => {
+                const amount = parseFloat(t.amount) || 0;
+                const isPayment = t.trans_type === 'DR';
+                
+                if (isPayment) {
+                    voucherPayment += amount;
+                } else {
+                    voucherReceipt += amount;
+                }
+
+                return {
+                    sno: index + 1,
+                    headCode: t.head_code || '',
+                    headName: t.head_name || 'Unknown',
+                    description: t.description || '',
+                    payment: isPayment ? amount : 0,
+                    receipt: !isPayment ? amount : 0
+                };
+            });
+
+            return {
+                voucherNo: voucher.voucher_no,
+                memberNo: voucher.member_no || '',
+                memberName: memberName,
+                modeOfPayment: voucher.mode_of_payment || 'Cash',
+                narration: transactions[0]?.description || '',
+                entries: entries,
+                totalPayment: voucherPayment,
+                totalReceipt: voucherReceipt
+            };
+        }));
+
+        // Calculate opening and closing balance
+        const openingBalanceResult = await this.dataSource.query(`
+            SELECT 
+                SUM(CASE WHEN trans_type = 'CR' THEN CAST(trans_amt AS numeric) ELSE 0 END) -
+                SUM(CASE WHEN trans_type = 'DR' THEN CAST(trans_amt AS numeric) ELSE 0 END) as balance
+            FROM ledger
+            WHERE trans_date::date < $1::date
+        `, [targetDate]);
+
+        const openingBalance = parseFloat(openingBalanceResult[0]?.balance) || 0;
+        const totalPayments = voucherDetails.reduce((sum, v) => sum + v.totalPayment, 0);
+        const totalReceipts = voucherDetails.reduce((sum, v) => sum + v.totalReceipt, 0);
+        const closingBalance = openingBalance + totalReceipts - totalPayments;
+
+        return {
+            date: date,
+            openingBalance: openingBalance,
+            totalPayments: totalPayments,
+            totalReceipts: totalReceipts,
+            closingBalance: closingBalance,
+            vouchers: voucherDetails
+        };
+    }
+
+    /**
+     * Get daily cash book report (head-wise) - Using tblcashbook table
+     */
+    async getCashBook2Daily(date: string) {
+        const targetDate = parseSafeDate(date);
+
+        // Get all entries for the date from tblcashbook
+        const entries = await this.dataSource.query(`
+            SELECT 
+                headcode as head_code,
+                headname as head_name,
+                COALESCE(rcash, 0) + COALESCE(rtransfer, 0) as receipt,
+                COALESCE(pcash, 0) + COALESCE(ptransfer, 0) as payment
+            FROM tblcashbook
+            WHERE trans_date::date = $1::date
+            ORDER BY headcode
+        `, [targetDate]);
+
+        // Calculate totals
+        const totalReceipts = entries.reduce((sum: number, e: any) => sum + (parseFloat(e.receipt) || 0), 0);
+        const totalPayments = entries.reduce((sum: number, e: any) => sum + (parseFloat(e.payment) || 0), 0);
+
+        // Calculate opening balance (sum of all previous transactions)
+        const openingBalanceResult = await this.dataSource.query(`
+            SELECT 
+                SUM(COALESCE(rcash, 0) + COALESCE(rtransfer, 0)) -
+                SUM(COALESCE(pcash, 0) + COALESCE(ptransfer, 0)) as balance
+            FROM tblcashbook
+            WHERE trans_date::date < $1::date
+        `, [targetDate]);
+
+        const openingBalance = parseFloat(openingBalanceResult[0]?.balance) || 0;
+        const closingBalance = openingBalance + totalReceipts - totalPayments;
+
+        return {
+            date: date,
+            openingBalance: openingBalance,
+            totalReceipts: totalReceipts,
+            totalPayments: totalPayments,
+            closingBalance: closingBalance,
+            entries: entries.map((e: any) => ({
+                headCode: e.head_code || '',
+                headName: e.head_name || 'Unknown',
+                receipt: parseFloat(e.receipt) || 0,
+                payment: parseFloat(e.payment) || 0,
+            }))
+        };
+    }
+
+    /**
      * Get monthly cash book summary
      */
     async getCashBookMonthly(dto: { month: string; year: number; limit?: number; offset?: number }) {
@@ -88,7 +242,7 @@ export class CashBookReportsService {
 
         // Get head name
         const headResult = await this.dataSource.query(
-            `SELECT head_name FROM head_master WHERE code = $1`,
+            `SELECT head_name FROM headmaster WHERE code = $1`,
             [head_code]
         );
         const headName = headResult[0]?.head_name || 'Unknown Head';
@@ -174,7 +328,7 @@ export class CashBookReportsService {
 
         // Get bank name
         const bankResult = await this.dataSource.query(
-            `SELECT head_name FROM head_master WHERE code = $1`,
+            `SELECT head_name FROM headmaster WHERE code = $1`,
             [bank_head_code]
         );
         const bankName = bankResult[0]?.head_name || 'Unknown Bank';
@@ -250,7 +404,7 @@ export class CashBookReportsService {
      */
     async getHeadList() {
         const heads = await this.dataSource.query(`
-      SELECT code, head_name FROM head_master ORDER BY head_name ASC
+      SELECT code, head_name FROM headmaster ORDER BY head_name ASC
     `);
 
         return heads.map((h: any) => ({
@@ -264,7 +418,7 @@ export class CashBookReportsService {
      */
     async getBankList() {
         const banks = await this.dataSource.query(`
-      SELECT code, head_name FROM head_master 
+      SELECT code, head_name FROM headmaster 
       WHERE UPPER(head_name) LIKE '%BANK%' OR UPPER(head_name) LIKE '%ACCOUNT%'
       ORDER BY head_name ASC
     `);

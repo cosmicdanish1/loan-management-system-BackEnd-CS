@@ -1,6 +1,6 @@
 import { Entity, Column, PrimaryColumn } from 'typeorm';
 
-@Entity('rdmaster')
+@Entity('fdmaster')
 export class RdAccount {
     @PrimaryColumn({ name: 'account_number', type: 'numeric' })
     accountNumber: number;
@@ -20,39 +20,48 @@ export class RdAccount {
     @Column({ name: 'l_name', length: 50, nullable: true })
     lastName: string;
 
-    @Column({ name: 'deposit_date', type: 'date', nullable: true })
+    @Column({ name: 'depdate', type: 'timestamp', nullable: true })
     depositDate: Date;
 
-    @Column({ name: 'amount', type: 'numeric', nullable: true })
+    @Column({ name: 'fdamount', type: 'numeric', nullable: true })
     amount: number;
 
     @Column({ name: 'rate', type: 'numeric', nullable: true })
     rate: number;
 
-    @Column({ name: 'dep_period', type: 'numeric', nullable: true })
+    @Column({ name: 'depperiod', type: 'numeric', nullable: true })
     depositPeriod: number;
 
-    @Column({ name: 'dep_unit', length: 10, nullable: true })
-    depositUnit: string;
+    @Column({ name: 'depunit', type: 'integer', nullable: true })
+    depositUnit: number;
 
-    @Column({ name: 'maturity_date', type: 'date', nullable: true })
+    @Column({ name: 'matdate', type: 'timestamp', nullable: true })
     maturityDate: Date;
 
-    @Column({ name: 'maturity_amount', type: 'numeric', nullable: true })
+    @Column({ name: 'matamount', type: 'numeric', nullable: true })
     maturityAmount: number;
 
-    @Column({ name: 'status', length: 20, default: 'Active' })
+    @Column({ name: 'status', length: 20, nullable: true })
     status: string;
 
     @Column({ name: 'nominee', length: 100, nullable: true })
     nominee: string;
 
-    @Column({ name: 'nominee_age', length: 10, nullable: true })
+    @Column({ name: 'nage', length: 10, nullable: true })
     nomineeAge: string;
 
-    @Column({ name: 'nominee_relation', length: 50, nullable: true })
+    @Column({ name: 'naddr', length: 100, nullable: true })
+    nomineeAddress: string;
+
+    @Column({ name: 'nrelation', length: 50, nullable: true })
     nomineeRelation: string;
 
-    @Column({ name: 'special_instructions', type: 'text', nullable: true })
+    @Column({ name: 'remarks', length: 200, nullable: true })
     specialInstructions: string;
+
+    @Column({ name: 'fdrdflag', length: 5, nullable: true, default: 'R' })
+    fdrdFlag: string;
+
+    @Column({ name: 'interestpayamentmode', type: 'integer', default: 1 })
+    interestPaymentMode: number;
 }

@@ -16,71 +16,39 @@ export class MemberLedgerController {
   constructor(private readonly memberLedgerService: MemberLedgerService) { }
 
   @Get('report')
-  async getMemberLedgerReport(@Query() dto: GetMemberLedgerDto): Promise<{
-    success: boolean;
-    data: MemberLedgerSummaryDto;
-    message: string;
-  }> {
+  async getMemberLedgerReport(@Query() dto: GetMemberLedgerDto): Promise<MemberLedgerSummaryDto> {
     this.logger.log(`Generating member ledger report for member: ${dto.memberNumber}, head: ${dto.headCode}, period: ${dto.fromDate} to ${dto.toDate}`);
 
     const report = await this.memberLedgerService.getMemberLedgerReport(dto);
 
-    return {
-      success: true,
-      data: report,
-      message: 'Member ledger report generated successfully'
-    };
+    return report;
   }
 
   @Get('detail-report')
-  async getMemberDetailLedgerReport(@Query() dto: GetMemberDetailLedgerDto): Promise<{
-    success: boolean;
-    data: MemberDetailLedgerSummaryDto;
-    message: string;
-  }> {
+  async getMemberDetailLedgerReport(@Query() dto: GetMemberDetailLedgerDto): Promise<MemberDetailLedgerSummaryDto> {
     this.logger.log(`Generating member detail ledger report for member: ${dto.memberNumber}, period: ${dto.fromDate} to ${dto.toDate}`);
 
     const report = await this.memberLedgerService.getMemberDetailLedgerReport(dto);
 
-    return {
-      success: true,
-      data: report,
-      message: 'Member detail ledger report generated successfully'
-    };
+    return report;
   }
 
   @Get('validate-member')
-  async validateMember(@Query() dto: ValidateMemberDto): Promise<{
-    success: boolean;
-    data: { exists: boolean; memberName?: string; memberNumber: string };
-    message: string;
-  }> {
+  async validateMember(@Query() dto: ValidateMemberDto): Promise<{ exists: boolean; memberName?: string; memberNumber: string }> {
     this.logger.log(`Validating member: ${dto.memberNumber}`);
 
     const result = await this.memberLedgerService.validateMember(dto);
 
-    return {
-      success: true,
-      data: result,
-      message: result.exists ? 'Member found' : 'Member not found'
-    };
+    return result;
   }
 
   @Get('head-masters')
-  async getHeadMasters(): Promise<{
-    success: boolean;
-    data: HeadMasterDto[];
-    message: string;
-  }> {
+  async getHeadMasters(): Promise<HeadMasterDto[]> {
     this.logger.log('Fetching head masters for dropdown');
 
     const heads = await this.memberLedgerService.getHeadMasters();
 
-    return {
-      success: true,
-      data: heads,
-      message: 'Head masters retrieved successfully'
-    };
+    return heads;
   }
 
 

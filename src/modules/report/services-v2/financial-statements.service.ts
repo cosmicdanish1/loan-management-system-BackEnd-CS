@@ -215,4 +215,61 @@ export class FinancialStatementsService {
             }
         };
     }
+
+    /**
+     * Get Balance Sheet data
+     */
+    async getBalanceSheet(asOnDate?: string) {
+        const query = `
+            SELECT 
+                head_code,
+                head_name,
+                opening_balance,
+                debit,
+                credit,
+                closingbalance,
+                maincd
+            FROM balancesheet 
+            ORDER BY maincd, head_code
+        `;
+        
+        const result = await this.dataSource.query(query);
+        
+        // Group by main categories
+        const liabilities = result.filter((item: any) => item.maincd === 1);
+        const assets = result.filter((item: any) => item.maincd === 2);
+        
+        // Calculate totals
+        const totalLiabilities = liabilities.reduce((sum: number, item: any) => 
+            sum + (parseFloat(item.closingbalance) || 0), 0);
+        const totalAssets = assets.reduce((sum: number, item: any) => 
+            sum + (parseFloat(item.closingbalance) || 0), 0);
+            
+        return {
+            success: true,
+            data: {
+                liabilities: liabilities.map((item: any) => ({
+                    headCode: item.head_code,
+                    headName: item.head_name,
+                    openingBalance: parseFloat(item.opening_balance) || 0,
+                    debit: parseFloat(item.debit) || 0,
+                    credit: parseFloat(item.credit) || 0,
+                    closingBalance: parseFloat(item.closingbalance) || 0
+                })),
+                assets: assets.map((item: any) => ({
+                    headCode: item.head_code,
+                    headName: item.head_name,
+                    openingBalance: parseFloat(item.opening_balance) || 0,
+                    debit: parseFloat(item.debit) || 0,
+                    credit: parseFloat(item.credit) || 0,
+                    closingBalance: parseFloat(item.closingbalance) || 0
+                })),
+                totals: {
+                    totalLiabilities,
+                    totalAssets,
+                    difference: totalAssets - totalLiabilities
+                }
+            }
+        };
+    }
 }

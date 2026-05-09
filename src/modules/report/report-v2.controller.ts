@@ -27,7 +27,7 @@ import { FinancialSummaryDto } from './dto/financial-summary.dto';
  * After migration is complete, these will replace the original routes.
  */
 @ApiTags('Reports')
-@Controller('report')
+@Controller('reports')
 export class ReportV2Controller {
     constructor(
         private readonly cashBookReports: CashBookReportsService,
@@ -40,6 +40,18 @@ export class ReportV2Controller {
     ) { }
 
     // ==================== Cash Book Reports ====================
+
+    @Post('cashbook/daily')
+    @ApiOperation({ summary: 'Get daily cash book report (voucher-wise)' })
+    async getCashBookDaily(@Body() dto: { date: string }) {
+        return this.cashBookReports.getCashBookDaily(dto.date);
+    }
+
+    @Post('cashbook2/daily')
+    @ApiOperation({ summary: 'Get daily cash book report (head-wise from tblcashbook)' })
+    async getCashBook2Daily(@Body() dto: { date: string }) {
+        return this.cashBookReports.getCashBook2Daily(dto.date);
+    }
 
     @Post('cashbook/monthly')
     @ApiOperation({ summary: 'Get monthly cash book summary' })
@@ -92,6 +104,7 @@ export class ReportV2Controller {
         branch?: string;
         memberStatus?: string;
         sortBy?: string;
+        search?: string;
         limit?: number;
         offset?: number
     }) {
@@ -118,7 +131,7 @@ export class ReportV2Controller {
 
     @Get('member-ledger')
     @ApiOperation({ summary: 'Get member ledger' })
-    async getMemberLedger(@Query() dto: { memberNo: string; fromDate: string; toDate: string }) {
+    async getMemberLedger(@Query() dto: { memberNo: string; fromDate: string; toDate: string; headCode?: string }) {
         return this.memberReports.getMemberLedger(dto);
     }
 
@@ -146,6 +159,12 @@ export class ReportV2Controller {
     @ApiOperation({ summary: 'Get newly disbursed loans' })
     async getNewLoanDisbursed(@Body() dto: { fromDate: string; toDate: string; loanType?: string; limit?: number; offset?: number }) {
         return this.loanReports.getNewLoanDisbursed(dto);
+    }
+
+    @Get('member/:memberNo/loan-cases')
+    @ApiOperation({ summary: 'Get loan cases for a member' })
+    async getMemberLoanCases(@Param('memberNo') memberNo: string) {
+        return this.loanReports.getMemberLoanCases(memberNo);
     }
 
     @Post('member/loan-ledger')
@@ -205,10 +224,12 @@ export class ReportV2Controller {
     async getDividendReport(@Query() dto: { year?: string; financialYear?: string; wingName?: string; officeName?: string; dividendRate?: number; limit?: number; offset?: number; sortBy?: string }) {
         // Frontend sends financialYear like "2024-2025" or year
         const year = dto.year ? parseInt(dto.year) : (dto.financialYear ? parseInt(dto.financialYear.split('-')[0]) : new Date().getFullYear());
+        const dividendRate = dto.dividendRate ? parseFloat(dto.dividendRate.toString()) : 10;
         return this.dividendReports.getDividendReport({
             year,
             wingNo: dto.wingName,
             officeNo: dto.officeName,
+            dividendRate,
             limit: dto.limit,
             offset: dto.offset
         });
@@ -345,6 +366,12 @@ export class ReportV2Controller {
         id?: number;
     }) {
         return this.financialStatements.createReportSchedule(dto);
+    }
+
+    @Get('balance-sheet')
+    @ApiOperation({ summary: 'Get Balance Sheet' })
+    async getBalanceSheet(@Query('asOnDate') asOnDate?: string) {
+        return this.financialStatements.getBalanceSheet(asOnDate);
     }
 
     @Post('schedule/execute')

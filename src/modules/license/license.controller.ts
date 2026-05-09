@@ -3,22 +3,23 @@ import {
   Post,
   Get,
   Body,
-  Param,
-  Delete,
-  UseGuards,
   HttpCode,
   HttpStatus,
+  Logger,
 } from '@nestjs/common';
 import { LicenseService } from './license.service';
-import { ActivateLicenseDto, GenerateLicenseDto } from './dto/license.dto';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { ActivateLicenseDto } from './dto/license.dto';
 
 @Controller('license')
 export class LicenseController {
+  private readonly logger = new Logger(LicenseController.name);
+
   constructor(private readonly licenseService: LicenseService) {}
 
   /**
-   * Public: Check current license status (called on every app boot)
+   * Public: Check current license status.
+   * Result is cached in memory for the current calendar day —
+   * safe to call on every app launch without hammering the DB.
    */
   @Get('status')
   @HttpCode(HttpStatus.OK)
@@ -28,43 +29,24 @@ export class LicenseController {
   }
 
   /**
-   * Public: Activate a license key
+   * Public: Activate a self-validating license key.
+   * The key encodes customer + expiry + HMAC — no pre-insert needed.
+   * Replaces any previously active license on this machine.
    */
   @Post('activate')
   @HttpCode(HttpStatus.OK)
   async activate(@Body() dto: ActivateLicenseDto) {
+    this.logger.log(`[License] Activation attempt for key=${dto.key?.slice(0, 8)}...`);
     const result = await this.licenseService.activate(dto);
     return { success: true, data: result, message: 'License activated successfully' };
   }
 
   /**
-   * Admin: Generate a new license key (requires auth)
-   */
-  @Post('generate')
-  @UseGuards(JwtAuthGuard)
-  @HttpCode(HttpStatus.CREATED)
-  async generate(@Body() dto: GenerateLicenseDto) {
-    const license = await this.licenseService.generateKey(dto);
-    return { success: true, data: license, message: 'License key generated' };
-  }
-
-  /**
-   * Admin: List all license keys (requires auth)
+   * Admin: List all license records (for debugging)
    */
   @Get('list')
-  @UseGuards(JwtAuthGuard)
   async listAll() {
     const keys = await this.licenseService.listAll();
     return { success: true, data: keys };
-  }
-
-  /**
-   * Admin: Revoke a license key (requires auth)
-   */
-  @Delete(':key/revoke')
-  @UseGuards(JwtAuthGuard)
-  async revoke(@Param('key') key: string) {
-    await this.licenseService.revoke(key);
-    return { success: true, message: 'License key revoked' };
   }
 }

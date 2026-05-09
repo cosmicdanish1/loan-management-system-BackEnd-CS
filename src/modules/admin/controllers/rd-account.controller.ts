@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Patch, Delete } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Patch, Delete, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { RdAccountService } from '../services/rd-account.service';
 import { CreateRdAccountDto, UpdateRdAccountDto } from '../dto/rd-account.dto';
@@ -16,10 +16,10 @@ export class RdAccountController {
     }
 
     @Get()
-    @ApiOperation({ summary: 'Get all RD Accounts' })
+    @ApiOperation({ summary: 'Get all RD Accounts, optionally filtered by memberNo' })
     @ApiResponse({ status: 200, description: 'Return all RD Accounts.' })
-    findAll() {
-        return this.rdAccountService.findAll();
+    findAll(@Query('memberNo') memberNo?: string) {
+        return this.rdAccountService.findAll(memberNo);
     }
 
     @Get(':id')

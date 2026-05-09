@@ -46,7 +46,7 @@ export class JottingReportService {
       
       const result = await this.dataSource.query(query);
       console.log('[DEBUG] getWingList result:', result.length, 'records');
-      return result.map((wing: any) => wing.wingName); // Return array of wing names
+      return result.map((wing: any) => wing.wingName);
     } catch (error) {
       console.error('[ERROR] getWingList failed:', error.message);
       throw new Error(`Failed to fetch wings: ${error.message}`);
@@ -55,7 +55,6 @@ export class JottingReportService {
 
   async getOfficeList() {
     try {
-      // Since there's no office master table, get unique offices from member_master
       const query = `
         SELECT DISTINCT 
           officeno as "officeNo"
@@ -90,18 +89,18 @@ export class JottingReportService {
         AND mm.mbno IS NOT NULL
       `;
       
-      const queryParams = [headCode, asOnDate];
+      const queryParams: any[] = [headCode, asOnDate];
       let paramIndex = 3;
       
       if (wingName) {
-        whereClause += ` AND wm.wname = $${paramIndex}`;
+        whereClause += ` AND wm.wname = $` + paramIndex;
         queryParams.push(wingName);
         paramIndex++;
       }
       
       if (officeName) {
-        whereClause += ` AND mm.officeno = $${paramIndex}`;
-        queryParams.push(officeName); // Keep as string, PostgreSQL will handle the conversion
+        whereClause += ` AND mm.officeno::text = $` + paramIndex;
+        queryParams.push(officeName);
         paramIndex++;
       }
       
@@ -129,7 +128,7 @@ export class JottingReportService {
             FROM ledger l 
             WHERE l.mbno = mm.mbno 
             AND l.code = $1
-            AND l.trans_date <= $2), 0
+            AND l.trans_date <= $2::date), 0
           ) as "balance"
         FROM member_master mm
         LEFT JOIN wingmast wm ON mm.wingno = wm.wingno

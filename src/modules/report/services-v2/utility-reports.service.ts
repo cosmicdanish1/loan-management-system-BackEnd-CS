@@ -183,17 +183,17 @@ export class UtilityReportsService {
     if (!accountType || accountType === 'FD' || accountType === 'ALL') {
       const fdClosures = await this.dataSource.query(`
         SELECT 
-          fd.accountNumber as account_no,
-          fd.memberId as member_no,
+          fd."accountNumber" as account_no,
+          fd."memberId" as member_no,
           TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
           'FD' as account_type,
-          fd.closureDate as closing_date,
-          CAST(fd.closureAmount AS numeric) as final_amount,
-          fd.closureReason as description
+          fd."closureDate" as closing_date,
+          CAST(fd."closureAmount" AS numeric) as final_amount,
+          fd."closureReason" as description
         FROM fixed_deposits fd
-        LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(fd.memberId AS text)
-        WHERE fd.status = 'CLOSED' 
-          AND fd.closureDate >= $1 AND fd.closureDate <= $2
+        LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(fd."memberId" AS text)
+        WHERE fd."closureDate" IS NOT NULL
+          AND fd."closureDate" >= $1 AND fd."closureDate" <= $2
       `, [fromDate, toDate]);
       results = results.concat(fdClosures);
     }
@@ -201,17 +201,17 @@ export class UtilityReportsService {
     if (!accountType || accountType === 'RD' || accountType === 'ALL') {
       const rdClosures = await this.dataSource.query(`
         SELECT 
-          rd.accountNumber as account_no,
-          rd.memberId as member_no,
+          rd."accountNumber" as account_no,
+          rd."memberId" as member_no,
           TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
           'RD' as account_type,
-          rd.closureDate as closing_date,
-          CAST(rd.closureAmount AS numeric) as final_amount,
-          rd.closureReason as description
+          rd."closureDate" as closing_date,
+          CAST(rd."closureAmount" AS numeric) as final_amount,
+          rd."closureReason" as description
         FROM recurring_deposits rd
-        LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(rd.memberId AS text)
-        WHERE rd.status = 'CLOSED'
-          AND rd.closureDate >= $1 AND rd.closureDate <= $2
+        LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(rd."memberId" AS text)
+        WHERE rd."closureDate" IS NOT NULL
+          AND rd."closureDate" >= $1 AND rd."closureDate" <= $2
       `, [fromDate, toDate]);
       results = results.concat(rdClosures);
     }

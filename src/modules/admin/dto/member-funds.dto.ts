@@ -2,38 +2,43 @@ import { IsNumber, IsOptional } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class UpdateMemberFundsDto {
-    @ApiProperty({ description: 'Monthly Contribution (MD) Installment Amount' })
-    @IsNumber()
-    @IsOptional()
-    monthlyContributionInstallment?: number;
-
-    @ApiProperty({ description: 'Compulsory Deposit (CD) Installment Amount' })
-    @IsNumber()
-    @IsOptional()
-    compulsoryDepositInstallment?: number;
-
-    @ApiProperty({ description: 'Shares Installment Amount' })
-    @IsNumber()
-    @IsOptional()
-    sharesInstallment?: number;
-
-    @ApiProperty({ description: 'Monthly Contribution Opening Balance' })
-    @IsNumber()
-    @IsOptional()
-    monthlyContributionOpeningBalance?: number;
-
-    @ApiProperty({ description: 'Shares Opening Balance' })
-    @IsNumber()
-    @IsOptional()
+    @ApiProperty() @IsNumber() @IsOptional()
     sharesOpeningBalance?: number;
 
-    @ApiProperty({ description: 'Compulsory Deposit Opening Balance' })
-    @IsNumber()
-    @IsOptional()
+    @ApiProperty() @IsNumber() @IsOptional()
+    sharesInstallment?: number;
+
+    @ApiProperty() @IsNumber() @IsOptional()
+    monthlyContributionOpeningBalance?: number;
+
+    @ApiProperty() @IsNumber() @IsOptional()
+    monthlyContributionInstallment?: number;
+
+    @ApiProperty() @IsNumber() @IsOptional()
     compulsoryDepositOpeningBalance?: number;
 
-    @ApiProperty({ description: 'Compulsory Deposit Suspense Balance' })
-    @IsNumber()
-    @IsOptional()
+    @ApiProperty() @IsNumber() @IsOptional()
+    compulsoryDepositInstallment?: number;
+
+    @ApiProperty() @IsNumber() @IsOptional()
+    loanExecutionReceipt?: number;
+
+    @ApiProperty() @IsNumber() @IsOptional()
     suspenseBalance?: number;
+
+    @ApiProperty({ description: 'Regular Loan Opening Balance (md1_opbal)' })
+    @IsNumber() @IsOptional()
+    rlnOpBal?: number;
+
+    @ApiProperty({ description: 'Regular Loan Installment Amount (md1_amount)' })
+    @IsNumber() @IsOptional()
+    rlnAmt?: number;
+
+    @ApiProperty({ description: 'Emergency Loan Opening Balance (md2_opbal)' })
+    @IsNumber() @IsOptional()
+    elnOpBal?: number;
+
+    @ApiProperty({ description: 'Emergency Loan Installment Amount (md2_amount)' })
+    @IsNumber() @IsOptional()
+    elnAmt?: number;
 }

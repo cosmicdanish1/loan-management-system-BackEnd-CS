@@ -122,4 +122,12 @@ export class AuthController {
       changePasswordDto.newPassword,
     );
   }
+
+  @Public()
+  @Get('users-list')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Get list of all users for dropdown' })
+  async getUsersList(): Promise<any> {
+    return this.authService.getUsersList();
+  }
 }

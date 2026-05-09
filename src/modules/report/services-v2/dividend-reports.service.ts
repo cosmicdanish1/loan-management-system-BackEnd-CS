@@ -15,14 +15,14 @@ export class DividendReportsService {
   /**
    * Get dividend report
    */
-  async getDividendReport(dto: { year: number; wingNo?: string; officeNo?: string; limit?: number; offset?: number }) {
-    const { year, wingNo, officeNo, limit, offset } = dto;
+  async getDividendReport(dto: { year: number; wingNo?: string; officeNo?: string; dividendRate?: number; limit?: number; offset?: number }) {
+    const { year, wingNo, officeNo, dividendRate = 10, limit, offset } = dto;
 
     const baseQuery = `
       FROM member_master m
       LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
       LEFT JOIN member_balances mb ON m.mbno = mb.mbno
-      LEFT JOIN dividend_master div ON m.mbno = div.mbno AND div.year = $1
+      LEFT JOIN dividend_master div ON m.mbno::text = div.mbno AND div.year = $1
       WHERE m.isactive = 'Y' AND COALESCE(mb.shares, 0) > 0
     `;
 
@@ -43,14 +43,19 @@ export class DividendReportsService {
     const totalCountRes = await this.dataSource.query(`SELECT COUNT(*) ${baseQuery} ${whereClause}`, params);
     const totalCount = parseInt(totalCountRes[0].count);
 
+    // Add dividendRate to params for the main query
+    const dividendRateParamIndex = params.length + 1;
+    params.push(dividendRate);
+
     let query = `
       SELECT 
         m.mbno as member_no,
-        TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
+        TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
+        m.desig as designation,
         d.name as office_name,
         COALESCE(mb.shares, 0) as share_balance,
-        COALESCE(div.dividend_amount, 0) as dividend_amount,
-        COALESCE(div.dividend_rate, 0) as dividend_rate
+        COALESCE(div.dividend_amount, COALESCE(mb.shares, 0) * $${dividendRateParamIndex} / 100) as dividend_amount,
+        COALESCE(div.dividend_rate, $${dividendRateParamIndex}) as dividend_rate
       ${baseQuery} ${whereClause}
       ORDER BY m.mbno
     `;
@@ -69,6 +74,7 @@ export class DividendReportsService {
     const result = await this.dataSource.query(query, queryParams);
 
     return {
+      success: true,
       metadata: {
         totalCount,
         limit: limit || totalCount,
@@ -78,8 +84,10 @@ export class DividendReportsService {
         key: ((offset || 0) + idx).toString(),
         memberNo: r.member_no,
         memberName: r.member_name,
-        officeName: r.office_name,
-        shareBalance: parseFloat(r.share_balance) || 0,
+        wing: r.office_name,
+        office: r.office_name,
+        designation: r.designation || '',
+        shareAmount: parseFloat(r.share_balance) || 0,
         dividendAmount: parseFloat(r.dividend_amount) || 0,
         dividendRate: parseFloat(r.dividend_rate) || 0
       }))
@@ -94,7 +102,7 @@ export class DividendReportsService {
 
     const baseQuery = `
       FROM dividend_master div
-      LEFT JOIN member_master m ON m.mbno = div.mbno
+      LEFT JOIN member_master m ON m.mbno::text = div.mbno
       LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
       WHERE div.is_paid = 'Y'
     `;
@@ -182,7 +190,7 @@ export class DividendReportsService {
 
     const baseQuery = `
       FROM dividend_master div
-      JOIN member_master m ON m.mbno = div.mbno
+      JOIN member_master m ON m.mbno::text = div.mbno
       LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
       LEFT JOIN member_balances mb ON m.mbno = mb.mbno
       WHERE div.year = $1
@@ -254,7 +262,17 @@ export class DividendReportsService {
    * Get share warrant
    */
   async getShareWarrant(dto: { memberFrom: string; memberTo: string; warrantDate?: string }) {
-    const { memberFrom, memberTo, warrantDate } = dto;
+    let { memberFrom, memberTo, warrantDate } = dto;
+    
+    // Swap memberFrom and memberTo if they are in wrong order
+    if (memberFrom && memberTo) {
+      const fromNum = parseFloat(memberFrom);
+      const toNum = parseFloat(memberTo);
+      if (fromNum > toNum) {
+        [memberFrom, memberTo] = [memberTo, memberFrom];
+      }
+    }
+    
     const date = parseSafeDate(warrantDate);
 
     const query = `

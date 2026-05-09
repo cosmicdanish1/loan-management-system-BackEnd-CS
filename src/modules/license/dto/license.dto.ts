@@ -1,24 +1,16 @@
-import { IsString, IsNotEmpty, IsOptional, Length } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, Matches } from 'class-validator';
 
 export class ActivateLicenseDto {
   @IsString()
   @IsNotEmpty()
-  @Length(19, 19, { message: 'License key must be in format XXXX-XXXX-XXXX-XXXX' })
+  @Matches(/^PWT0-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/i, {
+    message: 'License key must be in format PWT0-XXXX-XXXX-XXXX-XXXX',
+  })
   key: string;
 
   @IsOptional()
   @IsString()
   machine_id?: string;
-}
-
-export class GenerateLicenseDto {
-  @IsString()
-  @IsNotEmpty()
-  customer_name: string;
-
-  @IsOptional()
-  @IsString()
-  notes?: string;
 }
 
 export class LicenseStatusResponse {

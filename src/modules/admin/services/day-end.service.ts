@@ -54,7 +54,17 @@ export class DayEndService {
     initiateDayEndDto: InitiateDayEndDto,
     userId: number,
   ): Promise<DayEndProcessResponseDto> {
-    const processDate = new Date(initiateDayEndDto.processDate);
+    // Always use the current pending working date from getworkingdate, ignore frontend date
+    const pendingDateResult = await this.dataSource.query(`
+      SELECT working_date FROM getworkingdate
+      WHERE dayend_flag = 'N'
+      ORDER BY working_date ASC
+      LIMIT 1
+    `);
+
+    const processDate = pendingDateResult.length > 0
+      ? new Date(pendingDateResult[0].working_date)
+      : new Date(initiateDayEndDto.processDate);
 
     // Check if day-end already completed for this date
     if (!initiateDayEndDto.forceReprocess) {
@@ -183,28 +193,49 @@ export class DayEndService {
 
   async getCurrentDayEndSummary(): Promise<any> {
     try {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      // Get current working date from getworkingdate table (legacy-compatible)
+      const workingDateResult = await this.dataSource.query(`
+        SELECT working_date, payment_voucher, receipt_voucher, journal_voucher, dayend_flag
+        FROM getworkingdate
+        WHERE dayend_flag = 'N'
+        ORDER BY working_date DESC
+        LIMIT 1
+      `);
 
-      // Get opening balance from previous day's closing or system parameter
-      // For now, we'll calculate from transactions
-      const openingBalance = await this.calculateOpeningBalance(today);
+      // If no pending day-end, get the last completed one
+      const lastCompletedResult = await this.dataSource.query(`
+        SELECT working_date, payment_voucher, receipt_voucher, journal_voucher
+        FROM getworkingdate
+        WHERE dayend_flag = 'Y'
+        ORDER BY working_date DESC
+        LIMIT 1
+      `);
 
-      // Get today's credits (receipts)
-      const totalCredit = await this.calculateTodayCredits(today);
+      const currentRow = workingDateResult[0] || lastCompletedResult[0];
+      const workingDate = currentRow ? new Date(currentRow.working_date) : new Date();
+      workingDate.setHours(0, 0, 0, 0);
 
-      // Get today's debits (payments)
-      const totalDebit = await this.calculateTodayDebits(today);
+      // Get voucher counts for the working date from tblcashbook/ledger
+      const paymentVouchers = currentRow?.payment_voucher || 0;
+      const receiptVouchers = currentRow?.receipt_voucher || 0;
+      const journalVouchers = currentRow?.journal_voucher || 0;
 
-      // Calculate closing balance
+      // Calculate opening balance from previous day's getworkingdate
+      const openingBalance = await this.calculateOpeningBalance(workingDate);
+      const totalCredit = await this.calculateTodayCredits(workingDate);
+      const totalDebit = await this.calculateTodayDebits(workingDate);
       const closingBalance = openingBalance + totalCredit - totalDebit;
 
       return {
-        date: today.toISOString().split('T')[0],
+        date: workingDate.toISOString().split('T')[0],
         openingBalance: Number(openingBalance.toFixed(2)),
         totalCredit: Number(totalCredit.toFixed(2)),
         totalDebit: Number(totalDebit.toFixed(2)),
         closingBalance: Number(closingBalance.toFixed(2)),
+        paymentVouchers,
+        receiptVouchers,
+        journalVouchers,
+        dayendFlag: workingDateResult[0]?.dayend_flag || 'Y',
       };
     } catch (error) {
       this.logger.error('Error fetching current day-end summary:', error);
@@ -417,6 +448,27 @@ export class DayEndService {
       process.processResults = results;
       await this.dayEndProcessRepository.save(process);
 
+      // Update getworkingdate — mark current day as done (DAYEND_FLAG = Y)
+      await queryRunner.query(`
+        UPDATE getworkingdate SET dayend_flag = 'Y', updategl_flag = 'Y'
+        WHERE working_date = $1
+      `, [process.processDate]);
+
+      // Insert next working day into getworkingdate (only if not already exists)
+      const nextDay = new Date(process.processDate);
+      nextDay.setDate(nextDay.getDate() + 1);
+      const existingNext = await queryRunner.query(
+        `SELECT 1 FROM getworkingdate WHERE working_date = $1`, [nextDay]
+      );
+      if (existingNext.length === 0) {
+        await queryRunner.query(`
+          INSERT INTO getworkingdate (working_date, payment_voucher, receipt_voucher, journal_voucher, dayend_flag, updategl_flag)
+          VALUES ($1, 0, 0, 0, 'N', 'N')
+        `, [nextDay]);
+      }
+
+      this.logger.log(`getworkingdate updated: ${process.processDate} → DAYEND_FLAG=Y, next day ${nextDay.toISOString().split('T')[0]} inserted`);
+
       await queryRunner.commitTransaction();
       this.logger.log(`Day-end process ${processId} completed successfully`);
     } catch (error) {
@@ -456,16 +508,18 @@ export class DayEndService {
 
     for (const loan of activeLoans) {
       if (loan.outstandingBalance > 0) {
-        const dailyInterestRate = loan.interestRate / 365 / 100;
-        const interestAmount = loan.outstandingBalance * dailyInterestRate;
+        const balance = Number(loan.outstandingBalance);
+        const rate = Number(loan.interestRate);
+        const dailyInterestRate = rate / 365 / 100;
+        const interestAmount = Math.round(balance * dailyInterestRate * 100000) / 100000; // 5 decimal precision
 
         const interestPosting = this.interestPostingRepository.create({
           memberId: loan.member.id,
           accountId: loan.id,
           accountNumber: loan.accountNumber,
           type: InterestPostingType.LOAN_INTEREST,
-          principalAmount: loan.outstandingBalance,
-          interestRate: loan.interestRate,
+          principalAmount: balance,
+          interestRate: rate,
           interestAmount,
           calculationDate: processDate,
           postingDate: processDate,
@@ -475,12 +529,12 @@ export class DayEndService {
 
         await queryRunner.manager.save(interestPosting);
 
-        // Update loan outstanding balance
-        loan.outstandingBalance += interestAmount;
+        // Update loan outstanding balance — use Number() to prevent string concatenation
+        loan.outstandingBalance = balance + interestAmount;
         await queryRunner.manager.save(loan);
 
         results.loansProcessed++;
-        results.totalInterestPosted += interestAmount;
+        results.totalInterestPosted = Number(results.totalInterestPosted) + interestAmount;
       }
     }
 
@@ -491,16 +545,18 @@ export class DayEndService {
     });
 
     for (const deposit of activeDeposits) {
-      const dailyInterestRate = deposit.interestRate / 365 / 100;
-      const interestAmount = deposit.principalAmount * dailyInterestRate;
+      const principal = Number(deposit.principalAmount);
+      const rate = Number(deposit.interestRate);
+      const dailyInterestRate = rate / 365 / 100;
+      const interestAmount = Math.round(principal * dailyInterestRate * 100000) / 100000;
 
       const interestPosting = this.interestPostingRepository.create({
         memberId: deposit.member.id,
         accountId: deposit.id,
         accountNumber: deposit.accountNumber,
         type: InterestPostingType.DEPOSIT_INTEREST,
-        principalAmount: deposit.principalAmount,
-        interestRate: deposit.interestRate,
+        principalAmount: principal,
+        interestRate: rate,
         interestAmount,
         calculationDate: processDate,
         postingDate: processDate,
@@ -511,7 +567,7 @@ export class DayEndService {
       await queryRunner.manager.save(interestPosting);
 
       results.depositsProcessed++;
-      results.totalInterestPosted += interestAmount;
+      results.totalInterestPosted = Number(results.totalInterestPosted) + interestAmount;
     }
 
     return results;

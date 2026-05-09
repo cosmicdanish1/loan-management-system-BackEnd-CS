@@ -72,16 +72,17 @@ export class LoanApplicationService {
             await this.validateLoanEligibility(loanData.memberNo, amount, installments, loanData.loanType);
 
             // Map loan types to 3-character codes for database
+            // Legacy codes: ALN = Emergency Loan, RLN = Regular Loan, ELN = Loan Against Recovery
             const loanTypeMapping: Record<string, string> = {
-                'EMERGENCY': 'ELN',
+                'EMERGENCY': 'ALN',
                 'REGULAR': 'RLN',
-                'AGAINST': 'ALN',
-                'EMERGENCY LOAN': 'ELN',
+                'AGAINST': 'ELN',
+                'EMERGENCY LOAN': 'ALN',
                 'REGULAR LOAN': 'RLN',
-                'LOAN AGAINST DEPOSIT': 'ALN',
-                'Emergency': 'ELN',
+                'LOAN AGAINST RECOVERY': 'ELN',
+                'Emergency': 'ALN',
                 'Regular': 'RLN',
-                'Against': 'ALN',
+                'Against': 'ELN',
                 'ELN': 'ELN',
                 'RLN': 'RLN',
                 'ALN': 'ALN'
@@ -217,7 +218,9 @@ export class LoanApplicationService {
         console.log(`[LoanApplication] Validating eligibility for ${loanType} loan...`);
 
         // 1. Determine which rules to use based on loan type
-        const typePrefix = (loanType === 'ELN' || loanType?.toUpperCase().includes('EMERGENCY')) ? 'EL' : 'LT';
+        // Legacy codes: ALN = Emergency Loan, RLN = Regular Loan, ELN = Loan Against Recovery
+        const isEmergency = (loanType === 'ALN' || loanType?.toUpperCase().includes('EMERGENCY'));
+        const typePrefix = isEmergency ? 'EL' : 'LT';
         const maxAmtKey = `RULE_LOAN_${typePrefix}_MAX_AMT`;
         const maxTenureKey = `RULE_LOAN_${typePrefix}_MAX_TENURE`;
 
@@ -225,9 +228,8 @@ export class LoanApplicationService {
         const maxLoanLimit = await this.systemConfigService.getConfigValue(maxAmtKey).catch(() => 500000);
         const maxTenure = await this.systemConfigService.getConfigValue(maxTenureKey).catch(() => 60);
 
-        // 3. Check requested amount against configured limit
-        // Only check outstanding balance for the SAME loan type
-        const loanTypeFilter = typePrefix === 'EL' ? 'ELN' : 'RLN';
+        // 3. Check outstanding balance for the same loan type
+        const loanTypeFilter = isEmergency ? 'ALN' : loanType === 'ELN' ? 'ELN' : 'RLN';
         const query = `
           SELECT SUM(balance)::numeric as total
           FROM loan_master

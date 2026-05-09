@@ -373,6 +373,19 @@ export class AuthService {
     }
   }
 
+  async getUsersList(): Promise<any> {
+    const users = await this.userMasterRepository.find({
+      select: ['userid', 'susername', 'userlevelid', 'enableDisable'],
+      order: { susername: 'ASC' },
+    });
+    return users.map(u => ({
+      userid: u.userid,
+      susername: u.susername,
+      userlevelid: u.userlevelid,
+      enable_disable: u.enableDisable,
+    }));
+  }
+
   async changePassword(
     username: string,
     currentPassword: string,

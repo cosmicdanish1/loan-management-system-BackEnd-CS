@@ -51,10 +51,10 @@ export class CreateRdAccountDto {
     @IsNumber()
     depositPeriod: number;
 
-    @ApiProperty({ description: 'Deposit Unit' })
+    @ApiProperty({ description: 'Deposit Unit (1=Months, 2=Years)' })
     @IsOptional()
-    @IsString()
-    depositUnit: string;
+    @IsNumber()
+    depositUnit: number;
 
     @ApiProperty({ description: 'Maturity Date' })
     @IsOptional()
@@ -74,6 +74,11 @@ export class CreateRdAccountDto {
     @IsOptional()
     @IsString()
     nomineeAge: string;
+
+    @ApiProperty({ description: 'Nominee Address' })
+    @IsOptional()
+    @IsString()
+    nomineeAddress: string;
 
     @ApiProperty({ description: 'Nominee Relation' })
     @IsOptional()

@@ -18,41 +18,42 @@ export class DepositReportsService {
     async getFDStatement(dto: { memberNo?: string; fromDate?: string; toDate?: string }) {
         let query = `
       SELECT 
-        dm.account_no,
-        dm.mbno as member_no,
+        fd."accountNumber" as account_no,
+        fd."memberId" as member_no,
         TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
         d.name as office_name,
-        dm.deposit_type,
-        dm.principal_amount,
-        dm.interest_rate,
-        dm.deposit_date,
-        dm.maturity_date,
-        dm.maturity_amount,
-        dm.status
-      FROM deposit_master dm
-      LEFT JOIN member_master m ON m.mbno = dm.mbno
+        'FD' as deposit_type,
+        CAST(fd."principalAmount" AS numeric) as principal_amount,
+        CAST(fd."interestRate" AS numeric) as interest_rate,
+        fd."depositDate" as deposit_date,
+        fd."maturityDate" as maturity_date,
+        CAST(fd."maturityAmount" AS numeric) as maturity_amount,
+        fd."tenureMonths" as tenure_months,
+        fd.status
+      FROM fixed_deposits fd
+      LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(fd."memberId" AS text)
       LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
-      WHERE dm.deposit_type = 'FD'
+      WHERE 1=1
     `;
 
         const params: any[] = [];
 
         if (dto.memberNo) {
-            query += ` AND dm.mbno = $${params.length + 1}`;
+            query += ` AND CAST(fd."memberId" AS text) = $${params.length + 1}`;
             params.push(dto.memberNo);
         }
 
         if (dto.fromDate) {
-            query += ` AND dm.deposit_date >= $${params.length + 1}`;
+            query += ` AND fd."depositDate" >= $${params.length + 1}`;
             params.push(parseSafeDate(dto.fromDate));
         }
 
         if (dto.toDate) {
-            query += ` AND dm.deposit_date <= $${params.length + 1}`;
+            query += ` AND fd."depositDate" <= $${params.length + 1}`;
             params.push(parseSafeDate(dto.toDate));
         }
 
-        query += ` ORDER BY dm.deposit_date DESC`;
+        query += ` ORDER BY fd."depositDate" DESC`;
 
         const result = await this.dataSource.query(query, params);
 
@@ -68,6 +69,7 @@ export class DepositReportsService {
             depositDate: r.deposit_date,
             maturityDate: r.maturity_date,
             maturityAmount: parseFloat(r.maturity_amount) || 0,
+            tenureMonths: r.tenure_months,
             status: r.status
         }));
     }
@@ -78,41 +80,45 @@ export class DepositReportsService {
     async getRDStatement(dto: { memberNo?: string; fromDate?: string; toDate?: string }) {
         let query = `
       SELECT 
-        dm.account_no,
-        dm.mbno as member_no,
+        rd."accountNumber" as account_no,
+        rd."memberId" as member_no,
         TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
         d.name as office_name,
-        dm.deposit_type,
-        dm.monthly_amount,
-        dm.interest_rate,
-        dm.deposit_date,
-        dm.maturity_date,
-        dm.total_deposited,
-        dm.status
-      FROM deposit_master dm
-      LEFT JOIN member_master m ON m.mbno = dm.mbno
+        'RD' as deposit_type,
+        CAST(rd."monthlyInstallment" AS numeric) as monthly_amount,
+        CAST(rd."interestRate" AS numeric) as interest_rate,
+        rd."startDate" as deposit_date,
+        rd."maturityDate" as maturity_date,
+        CAST(rd."totalDeposited" AS numeric) as total_deposited,
+        CAST(rd."maturityAmount" AS numeric) as maturity_amount,
+        rd."tenureMonths" as tenure_months,
+        rd."installmentsPaid" as installments_paid,
+        rd."installmentsMissed" as installments_missed,
+        rd.status
+      FROM recurring_deposits rd
+      LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(rd."memberId" AS text)
       LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
-      WHERE dm.deposit_type = 'RD'
+      WHERE 1=1
     `;
 
         const params: any[] = [];
 
         if (dto.memberNo) {
-            query += ` AND dm.mbno = $${params.length + 1}`;
+            query += ` AND CAST(rd."memberId" AS text) = $${params.length + 1}`;
             params.push(dto.memberNo);
         }
 
         if (dto.fromDate) {
-            query += ` AND dm.deposit_date >= $${params.length + 1}`;
+            query += ` AND rd."startDate" >= $${params.length + 1}`;
             params.push(parseSafeDate(dto.fromDate));
         }
 
         if (dto.toDate) {
-            query += ` AND dm.deposit_date <= $${params.length + 1}`;
+            query += ` AND rd."startDate" <= $${params.length + 1}`;
             params.push(parseSafeDate(dto.toDate));
         }
 
-        query += ` ORDER BY dm.deposit_date DESC`;
+        query += ` ORDER BY rd."startDate" DESC`;
 
         const result = await this.dataSource.query(query, params);
 
@@ -128,6 +134,10 @@ export class DepositReportsService {
             depositDate: r.deposit_date,
             maturityDate: r.maturity_date,
             totalDeposited: parseFloat(r.total_deposited) || 0,
+            maturityAmount: parseFloat(r.maturity_amount) || 0,
+            tenureMonths: r.tenure_months,
+            installmentsPaid: r.installments_paid,
+            installmentsMissed: r.installments_missed,
             status: r.status
         }));
     }
@@ -146,6 +156,7 @@ export class DepositReportsService {
             FROM member_master m
             LEFT JOIN member_balances mb ON m.mbno = mb.mbno
             WHERE m.mbno = $1
+            LIMIT 1
         `;
         const memberResult = await this.dataSource.query(memberQuery, [memberNo]);
         if (memberResult.length === 0) return null;
@@ -155,7 +166,7 @@ export class DepositReportsService {
         let openingBalance = 0;
         if (fromDate) {
             const opBalQuery = `
-                SELECT SUM(CASE WHEN trans_type = 'R' THEN trans_amt::numeric ELSE -trans_amt::numeric END) as balance
+                SELECT SUM(CASE WHEN trans_type IN ('CR', 'R') THEN trans_amt::numeric ELSE -trans_amt::numeric END) as balance
                 FROM ledger
                 WHERE mbno = $1 AND code = $2 AND trans_date < $3
             `;
@@ -191,8 +202,9 @@ export class DepositReportsService {
         // 4. Calculate Running Balances
         let currentBalance = openingBalance;
         const formattedTransactions = transactions.map((t: any, idx: number) => {
-            const deposit = t.type === 'R' ? parseFloat(t.amount) : 0;
-            const withdrawal = t.type === 'P' ? parseFloat(t.amount) : 0;
+            // Handle both CR/DR and R/P transaction types
+            const deposit = (t.type === 'CR' || t.type === 'R') ? parseFloat(t.amount) : 0;
+            const withdrawal = (t.type === 'DR' || t.type === 'P') ? parseFloat(t.amount) : 0;
             currentBalance += (deposit - withdrawal);
 
             return {
@@ -354,10 +366,11 @@ export class DepositReportsService {
         m.present_address as address,
         m.memb_date as membership_date,
         d.name as office_name,
-        COALESCE((SELECT balance FROM fundsmaster WHERE mbno = m.mbno AND head_code = '001' LIMIT 1), 0) as share_balance
+        COALESCE((SELECT shareamt FROM fundsmaster WHERE mbno = m.mbno LIMIT 1), 0) as share_balance
       FROM member_master m
       LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
       WHERE CAST(m.mbno AS text) = $1
+      LIMIT 1
     `;
 
         const result = await this.dataSource.query(query, [memberNo]);
@@ -370,9 +383,9 @@ export class DepositReportsService {
         return {
             memberNo: r.member_no,
             memberName: r.member_name,
-            address: r.address,
+            address: r.address || 'Address not available',
             membershipDate: r.membership_date,
-            officeName: r.office_name,
+            officeName: r.office_name || 'Not specified',
             shareBalance: parseFloat(r.share_balance) || 0
         };
     }
@@ -502,24 +515,24 @@ export class DepositReportsService {
         let accountsQuery = `
       SELECT * FROM (
         SELECT 
-          accountNumber as "accountNo",
+          "accountNumber" as "accountNo",
           'Fixed Deposit' as "accountType",
-          CAST(principalAmount AS numeric) as "currentBalance",
-          CAST(interestRate AS numeric) as "interestRate",
-          depositDate as "openDate",
+          CAST("principalAmount" AS numeric) as "currentBalance",
+          CAST("interestRate" AS numeric) as "interestRate",
+          "depositDate" as "openDate",
           status
         FROM fixed_deposits
-        WHERE CAST(memberId AS text) = $1
+        WHERE CAST("memberId" AS text) = $1
         UNION ALL
         SELECT 
-          accountNumber as "accountNo",
+          "accountNumber" as "accountNo",
           'Recurring Deposit' as "accountType",
-          CAST(totalDeposited AS numeric) as "currentBalance",
-          0 as "interestRate",
-          startDate as "openDate",
+          CAST("totalDeposited" AS numeric) as "currentBalance",
+          CAST("interestRate" AS numeric) as "interestRate",
+          "startDate" as "openDate",
           status
         FROM recurring_deposits
-        WHERE CAST(memberId AS text) = $1
+        WHERE CAST("memberId" AS text) = $1
       ) accs
       WHERE 1=1
     `;

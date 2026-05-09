@@ -273,8 +273,9 @@ export class BackupService {
 
   private buildPgDumpCommand(outputPath: string): string {
     const { host, port, username, database } = this.dbConfig;
-
-    return `pg_dump -h ${host} -p ${port} -U ${username} -d ${database} -f "${outputPath}" --verbose --no-password`;
+    // Use configured pg_dump path from env, fallback to system PATH
+    const pgDumpPath = process.env.PG_DUMP_PATH || 'pg_dump';
+    return `"${pgDumpPath}" -h ${host} -p ${port} -U ${username} -d ${database} -f "${outputPath}" --verbose --no-password`;
   }
 
   private buildPsqlCommand(inputPath: string): string {

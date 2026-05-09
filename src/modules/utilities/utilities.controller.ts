@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Body, Query, Param, Logger, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Query, Param, Logger, UseGuards, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { UtilitiesService } from './utilities.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -172,5 +172,265 @@ export class UtilitiesController {
       data,
       message: 'System setting updated successfully'
     };
+  }
+
+  @Post('balance-transfer')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Process a manual balance transfer between accounts' })
+  async processBalanceTransfer(
+    @Body() body: {
+      fromAccount: string;
+      toAccount: string;
+      amount: number;
+      transferDate: string;
+      description: string;
+    },
+    @Req() req: any,
+  ) {
+    const username = req.user?.susername || req.user?.username || 'system';
+    const result = await this.utilitiesService.processBalanceTransfer(body, username);
+    return result;
+  }
+
+  @Get('head-master')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Get all account heads from headmaster with balance sheet data' })
+  async getHeadMaster() {
+    const data = await this.utilitiesService.getHeadMaster();
+    return { success: true, data };
+  }
+
+  @Get('divisions')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Get all divisions from division_master' })
+  async getDivisions() {
+    const data = await this.utilitiesService.getDivisions();
+    return { success: true, data };
+  }
+
+  @Post('saving/transaction')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Save SB transaction to ledger (acc_type=SB)' })
+  async saveSavingTransaction(@Body() body: any, @Req() req: any) {
+    const username = req.user?.susername || req.user?.username || 'system';
+    this.logger.log(`[SavingTxn] POST member=${body.memberNo} type=${body.transType} amount=${body.amount} by ${username}`);
+    const result = await this.utilitiesService.saveSavingTransaction(body, username);
+    return result;
+  }
+
+  @Get('fd-accounts/member')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Get active FD accounts for a member' })
+  async getFdAccountsByMember(@Query('memberNo') memberNo: string) {
+    this.logger.log(`[FDInterest] GET FD accounts for member: ${memberNo}`);
+    const data = await this.utilitiesService.getFdAccountsByMember(memberNo);
+    return { success: true, data };
+  }
+
+  @Post('fd-interest/post')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Post FD interest voucher — CR A003/FD, vchr_type=J' })
+  async postFdInterestVoucher(@Body() body: any, @Req() req: any) {
+    const username = req.user?.susername || req.user?.username || 'system';
+    this.logger.log(`[FDInterest] POST FD=${body.accountNumber} amount=${body.interestAmount} by ${username}`);
+    const result = await this.utilitiesService.postFdInterestVoucher(body, username);
+    return result;
+  }
+
+  @Post('fd-receipt')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Create FD receipt — inserts into fdmaster + ledger (CR A003/FD)' })
+  async createFdReceipt(@Body() body: any, @Req() req: any) {
+    const username = req.user?.susername || req.user?.username || 'system';
+    this.logger.log(`[FDReceipt] POST member=${body.memberNo} amount=${body.depositAmount} by ${username}`);
+    const result = await this.utilitiesService.createFixedDepositReceipt(body, username);
+    return result;
+  }
+
+  @Get('dividend/pending')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Get pending dividends for a member' })
+  async getPendingDividends(@Query('memberNo') memberNo: string) {
+    this.logger.log(`[Dividend] GET pending for member: ${memberNo}`);
+    const data = await this.utilitiesService.getPendingDividends(memberNo);
+    return { success: true, data };
+  }
+
+  @Post('dividend/pay')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Process dividend payment — DR L1024, update dividend_master' })
+  async processDividendPayment(@Body() body: any, @Req() req: any) {
+    const username = req.user?.susername || req.user?.username || 'system';
+    this.logger.log(`[Dividend] POST pay member=${body.memberNo} amount=${body.totalAmount} by ${username}`);
+    const result = await this.utilitiesService.processDividendPayment(body, username);
+    return result;
+  }
+
+  @Post('receipt')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Save receipt: CR rows (vchr_type=R) + DR bank (vchr_type=P), same R_VCHR_NO' })
+  async saveReceipt(@Body() body: any, @Req() req: any) {
+    const username = req.user?.susername || req.user?.username || 'system';
+    this.logger.log(`[Receipt] POST member=${body.memberNo} rows=${body.rows?.length} by ${username}`);
+    const result = await this.utilitiesService.saveReceipt(body, username);
+    return result;
+  }
+
+  @Post('receipt-voucher')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Save receipt voucher to ledger (vchr_type=R, DR CINH + CR rows)' })
+  async saveReceiptVoucher(@Body() body: any, @Req() req: any) {
+    const username = req.user?.susername || req.user?.username || 'system';
+    this.logger.log(`[VoucherPayment] POST member=${body.memberNo} rows=${body.rows?.length} by ${username}`);
+    const result = await this.utilitiesService.saveReceiptVoucher(body, username);
+    return result;
+  }
+
+  @Post('payment-voucher')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Save payment voucher to ledger (vchr_type=P, acc_type=BANK)' })
+  async savePaymentVoucher(@Body() body: any, @Req() req: any) {
+    const username = req.user?.susername || req.user?.username || 'system';
+    this.logger.log(`[PaymentVoucher] POST member=${body.memberNo} rows=${body.rows?.length} by ${username}`);
+    const result = await this.utilitiesService.savePaymentVoucher(body, username);
+    return result;
+  }
+
+  @Post('loan/entry')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Save loan entry to loan_master and suretymaster' })
+  async saveLoanEntry(@Body() body: any, @Req() req: any) {
+    const username = req.user?.susername || req.user?.username || 'system';
+    this.logger.log(`[LoanEntry] POST loan type=${body.loanType} member=${body.memberNo} by ${username}`);
+    const result = await this.utilitiesService.saveLoanEntry(body, username);
+    return result;
+  }
+
+  @Get('fd-rd-sb/accounts')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Get FD/RD/SB accounts for a member' })
+  async getFdRdSbAccounts(
+    @Query('memberNo') memberNo: string,
+    @Query('type') type: string,
+  ) {
+    this.logger.log(`[FdRdSbEntry] GET accounts memberNo=${memberNo} type=${type}`);
+    const data = await this.utilitiesService.getFdRdSbAccounts(
+      parseInt(memberNo),
+      type as 'FD' | 'RD' | 'SB'
+    );
+    return { success: true, data };
+  }
+
+  @Post('fd-rd-sb/entry')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Save FD/RD/SB ledger entry' })
+  async saveFdRdSbEntry(@Body() body: any, @Req() req: any) {
+    const username = req.user?.susername || req.user?.username || 'system';
+    this.logger.log(`[FdRdSbEntry] POST entry type=${body.entryType} member=${body.memberNo} by ${username}`);
+    const result = await this.utilitiesService.saveFdRdSbEntry(body, username);
+    return result;
+  }
+
+  @Post('head-master')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Add or update an account head in headmaster' })
+  async saveHeadMaster(@Body() body: any) {
+    const result = await this.utilitiesService.saveHeadMaster(body);
+    return result;
+  }
+
+  @Get('deposit-loan-slabs')  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Get deposit/loan interest slabs from fdrd_slab_details' })
+  async getDepositLoanSlabs(@Query('type') type?: string) {
+    const data = await this.utilitiesService.getDepositLoanSlabs(type);
+    return { success: true, data };
+  }
+
+  @Post('deposit-loan-slabs')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Save deposit/loan interest slabs to fdrd_slab_details' })
+  async saveDepositLoanSlabs(@Body() body: { rows: any[]; type: string }) {
+    const result = await this.utilitiesService.saveDepositLoanSlabs(body.rows, body.type);
+    return result;
+  }
+
+  @Get('demand-print-order')  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Get demand print order configuration' })
+  async getDemandPrintOrder() {
+    const data = await this.utilitiesService.getDemandPrintOrder();
+    return { success: true, data };
+  }
+
+  @Post('demand-print-order')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Save demand print order configuration' })
+  async saveDemandPrintOrder(@Body() body: { rows: any[] }) {
+    const result = await this.utilitiesService.saveDemandPrintOrder(body.rows);
+    return result;
+  }
+
+  @Get('business-rules')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Get current business rules from busrules table' })
+  async getBusinessRules() {
+    const data = await this.utilitiesService.getBusinessRules();
+    return { success: true, data };
+  }
+
+  @Post('business-rules')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Save business rules to busrules table' })
+  async updateBusinessRules(
+    @Body() body: Record<string, any>,
+    @Req() req: any,
+  ) {
+    const result = await this.utilitiesService.updateBusinessRules(body);
+    return result;
+  }
+
+  // ─── Financial Year ───────────────────────────────────────────────────────
+
+  @Get('financial-year/current')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Get the current (latest) financial year' })
+  async getCurrentFinancialYear() {
+    const data = await this.utilitiesService.getCurrentFinancialYear();
+    return { success: true, data };
+  }
+
+  @Post('financial-year/transfer-entries')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Transfer entries for financial year closing' })
+  async transferEntriesForClosing(
+    @Body('yearCode') yearCode: number,
+    @Req() req: any,
+  ) {
+    const username = req.user?.susername || req.user?.username || 'system';
+    const result = await this.utilitiesService.transferEntriesForClosing(yearCode, username);
+    return result;
   }
 }

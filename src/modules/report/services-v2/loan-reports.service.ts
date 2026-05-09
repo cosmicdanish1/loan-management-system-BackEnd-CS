@@ -267,24 +267,39 @@ export class LoanReportsService {
   async getMemberLoanDetail(dto: { memberFrom?: string; memberTo?: string; loanType?: string; limit?: number; offset?: number }) {
     const { limit, offset } = dto;
 
+    // Swap memberFrom and memberTo if they are in wrong order
+    let memberFrom = dto.memberFrom;
+    let memberTo = dto.memberTo;
+    
+    if (memberFrom && memberTo) {
+      const fromNum = parseFloat(memberFrom);
+      const toNum = parseFloat(memberTo);
+      if (fromNum > toNum) {
+        [memberFrom, memberTo] = [memberTo, memberFrom];
+      }
+    }
+
     const baseQuery = `
       FROM loan_master loan
       LEFT JOIN member_master m ON m.mbno = loan.mbno
       LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
+      LEFT JOIN loan_pending lp ON loan.loancaseno = lp.loancaseno
+      LEFT JOIN member_master s1 ON CAST(s1.mbno AS text) = CAST(lp.g1mbno AS text)
+      LEFT JOIN member_master s2 ON CAST(s2.mbno AS text) = CAST(lp.g2mbno AS text)
       WHERE 1=1
     `;
 
     const params: any[] = [];
     let whereClause = '';
 
-    if (dto.memberFrom) {
+    if (memberFrom) {
       whereClause += ` AND loan.mbno::numeric >= $${params.length + 1}`;
-      params.push(dto.memberFrom);
+      params.push(memberFrom);
     }
 
-    if (dto.memberTo) {
+    if (memberTo) {
       whereClause += ` AND loan.mbno::numeric <= $${params.length + 1}`;
-      params.push(dto.memberTo);
+      params.push(memberTo);
     }
 
     if (dto.loanType && dto.loanType !== 'ALL') {
@@ -308,7 +323,12 @@ export class LoanReportsService {
         loan.rate as interest_rate,
         loan.no_of_instal as total_installments,
         loan.instal_amt as installment_amount,
-        loan.payment_date as disbursement_date
+        loan.payment_date as disbursement_date,
+        CAST(COALESCE(lp.applied_amt, 0) AS numeric) as applied_amount,
+        lp.g1mbno as surety1_mbno,
+        TRIM(COALESCE(s1.f_name, '') || ' ' || COALESCE(s1.l_name, '')) as surety1_name,
+        lp.g2mbno as surety2_mbno,
+        TRIM(COALESCE(s2.f_name, '') || ' ' || COALESCE(s2.l_name, '')) as surety2_name
       ${baseQuery} ${whereClause}
       ORDER BY loan.mbno::numeric, loan.loancaseno
     `;
@@ -348,7 +368,12 @@ export class LoanReportsService {
         interestRate: l.interest_rate,
         totalInstallments: l.total_installments,
         installmentAmount: parseFloat(l.installment_amount) || 0,
-        disbursementDate: l.disbursement_date
+        disbursementDate: l.disbursement_date,
+        appliedAmount: parseFloat(l.applied_amount) || 0,
+        surety1Mbno: l.surety1_mbno || '',
+        surety1Name: l.surety1_name || '',
+        surety2Mbno: l.surety2_mbno || '',
+        surety2Name: l.surety2_name || ''
       })),
       societyName: society.name || 'EMP ESPAT EMPLOYEES CO-OP CREDIT SOCIETY LTD.',
       societyAddress: society.address || 'Sector 27A, Nigdi, Pradhikaran, Pune - 411044',
@@ -450,6 +475,28 @@ export class LoanReportsService {
     `);
 
     return result;
+  }
+
+  /**
+   * Get loan cases for a member
+   */
+  async getMemberLoanCases(memberNo: string) {
+    const result = await this.dataSource.query(`
+      SELECT DISTINCT loancaseno as loan_case_no,
+        loantype as loan_type,
+        CAST(loan_amt AS numeric) as loan_amount,
+        payment_date as disbursement_date
+      FROM loan_master 
+      WHERE mbno = $1 
+      ORDER BY loancaseno DESC
+    `, [memberNo]);
+
+    return result.map((l: any) => ({
+      loanCaseNo: l.loan_case_no,
+      loanType: l.loan_type,
+      loanAmount: parseFloat(l.loan_amount) || 0,
+      disbursementDate: l.disbursement_date
+    }));
   }
 
   /**

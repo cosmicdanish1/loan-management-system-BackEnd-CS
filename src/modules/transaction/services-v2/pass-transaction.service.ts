@@ -89,14 +89,14 @@ export class PassTransactionService {
                 console.log(`[PassTransaction] Activating loan in loan_master for mbno: ${loan.mbno}`);
                 await queryRunner.query(insertLoanMasterQuery, [
                     loan.mbno, loan.loantype, loan.loancaseno, sanctionedAmt, new Date(),
-                    rate, noOfInstal, instalAmt, sanctionedAmt, sanctionedAmt,
+                    rate, noOfInstal, instalAmt, sanctionedAmt, 0,  // balance=sanctionedAmt, openbalance=0 (matches legacy)
                     loan.purpose || '', 0, penalrate
                 ]);
 
                 // Post Breakdown for Loan
                 for (const detail of details) {
                     const amt = parseMoney(detail.trans_amt);
-                    const headCode = detail.code || (loan.loantype === 'R' ? 'A1002' : 'A1047');
+                    const headCode = detail.code || (loan.loantype === 'RLN' ? 'A1002' : 'A1047');
 
                     // Ledger Insert
                     console.log(`[PassTransaction] Posting to ledger: ${headCode}, Amount: ${amt}`);
