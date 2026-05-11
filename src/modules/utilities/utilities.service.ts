@@ -450,15 +450,15 @@ export class UtilitiesService {
 
   async saveSavingTransaction(
     data: {
-      memberNo: number;
-      voucherNo: string;
+      accountNo: string;
+      voucherNo?: string;
       transDate: string;
-      transType: 'CR' | 'DR';
-      accType: string;
-      code: string;
+      transactionType: 'deposit' | 'withdrawal';
       amount: number;
-      vchrType: string;
-      modeOfPay: string;
+      paymentMode: 'cash' | 'bank';
+      chequeNo?: string;
+      chequeDate?: string;
+      bankName?: string;
       narration: string;
     },
     username: string = 'system',
@@ -468,7 +468,20 @@ export class UtilitiesService {
     await queryRunner.startTransaction();
 
     try {
-      this.logger.log(`[SavingTxn] Saving ${data.transType} CINH amount=${data.amount}`);
+      this.logger.log(`[SavingTxn] Saving ${data.transactionType} for account=${data.accountNo} amount=${data.amount}`);
+
+      // Get account details
+      const accountResult = await queryRunner.query(
+        `SELECT acc_no, mbno, balance FROM sbmaster WHERE acc_no = $1`,
+        [data.accountNo]
+      );
+
+      if (!accountResult || accountResult.length === 0) {
+        throw new Error(`Account ${data.accountNo} not found`);
+      }
+
+      const account = accountResult[0];
+      const memberNo = account.mbno;
 
       // Get next trans_no and ledgerid
       const maxResult = await queryRunner.query(
@@ -477,34 +490,67 @@ export class UtilitiesService {
       const nextTransNo = Number(maxResult[0]?.next_trans_no ?? 1);
       const nextLedgerId = Number(maxResult[0]?.next_ledger_id ?? 1);
 
-      // Generate voucher number — R for receipt, P for payment
-      const isReceipt = data.transType === 'CR';
-      const vchrType = isReceipt ? 'R' : 'P';
+      // Generate voucher number — R for deposit, P for withdrawal
+      const isDeposit = data.transactionType === 'deposit';
+      const transType = isDeposit ? 'CR' : 'DR';
+      const vchrType = isDeposit ? 'R' : 'P';
       let voucherNo = data.voucherNo;
+      
       if (!voucherNo) {
-        const vchrKey = isReceipt ? 'r_vchr_no' : 'p_vchr_no';
+        const vchrKey = isDeposit ? 'r_vchr_no' : 'p_vchr_no';
         const vmResult = await queryRunner.query(`SELECT ${vchrKey} FROM voucher_master LIMIT 1`);
-        const lastNo = vmResult[0]?.[vchrKey] || (isReceipt ? 'R00000' : 'P00000');
-        const prefix = isReceipt ? 'R' : 'P';
+        const lastNo = vmResult[0]?.[vchrKey] || (isDeposit ? 'R00000' : 'P00000');
+        const prefix = isDeposit ? 'R' : 'P';
         const num = parseInt(lastNo.replace(/\D/g, '')) + 1;
         voucherNo = `${prefix}${num.toString().padStart(5, '0')}`;
         await queryRunner.query(`UPDATE voucher_master SET ${vchrKey} = $1`, [voucherNo]);
       }
 
       const transDate = data.transDate ? new Date(data.transDate) : new Date();
-      // Legacy pattern: mbno=0 for general CINH entries (no specific member)
-      const mbno = data.memberNo || 0;
+      const modeOfPay = data.paymentMode === 'cash' ? 'C' : 'B';
+
+      // Insert into ledger
+      await queryRunner.query(
+        `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid, cheque_no, cheque_date, bank_name)
+         VALUES ($1, $2, $3, 'A1001', $4, $5, 'SB', $6, $7, $8, $9, 0, $10, $11, $12, $13, $14, $15)`,
+        [
+          nextTransNo, 
+          transDate, 
+          transType, 
+          memberNo, 
+          data.accountNo, 
+          data.amount, 
+          voucherNo, 
+          vchrType, 
+          modeOfPay, 
+          data.narration || '', 
+          username, 
+          nextLedgerId,
+          data.chequeNo || null,
+          data.chequeDate ? new Date(data.chequeDate) : null,
+          data.bankName || null
+        ]
+      );
+
+      // Update sbmaster balance
+      const newBalance = isDeposit 
+        ? account.balance + data.amount 
+        : account.balance - data.amount;
 
       await queryRunner.query(
-        `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid)
-         VALUES ($1, $2, $3, 'A1001', $4, 0, 'CINH', $5, $6, $7, $8, 0, $9, $10, $11)`,
-        [nextTransNo, transDate, data.transType, mbno, data.amount, voucherNo, vchrType, data.modeOfPay || 'C', data.narration || '', username, nextLedgerId]
+        `UPDATE sbmaster SET balance = $1 WHERE acc_no = $2`,
+        [newBalance, data.accountNo]
       );
 
       await queryRunner.commitTransaction();
-      this.logger.log(`[SavingTxn] Saved trans_no=${nextTransNo} vchr=${voucherNo} type=${data.transType} amount=${data.amount}`);
+      this.logger.log(`[SavingTxn] Saved trans_no=${nextTransNo} vchr=${voucherNo} type=${transType} amount=${data.amount} new_balance=${newBalance}`);
 
-      return { success: true, transNo: nextTransNo, voucherNo, message: `${isReceipt ? 'Receipt' : 'Payment'} ${voucherNo} saved. Amount: ${data.amount}` };
+      return { 
+        success: true, 
+        transNo: nextTransNo, 
+        voucherNo, 
+        message: `${isDeposit ? 'Deposit' : 'Withdrawal'} ${voucherNo} saved. Amount: ₹${data.amount}. New Balance: ₹${newBalance.toFixed(2)}` 
+      };
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error(`[SavingTxn] Failed:`, error);
@@ -529,6 +575,59 @@ export class UtilitiesService {
     );
     this.logger.log(`[FDInterest] Found ${result.length} active FDs for member ${memberNo}`);
     return result;
+  }
+
+  async getSavingAccountDetails(accountNo: string): Promise<{ success: boolean; data: any }> {
+    try {
+      this.logger.log(`[SavingAccount] Getting details for account: ${accountNo}`);
+
+      // Get account balance and details from sbmaster
+      const accountResult = await this.dataSource.query(
+        `SELECT 
+          acc_no as "accountNo",
+          mbno as "memberNo",
+          balance as "currentBalance",
+          min_balance as "minimumBalance",
+          unpass_cr as "unpassCr",
+          unpass_dr as "unpassDr",
+          (balance + COALESCE(unpass_cr, 0) - COALESCE(unpass_dr, 0)) as "availableBalance",
+          (balance + COALESCE(unpass_cr, 0) - COALESCE(unpass_dr, 0) - COALESCE(min_balance, 0)) as "withdrawableBalance",
+          mode_of_operation as "modeOfOperation",
+          operators
+        FROM sbmaster 
+        WHERE acc_no = $1`,
+        [accountNo]
+      );
+
+      if (!accountResult || accountResult.length === 0) {
+        return { success: false, data: null };
+      }
+
+      const account = accountResult[0];
+
+      // Get recent transaction history (last 10 transactions)
+      const historyResult = await this.dataSource.query(
+        `SELECT 
+          TO_CHAR(trans_date, 'DD-Mon-YYYY') as "transDate",
+          receipt_vchr_no as "voucherNo",
+          acc_type as "accType",
+          trans_type as "transType",
+          trans_amt as "amount"
+        FROM ledger 
+        WHERE acc_no = $1 AND acc_type = 'SB'
+        ORDER BY trans_date DESC, trans_no DESC
+        LIMIT 10`,
+        [accountNo]
+      );
+
+      account.transactionHistory = historyResult || [];
+
+      this.logger.log(`[SavingAccount] Found account ${accountNo} with balance ${account.currentBalance}`);
+      return { success: true, data: account };
+    } catch (error) {
+      this.logger.error(`[SavingAccount] Failed to get account details:`, error);
+      throw new Error(`Failed to get account details: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 
   async postFdInterestVoucher(

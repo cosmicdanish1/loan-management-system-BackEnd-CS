@@ -222,6 +222,16 @@ export class UtilitiesController {
     return result;
   }
 
+  @Get('saving/account/:accountNo')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Get saving account details and transaction history' })
+  async getSavingAccountDetails(@Param('accountNo') accountNo: string) {
+    this.logger.log(`[SavingAccount] GET account details for: ${accountNo}`);
+    const result = await this.utilitiesService.getSavingAccountDetails(accountNo);
+    return result;
+  }
+
   @Get('fd-accounts/member')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
