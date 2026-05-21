@@ -149,12 +149,10 @@ export class UserMaster {
       return result;
     }
 
-    // Fallback: Plain text comparison (should not happen)
+    // Fallback: Unrecognised format — reject to prevent plain-text exposure
     else {
-      console.log('Using plain text comparison (fallback)');
-      const result = this.spassword === password;
-      console.log(result ? '✓ Plain text valid' : '✗ Plain text invalid');
-      return result;
+      console.log('Unrecognised password format — rejecting login');
+      return false;
     }
   }
 }

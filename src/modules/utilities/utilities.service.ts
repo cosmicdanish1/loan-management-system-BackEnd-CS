@@ -509,23 +509,50 @@ export class UtilitiesService {
       const transDate = data.transDate ? new Date(data.transDate) : new Date();
       const modeOfPay = data.paymentMode === 'cash' ? 'C' : 'B';
 
-      // Insert into ledger
+      // Member SB account leg — CR on deposit (balance increases), DR on withdrawal
       await queryRunner.query(
         `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid, cheque_no, cheque_date, bank_name)
          VALUES ($1, $2, $3, 'A1001', $4, $5, 'SB', $6, $7, $8, $9, 0, $10, $11, $12, $13, $14, $15)`,
         [
-          nextTransNo, 
-          transDate, 
-          transType, 
-          memberNo, 
-          data.accountNo, 
-          data.amount, 
-          voucherNo, 
-          vchrType, 
-          modeOfPay, 
-          data.narration || '', 
-          username, 
+          nextTransNo,
+          transDate,
+          transType,
+          memberNo,
+          data.accountNo,
+          data.amount,
+          voucherNo,
+          vchrType,
+          modeOfPay,
+          data.narration || '',
+          username,
           nextLedgerId,
+          data.chequeNo || null,
+          data.chequeDate ? new Date(data.chequeDate) : null,
+          data.bankName || null
+        ]
+      );
+
+      // Cash/bank offsetting leg — DR on deposit (cash in), CR on withdrawal (cash out)
+      const cashAccType = modeOfPay === 'B' ? 'BANK' : 'CINH';
+      const cashCode = modeOfPay === 'B' ? 'A1008' : 'A1001';
+      const cashTransType = isDeposit ? 'DR' : 'CR';
+      await queryRunner.query(
+        `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid, cheque_no, cheque_date, bank_name)
+         VALUES ($1, $2, $3, $4, $5, 0, $6, $7, $8, $9, $10, 0, $11, $12, $13, $14, $15, $16)`,
+        [
+          nextTransNo + 1,
+          transDate,
+          cashTransType,
+          cashCode,
+          memberNo,
+          cashAccType,
+          data.amount,
+          voucherNo,
+          vchrType,
+          modeOfPay,
+          data.narration || '',
+          username,
+          nextLedgerId + 1,
           data.chequeNo || null,
           data.chequeDate ? new Date(data.chequeDate) : null,
           data.bankName || null
@@ -664,11 +691,22 @@ export class UtilitiesService {
 
       const transDate = data.transDate ? new Date(data.transDate) : new Date();
 
-      // CR A003 (FD) — interest credit, vchr_type='J'
+      // CR A003 (FD liability) — interest accrued increases the member's FD balance
       await queryRunner.query(
         `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid)
          VALUES ($1, $2, 'CR', 'A003', $3, $4, 'FD', $5, $6, 'J', 'C', 0, $7, $8, $9)`,
         [nextTransNo, transDate, data.memberNo, data.accountNumber, data.interestAmount, voucherNo, data.narration || 'FD Interest Credit', username, nextLedgerId]
+      );
+
+      // DR Interest on FD (expense head) — balancing debit to record the expense
+      const fdInterestExpenseHead = await queryRunner.query(
+        `SELECT COALESCE(fdinthead, 'L1028') as head FROM busrules ORDER BY appdate DESC LIMIT 1`
+      );
+      const intExpenseCode = fdInterestExpenseHead[0]?.head || 'L1028';
+      await queryRunner.query(
+        `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid)
+         VALUES ($1, $2, 'DR', $3, $4, $5, 'FD', $6, $7, 'J', 'C', 0, $8, $9, $10)`,
+        [nextTransNo + 1, transDate, intExpenseCode, data.memberNo, data.accountNumber, data.interestAmount, voucherNo, data.narration || 'FD Interest Expense', username, nextLedgerId + 1]
       );
 
       // Update fdmaster: set lastintpaydate and add to intpaid
@@ -768,11 +806,19 @@ export class UtilitiesService {
         ]
       );
 
-      // Insert into ledger — CR A003 (FD), vchr_type='R'
+      // CR A003 (FD liability account) — deposit received increases society's liability
       await queryRunner.query(
         `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid)
-         VALUES ($1, $2, 'CR', 'A003', $3, $4, 'FD', $5, $6, 'R', $7, 0, 'Fixed Deposit Opening', $8, $9)`,
-        [nextTransNo, depDate, data.memberNo, accountNumber, data.depositAmount, voucherNo, modeOfPay, username, nextLedgerId]
+         VALUES ($1, $2, 'CR', $3, $4, $5, 'FD', $6, $7, 'R', $8, 0, 'Fixed Deposit Opening', $9, $10)`,
+        [nextTransNo, depDate, data.headCode || 'A003', data.memberNo, accountNumber, data.depositAmount, voucherNo, modeOfPay, username, nextLedgerId]
+      );
+
+      // DR cash/bank — the asset (cash received) must increase to balance the entry
+      const cashCode = modeOfPay === 'B' ? 'A1008' : 'A1001';
+      await queryRunner.query(
+        `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid)
+         VALUES ($1, $2, 'DR', $3, $4, 0, 'CINH', $5, $6, 'R', $7, 0, 'Fixed Deposit Opening - Cash/Bank', $8, $9)`,
+        [nextTransNo + 1, depDate, cashCode, data.memberNo, data.depositAmount, voucherNo, modeOfPay, username, nextLedgerId + 1]
       );
 
       await queryRunner.commitTransaction();
@@ -980,21 +1026,21 @@ export class UtilitiesService {
       const totalAmount = data.rows.reduce((s, r) => s + r.amount, 0);
       const modeOfPay = data.modeOfPay || 'C';
 
-      // CR CINH (A1001) — cash/bank received (total amount)
+      // DR CINH (A1001) — cash/bank received increases the asset
       await queryRunner.query(
         `INSERT INTO transactions (trans_no, trans_type, trans_date, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, cheq_no, cheq_amt, cheq_date, bankname, pass_flag, cashier_flag, code, narration, username)
-         VALUES ($1, 'CR', $2, $3, 0, 'CINH', $4, $5, 'P', $6, $7, 0, $8, $9, 'N', 'Y', 'A1001', $10, $11)`,
+         VALUES ($1, 'DR', $2, $3, 0, 'CINH', $4, $5, 'R', $6, $7, 0, $8, $9, 'N', 'Y', 'A1001', $10, $11)`,
         [nextTransNo++, transDate, data.memberNo, totalAmount, voucherNo, modeOfPay,
          data.cheqNo || '', data.cheqDate ? new Date(data.cheqDate) : null, data.bankName || '',
          data.narration || '', username]
       );
 
-      // DR each row (loan, deposit, etc.)
+      // CR each row (loan recovery, interest income, etc.) — credit the income/liability accounts
       for (const row of data.rows) {
         if (!row.code || !row.amount) continue;
         await queryRunner.query(
           `INSERT INTO transactions (trans_no, trans_type, trans_date, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, cheq_no, cheq_amt, cheq_date, bankname, pass_flag, cashier_flag, code, narration, username)
-           VALUES ($1, 'DR', $2, $3, 0, $4, $5, $6, 'P', $7, $8, 0, $9, $10, 'N', 'Y', $11, $12, $13)`,
+           VALUES ($1, 'CR', $2, $3, 0, $4, $5, $6, 'R', $7, $8, 0, $9, $10, 'N', 'Y', $11, $12, $13)`,
           [nextTransNo++, transDate, data.memberNo, row.accType, row.amount, voucherNo, modeOfPay,
            data.cheqNo || '', data.cheqDate ? new Date(data.cheqDate) : null, data.bankName || '',
            row.code, data.narration || '', username]
@@ -1053,7 +1099,7 @@ export class UtilitiesService {
       const transDate = data.transDate ? new Date(data.transDate) : new Date();
       const rows = data.rows || [];
 
-      // Insert one DR ledger row per breakdown row (legacy pattern: each row = separate ledger entry)
+      // DR one row per breakdown item (expense/asset accounts being paid out)
       for (const row of rows) {
         if (!row.code || !row.amount) continue;
         await queryRunner.query(
@@ -1063,11 +1109,20 @@ export class UtilitiesService {
         );
       }
 
-      await queryRunner.commitTransaction();
+      // CR cash/bank for the total — balances the payment voucher
       const total = rows.reduce((s, r) => s + (r.amount || 0), 0);
+      if (total > 0) {
+        await queryRunner.query(
+          `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid)
+           VALUES ($1, $2, 'CR', 'A1001', $3, 0, 'CINH', $4, $5, 'P', 'C', 0, $6, $7, $8)`,
+          [nextTransNo++, transDate, data.memberNo, total, voucherNo, data.narration || '', username, nextLedgerId++]
+        );
+      }
+
+      await queryRunner.commitTransaction();
       this.logger.log(`[PaymentVoucher] Saved vchr=${voucherNo} member=${data.memberNo} total=${total} rows=${rows.length}`);
 
-      return { success: true, transNo: nextTransNo - rows.length, voucherNo, message: `Payment voucher ${voucherNo} saved. Total: ${total}` };
+      return { success: true, transNo: nextTransNo - rows.length - 1, voucherNo, message: `Payment voucher ${voucherNo} saved. Total: ${total}` };
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error(`[PaymentVoucher] Failed:`, error);

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { DemandMaster } from '../entities/demand-master.entity';
 
 export interface LedgerSummaryDto {
@@ -24,6 +24,7 @@ export class LedgerPostingService {
     constructor(
         @InjectRepository(DemandMaster)
         private readonly demandRepository: Repository<DemandMaster>,
+        private readonly dataSource: DataSource,
     ) { }
 
     async getSummary(dto: LedgerSummaryDto) {
@@ -113,14 +114,68 @@ export class LedgerPostingService {
     async postUpdate(dto: LedgerPostingDto) {
         this.logger.log(`Posting ledger update: ${JSON.stringify(dto)}`);
 
-        // Here we would:
-        // 1. Insert into 'daily_gl_history'
-        // 2. Update 'balancesheet'
-
-        // Simulating success
-        return {
-            success: true,
-            message: `Successfully posted ${dto.head} amount ₹${dto.totalAmount} to General Ledger.`
+        const monthMap: { [key: string]: number } = {
+            'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4, 'MAY': 5, 'JUN': 6,
+            'JUL': 7, 'AUG': 8, 'SEP': 9, 'OCT': 10, 'NOV': 11, 'DEC': 12
         };
+        const monthNum = monthMap[dto.month] || 0;
+        const yearNum = parseInt(dto.year);
+
+        if (!monthNum || !yearNum || dto.totalAmount <= 0) {
+            return { success: false, message: 'Invalid parameters for ledger posting.' };
+        }
+
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+
+        try {
+            const transResult = await queryRunner.query(
+                `SELECT COALESCE(MAX(trans_no), 0) + 1 as next_no FROM ledger`
+            );
+            let transNo = parseInt(transResult[0]?.next_no || '1');
+
+            const transDate = new Date();
+            const voucherNo = `GL${dto.month}${dto.year}`;
+            const narration = `GL Posting - ${dto.head} for ${dto.month} ${dto.year}`;
+
+            // Head codes: DR = cash collection side, CR = account/income side
+            let drCode: string;
+            let crCode: string;
+            let accType: string;
+
+            if (dto.head === 'Loan Principal') {
+                drCode = 'A1001'; crCode = 'A1003'; accType = 'LN';
+            } else if (dto.head === 'Loan Interest') {
+                drCode = 'A1001'; crCode = 'L1028'; accType = 'LN';
+            } else {
+                drCode = 'A1001'; crCode = 'L1001'; accType = 'SB';
+            }
+
+            await queryRunner.query(
+                `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username)
+                 VALUES ($1, $2, 'DR', $3, 0, 0, $4, $5, $6, 'GL', 'C', 0, $7, 'SYSTEM')`,
+                [transNo++, transDate, drCode, accType, dto.totalAmount, voucherNo, narration]
+            );
+
+            await queryRunner.query(
+                `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username)
+                 VALUES ($1, $2, 'CR', $3, 0, 0, $4, $5, $6, 'GL', 'C', 0, $7, 'SYSTEM')`,
+                [transNo, transDate, crCode, accType, dto.totalAmount, voucherNo, narration]
+            );
+
+            await queryRunner.commitTransaction();
+
+            return {
+                success: true,
+                message: `Successfully posted ${dto.head} amount ₹${dto.totalAmount} to General Ledger for ${dto.month} ${dto.year}.`
+            };
+        } catch (error: any) {
+            await queryRunner.rollbackTransaction();
+            this.logger.error('Ledger posting failed', error);
+            throw new Error('Failed to post ledger: ' + error.message);
+        } finally {
+            await queryRunner.release();
+        }
     }
 }

@@ -85,9 +85,10 @@ export class DemandGenerationService {
                 };
             }
 
-            // 2. Fetch Active Members
-            // In a real scenario, filter by status = 'ACTIVE'
-            const members = await queryRunner.query(`SELECT mbno FROM member_master WHERE status = 'ACTIVE'`);
+            // 2. Fetch Active Members — member_master uses isactive flag, not a status column
+            const members = await queryRunner.query(
+              `SELECT mbno FROM member_master WHERE isactive IS NOT FALSE AND isactive IS DISTINCT FROM 'N'`
+            );
 
             this.logger.log(`Generating demand for ${members.length} active members...`);
 

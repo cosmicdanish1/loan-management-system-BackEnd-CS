@@ -261,44 +261,45 @@ export class DayEndService {
       return previousProcess.processResults.closingBalance;
     }
 
-    // If no previous process, calculate from cash book or return default
-    // This would query your cash_book or ledger table
-    // For now, return a placeholder - you should implement actual query
-    return 0;
+    // Fall back to calculating from tblcashbook up to (but not including) the working date
+    try {
+      const result = await this.dataSource.query(`
+        SELECT
+          COALESCE(SUM(COALESCE(rcash,0) + COALESCE(rtransfer,0)), 0) -
+          COALESCE(SUM(COALESCE(pcash,0) + COALESCE(ptransfer,0)), 0) as balance
+        FROM tblcashbook
+        WHERE trans_date::date < $1::date
+      `, [date]);
+      return parseFloat(result[0]?.balance || '0');
+    } catch {
+      return 0;
+    }
   }
 
   private async calculateTodayCredits(date: Date): Promise<number> {
-    // Query the 'vouchers' table found in DATABASE_SCHEMA.sql
-    const query = `
-      SELECT COALESCE(SUM("totalAmount"), 0) as total
-      FROM "vouchers"
-      WHERE "voucherDate" = $1
-      AND "voucherType" ILIKE '%receipt%'
-    `;
-
     try {
-      const result = await this.dataSource.query(query, [date]);
+      const result = await this.dataSource.query(`
+        SELECT COALESCE(SUM(COALESCE(rcash,0) + COALESCE(rtransfer,0)), 0) as total
+        FROM tblcashbook
+        WHERE trans_date::date = $1::date
+      `, [date]);
       return Number(result[0]?.total || 0);
     } catch (error) {
-      this.logger.warn('Could not calculate today credits from vouchers table');
+      this.logger.warn('Could not calculate today credits from tblcashbook');
       return 0;
     }
   }
 
   private async calculateTodayDebits(date: Date): Promise<number> {
-    // Query the 'vouchers' table found in DATABASE_SCHEMA.sql
-    const query = `
-      SELECT COALESCE(SUM("totalAmount"), 0) as total
-      FROM "vouchers"
-      WHERE "voucherDate" = $1
-      AND "voucherType" ILIKE '%payment%'
-    `;
-
     try {
-      const result = await this.dataSource.query(query, [date]);
+      const result = await this.dataSource.query(`
+        SELECT COALESCE(SUM(COALESCE(pcash,0) + COALESCE(ptransfer,0)), 0) as total
+        FROM tblcashbook
+        WHERE trans_date::date = $1::date
+      `, [date]);
       return Number(result[0]?.total || 0);
     } catch (error) {
-      this.logger.warn('Could not calculate today debits from vouchers table');
+      this.logger.warn('Could not calculate today debits from tblcashbook');
       return 0;
     }
   }

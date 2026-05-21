@@ -23,6 +23,15 @@ export class LoanSuretyService {
      * If records are missing in certain tables, it attempts to "repair" or skip gracefully.
      */
     async changeLoanSurety(caseNo: string, suretyData: { surety1: string; surety2?: string }) {
+        // Validate surety members before opening a transaction
+        const s1Check = await this.validateSurety(suretyData.surety1);
+        if (!s1Check.valid) throw new Error(`Surety 1: ${s1Check.message}`);
+
+        if (suretyData.surety2) {
+            const s2Check = await this.validateSurety(suretyData.surety2);
+            if (!s2Check.valid) throw new Error(`Surety 2: ${s2Check.message}`);
+        }
+
         const queryRunner = this.dataSource.createQueryRunner();
 
         try {
@@ -65,7 +74,7 @@ export class LoanSuretyService {
 
             await queryRunner.query(updateLpQuery, [
                 suretyData.surety1,
-                suretyData.surety2 || '0',
+                suretyData.surety2 || null,
                 caseNo
             ]);
 
@@ -83,7 +92,7 @@ export class LoanSuretyService {
 
             const smResult = await queryRunner.query(updateSmQuery, [
                 suretyData.surety1,
-                suretyData.surety2 || '0',
+                suretyData.surety2 || null,
                 memberNo
             ]);
 

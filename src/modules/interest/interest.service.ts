@@ -63,8 +63,11 @@ export class InterestService {
         throw new BadRequestException('Interest has already been calculated for this period or dates overlap with existing records');
       }
 
-      // Get all eligible members (active members)
-      const eligibleMembers = await this.getEligibleMembers();
+      // Get all eligible members (active members), optionally filtered to one member
+      const allMembers = await this.getEligibleMembers();
+      const eligibleMembers = dto.memberNo
+        ? allMembers.filter(m => m.mbno === dto.memberNo)
+        : allMembers;
       this.logger.log(`Found ${eligibleMembers.length} eligible members`);
 
       // Generate voucher number if not provided
@@ -310,6 +313,7 @@ export class InterestService {
   ) {
     const transactionNumber = await this.generateTransactionNumber();
 
+    // CR member's SB account — interest credited increases the member's balance
     await manager.save(Ledger, {
       transactionNumber,
       transactionDate: new Date(),
@@ -324,6 +328,29 @@ export class InterestService {
       modeOfPayment: 'T',
       balance: calculation.closingBalance,
       narration,
+      username: 'SYSTEM',
+    });
+
+    // DR Interest Expense head — balancing debit records the cost to the society
+    const debitTransNo = await this.generateTransactionNumber();
+    const sbIntExpenseHead = await this.dataSource.query(
+      `SELECT COALESCE(sbinthead, 'L1028') as head FROM busrules ORDER BY appdate DESC LIMIT 1`
+    );
+    const intExpenseCode = sbIntExpenseHead[0]?.head || 'L1028';
+    await manager.save(Ledger, {
+      transactionNumber: debitTransNo,
+      transactionDate: new Date(),
+      transactionType: 'DR',
+      code: intExpenseCode,
+      memberNumber: member.mbno,
+      accountNumber: calculation.accountNumber,
+      accountType: 'SB',
+      transactionAmount: calculation.interestAmount,
+      receiptVoucherNumber: voucherNumber,
+      voucherType: 'IN',
+      modeOfPayment: 'T',
+      balance: 0,
+      narration: `Interest expense - ${narration}`,
       username: 'SYSTEM',
     });
   }
@@ -423,12 +450,15 @@ export class InterestService {
       throw new BadRequestException('From date must be before to date');
     }
 
-    const eligibleMembers = await this.getEligibleMembers();
+    const allMembers = await this.getEligibleMembers();
+    const eligibleMembers = dto.memberNo
+      ? allMembers.filter(m => m.mbno === dto.memberNo)
+      : allMembers;
     const memberCalculations: InterestCalculationResultDto[] = [];
     let totalInterestAmount = 0;
 
-    // Calculate interest for each member (preview only)
-    for (const member of eligibleMembers.slice(0, 10)) { // Limit to first 10 for preview
+    // Calculate interest for each member
+    for (const member of eligibleMembers) {
       try {
         const calculation = await this.calculateMemberInterest(
           member,

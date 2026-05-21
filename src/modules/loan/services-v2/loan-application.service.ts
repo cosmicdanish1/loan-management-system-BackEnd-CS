@@ -119,8 +119,8 @@ export class LoanApplicationService {
                 'N', // flg_sanctioned = 'N'
                 'N', // flg_paid = 'N'
                 loanData.formNumber || '0',
-                loanData.surety1 || '0',
-                loanData.surety2 || '0'
+                loanData.surety1 || null,
+                loanData.surety2 || null
             ]);
 
             console.log(`[LoanApplication] ✅ Loan application saved. Case No: ${loanCaseNo}`);

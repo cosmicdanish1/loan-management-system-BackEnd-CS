@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { UserLevelMaster, MenuMaster, UserLevelDefaultRights } from '../../auth/entities';
 import { UpdateDefaultRightsDto } from '../dto/role-management.dto';
 
@@ -13,6 +13,7 @@ export class RoleManagementService {
         private menuRepository: Repository<MenuMaster>,
         @InjectRepository(UserLevelDefaultRights)
         private defaultRightsRepository: Repository<UserLevelDefaultRights>,
+        private dataSource: DataSource,
     ) { }
 
     async onModuleInit() {
@@ -148,16 +149,16 @@ export class RoleManagementService {
             throw new NotFoundException(`User level with ID ${userlevelid} not found`);
         }
 
-        // Remove existing rights
-        await this.defaultRightsRepository.delete({ userlevelid });
+        await this.dataSource.transaction(async (manager) => {
+            await manager.delete(UserLevelDefaultRights, { userlevelid });
 
-        // Add new rights
-        if (menuIds.length > 0) {
-            const newRights = menuIds.map(menuid =>
-                this.defaultRightsRepository.create({ userlevelid, menuid })
-            );
-            await this.defaultRightsRepository.save(newRights);
-        }
+            if (menuIds.length > 0) {
+                const newRights = menuIds.map(menuid =>
+                    manager.create(UserLevelDefaultRights, { userlevelid, menuid })
+                );
+                await manager.save(UserLevelDefaultRights, newRights);
+            }
+        });
 
         return {
             message: 'Default rights updated successfully',

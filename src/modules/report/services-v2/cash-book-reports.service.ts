@@ -278,8 +278,32 @@ export class CashBookReportsService {
 
         const transactions = await this.dataSource.query(query, params);
 
-        // Calculate running balance (per-set)
-        let runningBalance = 0;
+        // Opening balance = net DR-CR for this head before from_date
+        const obResult = await this.dataSource.query(`
+            SELECT
+                COALESCE(SUM(CASE WHEN trans_type = 'DR' THEN CAST(trans_amt AS numeric) ELSE 0 END), 0) -
+                COALESCE(SUM(CASE WHEN trans_type = 'CR' THEN CAST(trans_amt AS numeric) ELSE 0 END), 0) as balance
+            FROM ledger
+            WHERE code = $1 AND trans_date < $2
+        `, [head_code, parseSafeDate(from_date)]);
+        let runningBalance = parseFloat(obResult[0]?.balance || '0');
+
+        // For paginated pages, add the balance of rows skipped by offset
+        if (offset && offset > 0) {
+            const preOffsetResult = await this.dataSource.query(`
+                SELECT
+                    COALESCE(SUM(CASE WHEN trans_type = 'DR' THEN CAST(trans_amt AS numeric) ELSE 0 END), 0) -
+                    COALESCE(SUM(CASE WHEN trans_type = 'CR' THEN CAST(trans_amt AS numeric) ELSE 0 END), 0) as balance
+                FROM (
+                    SELECT trans_type, trans_amt FROM ledger
+                    WHERE code = $1 AND trans_date >= $2 AND trans_date <= $3
+                    ORDER BY trans_date ASC, trans_no ASC
+                    LIMIT $4
+                ) pre
+            `, [head_code, parseSafeDate(from_date), parseSafeDate(to_date), offset]);
+            runningBalance += parseFloat(preOffsetResult[0]?.balance || '0');
+        }
+
         const parseMoneyString = (moneyStr: any): number => {
             if (!moneyStr) return 0;
             const str = moneyStr.toString();

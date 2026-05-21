@@ -356,7 +356,8 @@ export class MemberCrudService {
             dob = $13, dor = $14, gross_salary = $15, basic_pay = $16, nominee_name = $17,
             nominee_address = $18, nominee_relation = $19, declare_date = $20, memb_date = $21,
             pfno = $22, flg_insured = $23, insureamt = $24, remarks = $25, dept_name = $26,
-            isactive = $27, flg_retire = $28
+            isactive = $27, flg_retire = $28, aadharno = $29, phoneno = $30, pan_no = $31,
+            frs_no = $32, fathers_name = $33, branchmsno = $34
           WHERE mbno = $1
           RETURNING *
         `;
@@ -369,7 +370,8 @@ export class MemberCrudService {
                     memberData.nominee_name, memberData.nominee_address, memberData.nominee_relation,
                     memberData.declare_date, memberData.memb_date, memberData.pfno, memberData.flg_insured,
                     memberData.insureamt, memberData.remarks, memberData.dept_name, memberData.isactive,
-                    memberData.flg_retire
+                    memberData.flg_retire, memberData.aadharno, memberData.phoneno, memberData.pan_no,
+                    memberData.frs_no, memberData.fathers_name, memberData.branchmsno
                 ]);
 
                 return { success: true, data: result[0] };

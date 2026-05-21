@@ -188,11 +188,26 @@ export class SystemConfigService {
 
   async bulkUpdateBusinessRules(rules: Record<string, any>): Promise<void> {
     for (const [key, value] of Object.entries(rules)) {
-      const config = await this.systemConfigRepository.findOne({
-        where: { key },
-      });
+      let config = await this.systemConfigRepository.findOne({ where: { key } });
 
-      if (config && !config.isReadonly) {
+      if (!config) {
+        const dataType =
+          typeof value === 'boolean'
+            ? ConfigDataType.BOOLEAN
+            : value !== '' && !isNaN(Number(value))
+              ? ConfigDataType.NUMBER
+              : ConfigDataType.STRING;
+        config = this.systemConfigRepository.create({
+          key,
+          name: key.replace(/_/g, ' ').toLowerCase(),
+          value: String(value),
+          dataType,
+          category: ConfigCategory.BUSINESS_RULES,
+          isActive: true,
+          isReadonly: false,
+        });
+        await this.systemConfigRepository.save(config);
+      } else if (!config.isReadonly) {
         config.setTypedValue(value);
         await this.systemConfigRepository.save(config);
       }

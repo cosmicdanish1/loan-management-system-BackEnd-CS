@@ -53,6 +53,15 @@ export class UpdateSavingInterestDto {
   @IsOptional()
   @IsString()
   narration?: string;
+
+  @ApiProperty({
+    description: 'Filter interest calculation to a single member (specific_member mode)',
+    example: '1001',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  memberNo?: string;
 }
 
 export class InterestCalculationResultDto {

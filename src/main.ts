@@ -13,12 +13,26 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
   const logger = new Logger('Bootstrap');
 
+  // Refuse to start in production with default/insecure secrets
+  if (configService.get('NODE_ENV') === 'production') {
+    const jwtSecret = configService.get<string>('JWT_SECRET', '');
+    if (!jwtSecret || jwtSecret.includes('change-this') || jwtSecret.length < 32) {
+      logger.error('FATAL: JWT_SECRET is missing, too short, or still set to the default value. Set a strong secret in .env before running in production.');
+      process.exit(1);
+    }
+  }
+
   // Global configuration
   app.setGlobalPrefix(configService.get('API_PREFIX', 'api/v1'));
 
-  // Enable CORS for frontend
+  // Enable CORS for frontend — include the actual backend port so same-origin Swagger works
+  const allowedOrigins = [
+    'http://localhost:5177',  // Vite dev server (Electron renderer)
+    'http://localhost:3000',  // Legacy / alternate port
+    `http://localhost:${configService.get('PORT', 3001)}`, // Actual backend port from .env
+  ];
   app.enableCors({
-    origin: ['http://localhost:5177', 'http://localhost:3000'],
+    origin: allowedOrigins,
     credentials: true,
   });
 

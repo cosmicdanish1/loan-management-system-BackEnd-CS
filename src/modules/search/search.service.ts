@@ -35,10 +35,22 @@ export class SearchService {
       const searchTerm = `%${query.toLowerCase()}%`;
       console.log(`🔍 [SEARCH] Search term: ${searchTerm}`);
 
-      // For now, use member_master table for all search types
-      console.log(`🔍 [SEARCH] Searching member_master table...`);
-      const memberResults = await this.searchMembersOnly(searchTerm, type, limit);
-      results.push(...memberResults);
+      if (type === 'all' || type === 'member') {
+        const memberResults = await this.searchMembers(searchTerm, limit);
+        results.push(...memberResults);
+      }
+      if (type === 'all' || type === 'account') {
+        const accountResults = await this.searchAccounts(searchTerm, limit);
+        results.push(...accountResults);
+      }
+      if (type === 'all' || type === 'transaction') {
+        const txnResults = await this.searchTransactions(searchTerm, limit);
+        results.push(...txnResults);
+      }
+      if (type === 'all' || type === 'loan') {
+        const loanResults = await this.searchLoans(searchTerm, limit);
+        results.push(...loanResults);
+      }
 
       // Sort by relevance and limit results
       const sortedResults = results
@@ -257,43 +269,61 @@ export class SearchService {
   }
 
   /**
-   * Search accounts (using member data as account proxy)
+   * Search SB and FD accounts from sbmaster and fdmaster tables
    */
   private async searchAccounts(searchTerm: string, limit: number): Promise<SearchResult[]> {
     try {
-      const query = `
-        SELECT 
-          m.mbno,
-          m.f_name,
-          m.m_name,
-          m.l_name,
-          m.basic_pay,
-          d.name as office_name,
-          m.isactive
-        FROM member_master m
-        LEFT JOIN division_master d ON m.officeno = d.officeno
-        WHERE (
-          m.mbno::text LIKE $1
-          OR LOWER(m.f_name || ' ' || COALESCE(m.m_name, '') || ' ' || m.l_name) LIKE $1
-        )
-        AND m.mbno IS NOT NULL
-        AND m.isactive = 'Y'
-        ORDER BY m.mbno DESC
-        LIMIT $2
-      `;
+      const results: SearchResult[] = [];
 
-      const accounts = await this.dataSource.query(query, [searchTerm, limit]);
+      // Search SB accounts
+      try {
+        const sbRows = await this.dataSource.query(`
+          SELECT sb.accno, sb.mbno, sb.balance, m.f_name, m.l_name
+          FROM sbmaster sb
+          LEFT JOIN member_master m ON sb.mbno = m.mbno
+          WHERE sb.accno::text LIKE $1 OR sb.mbno::text LIKE $1
+             OR LOWER(COALESCE(m.f_name,'') || ' ' || COALESCE(m.l_name,'')) LIKE $1
+          ORDER BY sb.accno DESC LIMIT $2
+        `, [searchTerm, limit]);
 
-      return accounts.map((account: any) => ({
-        id: `account-${account.mbno}`,
-        type: 'account' as const,
-        title: `Savings Account - ${account.mbno}`,
-        subtitle: `Balance: ₹${(parseFloat(account.basic_pay) * 10 || 0).toLocaleString()}`,
-        details: `${account.f_name} ${account.m_name || ''} ${account.l_name}`.trim() + ` - ${account.office_name || 'Unknown'}`,
-        date: undefined,
-        relevance: this.calculateRelevance(searchTerm, account.mbno + ' ' + account.f_name)
-      }));
+        sbRows.forEach((row: any) => {
+          const name = `${row.f_name || ''} ${row.l_name || ''}`.trim();
+          results.push({
+            id: `account-sb-${row.accno}`,
+            type: 'account',
+            title: `SB Account - ${row.accno}`,
+            subtitle: `Balance: ₹${parseFloat(row.balance || 0).toLocaleString()}`,
+            details: name || `Member ${row.mbno}`,
+            relevance: this.calculateRelevance(searchTerm, row.accno + ' ' + name),
+          });
+        });
+      } catch { /* sbmaster may not exist */ }
 
+      // Search FD accounts
+      try {
+        const fdRows = await this.dataSource.query(`
+          SELECT fd.fdno, fd.mbno, fd.fdamt, fd.matdate, m.f_name, m.l_name
+          FROM fdmaster fd
+          LEFT JOIN member_master m ON fd.mbno = m.mbno
+          WHERE fd.fdno::text LIKE $1 OR fd.mbno::text LIKE $1
+             OR LOWER(COALESCE(m.f_name,'') || ' ' || COALESCE(m.l_name,'')) LIKE $1
+          ORDER BY fd.fdno DESC LIMIT $2
+        `, [searchTerm, limit]);
+
+        fdRows.forEach((row: any) => {
+          const name = `${row.f_name || ''} ${row.l_name || ''}`.trim();
+          results.push({
+            id: `account-fd-${row.fdno}`,
+            type: 'account',
+            title: `FD Account - ${row.fdno}`,
+            subtitle: `Amount: ₹${parseFloat(row.fdamt || 0).toLocaleString()}`,
+            details: `${name} | Maturity: ${row.matdate ? new Date(row.matdate).toLocaleDateString('en-GB') : 'N/A'}`,
+            relevance: this.calculateRelevance(searchTerm, row.fdno + ' ' + name),
+          });
+        });
+      } catch { /* fdmaster may not exist */ }
+
+      return results;
     } catch (error) {
       console.error('❌ Error searching accounts:', error);
       return [];
