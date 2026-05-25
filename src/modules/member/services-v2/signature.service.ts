@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { Member } from '../entities/member.entity';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -14,6 +14,7 @@ export class SignatureService {
     constructor(
         @InjectRepository(Member)
         private readonly memberRepository: Repository<Member>,
+        private readonly dataSource: DataSource,
     ) { }
 
     /**
@@ -45,16 +46,14 @@ export class SignatureService {
         }
 
         // Update member record
-        // Store relative path
-        const relativePath = filePath.replace(process.cwd(), '').replace(/\\/g, '/');
-        // Ensure it starts with /uploads or similar (multer destination was ./uploads/signatures)
-        // Actually, Multer stores it in 'uploads/signatures/filename.ext'. 
-        // We should store 'uploads/signatures/filename.ext' in DB.
+        // BUG FIX 3: normalise to a relative forward-slash path so that
+        // join(process.cwd(), relativePath) works correctly on serve.
+        const relativePath = filePath
+            .replace(process.cwd(), '')
+            .replace(/\\/g, '/')
+            .replace(/^\//, ''); // strip leading slash
 
-        // filePath coming from controller might be absolute or relative depending on Multer.
-        // Multer 'file.path' is usually relative if destination is relative.
-
-        member.signatureImagePath = filePath; // We will handle normalization in controller
+        member.signatureImagePath = relativePath;
         return this.memberRepository.save(member);
     }
 
@@ -97,5 +96,64 @@ export class SignatureService {
         }
 
         return member.signatureImagePath;
+    }
+
+    // ── member_master (legacy) signature methods ──────────────────────────────
+
+    /** BUG FIX 1+2: Signatures for legacy members stored in member_master.signature_image_path */
+    async uploadSignatureMaster(mbno: string, filePath: string): Promise<void> {
+        const rows = await this.dataSource.query(
+            `SELECT mbno, signature_image_path FROM member_master WHERE mbno = $1`, [mbno]
+        );
+        if (!rows || rows.length === 0) {
+            if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+            throw new NotFoundException(`Member ${mbno} not found in member_master`);
+        }
+        const existing = rows[0].signature_image_path;
+        if (existing) {
+            const oldFull = path.join(process.cwd(), existing);
+            if (fs.existsSync(oldFull)) {
+                try { fs.unlinkSync(oldFull); } catch (_) { /* ignore */ }
+            }
+        }
+        // BUG FIX 3: normalise to relative forward-slash path
+        const relativePath = filePath
+            .replace(process.cwd(), '')
+            .replace(/\\/g, '/')
+            .replace(/^\//, '');
+
+        await this.dataSource.query(
+            `UPDATE member_master SET signature_image_path = $1 WHERE mbno = $2`,
+            [relativePath, mbno]
+        );
+    }
+
+    async deleteSignatureMaster(mbno: string): Promise<void> {
+        const rows = await this.dataSource.query(
+            `SELECT signature_image_path FROM member_master WHERE mbno = $1`, [mbno]
+        );
+        if (!rows || rows.length === 0) {
+            throw new NotFoundException(`Member ${mbno} not found in member_master`);
+        }
+        const sigPath = rows[0].signature_image_path;
+        if (sigPath) {
+            const fullPath = path.join(process.cwd(), sigPath);
+            if (fs.existsSync(fullPath)) {
+                try { fs.unlinkSync(fullPath); } catch (_) { /* ignore */ }
+            }
+            await this.dataSource.query(
+                `UPDATE member_master SET signature_image_path = NULL WHERE mbno = $1`, [mbno]
+            );
+        }
+    }
+
+    async getSignaturePathMaster(mbno: string): Promise<string | null> {
+        const rows = await this.dataSource.query(
+            `SELECT signature_image_path FROM member_master WHERE mbno = $1`, [mbno]
+        );
+        if (!rows || rows.length === 0) {
+            throw new NotFoundException(`Member ${mbno} not found in member_master`);
+        }
+        return rows[0].signature_image_path || null;
     }
 }

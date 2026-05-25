@@ -33,8 +33,11 @@ export class FinancialYearService {
 
     async getCurrentFinancialYear(): Promise<FinancialYear | null> {
         const now = new Date();
+        // BUG FIX 2: TypeORM QueryBuilder requires entity PROPERTY names (camelCase), not DB column names.
+        // Using 'fy.start_date'/'fy.end_date' caused TypeORM to silently produce a broken WHERE clause
+        // that always returned null. The correct property names are 'fy.startDate' and 'fy.endDate'.
         return this.financialYearRepository.createQueryBuilder('fy')
-            .where('fy.start_date <= :now AND fy.end_date >= :now', { now })
+            .where('fy.startDate <= :now AND fy.endDate >= :now', { now })
             .getOne();
     }
 
@@ -69,6 +72,23 @@ export class FinancialYearService {
             success: true,
             message: `Balance of ${amount} transferred from ${fromAccount} to ${toAccount} successfully.`
         };
+    }
+
+    async closeFinancialYear(yearCode: number, username: string): Promise<{ message: string }> {
+        const fy = await this.getFinancialYear(yearCode);
+
+        if (fy.closedAt) {
+            throw new BadRequestException(`Financial Year ${yearCode} is already closed (closed at ${fy.closedAt.toISOString()}).`);
+        }
+
+        // Mark the year as closed — sets closed_at timestamp and records the operator
+        await this.financialYearRepository.update(
+            { yearCode },
+            { closedAt: new Date(), username },
+        );
+
+        this.logger.log(`Financial Year ${yearCode} closed by ${username}`);
+        return { message: `Financial Year ${yearCode} has been formally closed.` };
     }
 
     async performPLYearEndProcess(username: string): Promise<{ success: boolean; message: string }> {

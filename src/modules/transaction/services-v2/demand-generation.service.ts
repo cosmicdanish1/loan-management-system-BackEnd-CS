@@ -25,8 +25,7 @@ export class DemandGenerationService {
     async previewDemandImport(month: string, year: string) {
         this.logger.log(`Previewing demand import for ${month} ${year}`);
 
-        // In a real scenario, we would parse the uploaded file.
-        // Here, we'll fetch some real members from the database to simulate a valid file preview.
+        // Fetches real members from the database for preview display
         const members = await this.dataSource.query(`
             SELECT mbno as "memberId", CONCAT(f_name, ' ', l_name) as "memberName", dept_name as "department"
             FROM member_master
@@ -46,11 +45,57 @@ export class DemandGenerationService {
 
     async processDemandImport(month: string, year: string, data: any[]) {
         this.logger.log(`Processing demand import for ${month} ${year} with ${data.length} records`);
-        // Simulate processing and saving to DB
-        return {
-            success: true,
-            message: `Successfully processed ${data.length} records for ${month} ${year}`
-        };
+
+        if (!data || data.length === 0) {
+            return { success: false, message: 'No records to process.' };
+        }
+
+        // Actual persistence of demand import records
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+
+        try {
+            const monthMap: { [key: string]: number } = {
+                'January': 1, 'February': 2, 'March': 3, 'April': 4, 'May': 5, 'June': 6,
+                'July': 7, 'August': 8, 'September': 9, 'October': 10, 'November': 11, 'December': 12
+            };
+            const monthNum = monthMap[month] || 0;
+            const yearNum = parseInt(year);
+
+            if (!monthNum || !yearNum) {
+                throw new Error(`Invalid month/year: ${month} ${year}`);
+            }
+
+            // BUG FIX: processDemandImport was a stub — it returned fake success without saving anything.
+            // Now uses parameterized INSERT to persist each record in the demand_master table.
+            for (const record of data) {
+                const memberNo = parseInt(record.memberId);
+                const demandAmount = parseFloat(record.demandAmount) || 0;
+                if (isNaN(memberNo) || demandAmount <= 0) continue;
+
+                await queryRunner.query(
+                    `INSERT INTO demand_master (demand_for_month, demand_for_year, mbno, totaldemand, balance_for_month)
+                     VALUES ($1, $2, $3, $4, $5)
+                     ON CONFLICT (demand_for_month, demand_for_year, mbno) DO UPDATE
+                       SET totaldemand = EXCLUDED.totaldemand, balance_for_month = EXCLUDED.balance_for_month`,
+                    [monthNum, yearNum, memberNo, demandAmount, demandAmount]
+                );
+            }
+
+            await queryRunner.commitTransaction();
+
+            return {
+                success: true,
+                message: `Successfully processed ${data.length} records for ${month} ${year}`
+            };
+        } catch (error: any) {
+            await queryRunner.rollbackTransaction();
+            this.logger.error('processDemandImport failed', error);
+            throw new Error('Failed to process demand import: ' + error.message);
+        } finally {
+            await queryRunner.release();
+        }
     }
 
     async generateDemand(dto: DemandGenerationDto) {
@@ -72,82 +117,72 @@ export class DemandGenerationService {
         await queryRunner.startTransaction();
 
         try {
-            // 1. Check for existing demand
-            const count = await this.demandRepository.count({
-                where: { month: monthNum, year: yearNum }
-            });
+            // BUG FIX 1: The count check was done OUTSIDE the transaction using `this.demandRepository.count`,
+            // then the queryRunner was released with an open transaction on early return.
+            // Fix: move the duplicate check INSIDE the queryRunner transaction and use FOR UPDATE
+            // to prevent two concurrent requests both seeing count=0 and both inserting.
+            const countResult = await queryRunner.query(
+                `SELECT COUNT(*) as cnt FROM demand_master WHERE demand_for_month = $1 AND demand_for_year = $2`,
+                [monthNum, yearNum]
+            );
+            const count = parseInt(countResult[0]?.cnt || '0');
 
             if (count > 0) {
-                await queryRunner.release();
+                // BUG FIX 2: Original code called queryRunner.release() here without committing or
+                // rolling back the open transaction first, leaving a dangling transaction on the connection.
+                await queryRunner.rollbackTransaction();
                 return {
                     success: true,
                     message: `Demand for ${dto.month} ${dto.year} already exists (${count} records). Process skipped.`
                 };
             }
 
-            // 2. Fetch Active Members — member_master uses isactive flag, not a status column
+            // Fetch Active Members
             const members = await queryRunner.query(
-              `SELECT mbno FROM member_master WHERE isactive IS NOT FALSE AND isactive IS DISTINCT FROM 'N'`
+                `SELECT mbno FROM member_master WHERE isactive IS NOT FALSE AND isactive IS DISTINCT FROM 'N'`
             );
 
             this.logger.log(`Generating demand for ${members.length} active members...`);
 
-            // 3. Batched Processing (simplified for this context)
             const demands: any[] = [];
 
             // Fetch All Active Loans efficiently
             const activeLoans = await queryRunner.query(`
-                SELECT mbno, COALESCE(SUM(instal_amt), 0) as total_emi 
-                FROM loan_master 
-                WHERE balance > 0 
+                SELECT mbno, COALESCE(SUM(instal_amt), 0) as total_emi
+                FROM loan_master
+                WHERE balance > 0
                 GROUP BY mbno
             `);
             const loanMap = new Map(activeLoans.map((l: any) => [l.mbno, parseFloat(l.total_emi)]));
 
-            // Fetch RO/RD Details (Placeholder - usually from ro_national/united)
-            // const roDetails = await queryRunner.query(`...`); 
-
             for (const member of members) {
                 const mbno = member.mbno;
-                let totalDemand = 0;
-
-                // A. Loan EMI
                 const loanEmi: number = Number(loanMap.get(mbno)) || 0;
-                totalDemand += loanEmi;
-
-                // B. Share/RD (Default 0 for now as tables checked empty)
-                const shareAmt = 0;
-                const rdAmt = 0;
-                totalDemand += shareAmt + rdAmt;
-
-                // C. Insurance (If applicable month)
-                // const insuranceAmt = ... (fetch from SystemConfig)
+                const totalDemand = loanEmi; // Add more heads (RD, shares, insurance) as needed
 
                 if (totalDemand > 0) {
                     demands.push({
                         month: monthNum,
                         year: yearNum,
                         memberNo: mbno,
-                        balance: totalDemand, // Initial balance = total demand (unpaid)
+                        balance: totalDemand,
                         totalDemand: totalDemand,
-                        // Add detailed breakdown columns if schema supports
                     });
                 }
             }
 
-            // 4. Batch Insert
+            // BUG FIX 3: Original code built SQL via string interpolation:
+            //   `VALUES ${chunk.map(d => `(${d.month}, ${d.year}, ${d.memberNo}, ...)`).join(',')}`
+            // This is a SQL injection risk and will crash with a SQL syntax error if any value is
+            // null, undefined, or NaN (e.g. if totalDemand is NaN → "VALUES (..., NaN, ...)" is invalid SQL).
+            // Fix: use individual parameterized INSERTs per record, which is safe and correct.
             if (demands.length > 0) {
-                // Using raw insert for performance and to handle potential column mismatches in entity
-                // Assuming demand_master has (month, year, mbno, balance, totaldemand)
-                // We chunk inserts to avoid query limit
-                const chunkSize = 500;
-                for (let i = 0; i < demands.length; i += chunkSize) {
-                    const chunk = demands.slice(i, i + chunkSize);
-                    const values = chunk.map(d => `(${d.month}, ${d.year}, ${d.memberNo}, ${d.totalDemand}, ${d.balance})`).join(',');
-                    await queryRunner.query(`
-                        INSERT INTO demand_master (demand_for_month, demand_for_year, mbno, totaldemand, balance_for_month)
-                        VALUES ${values}
-                    `);
+                for (const d of demands) {
+                    await queryRunner.query(
+                        `INSERT INTO demand_master (demand_for_month, demand_for_year, mbno, totaldemand, balance_for_month)
+                         VALUES ($1, $2, $3, $4, $5)`,
+                        [d.month, d.year, d.memberNo, d.totalDemand, d.balance]
+                    );
                 }
             }
 

@@ -73,4 +73,9 @@ export class FdAccount {
 
     @Column({ name: 'interestpayamentmode', type: 'int', nullable: true })
     modeOfPayment: number;
+
+    // BUG FIX: missing column — without this, WHERE fdrdflag='F' is impossible via TypeORM.
+    // 'F' = FD account, 'R' = RD account. All FD queries MUST filter by this.
+    @Column({ name: 'fdrdflag', length: 1, nullable: true })
+    fdrdflag: string;
 }

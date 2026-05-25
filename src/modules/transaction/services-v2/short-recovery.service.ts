@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, MoreThan } from 'typeorm';
+import { Repository, MoreThan, DataSource } from 'typeorm';
 import { DemandMaster } from '../entities/demand-master.entity';
 import { ShortRecoveryAdjustment } from '../entities/short-recovery-adjustment.entity';
 import { MemberMaster } from '../../member/entities/member-master.entity';
@@ -12,6 +12,7 @@ export class ShortRecoveryService {
         private readonly demandRepository: Repository<DemandMaster>,
         @InjectRepository(ShortRecoveryAdjustment)
         private readonly adjustmentRepository: Repository<ShortRecoveryAdjustment>,
+        private readonly dataSource: DataSource,
     ) { }
 
     async findAll(month: string, year: string, wing: string) {
@@ -54,20 +55,37 @@ export class ShortRecoveryService {
     }
 
     async adjust(demandId: number, reason: string, amount: number) {
-        const demand = await this.demandRepository.findOne({ where: { id: demandId } });
-        if (!demand) throw new Error('Demand not found');
+        // BUG FIX: the original code had TWO separate saves with no transaction between them.
+        // If adjustmentRepository.save() failed, demand.balance was already set to 0 with no
+        // adjustment record created — split-brain state: balance zeroed but no audit trail.
+        // Fix: wrap both saves in a single queryRunner transaction so they succeed or fail together.
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
 
-        // reduce balance to 0 as it is being "adjusted"
-        demand.balance = 0;
-        await this.demandRepository.save(demand);
+        try {
+            const demand = await queryRunner.manager.findOne(DemandMaster, { where: { id: demandId } });
+            if (!demand) throw new Error('Demand not found');
 
-        const adj = new ShortRecoveryAdjustment();
-        adj.demandId = demandId;
-        adj.adjustmentAmount = amount;
-        adj.reason = reason;
-        adj.adjustedBy = 'Admin';
-        await this.adjustmentRepository.save(adj);
+            // Zero out the shortfall balance
+            demand.balance = 0;
+            await queryRunner.manager.save(DemandMaster, demand);
 
-        return { success: true };
+            // Record the adjustment for audit trail
+            const adj = new ShortRecoveryAdjustment();
+            adj.demandId = demandId;
+            adj.adjustmentAmount = amount;
+            adj.reason = reason;
+            adj.adjustedBy = 'Admin';
+            await queryRunner.manager.save(ShortRecoveryAdjustment, adj);
+
+            await queryRunner.commitTransaction();
+            return { success: true };
+        } catch (error: any) {
+            await queryRunner.rollbackTransaction();
+            throw new Error('Failed to adjust short recovery: ' + error.message);
+        } finally {
+            await queryRunner.release();
+        }
     }
 }

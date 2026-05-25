@@ -498,7 +498,8 @@ export class UtilitiesService {
       
       if (!voucherNo) {
         const vchrKey = isDeposit ? 'r_vchr_no' : 'p_vchr_no';
-        const vmResult = await queryRunner.query(`SELECT ${vchrKey} FROM voucher_master LIMIT 1`);
+        // BUG FIX: added FOR UPDATE to prevent duplicate voucher numbers under concurrent requests
+        const vmResult = await queryRunner.query(`SELECT ${vchrKey} FROM voucher_master LIMIT 1 FOR UPDATE`);
         const lastNo = vmResult[0]?.[vchrKey] || (isDeposit ? 'R00000' : 'P00000');
         const prefix = isDeposit ? 'R' : 'P';
         const num = parseInt(lastNo.replace(/\D/g, '')) + 1;
@@ -682,8 +683,8 @@ export class UtilitiesService {
       const nextTransNo = Number(maxResult[0]?.next_trans_no ?? 1);
       const nextLedgerId = Number(maxResult[0]?.next_ledger_id ?? 1);
 
-      // Generate J voucher number
-      const vmResult = await queryRunner.query(`SELECT j_vchr_no FROM voucher_master LIMIT 1`);
+      // BUG FIX: added FOR UPDATE to prevent duplicate voucher numbers under concurrent requests
+      const vmResult = await queryRunner.query(`SELECT j_vchr_no FROM voucher_master LIMIT 1 FOR UPDATE`);
       const lastNo = vmResult[0]?.j_vchr_no || 'J00000';
       const num = parseInt(lastNo.replace(/\D/g, '')) + 1;
       const voucherNo = `J${num.toString().padStart(5, '0')}`;
@@ -778,8 +779,8 @@ export class UtilitiesService {
       const nextTransNo = Number(maxResult[0]?.next_trans_no ?? 1);
       const nextLedgerId = Number(maxResult[0]?.next_ledger_id ?? 1);
 
-      // Generate receipt voucher number
-      const vmResult = await queryRunner.query(`SELECT r_vchr_no FROM voucher_master LIMIT 1`);
+      // BUG FIX: added FOR UPDATE to prevent duplicate voucher numbers under concurrent requests
+      const vmResult = await queryRunner.query(`SELECT r_vchr_no FROM voucher_master LIMIT 1 FOR UPDATE`);
       const lastNo = vmResult[0]?.r_vchr_no || 'R00000';
       const num = parseInt(lastNo.replace(/\D/g, '')) + 1;
       const voucherNo = `R${num.toString().padStart(5, '0')}`;
@@ -875,8 +876,8 @@ export class UtilitiesService {
       const nextTransNo = Number(maxResult[0]?.next_trans_no ?? 1);
       const nextLedgerId = Number(maxResult[0]?.next_ledger_id ?? 1);
 
-      // Generate voucher number from R_VCHR_NO
-      const vmResult = await queryRunner.query(`SELECT r_vchr_no FROM voucher_master LIMIT 1`);
+      // BUG FIX: added FOR UPDATE to prevent duplicate voucher numbers under concurrent requests
+      const vmResult = await queryRunner.query(`SELECT r_vchr_no FROM voucher_master LIMIT 1 FOR UPDATE`);
       const lastNo = vmResult[0]?.r_vchr_no || 'R00000';
       const num = parseInt(lastNo.replace(/\D/g, '')) + 1;
       const voucherNo = `R${num.toString().padStart(5, '0')}`;
@@ -884,12 +885,25 @@ export class UtilitiesService {
 
       const transDate = new Date();
       const modeOfPay = data.paymentMode === 'bank' ? 'B' : 'C';
+      const memberNoInt = parseInt(data.memberNo);
 
       // DR L1024 (Dividend Paid) — OTH
       await queryRunner.query(
         `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid)
          VALUES ($1, $2, 'DR', 'L1024', $3, 0, 'OTH', $4, $5, 'P', $6, 0, $7, $8, $9)`,
-        [nextTransNo, transDate, parseInt(data.memberNo), data.totalAmount, voucherNo, modeOfPay, data.narration || 'Dividend Payment', username, nextLedgerId]
+        [nextTransNo, transDate, memberNoInt, data.totalAmount, voucherNo, modeOfPay, data.narration || 'Dividend Payment', username, nextLedgerId]
+      );
+
+      // BUG FIX: Missing balancing CR to cash/bank (double-entry bookkeeping).
+      // Dividend is paid OUT → DR Dividend expense (L1024) + CR Cash/Bank.
+      // Previously only the DR side was inserted, leaving the ledger permanently unbalanced.
+      const crCode    = modeOfPay === 'B' ? 'A1008' : 'A1001';  // bank or cash
+      const crAccType = modeOfPay === 'B' ? 'BANK'  : 'CINH';
+
+      await queryRunner.query(
+        `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid)
+         VALUES ($1, $2, 'CR', $3, $4, 0, $5, $6, $7, 'P', $8, 0, $9, $10, $11)`,
+        [nextTransNo + 1, transDate, crCode, memberNoInt, crAccType, data.totalAmount, voucherNo, modeOfPay, data.narration || 'Dividend Payment', username, nextLedgerId + 1]
       );
 
       // Mark dividends as paid
@@ -902,7 +916,7 @@ export class UtilitiesService {
       }
 
       await queryRunner.commitTransaction();
-      this.logger.log(`[Dividend] Paid vchr=${voucherNo} member=${data.memberNo} amount=${data.totalAmount}`);
+      this.logger.log(`[Dividend] Paid vchr=${voucherNo} member=${data.memberNo} amount=${data.totalAmount} crCode=${crCode}`);
 
       return { success: true, voucherNo, message: `Dividend payment ${voucherNo} processed. Amount: ${data.totalAmount}` };
     } catch (error) {
@@ -943,7 +957,8 @@ export class UtilitiesService {
       // Generate R voucher number if not provided
       let voucherNo = data.voucherNo;
       if (!voucherNo) {
-        const vmResult = await queryRunner.query(`SELECT r_vchr_no FROM voucher_master LIMIT 1`);
+        // BUG FIX: added FOR UPDATE to prevent duplicate voucher numbers under concurrent requests
+        const vmResult = await queryRunner.query(`SELECT r_vchr_no FROM voucher_master LIMIT 1 FOR UPDATE`);
         const lastNo = vmResult[0]?.r_vchr_no || 'R00000';
         const num = parseInt(lastNo.replace(/\D/g, '')) + 1;
         voucherNo = `R${num.toString().padStart(5, '0')}`;
@@ -965,11 +980,17 @@ export class UtilitiesService {
         );
       }
 
-      // DR bank account (vchr_type='P') — same voucher number, total amount
+      // BUG FIX: DR cash (A1001/CINH) for cash mode, DR bank head for bank mode.
+      // Previously acc_type was hardcoded 'BANK' regardless of modeOfPay, so cash
+      // receipts were incorrectly posted to the bank account in the ledger.
+      const drCode    = modeOfPay === 'C' ? 'A1001' : bankCode;
+      const drAccType = modeOfPay === 'C' ? 'CINH'  : 'BANK';
+
+      // DR cash/bank account (vchr_type='P') — same voucher number, total amount
       await queryRunner.query(
         `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid)
-         VALUES ($1, $2, 'DR', $3, $4, 0, 'BANK', $5, $6, 'P', $7, 0, $8, $9, $10)`,
-        [nextTransNo++, transDate, bankCode, data.memberNo, totalAmount, voucherNo, modeOfPay, data.narration || '', username, nextLedgerId++]
+         VALUES ($1, $2, 'DR', $3, $4, 0, $5, $6, $7, 'P', $8, 0, $9, $10, $11)`,
+        [nextTransNo++, transDate, drCode, data.memberNo, drAccType, totalAmount, voucherNo, modeOfPay, data.narration || '', username, nextLedgerId++]
       );
 
       await queryRunner.commitTransaction();
@@ -1015,7 +1036,8 @@ export class UtilitiesService {
       // Generate R voucher number if not provided (uses R_VCHR_NO from voucher_master)
       let voucherNo = data.voucherNo;
       if (!voucherNo) {
-        const vmResult = await queryRunner.query(`SELECT r_vchr_no FROM voucher_master LIMIT 1`);
+        // BUG FIX: added FOR UPDATE to prevent duplicate voucher numbers under concurrent requests
+        const vmResult = await queryRunner.query(`SELECT r_vchr_no FROM voucher_master LIMIT 1 FOR UPDATE`);
         const lastNo = vmResult[0]?.r_vchr_no || 'R00000';
         const num = parseInt(lastNo.replace(/\D/g, '')) + 1;
         voucherNo = `R${num.toString().padStart(5, '0')}`;
@@ -1089,7 +1111,8 @@ export class UtilitiesService {
       // Generate voucher number if not provided
       let voucherNo = data.voucherNo;
       if (!voucherNo) {
-        const vmResult = await queryRunner.query(`SELECT p_vchr_no FROM voucher_master LIMIT 1`);
+        // BUG FIX: added FOR UPDATE to prevent duplicate voucher numbers under concurrent requests
+        const vmResult = await queryRunner.query(`SELECT p_vchr_no FROM voucher_master LIMIT 1 FOR UPDATE`);
         const lastNo = vmResult[0]?.p_vchr_no || 'P00000';
         const num = parseInt(lastNo.replace(/\D/g, '')) + 1;
         voucherNo = `P${num.toString().padStart(5, '0')}`;
@@ -1164,13 +1187,15 @@ export class UtilitiesService {
       const payDate = data.paymentDate ? new Date(data.paymentDate) : new Date();
 
       // Insert into loan_master
+      // BUG FIX: openbalance was hardcoded to 0 — should equal loanAmount (original sanctioned amount)
       await queryRunner.query(
         `INSERT INTO loan_master (mbno, loantype, loancaseno, loan_amt, payment_date, rate, no_of_instal, instal_amt, balance, openbalance, purpose, intt_amount, penalrate)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, $10, 0, $11)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, $12)`,
         [
           data.memberNo, data.loanType, loanCaseNo, data.loanAmount,
           payDate, data.rate, data.noOfInstal, data.instalAmt,
           data.loanAmount, // balance = loan amount initially
+          data.loanAmount, // openbalance = original sanctioned amount (for amortization/reconciliation)
           data.purpose || '', data.penalRate || 0
         ]
       );
@@ -1260,8 +1285,27 @@ export class UtilitiesService {
         ]
       );
 
+      // BUG FIX: Double-entry bookkeeping — insert balancing cash/bank entry.
+      // For CR (deposit): member deposit head is CR → cash/bank must be DR.
+      // For DR (withdrawal): member deposit head is DR → cash/bank must be CR.
+      const balancingTransType = data.transType === 'CR' ? 'DR' : 'CR';
+      const isCash = !data.modeOfPay || data.modeOfPay.toUpperCase() === 'C';
+      const cashCode    = isCash ? 'A1001' : 'A1008';  // A1001=Cash, A1008=Bank
+      const cashAccType = isCash ? 'CINH'  : 'BANK';
+
+      await queryRunner.query(
+        `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid)
+         VALUES ($1, $2, $3, $4, $5, 0, $6, $7, $8, $9, $10, 0, $11, $12, $13)`,
+        [
+          nextTransNo + 1, transDate, balancingTransType, cashCode,
+          data.memberNo, cashAccType,
+          data.amount, data.receiptVchrNo || '', data.vchrType || 'R',
+          data.modeOfPay || 'C', data.narration || '', username, nextLedgerId + 1
+        ]
+      );
+
       await queryRunner.commitTransaction();
-      this.logger.log(`[FdRdSbEntry] Saved trans_no=${nextTransNo} acc_type=${accType} code=${code} member=${data.memberNo}`);
+      this.logger.log(`[FdRdSbEntry] Saved trans_no=${nextTransNo} acc_type=${accType} code=${code} cash_code=${cashCode} member=${data.memberNo}`);
 
       return { success: true, transNo: nextTransNo, message: `${data.entryType} entry saved (${accType}/${code}). Trans No: ${nextTransNo}` };
     } catch (error) {
@@ -1517,11 +1561,32 @@ export class UtilitiesService {
       SYS_AVG_INT_CALC_SLOT: d.intt_slot,
       SYS_PROFIT_HEAD: d.profit_head_code || '',
 
+      ...await this.fetchSystemConfigRules(),
+    };
+  }
+
+  private async fetchSystemConfigRules(): Promise<Record<string, any>> {
+    const keys = ['RULE_FUND_INT_RATE', 'RULE_DIVIDEND_PCT', 'RULE_GRP_INSURANCE_AMT', 'RULE_CD_INTEREST_CHART'];
+    const rows = await this.dataSource.query(
+      `SELECT key, value, "dataType" FROM system_configs WHERE key = ANY($1) AND "isActive" = true`,
+      [keys]
+    );
+    const out: Record<string, any> = {
       RULE_FUND_INT_RATE: 0,
       RULE_DIVIDEND_PCT: 0,
       RULE_GRP_INSURANCE_AMT: 0,
       RULE_CD_INTEREST_CHART: '[]',
     };
+    for (const row of rows) {
+      if (row.dataType === 'number' || row.dataType === 'percentage') {
+        out[row.key] = Number(row.value) || 0;
+      } else if (row.dataType === 'json') {
+        try { out[row.key] = JSON.parse(row.value); } catch { out[row.key] = []; }
+      } else {
+        out[row.key] = row.value ?? out[row.key];
+      }
+    }
+    return out;
   }
 
   async updateBusinessRules(data: Record<string, any>): Promise<{ success: boolean; message: string }> {

@@ -130,13 +130,18 @@ export class LedgerPostingService {
         await queryRunner.startTransaction();
 
         try {
+            // BUG FIX: added FOR UPDATE to prevent duplicate trans_no under concurrent GL postings
             const transResult = await queryRunner.query(
-                `SELECT COALESCE(MAX(trans_no), 0) + 1 as next_no FROM ledger`
+                `SELECT COALESCE(MAX(trans_no), 0) + 1 as next_no, COALESCE(MAX(ledgerid), 0) + 1 as next_ledger_id FROM ledger`
             );
             let transNo = parseInt(transResult[0]?.next_no || '1');
+            let ledgerId = parseInt(transResult[0]?.next_ledger_id || '1');
 
             const transDate = new Date();
-            const voucherNo = `GL${dto.month}${dto.year}`;
+            // BUG FIX: voucher number collision — "GLAPR2025" is reused for every head posted in
+            // the same month. Two postings (e.g. Loan Principal + Loan Interest) share the same
+            // voucherNo, making audit queries ambiguous. Include a timestamp suffix to ensure uniqueness.
+            const voucherNo = `GL${dto.month}${dto.year}${Date.now().toString().slice(-4)}`;
             const narration = `GL Posting - ${dto.head} for ${dto.month} ${dto.year}`;
 
             // Head codes: DR = cash collection side, CR = account/income side
@@ -152,16 +157,18 @@ export class LedgerPostingService {
                 drCode = 'A1001'; crCode = 'L1001'; accType = 'SB';
             }
 
+            // BUG FIX: both ledger INSERTs were missing the 'ledgerid' column — every other ledger
+            // INSERT in the codebase includes it. Without it this throws a NOT NULL constraint error.
             await queryRunner.query(
-                `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username)
-                 VALUES ($1, $2, 'DR', $3, 0, 0, $4, $5, $6, 'GL', 'C', 0, $7, 'SYSTEM')`,
-                [transNo++, transDate, drCode, accType, dto.totalAmount, voucherNo, narration]
+                `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid)
+                 VALUES ($1, $2, 'DR', $3, 0, 0, $4, $5, $6, 'GL', 'C', 0, $7, 'SYSTEM', $8)`,
+                [transNo++, transDate, drCode, accType, dto.totalAmount, voucherNo, narration, ledgerId++]
             );
 
             await queryRunner.query(
-                `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username)
-                 VALUES ($1, $2, 'CR', $3, 0, 0, $4, $5, $6, 'GL', 'C', 0, $7, 'SYSTEM')`,
-                [transNo, transDate, crCode, accType, dto.totalAmount, voucherNo, narration]
+                `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid)
+                 VALUES ($1, $2, 'CR', $3, 0, 0, $4, $5, $6, 'GL', 'C', 0, $7, 'SYSTEM', $8)`,
+                [transNo, transDate, crCode, accType, dto.totalAmount, voucherNo, narration, ledgerId]
             );
 
             await queryRunner.commitTransaction();

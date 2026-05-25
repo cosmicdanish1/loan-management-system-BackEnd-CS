@@ -212,7 +212,7 @@ export class DataConsistencyService {
             recordedBalance,
             discrepancy: calculatedBalance - recordedBalance,
             lastTransaction: loan.payments?.length > 0
-              ? new Date(Math.max(...loan.payments.map(p => p.paymentDate.getTime())))
+              ? new Date(Math.max(...loan.payments.map(p => new Date(p.paymentDate).getTime())))
               : loan.disbursementDate,
           });
         }

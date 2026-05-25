@@ -132,10 +132,14 @@ export class PassTransactionService {
                 for (const detail of details) {
                     const amt = parseMoney(detail.trans_amt);
                     const headCode = detail.code || 'GL000';
+                    // BUG FIX: was hardcoded 'P' for all entries — a Receipt entry (trans_type='R')
+                    // was being posted to the ledger as a Payment, corrupting debit/credit balances.
+                    // Now uses the actual trans_type from the transactions table row.
+                    const entryTransType = detail.trans_type || 'P';
 
                     // Ledger Insert (if member)
                     if (header.memberId) {
-                        console.log(`[PassTransaction] Posting member ledger: ${header.memberId}, Code: ${headCode}`);
+                        console.log(`[PassTransaction] Posting member ledger: ${header.memberId}, Code: ${headCode}, Type: ${entryTransType}`);
                         await queryRunner.query(`
                             INSERT INTO ledger (
                                 trans_no, trans_date, trans_type, code, mbno,
@@ -143,7 +147,7 @@ export class PassTransactionService {
                                 narration, username, ledgerid
                             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
                         `, [
-                            nextTransNo++, new Date(), 'P', headCode, header.memberId,
+                            nextTransNo++, new Date(), entryTransType, headCode, header.memberId,
                             amt, voucherNo, 'JV', mode, 0,
                             detail.narration || header.description, postedBy, nextLedgerId++
                         ]);

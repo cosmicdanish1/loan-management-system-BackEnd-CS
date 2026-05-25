@@ -15,7 +15,9 @@ export class FdAccountService {
 
     async findAll(): Promise<FdAccount[]> {
         this.logger.log('[FdAccount] GET all FD accounts');
+        // BUG FIX: must filter fdrdflag='F' — without this, RD accounts appear in the FD dropdown
         const accounts = await this.fdAccountRepository.find({
+            where: { fdrdflag: 'F' },
             order: { accountNumber: 'ASC' }
         });
         this.logger.log(`[FdAccount] Found ${accounts.length} FD accounts`);
@@ -24,8 +26,9 @@ export class FdAccountService {
 
     async findByMember(memberNo: number): Promise<FdAccount[]> {
         this.logger.log(`[FdAccount] Finding FD accounts for member: ${memberNo}`);
+        // BUG FIX: must filter fdrdflag='F'
         const accounts = await this.fdAccountRepository.find({
-            where: { memberNo },
+            where: { memberNo, fdrdflag: 'F' },
             order: { accountNumber: 'ASC' }
         });
         this.logger.log(`[FdAccount] Found ${accounts.length} FD accounts for member ${memberNo}`);
@@ -34,7 +37,8 @@ export class FdAccountService {
 
     async findOne(accountNumber: number): Promise<FdAccount> {
         this.logger.log(`[FdAccount] GET account: ${accountNumber}`);
-        const fdAccount = await this.fdAccountRepository.findOne({ where: { accountNumber } });
+        // BUG FIX: must filter fdrdflag='F' to prevent accidentally loading/patching an RD account
+        const fdAccount = await this.fdAccountRepository.findOne({ where: { accountNumber, fdrdflag: 'F' } });
         if (!fdAccount) {
             throw new NotFoundException(`FD Account ${accountNumber} not found`);
         }

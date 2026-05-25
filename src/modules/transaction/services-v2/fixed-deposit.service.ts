@@ -178,52 +178,79 @@ export class FixedDepositService {
         await queryRunner.startTransaction();
 
         try {
+            const transDate = new Date(data.transDate || new Date());
+            const voucherNumber = data.voucherNo || `CLS-${Date.now()}`;
+            const modeOfPay = data.paymentMode === 'bank' ? 'B' : 'C';
+            const memberNoInt = parseInt(data.memberNo);
+            const totalAmount = parseFloat(data.totalAmount) || 0;
+
             // 1. Update FD Master status to Closed
-            const closeQuery = `
-                UPDATE fdmaster 
-                SET status = 'C', 
-                    statusdate = NOW(), 
-                    matamount = $1, 
-                    intpaid = COALESCE(intpaid, 0) + $2,
-                    remarks = $3
-                WHERE certno = $4 AND mbno = $5
-            `;
+            await queryRunner.query(
+                `UPDATE fdmaster
+                 SET status = 'C', statusdate = NOW(), matamount = $1,
+                     intpaid = COALESCE(intpaid, 0) + $2, remarks = $3
+                 WHERE certno = $4 AND mbno = $5`,
+                [
+                    data.maturityAmount,
+                    parseFloat(data.interestPaid) || 0,
+                    'Closed/Withdrawn',
+                    data.certNo,
+                    data.memberNo
+                ]
+            );
 
-            // Assume data.totalAmount includes principal + interest for final settlement? 
-            // Or usually we track them separately. 
-            // For now, let's assume totalAmount is the payout amount.
-
-            await queryRunner.query(closeQuery, [
-                data.maturityAmount,
-                data.interestPaid || 0,
-                'Closed/Withdrawn',
-                data.certNo,
-                data.memberNo
-            ]);
-
-            // 2. Create Voucher
-            const query = `
-                INSERT INTO vouchers (
-                    "voucherNumber", "voucherDate", "voucherType", "totalAmount", 
-                    "description", "memberId", "status", "authorizedAt", "payeeName", "bankName", "chequeNumber", "chequeDate"
+            // 2. Create Voucher record (staging/audit trail)
+            const voucherRes = await queryRunner.query(
+                `INSERT INTO vouchers (
+                    "voucherNumber", "voucherDate", "voucherType", "totalAmount",
+                    "description", "memberId", "status", "authorizedAt",
+                    "payeeName", "bankName", "chequeNumber", "chequeDate"
                 ) VALUES ($1, $2, 'FD_CLOSE', $3, $4, $5, 'PENDING', NOW(), $6, $7, $8, $9)
-                RETURNING id
-            `;
+                RETURNING id`,
+                [
+                    voucherNumber,
+                    transDate,
+                    totalAmount,
+                    data.narration || `FD Closure for Cert ${data.certNo}`,
+                    data.memberNo,
+                    data.payeeName || '',
+                    data.bankName || '',
+                    data.chequeNo || '',
+                    data.chequeDate ? new Date(data.chequeDate) : null
+                ]
+            );
 
-            const voucherRes = await queryRunner.query(query, [
-                data.voucherNo || `CLS-${Date.now()}`,
-                new Date(data.transDate || new Date()),
-                data.totalAmount, // Principal + Interest
-                data.narration || `FD Closure for Cert ${data.certNo}`,
-                data.memberNo,
-                data.payeeName || '',
-                data.bankName || '',
-                data.chequeNo || '',
-                data.chequeDate ? new Date(data.chequeDate) : null
-            ]);
+            // BUG FIX: Add double-entry ledger records — previously ONLY the vouchers table
+            // was written. The accounting ledger never reflected FD closures, leaving the
+            // ledger permanently unbalanced and cash/bank reports missing payout amounts.
+            const maxResult = await queryRunner.query(
+                `SELECT COALESCE(MAX(trans_no), 0) + 1 AS next_trans_no,
+                        COALESCE(MAX(ledgerid), 0) + 1 AS next_ledger_id FROM ledger`
+            );
+            const nextTransNo = Number(maxResult[0]?.next_trans_no ?? 1);
+            const nextLedgerId = Number(maxResult[0]?.next_ledger_id ?? 1);
+            const narration = data.narration || `FD Closure Cert ${data.certNo}`;
+
+            // DR A003 (FD liability) — closing FD reduces society's liability to this member
+            await queryRunner.query(
+                `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type,
+                  trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid)
+                 VALUES ($1, $2, 'DR', 'A003', $3, 0, 'FD', $4, $5, 'P', $6, 0, $7, 'system', $8)`,
+                [nextTransNo, transDate, memberNoInt, totalAmount, voucherNumber, modeOfPay, narration, nextLedgerId]
+            );
+
+            // CR cash/bank — money paid out to member (asset decreases)
+            const crCode    = modeOfPay === 'B' ? 'A1008' : 'A1001';
+            const crAccType = modeOfPay === 'B' ? 'BANK'  : 'CINH';
+            await queryRunner.query(
+                `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type,
+                  trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid)
+                 VALUES ($1, $2, 'CR', $3, $4, 0, $5, $6, $7, 'P', $8, 0, $9, 'system', $10)`,
+                [nextTransNo + 1, transDate, crCode, memberNoInt, crAccType, totalAmount, voucherNumber, modeOfPay, narration, nextLedgerId + 1]
+            );
 
             await queryRunner.commitTransaction();
-            return { success: true, voucherId: voucherRes[0].id };
+            return { success: true, voucherId: voucherRes[0].id, voucherNo: voucherNumber };
 
         } catch (err) {
             await queryRunner.rollbackTransaction();

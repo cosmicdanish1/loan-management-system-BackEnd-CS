@@ -26,7 +26,8 @@ export class JournalTransferService {
 
         try {
             // 2. Get Next Journal Voucher Number from getworkingdate
-            const workingDateRes = await queryRunner.query(`SELECT journal_voucher, working_date FROM getworkingdate LIMIT 1`);
+            // BUG FIX: added FOR UPDATE to prevent duplicate journal voucher numbers under concurrent requests
+            const workingDateRes = await queryRunner.query(`SELECT journal_voucher, working_date FROM getworkingdate LIMIT 1 FOR UPDATE`);
             const voucherNo = (workingDateRes[0]?.journal_voucher || 1).toString();
 
             // 3. Create Voucher Header
@@ -75,6 +76,10 @@ export class JournalTransferService {
 
                 // b. If Member Involved, post to Ledger and update Member Balances
                 if (row.mbno) {
+                    // BUG FIX: track a separate ledger trans_no — the previous code left trans_no
+                    // out of the ledger INSERT entirely, causing a NOT NULL constraint violation or
+                    // silently storing NULL, which corrupts every journal ledger row.
+                    const ledgerTransNo = await this.getNextId(queryRunner, 'ledger', 'trans_no');
                     const ledgerId = await this.getNextId(queryRunner, 'ledger', 'ledgerid');
 
                     // Determine Account Head Logic
@@ -129,12 +134,15 @@ export class JournalTransferService {
                     }
 
                     // Insert Ledger Record
+                    // BUG FIX: added trans_no to INSERT — it was previously absent, causing
+                    // a NOT NULL constraint violation or NULL trans_no on every journal ledger row.
                     await queryRunner.query(`
                         INSERT INTO ledger (
-                            trans_date, trans_type, mbno, trans_amt, receipt_vchr_no, 
+                            trans_no, trans_date, trans_type, mbno, trans_amt, receipt_vchr_no,
                             vchr_type, pl_balance, narration, username, ledgerid, code
-                        ) VALUES (NOW(), $1, $2, $3, $4, 'JV', $5, $6, $7, $8, $9)
+                        ) VALUES ($1, NOW(), $2, $3, $4, $5, 'JV', $6, $7, $8, $9, $10)
                     `, [
+                        ledgerTransNo,
                         type,
                         row.mbno,
                         amount,

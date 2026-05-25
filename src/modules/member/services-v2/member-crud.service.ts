@@ -357,7 +357,8 @@ export class MemberCrudService {
             nominee_address = $18, nominee_relation = $19, declare_date = $20, memb_date = $21,
             pfno = $22, flg_insured = $23, insureamt = $24, remarks = $25, dept_name = $26,
             isactive = $27, flg_retire = $28, aadharno = $29, phoneno = $30, pan_no = $31,
-            frs_no = $32, fathers_name = $33, branchmsno = $34
+            frs_no = $32, fathers_name = $33, branchmsno = $34,
+            supanuationdate = $35, compulsory_deposit = $36, share_amount = $37, cast_category = $38
           WHERE mbno = $1
           RETURNING *
         `;
@@ -371,25 +372,35 @@ export class MemberCrudService {
                     memberData.declare_date, memberData.memb_date, memberData.pfno, memberData.flg_insured,
                     memberData.insureamt, memberData.remarks, memberData.dept_name, memberData.isactive,
                     memberData.flg_retire, memberData.aadharno, memberData.phoneno, memberData.pan_no,
-                    memberData.frs_no, memberData.fathers_name, memberData.branchmsno
+                    memberData.frs_no, memberData.fathers_name, memberData.branchmsno,
+                    memberData.supanuationdate || null, memberData.compulsory_deposit || 0,
+                    memberData.share_amount || 0, memberData.cast_category || ''
                 ]);
 
-                return { success: true, data: result[0] };
+                // Return raw row — TransformInterceptor handles the { success, data } envelope
+                return result[0];
             } else {
                 // Insert new member - use shared sequence generator
                 const memberNumber = await this.sequenceGenerator.generateNextMemberNumber();
 
+                // BUG FIX 2: INSERT was missing aadharno, phoneno, pan_no, frs_no,
+                // fathers_name, branchmsno — all present in the UPDATE path but silently
+                // dropped on new member creation. Added as $31–$36.
                 const insertQuery = `
           INSERT INTO member_master (
             mbno, prefix, f_name, m_name, l_name, sex, desig,
             present_address, permanent_address, wingno, officeno, age,
             dob, dor, gross_salary, basic_pay, nominee_name, nominee_address,
             nominee_relation, declare_date, memb_date, pfno, lfno, flg_incometax,
-            flg_insured, insureamt, remarks, dept_name, isactive, flg_retire
+            flg_insured, insureamt, remarks, dept_name, isactive, flg_retire,
+            aadharno, phoneno, pan_no, frs_no, fathers_name, branchmsno,
+            supanuationdate, compulsory_deposit, share_amount, cast_category
           ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
             $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24,
-            $25, $26, $27, $28, $29, $30
+            $25, $26, $27, $28, $29, $30,
+            $31, $32, $33, $34, $35, $36,
+            $37, $38, $39, $40
           )
           RETURNING *
         `;
@@ -402,10 +413,15 @@ export class MemberCrudService {
                     memberData.nominee_name, memberData.nominee_address, memberData.nominee_relation,
                     memberData.declare_date, memberData.memb_date, memberData.pfno, memberData.lfno,
                     memberData.flg_incometax, memberData.flg_insured, memberData.insureamt,
-                    memberData.remarks, memberData.dept_name, memberData.isactive, memberData.flg_retire
+                    memberData.remarks, memberData.dept_name, memberData.isactive, memberData.flg_retire,
+                    memberData.aadharno || '', memberData.phoneno || '', memberData.pan_no || '',
+                    memberData.frs_no || '', memberData.fathers_name || '', memberData.branchmsno || '',
+                    memberData.supanuationdate || null, memberData.compulsory_deposit || 0,
+                    memberData.share_amount || 0, memberData.cast_category || ''
                 ]);
 
-                return { success: true, data: result[0] };
+                // Return raw row — TransformInterceptor handles the { success, data } envelope
+                return result[0];
             }
         } catch (error) {
             console.error('[MemberCrudService] Error saving member master:', error);

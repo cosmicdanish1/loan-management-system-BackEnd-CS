@@ -445,11 +445,9 @@ export class SystemHealthMonitoringService {
           .where('deposit.status = :status', { status: 'ACTIVE' })
           .getRawOne()
           .then(result => parseFloat(result.total) || 0),
-        this.transactionRepository.count({
-          where: {
-            transactionDate: new Date(new Date().toDateString()),
-          },
-        }),
+        this.dataSource
+          .query(`SELECT COUNT(*) AS count FROM transactions WHERE trans_date::date = CURRENT_DATE`)
+          .then((res: any[]) => parseInt(res[0]?.count ?? '0', 10)),
       ]);
 
       // Calculate defaulters (loans overdue by more than 30 days)

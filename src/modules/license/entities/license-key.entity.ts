@@ -7,6 +7,7 @@ import {
 } from 'typeorm';
 
 export enum LicenseStatus {
+  GENERATED = 'generated',
   PENDING = 'pending',
   ACTIVE = 'active',
   EXPIRED = 'expired',
@@ -23,6 +24,15 @@ export class LicenseKey {
 
   @Column({ nullable: true, length: 100 })
   customer_name: string;
+
+  @Column({ nullable: true, length: 200 })
+  company_name: string;
+
+  @Column({ nullable: true, length: 100 })
+  generated_by: string;
+
+  @Column({ nullable: true, type: 'int' })
+  duration_months: number;
 
   @Column({
     type: 'enum',

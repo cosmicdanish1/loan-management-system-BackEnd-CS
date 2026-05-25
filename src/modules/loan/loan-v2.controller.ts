@@ -102,16 +102,24 @@ export class LoanV2Controller {
         return this.loanSuretyService.changeLoanSurety(caseNo, suretyData);
     }
 
+    // NOTE: validate/:memberNo MUST be declared BEFORE surety/:caseNo (which is a PATCH, not GET)
+    // and also before any GET surety/:caseNo to avoid NestJS route shadowing.
+    @Get('surety/validate/:memberNo')
+    @ApiOperation({ summary: 'Validate if a member can be a surety' })
+    async validateSurety(@Param('memberNo') memberNo: string) {
+        return this.loanSuretyService.validateSurety(memberNo);
+    }
+
     @Get('surety/:caseNo')
     @ApiOperation({ summary: 'Get current sureties for a loan case' })
     async getLoanSureties(@Param('caseNo') caseNo: string) {
         return this.loanSuretyService.getLoanSureties(caseNo);
     }
 
-    @Get('surety/validate/:memberNo')
-    @ApiOperation({ summary: 'Validate if a member can be a surety' })
-    async validateSurety(@Param('memberNo') memberNo: string) {
-        return this.loanSuretyService.validateSurety(memberNo);
+    @Get('member/:memberNo/surety-cases')
+    @ApiOperation({ summary: 'Get all loan cases for a member (pending + active) for surety change form' })
+    async getMemberSuretyCases(@Param('memberNo') memberNo: string) {
+        return this.loanSuretyService.getLoanSuretyCases(memberNo);
     }
 
     // ==================== Query Operations ====================

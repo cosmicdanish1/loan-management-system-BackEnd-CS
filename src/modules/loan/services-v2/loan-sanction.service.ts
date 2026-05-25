@@ -18,7 +18,7 @@ export class LoanSanctionService {
     async getSanctionedLoanCases() {
         try {
             const query = `
-        SELECT 
+        SELECT DISTINCT ON (lp.loancaseno)
           lp.loancaseno,
           lp.mbno,
           TRIM(COALESCE(mm.f_name, '') || ' ' || COALESCE(mm.m_name, '') || ' ' || COALESCE(mm.l_name, '')) as member_name,
@@ -30,14 +30,18 @@ export class LoanSanctionService {
           lp.app_date as application_date
         FROM loan_pending lp
         JOIN member_master mm ON lp.mbno = mm.mbno
-        WHERE lp.flg_sanctioned = 'Y' 
+        WHERE lp.flg_sanctioned = 'Y'
           AND lp.flg_paid = 'N'
           AND NOT EXISTS (
-              SELECT 1 FROM vouchers v 
+              SELECT 1 FROM vouchers v
               WHERE v.remarks LIKE 'LOAN_CASE:' || lp.loancaseno || '%'
               AND v.status = 'PENDING'
           )
-        ORDER BY lp.app_date ASC
+          AND NOT EXISTS (
+              SELECT 1 FROM loan_master lm
+              WHERE lm.loancaseno::text = lp.loancaseno::text
+          )
+        ORDER BY lp.loancaseno, lp.app_date ASC
       `;
 
             const result = await this.dataSource.query(query);

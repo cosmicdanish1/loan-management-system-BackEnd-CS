@@ -23,6 +23,15 @@ export class MemberLookupService {
             const actualLimit = Math.min(limit || 500, 1000); // Default 500, max 1000
             const actualOffset = offset || 0;
 
+            // BUG FIX 8: Was interpolating `search` directly into SQL → SQL injection.
+            // Now uses parameterized placeholders; search pattern built in JS then passed as a safe param.
+            const params: any[] = [actualLimit, actualOffset];
+            let searchClause = '';
+            if (search) {
+                params.push(`%${search}%`);
+                searchClause = `AND (TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) ILIKE $3 OR m.mbno::text ILIKE $3)`;
+            }
+
             const query = `
         SELECT DISTINCT
           m.mbno as memberNo,
@@ -33,13 +42,13 @@ export class MemberLookupService {
         FROM member_master m
         LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
         WHERE (m.isactive = 'Y' OR m.isactive = '1') AND m.mbno IS NOT NULL
-        ${search ? `AND (TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) ILIKE '%${search}%' OR m.mbno::text ILIKE '%${search}%')` : ''}
+        ${searchClause}
         ORDER BY TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, ''))
-        LIMIT ${actualLimit} OFFSET ${actualOffset}
+        LIMIT $1 OFFSET $2
       `;
 
             console.log('[MemberLookup] Executing query with limit:', actualLimit, 'offset:', actualOffset);
-            const result = await this.dataSource.query(query);
+            const result = await this.dataSource.query(query, params);
             console.log('[MemberLookup] Query result count:', result.length);
 
             const mappedResult = result.map((member: any) => ({
@@ -85,8 +94,12 @@ export class MemberLookupService {
           TO_CHAR(m.memb_date::date, 'YYYY-MM-DD') as memb_date,
           TO_CHAR(m.date_of_retirement::date, 'YYYY-MM-DD') as date_of_retirement,
           TO_CHAR(m.declare_date::date, 'YYYY-MM-DD') as declare_date,
+          TO_CHAR(m.supanuationdate::date, 'YYYY-MM-DD') as supanuationdate,
           m.gross_salary,
           m.basic_pay,
+          m.compulsory_deposit,
+          m.share_amount,
+          m.cast_category,
           m.pan_no,
           m.frs_no,
           m.aadharno,
@@ -101,6 +114,7 @@ export class MemberLookupService {
           m.dept_name,
           m.isactive,
           m.flg_retire,
+          m.signature_image_path,
           COALESCE(d.name, 'Unknown Office') as office_name
         FROM member_master m
         LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno

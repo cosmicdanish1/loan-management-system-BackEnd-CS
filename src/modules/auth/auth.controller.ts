@@ -52,10 +52,12 @@ export class AuthController {
     return this.authService.login(loginDto);
   }
 
-  @Public()
+  // BUG FIX 4: Removed @Public() — it conflicts with @UseGuards(AuthGuard('jwt'))
+  // and causes the admin role check to be bypassed entirely.
+  // Register is protected by JWT + admin role, same as any other guarded route.
   @Post('register')
-  @Roles(UserRole.ADMIN) // Only admins can register new users
   @UseGuards(AuthGuard('jwt'), RoleGuard)
+  @Roles(UserRole.ADMIN) // Only admins can register new users
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Register new user (Admin only)' })
   @ApiResponse({
@@ -108,13 +110,17 @@ export class AuthController {
     return this.authService.getCurrentUser(user.id);
   }
 
+  // BUG FIX 3: Added JWT guard — change-password must require a valid session.
+  // Also added ChangePasswordDto type instead of `any` so class-validator runs.
   @Post('change-password')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Change user password' })
   @ApiResponse({ status: 200, description: 'Password changed successfully' })
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
   async changePassword(
-    @Body() changePasswordDto: any,
+    @Body() changePasswordDto: { username: string; currentPassword: string; newPassword: string },
   ): Promise<{ message: string }> {
     return this.authService.changePassword(
       changePasswordDto.username,
@@ -123,10 +129,13 @@ export class AuthController {
     );
   }
 
-  @Public()
+  // BUG FIX 6: Removed @Public() — username enumeration must require authentication.
+  // The LogoutUser frontend calls this with a token from localStorage.
   @Get('users-list')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Get list of all users for dropdown' })
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get list of all users for dropdown (authenticated admins only)' })
   async getUsersList(): Promise<any> {
     return this.authService.getUsersList();
   }

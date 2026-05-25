@@ -25,25 +25,30 @@ export class LoanApplicationService {
     }
 
     /**
-     * Get existing loan cases for a member
+     * Get editable (pending / unsanctioned) loan cases for a member.
+     * Only returns loan_pending rows that have not yet been paid/disbursed.
+     * These are the only ones the Loan Application form can sensibly edit.
      */
     async getMemberLoanCases(memberNo: string) {
         try {
             const query = `
-        SELECT 
+        SELECT DISTINCT ON (loancaseno)
           loancaseno,
           loantype,
-          loan_amt::numeric as loan_amt,
-          balance::numeric as balance,
-          purpose
-        FROM loan_master
+          applied_amt::numeric  AS loan_amt,
+          0::numeric            AS balance,
+          purpose,
+          flg_sanctioned,
+          flg_paid
+        FROM loan_pending
         WHERE mbno = $1
+          AND flg_paid = 'N'
         ORDER BY loancaseno DESC
       `;
 
             const loanCases = await this.dataSource.query(query, [memberNo]);
 
-            console.log(`[LoanApplication] Found ${loanCases.length} loan cases for member ${memberNo}`);
+            console.log(`[LoanApplication] Found ${loanCases.length} editable pending cases for member ${memberNo}`);
 
             return loanCases.map((loan: any) => ({
                 memberNo,
@@ -51,7 +56,8 @@ export class LoanApplicationService {
                 loanType: loan.loantype,
                 loanAmount: loan.loan_amt,
                 balance: loan.balance,
-                purpose: loan.purpose
+                purpose: loan.purpose,
+                sanctioned: loan.flg_sanctioned === 'Y',
             }));
         } catch (error) {
             console.error('[LoanApplication] Error getting member loan cases:', error);
@@ -60,80 +66,180 @@ export class LoanApplicationService {
     }
 
     /**
-     * Save loan application
+     * Save loan application — INSERT new case or UPDATE existing one.
+     * Runs inside a single DB transaction so sequence + loan_pending + suretymaster
+     * are committed atomically or rolled back together.
      */
     async saveLoanApplication(loanData: any) {
+        console.log('[LoanApplication] Saving loan application:', loanData);
+
+        // --- 1. Eligibility check (outside transaction — read-only) ---
+        const amount = parseFloat(loanData.loanAmount || loanData.appliedAmount || 0);
+        const installments = loanData.noOfInstallments || 60;
+        await this.validateLoanEligibility(loanData.memberNo, amount, installments, loanData.loanType);
+
+        // --- 2. Loan type normalisation ---
+        const loanTypeMapping: Record<string, string> = {
+            'EMERGENCY': 'ALN', 'EMERGENCY LOAN': 'ALN', 'Emergency': 'ALN', 'ALN': 'ALN',
+            'REGULAR': 'RLN', 'REGULAR LOAN': 'RLN', 'Regular': 'RLN', 'RLN': 'RLN',
+            'AGAINST': 'ELN', 'LOAN AGAINST RECOVERY': 'ELN', 'Against': 'ELN', 'ELN': 'ELN',
+        };
+        const lookupKey = (loanData.loanType || '').toString();
+        const mappedLoanType = loanTypeMapping[lookupKey]
+            || loanTypeMapping[lookupKey.toUpperCase()]
+            || lookupKey.substring(0, 3).toUpperCase();
+
+        // --- 3. Sanitise fields ---
+        // purpose is VARCHAR(50); form_number is VARCHAR(10)
+        const purpose = (loanData.reason || loanData.purpose || '').slice(0, 50);
+        const formNumber = (loanData.formNumber || '0').slice(0, 10);
+        // Use the user-selected application date, fall back to today
+        const appDate = loanData.applDate ? new Date(loanData.applDate) : new Date();
+        // g1/g2 must be numeric — use 0 instead of NULL (column default is 0, not nullable)
+        const g1mbno = loanData.surety1 || 0;
+        const g2mbno = loanData.surety2 || 0;
+
+        // --- 4. Sequence generation (before transaction so gaps are predictable) ---
+        let loanCaseNo = loanData.loanCaseNo;
+        if (!loanCaseNo) {
+            loanCaseNo = await this.sequenceGenerator.generateNextLoanCaseNo();
+        }
+
+        // --- 5. Transactional writes ---
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+
         try {
-            console.log('[LoanApplication] Saving loan application:', loanData);
+            // Decide INSERT vs UPDATE based on whether this case already exists in loan_pending
+            const existing = await queryRunner.query(
+                `SELECT loancaseno FROM loan_pending WHERE loancaseno::text = $1`,
+                [String(loanCaseNo)]
+            );
+            const isUpdate = existing.length > 0;
 
-            // Validate loan eligibility - ensure amount is a number
-            const amount = parseFloat(loanData.loanAmount || loanData.appliedAmount || 0);
-            const installments = loanData.noOfInstallments || 60;
-            await this.validateLoanEligibility(loanData.memberNo, amount, installments, loanData.loanType);
-
-            // Map loan types to 3-character codes for database
-            // Legacy codes: ALN = Emergency Loan, RLN = Regular Loan, ELN = Loan Against Recovery
-            const loanTypeMapping: Record<string, string> = {
-                'EMERGENCY': 'ALN',
-                'REGULAR': 'RLN',
-                'AGAINST': 'ELN',
-                'EMERGENCY LOAN': 'ALN',
-                'REGULAR LOAN': 'RLN',
-                'LOAN AGAINST RECOVERY': 'ELN',
-                'Emergency': 'ALN',
-                'Regular': 'RLN',
-                'Against': 'ELN',
-                'ELN': 'ELN',
-                'RLN': 'RLN',
-                'ALN': 'ALN'
-            };
-
-            const lookupKey = loanData.loanType ? loanData.loanType.toString() : '';
-            const mappedLoanType = loanTypeMapping[lookupKey] ||
-                loanTypeMapping[lookupKey.toUpperCase()] ||
-                lookupKey.substring(0, 3).toUpperCase();
-
-            // Generate loan case number if not provided
-            let loanCaseNo = loanData.loanCaseNo;
-            if (!loanCaseNo) {
-                loanCaseNo = await this.sequenceGenerator.generateNextLoanCaseNo();
+            let result: any[];
+            if (isUpdate) {
+                console.log(`[LoanApplication] Updating existing loan_pending case: ${loanCaseNo}`);
+                result = await queryRunner.query(`
+                    UPDATE loan_pending SET
+                        loantype    = $1,
+                        applied_amt = $2,
+                        app_date    = $3,
+                        no_of_instal = $4,
+                        purpose     = $5,
+                        form_number = $6,
+                        g1mbno      = $7,
+                        g2mbno      = $8
+                    WHERE loancaseno::text = $9
+                    RETURNING *
+                `, [mappedLoanType, amount, appDate, installments, purpose, formNumber,
+                    g1mbno, g2mbno, String(loanCaseNo)]);
+            } else {
+                console.log(`[LoanApplication] Inserting new loan_pending case: ${loanCaseNo}`);
+                result = await queryRunner.query(`
+                    INSERT INTO loan_pending (
+                        mbno, loantype, loancaseno, applied_amt, sanctioned_amt, app_date,
+                        no_of_instal, purpose, flg_sanctioned, flg_paid, form_number, g1mbno, g2mbno
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                    RETURNING *
+                `, [loanData.memberNo, mappedLoanType, loanCaseNo, amount,
+                    0, appDate, installments, purpose, 'N', 'N', formNumber, g1mbno, g2mbno]);
             }
 
-            const insertQuery = `
-        INSERT INTO loan_pending (
-          mbno, loantype, loancaseno, applied_amt, sanctioned_amt, app_date,
-          no_of_instal, purpose, flg_sanctioned, flg_paid, form_number, g1mbno, g2mbno
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-        RETURNING *
-      `;
+            // Sync suretymaster (UPSERT) whenever guarantors are provided
+            if (g1mbno || g2mbno) {
+                const sm = await queryRunner.query(
+                    `SELECT mbno FROM suretymaster WHERE mbno = $1`, [loanData.memberNo]
+                );
+                if (sm.length > 0) {
+                    await queryRunner.query(
+                        `UPDATE suretymaster SET g1mbno = $1, g2mbno = $2 WHERE mbno = $3`,
+                        [g1mbno, g2mbno, loanData.memberNo]
+                    );
+                    console.log(`[LoanApplication] ✅ Updated suretymaster for member: ${loanData.memberNo}`);
+                } else {
+                    await queryRunner.query(
+                        `INSERT INTO suretymaster (mbno, amount, g1mbno, g2mbno, g1amt, g2amt, addflag)
+                         VALUES ($1, 0, $2, $3, 0, 0, 'N')`,
+                        [loanData.memberNo, g1mbno, g2mbno]
+                    );
+                    console.log(`[LoanApplication] ✅ Inserted suretymaster for member: ${loanData.memberNo}`);
+                }
+            }
 
-            const result = await this.dataSource.query(insertQuery, [
-                loanData.memberNo,
-                mappedLoanType,
-                loanCaseNo,
-                loanData.loanAmount || loanData.appliedAmount,
-                0, // sanctioned_amt = 0 initially
-                new Date(),
-                loanData.noOfInstallments || 60,
-                loanData.reason || loanData.purpose || '',
-                'N', // flg_sanctioned = 'N'
-                'N', // flg_paid = 'N'
-                loanData.formNumber || '0',
-                loanData.surety1 || null,
-                loanData.surety2 || null
-            ]);
+            // Save nominees — always replace existing rows for this case
+            const nominees: any[] = Array.isArray(loanData.nominees) ? loanData.nominees : [];
+            const validNominees = nominees.filter((n: any) => n.name && n.name.trim());
+            if (validNominees.length > 0) {
+                await queryRunner.query(
+                    `DELETE FROM loan_nominee WHERE loancaseno = $1`, [String(loanCaseNo)]
+                );
+                for (let i = 0; i < validNominees.length; i++) {
+                    const n = validNominees[i];
+                    await queryRunner.query(
+                        `INSERT INTO loan_nominee (srno, loancaseno, name, address, age, relation)
+                         VALUES ($1, $2, $3, $4, $5, $6)`,
+                        [i + 1, String(loanCaseNo),
+                         (n.name || '').slice(0, 50),
+                         (n.address || '').slice(0, 50),
+                         parseInt(n.age, 10) || null,   // smallint — must be integer or NULL
+                         (n.relation || '').slice(0, 25)]
+                    );
+                }
+                console.log(`[LoanApplication] ✅ Saved ${validNominees.length} nominee(s) for case: ${loanCaseNo}`);
+            }
 
-            console.log(`[LoanApplication] ✅ Loan application saved. Case No: ${loanCaseNo}`);
+            // Save FDR/Loan-Against-Deposit rows — replace existing
+            const fdrRows: any[] = Array.isArray(loanData.fdrDetails) ? loanData.fdrDetails : [];
+            const validFdr = fdrRows.filter((f: any) => f.fdrNo && f.fdrNo.trim());
+            if (validFdr.length > 0) {
+                await queryRunner.query(
+                    `DELETE FROM loan_fdr WHERE loancaseno = $1`, [String(loanCaseNo)]
+                );
+                for (const f of validFdr) {
+                    await queryRunner.query(
+                        `INSERT INTO loan_fdr
+                            (loancaseno, srno, fdr_no, account_no, dep_date, period, unit,
+                             rate, amount, mat_amount, lien,
+                             mat_date, last_intt_date, intt_paid)
+                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+                        [String(loanCaseNo),
+                         parseInt(f.srno, 10) || null,
+                         (f.fdrNo || '').slice(0, 30),
+                         (f.accountNo || '').slice(0, 30),
+                         f.depDate ? new Date(f.depDate) : null,
+                         (f.period || '').slice(0, 20),
+                         (f.unit || '').slice(0, 10),
+                         parseFloat(f.rate) || 0,
+                         parseFloat(f.amount) || 0,
+                         parseFloat(f.matAmount) || 0,
+                         f.lien === true || f.lien === 'true',
+                         f.matDate ? new Date(f.matDate) : null,
+                         f.lastIntt ? new Date(f.lastIntt) : null,
+                         parseFloat(f.inttPaid) || 0]
+                    );
+                }
+                console.log(`[LoanApplication] ✅ Saved ${validFdr.length} FDR row(s) for case: ${loanCaseNo}`);
+            }
+
+            await queryRunner.commitTransaction();
+            console.log(`[LoanApplication] ✅ Loan application ${isUpdate ? 'updated' : 'saved'}. Case No: ${loanCaseNo}`);
 
             return {
                 success: true,
-                message: 'Loan application saved successfully',
-                loanCaseNo: loanCaseNo,
-                data: result[0]
+                message: isUpdate ? 'Loan application updated successfully' : 'Loan application saved successfully',
+                loanCaseNo,
+                nomineesSaved: validNominees.length,
+                fdrRowsSaved: validFdr.length,
+                data: result[0],
             };
         } catch (error: any) {
-            console.error('[LoanApplication] ❌ Error saving loan application:', error);
+            await queryRunner.rollbackTransaction();
+            console.error('[LoanApplication] ❌ Transaction rolled back:', error.message);
             throw new Error('Failed to save loan application: ' + error.message);
+        } finally {
+            await queryRunner.release();
         }
     }
 
@@ -220,27 +326,30 @@ export class LoanApplicationService {
         // 1. Determine which rules to use based on loan type
         // Legacy codes: ALN = Emergency Loan, RLN = Regular Loan, ELN = Loan Against Recovery
         const isEmergency = (loanType === 'ALN' || loanType?.toUpperCase().includes('EMERGENCY'));
-        const typePrefix = isEmergency ? 'EL' : 'LT';
-        const maxAmtKey = `RULE_LOAN_${typePrefix}_MAX_AMT`;
-        const maxTenureKey = `RULE_LOAN_${typePrefix}_MAX_TENURE`;
+        const isRecovery  = (loanType === 'ELN' || loanType?.toUpperCase().includes('RECOVERY'));
+        // ELN uses its own config keys; ALN → EL prefix; RLN → LT prefix
+        const typePrefix = isEmergency ? 'EL' : isRecovery ? 'EL' : 'LT';
+        const maxAmtKey = isRecovery ? 'RULE_LOAN_ELN_MAX_AMT' : `RULE_LOAN_${typePrefix}_MAX_AMT`;
+        const maxTenureKey = isRecovery ? 'RULE_LOAN_ELN_MAX_TENURE' : `RULE_LOAN_${typePrefix}_MAX_TENURE`;
 
-        // 2. Fetch configured limits
-        const maxLoanLimit = await this.systemConfigService.getConfigValue(maxAmtKey).catch(() => 500000);
-        const maxTenure = await this.systemConfigService.getConfigValue(maxTenureKey).catch(() => 60);
+        // 2. Fetch configured limits (generous defaults so a missing key never hard-blocks)
+        const maxLoanLimit = await this.systemConfigService.getConfigValue(maxAmtKey).catch(() => isRecovery ? 1000000 : 500000);
+        const maxTenure = await this.systemConfigService.getConfigValue(maxTenureKey).catch(() => isRecovery ? 120 : 60);
 
-        // 3. Check outstanding balance for the same loan type
-        const loanTypeFilter = isEmergency ? 'ALN' : loanType === 'ELN' ? 'ELN' : 'RLN';
+        // 3. Check outstanding balance from member_balances (kept current by repayment processing)
+        //    Do NOT use loan_master.balance — it is set once at disbursement and never reduced.
+        const balanceCol = isEmergency ? 'emergency_loan_balance' : 'regularloan';
         const query = `
-          SELECT SUM(balance)::numeric as total
-          FROM loan_master
-          WHERE mbno = $1 AND loantype = $2
+          SELECT COALESCE(${balanceCol}::numeric, 0) as total
+          FROM member_balances
+          WHERE mbno = $1
         `;
 
-        const result = await this.dataSource.query(query, [memberNo, loanTypeFilter]);
+        const result = await this.dataSource.query(query, [memberNo]);
         const totalOutstanding = Number(result[0]?.total || 0);
 
-        console.log(`[LoanApplication] Loan type: ${loanType}, Filter: ${loanTypeFilter}`);
-        console.log(`[LoanApplication] Current outstanding for ${loanTypeFilter}: ₹${totalOutstanding.toLocaleString()}`);
+        console.log(`[LoanApplication] Loan type: ${loanType}, Balance column: ${balanceCol}`);
+        console.log(`[LoanApplication] Current outstanding (from member_balances): ₹${totalOutstanding.toLocaleString()}`);
         console.log(`[LoanApplication] Applied amount: ₹${amount.toLocaleString()}`);
         console.log(`[LoanApplication] Total would be: ₹${(totalOutstanding + amount).toLocaleString()}`);
         console.log(`[LoanApplication] Maximum limit: ₹${maxLoanLimit.toLocaleString()}`);

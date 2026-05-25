@@ -29,8 +29,10 @@ export class DayEndProcess {
   @Column()
   processDate: Date;
 
+  // FIX BUG 8: type:'varchar' causes TypeORM to silently ignore the enum option.
+  // Use type:'enum' so the DB enforces valid values.
   @Column({
-    type: 'varchar',
+    type: 'enum',
     enum: DayEndStatus,
     default: DayEndStatus.PENDING,
   })

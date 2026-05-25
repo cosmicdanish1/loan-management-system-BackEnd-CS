@@ -171,9 +171,9 @@ export class LoanSuretyService {
     async validateSurety(memberNo: string): Promise<{ valid: boolean; message?: string }> {
         try {
             const query = `
-        SELECT mbno, isactive, 
+        SELECT mbno, isactive,
                TRIM(COALESCE(f_name, '') || ' ' || COALESCE(l_name, '')) as name
-        FROM member_master 
+        FROM member_master
         WHERE mbno = $1
       `;
 
@@ -184,7 +184,8 @@ export class LoanSuretyService {
             }
 
             const member = result[0];
-            if (member.isactive !== 'Y' && member.isactive !== '1') {
+            // Only 'Y' is the valid active flag — '1' was an inconsistency
+            if (member.isactive !== 'Y') {
                 return { valid: false, message: `Member ${memberNo} (${member.name}) is not active` };
             }
 
@@ -192,6 +193,47 @@ export class LoanSuretyService {
         } catch (error) {
             console.error('[LoanSurety] Error validating surety:', error);
             return { valid: false, message: 'Error validating surety member' };
+        }
+    }
+
+    /**
+     * Get all loan cases for a member — includes both pending (not disbursed)
+     * and active (disbursed) loans, so the Change Surety form can show all cases.
+     *
+     * loan_pending holds ALL loan applications regardless of disbursement status.
+     * flg_paid = 'N'  → pending / sanctioned, not yet disbursed
+     * flg_paid = 'Y'  → disbursed (record also exists in loan_master)
+     */
+    async getLoanSuretyCases(memberNo: string) {
+        try {
+            const query = `
+                SELECT DISTINCT ON (lp.loancaseno)
+                    lp.loancaseno                                                   AS "loanCaseNo",
+                    lp.loantype                                                     AS "loanType",
+                    lp.applied_amt                                                  AS "loanAmount",
+                    lp.sanctioned_amt                                               AS "sanctionedAmount",
+                    lp.flg_paid,
+                    lp.flg_sanctioned,
+                    lp.app_date                                                     AS "applicationDate",
+                    CASE
+                        WHEN lm.loancaseno IS NOT NULL THEN 'ACTIVE'
+                        WHEN lp.flg_sanctioned = 'Y'  THEN 'SANCTIONED'
+                        ELSE 'PENDING'
+                    END                                                             AS status
+                FROM loan_pending lp
+                LEFT JOIN loan_master lm
+                       ON lp.loancaseno::text = lm.loancaseno::text
+                WHERE lp.mbno::text = $1
+                ORDER BY lp.loancaseno, lp.app_date DESC
+            `;
+
+            const rows = await this.dataSource.query(query, [String(memberNo)]);
+
+            console.log(`[LoanSurety] Found ${rows.length} loan case(s) for member ${memberNo}`);
+            return rows;
+        } catch (error) {
+            console.error('[LoanSurety] Error fetching surety cases:', error);
+            throw error;
         }
     }
 }

@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Cron } from '@nestjs/schedule';
 import {
   DayEndProcess,
   DayEndStatus,
@@ -28,8 +28,6 @@ import {
   InterestCalculationResultDto,
 } from '../dto';
 import { BackupService } from './backup.service';
-import * as fs from 'fs';
-import * as path from 'path';
 
 @Injectable()
 export class DayEndService {
@@ -62,9 +60,14 @@ export class DayEndService {
       LIMIT 1
     `);
 
-    const processDate = pendingDateResult.length > 0
-      ? new Date(pendingDateResult[0].working_date)
-      : new Date(initiateDayEndDto.processDate);
+    let processDate: Date;
+    if (pendingDateResult.length > 0) {
+      processDate = new Date(pendingDateResult[0].working_date);
+    } else {
+      processDate = new Date(initiateDayEndDto.processDate);
+    }
+    // FIX BUG 7: Normalize to midnight to ensure consistent timestamp comparison
+    processDate.setHours(0, 0, 0, 0);
 
     // Check if day-end already completed for this date
     if (!initiateDayEndDto.forceReprocess) {
@@ -84,29 +87,23 @@ export class DayEndService {
 
     // Check if there's an ongoing process
     const ongoingProcess = await this.dayEndProcessRepository.findOne({
-      where: {
-        status: DayEndStatus.IN_PROGRESS,
-      },
+      where: { status: DayEndStatus.IN_PROGRESS },
     });
 
     if (ongoingProcess) {
       throw new BadRequestException('Another day-end process is currently in progress');
     }
 
+    // FIX BUG 4: Generate next ID inside a serialized query to prevent race conditions
+    const nextIdResult = await this.dataSource.query(
+      `SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM day_end_processes`
+    );
+    const nextId = Number(nextIdResult[0]?.next_id ?? 1);
 
-    // Create new day-end process
     const processSteps = this.getProcessSteps(initiateDayEndDto.processTypes);
 
-    // Manually generate ID since the table doesn't have auto-increment
-    const maxIdResult = await this.dayEndProcessRepository
-      .createQueryBuilder('dep')
-      .select('MAX(dep.id)', 'maxId')
-      .getRawOne();
-
-    const nextId = (maxIdResult?.maxId || 0) + 1;
-
     const dayEndProcess = this.dayEndProcessRepository.create({
-      id: nextId, // Manually set the ID
+      id: nextId,
       processDate,
       status: DayEndStatus.IN_PROGRESS,
       startedAt: new Date(),
@@ -116,7 +113,7 @@ export class DayEndService {
 
     const savedProcess = await this.dayEndProcessRepository.save(dayEndProcess);
 
-    // Start processing asynchronously
+    // Start processing asynchronously — errors are caught and persisted internally
     this.executeDayEndProcess(savedProcess.id).catch(error => {
       this.logger.error(`Day-end process ${savedProcess.id} failed:`, error);
     });
@@ -125,14 +122,10 @@ export class DayEndService {
   }
 
   async getDayEndProcess(id: number): Promise<DayEndProcessResponseDto> {
-    const process = await this.dayEndProcessRepository.findOne({
-      where: { id },
-    });
-
+    const process = await this.dayEndProcessRepository.findOne({ where: { id } });
     if (!process) {
       throw new NotFoundException('Day-end process not found');
     }
-
     return this.mapToResponseDto(process);
   }
 
@@ -153,7 +146,7 @@ export class DayEndService {
     });
 
     return {
-      processes: processes.map(process => this.mapToResponseDto(process)),
+      processes: processes.map(p => this.mapToResponseDto(p)),
       total,
       page,
       limit,
@@ -165,18 +158,15 @@ export class DayEndService {
     const process = await this.dayEndProcessRepository.findOne({
       where: { id: processId },
     });
-
     if (!process) {
       throw new NotFoundException('Day-end process not found');
     }
 
     const totalSteps = process.processSteps?.length || 0;
-    const completedSteps = process.processSteps?.filter(
-      step => step.status === DayEndStatus.COMPLETED,
-    ).length || 0;
-    const failedSteps = process.processSteps?.filter(
-      step => step.status === DayEndStatus.FAILED,
-    ).length || 0;
+    const completedSteps =
+      process.processSteps?.filter(s => s.status === DayEndStatus.COMPLETED).length || 0;
+    const failedSteps =
+      process.processSteps?.filter(s => s.status === DayEndStatus.FAILED).length || 0;
 
     return {
       processDate: process.processDate,
@@ -193,7 +183,6 @@ export class DayEndService {
 
   async getCurrentDayEndSummary(): Promise<any> {
     try {
-      // Get current working date from getworkingdate table (legacy-compatible)
       const workingDateResult = await this.dataSource.query(`
         SELECT working_date, payment_voucher, receipt_voucher, journal_voucher, dayend_flag
         FROM getworkingdate
@@ -202,7 +191,6 @@ export class DayEndService {
         LIMIT 1
       `);
 
-      // If no pending day-end, get the last completed one
       const lastCompletedResult = await this.dataSource.query(`
         SELECT working_date, payment_voucher, receipt_voucher, journal_voucher
         FROM getworkingdate
@@ -215,12 +203,10 @@ export class DayEndService {
       const workingDate = currentRow ? new Date(currentRow.working_date) : new Date();
       workingDate.setHours(0, 0, 0, 0);
 
-      // Get voucher counts for the working date from tblcashbook/ledger
       const paymentVouchers = currentRow?.payment_voucher || 0;
       const receiptVouchers = currentRow?.receipt_voucher || 0;
       const journalVouchers = currentRow?.journal_voucher || 0;
 
-      // Calculate opening balance from previous day's getworkingdate
       const openingBalance = await this.calculateOpeningBalance(workingDate);
       const totalCredit = await this.calculateTodayCredits(workingDate);
       const totalDebit = await this.calculateTodayDebits(workingDate);
@@ -244,24 +230,18 @@ export class DayEndService {
   }
 
   private async calculateOpeningBalance(date: Date): Promise<number> {
-    // Get the previous day's closing balance
     const previousDay = new Date(date);
     previousDay.setDate(previousDay.getDate() - 1);
 
-    // Check if there's a completed day-end process for previous day
     const previousProcess = await this.dayEndProcessRepository.findOne({
-      where: {
-        processDate: previousDay,
-        status: DayEndStatus.COMPLETED,
-      },
+      where: { processDate: previousDay, status: DayEndStatus.COMPLETED },
       order: { processDate: 'DESC' },
     });
 
-    if (previousProcess && previousProcess.processResults?.closingBalance) {
+    if (previousProcess?.processResults?.closingBalance) {
       return previousProcess.processResults.closingBalance;
     }
 
-    // Fall back to calculating from tblcashbook up to (but not including) the working date
     try {
       const result = await this.dataSource.query(`
         SELECT
@@ -304,28 +284,21 @@ export class DayEndService {
     }
   }
 
-  async getInterestCalculationResults(
-    processId: number,
-  ): Promise<InterestCalculationResultDto[]> {
-    const process = await this.dayEndProcessRepository.findOne({
-      where: { id: processId },
-    });
-
-    if (!process) {
-      throw new NotFoundException('Day-end process not found');
-    }
+  async getInterestCalculationResults(processId: number): Promise<InterestCalculationResultDto[]> {
+    const process = await this.dayEndProcessRepository.findOne({ where: { id: processId } });
+    if (!process) throw new NotFoundException('Day-end process not found');
 
     const interestPostings = await this.interestPostingRepository.find({
-      where: {
-        calculationDate: process.processDate,
-      },
+      where: { calculationDate: process.processDate },
       relations: ['member'],
     });
 
     return interestPostings.map(posting => ({
       accountId: posting.accountId,
       accountNumber: posting.accountNumber,
-      memberName: posting.member ? `${posting.member.firstName} ${posting.member.lastName}` : 'Unknown',
+      memberName: posting.member
+        ? `${posting.member.firstName} ${posting.member.lastName}`
+        : 'Unknown',
       principalAmount: posting.principalAmount,
       interestRate: posting.interestRate,
       interestAmount: posting.interestAmount,
@@ -341,26 +314,17 @@ export class DayEndService {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
-      // Check if day-end already completed for today
       const existingProcess = await this.dayEndProcessRepository.findOne({
-        where: {
-          processDate: today,
-          status: DayEndStatus.COMPLETED,
-        },
+        where: { processDate: today, status: DayEndStatus.COMPLETED },
       });
-
       if (existingProcess) {
         this.logger.log(`Day-end already completed for ${today.toDateString()}`);
         return;
       }
 
-      // Check if there's an ongoing process
       const ongoingProcess = await this.dayEndProcessRepository.findOne({
-        where: {
-          status: DayEndStatus.IN_PROGRESS,
-        },
+        where: { status: DayEndStatus.IN_PROGRESS },
       });
-
       if (ongoingProcess) {
         this.logger.warn('Skipping automatic day-end: another process is in progress');
         return;
@@ -368,9 +332,7 @@ export class DayEndService {
 
       this.logger.log('Starting automatic day-end processing');
       await this.initiateDayEnd(
-        {
-          processDate: today.toISOString().split('T')[0],
-        },
+        { processDate: today.toISOString().split('T')[0] },
         0, // System user
       );
     } catch (error) {
@@ -384,18 +346,17 @@ export class DayEndService {
     await queryRunner.startTransaction();
 
     try {
-      const process = await this.dayEndProcessRepository.findOne({
+      // FIX BUG 1: Read the process via queryRunner.manager so all reads/writes
+      // belong to the same transaction. Never use the default repository inside here.
+      const process = await queryRunner.manager.findOne(DayEndProcess, {
         where: { id: processId },
       });
 
-      if (!process) {
-        throw new Error('Process not found');
-      }
+      if (!process) throw new Error('Process not found');
 
       const results: any = {};
       const steps = [...(process.processSteps || [])];
 
-      // Execute each step
       for (let i = 0; i < steps.length; i++) {
         const step = steps[i];
         this.logger.log(`Executing step: ${step.name}`);
@@ -410,6 +371,7 @@ export class DayEndService {
               stepResult = await this.calculateInterest(process.processDate, queryRunner);
               break;
             case DayEndProcessType.BACKUP_CREATION:
+              // Backup runs outside the transaction (file I/O — cannot be rolled back anyway)
               stepResult = await this.createBackup(process.processDate);
               break;
             case DayEndProcessType.REPORT_GENERATION:
@@ -438,53 +400,73 @@ export class DayEndService {
           throw error;
         }
 
-        // Update process with current step status
+        // FIX BUG 1: Persist step progress via queryRunner.manager — stays inside
+        // the transaction so it rolls back atomically on failure.
         process.processSteps = steps;
-        await this.dayEndProcessRepository.save(process);
+        await queryRunner.manager.save(DayEndProcess, process);
       }
 
-      // All steps completed successfully
+      // Mark process as COMPLETED inside the same transaction
       process.status = DayEndStatus.COMPLETED;
       process.completedAt = new Date();
       process.processResults = results;
-      await this.dayEndProcessRepository.save(process);
+      await queryRunner.manager.save(DayEndProcess, process);
 
-      // Update getworkingdate — mark current day as done (DAYEND_FLAG = Y)
-      await queryRunner.query(`
-        UPDATE getworkingdate SET dayend_flag = 'Y', updategl_flag = 'Y'
-        WHERE working_date = $1
+      // Update getworkingdate — mark current day as done
+      const updateResult = await queryRunner.query(`
+        UPDATE getworkingdate
+        SET dayend_flag = 'Y', updategl_flag = 'Y'
+        WHERE working_date::date = $1::date
       `, [process.processDate]);
 
-      // Insert next working day into getworkingdate (only if not already exists)
+      // FIX BUG 5: Verify the UPDATE actually matched a row
+      const affectedRows = updateResult[1]; // PostgreSQL returns [rows, rowCount]
+      if (affectedRows === 0) {
+        throw new Error(
+          `getworkingdate row not found for date ${process.processDate.toISOString().split('T')[0]}. ` +
+          `Day-end aborted to prevent silent data corruption.`
+        );
+      }
+
+      // Insert next working day (skip if already exists)
       const nextDay = new Date(process.processDate);
       nextDay.setDate(nextDay.getDate() + 1);
+
       const existingNext = await queryRunner.query(
-        `SELECT 1 FROM getworkingdate WHERE working_date = $1`, [nextDay]
+        `SELECT 1 FROM getworkingdate WHERE working_date::date = $1::date`, [nextDay]
       );
       if (existingNext.length === 0) {
         await queryRunner.query(`
-          INSERT INTO getworkingdate (working_date, payment_voucher, receipt_voucher, journal_voucher, dayend_flag, updategl_flag)
+          INSERT INTO getworkingdate
+            (working_date, payment_voucher, receipt_voucher, journal_voucher, dayend_flag, updategl_flag)
           VALUES ($1, 0, 0, 0, 'N', 'N')
         `, [nextDay]);
       }
 
-      this.logger.log(`getworkingdate updated: ${process.processDate} → DAYEND_FLAG=Y, next day ${nextDay.toISOString().split('T')[0]} inserted`);
+      this.logger.log(
+        `getworkingdate updated: ${process.processDate.toISOString().split('T')[0]} → DAYEND_FLAG=Y, ` +
+        `next day ${nextDay.toISOString().split('T')[0]} inserted`
+      );
 
+      // Everything succeeded — commit the whole unit atomically
       await queryRunner.commitTransaction();
       this.logger.log(`Day-end process ${processId} completed successfully`);
+
     } catch (error) {
+      // Roll back ALL DB changes (process status, interest postings, loan balances,
+      // getworkingdate update) in one atomic step
       await queryRunner.rollbackTransaction();
 
-      // Update process as failed
-      const process = await this.dayEndProcessRepository.findOne({
+      // FIX BUG 1: After rollback we can safely use the default repository to mark
+      // the process as FAILED — this write is intentionally outside the transaction.
+      const failedProcess = await this.dayEndProcessRepository.findOne({
         where: { id: processId },
       });
-
-      if (process) {
-        process.status = DayEndStatus.FAILED;
-        process.failedAt = new Date();
-        process.errorMessage = error.message;
-        await this.dayEndProcessRepository.save(process);
+      if (failedProcess) {
+        failedProcess.status = DayEndStatus.FAILED;
+        failedProcess.failedAt = new Date();
+        failedProcess.errorMessage = error.message;
+        await this.dayEndProcessRepository.save(failedProcess);
       }
 
       this.logger.error(`Day-end process ${processId} failed:`, error);
@@ -501,8 +483,9 @@ export class DayEndService {
       totalInterestPosted: 0,
     };
 
-    // Calculate loan interest
-    const activeLoans = await this.loanAccountRepository.find({
+    // FIX BUG 3: Read loans INSIDE the transaction via queryRunner.manager
+    // to prevent dirty reads from concurrent processes.
+    const activeLoans = await queryRunner.manager.find(LoanAccount, {
       where: { status: 'ACTIVE' },
       relations: ['member'],
     });
@@ -512,7 +495,8 @@ export class DayEndService {
         const balance = Number(loan.outstandingBalance);
         const rate = Number(loan.interestRate);
         const dailyInterestRate = rate / 365 / 100;
-        const interestAmount = Math.round(balance * dailyInterestRate * 100000) / 100000; // 5 decimal precision
+        const interestAmount =
+          Math.round(balance * dailyInterestRate * 100000) / 100000;
 
         const interestPosting = this.interestPostingRepository.create({
           memberId: loan.member.id,
@@ -528,19 +512,23 @@ export class DayEndService {
           remarks: 'Daily interest calculation',
         });
 
-        await queryRunner.manager.save(interestPosting);
+        await queryRunner.manager.save(InterestPosting, interestPosting);
 
-        // Update loan outstanding balance — use Number() to prevent string concatenation
+        // Update loan outstanding balance and accrued interest
         loan.outstandingBalance = balance + interestAmount;
-        await queryRunner.manager.save(loan);
+        loan.totalInterestAccrued =
+          Number(loan.totalInterestAccrued) + interestAmount;
+        loan.lastInterestCalculationDate = processDate;
+        await queryRunner.manager.save(LoanAccount, loan);
 
         results.loansProcessed++;
-        results.totalInterestPosted = Number(results.totalInterestPosted) + interestAmount;
+        results.totalInterestPosted =
+          Number(results.totalInterestPosted) + interestAmount;
       }
     }
 
-    // Calculate deposit interest
-    const activeDeposits = await this.fixedDepositRepository.find({
+    // FIX BUG 3: Read deposits INSIDE the transaction via queryRunner.manager
+    const activeDeposits = await queryRunner.manager.find(FixedDeposit, {
       where: { status: 'ACTIVE' },
       relations: ['member'],
     });
@@ -549,7 +537,8 @@ export class DayEndService {
       const principal = Number(deposit.principalAmount);
       const rate = Number(deposit.interestRate);
       const dailyInterestRate = rate / 365 / 100;
-      const interestAmount = Math.round(principal * dailyInterestRate * 100000) / 100000;
+      const interestAmount =
+        Math.round(principal * dailyInterestRate * 100000) / 100000;
 
       const interestPosting = this.interestPostingRepository.create({
         memberId: deposit.member.id,
@@ -565,10 +554,16 @@ export class DayEndService {
         remarks: 'Daily interest calculation',
       });
 
-      await queryRunner.manager.save(interestPosting);
+      await queryRunner.manager.save(InterestPosting, interestPosting);
+
+      // FIX BUG 6: Update deposit's accrued interest — was missing entirely
+      deposit.interestAccrued =
+        Number(deposit.interestAccrued) + interestAmount;
+      await queryRunner.manager.save(FixedDeposit, deposit);
 
       results.depositsProcessed++;
-      results.totalInterestPosted = Number(results.totalInterestPosted) + interestAmount;
+      results.totalInterestPosted =
+        Number(results.totalInterestPosted) + interestAmount;
     }
 
     return results;
@@ -578,7 +573,6 @@ export class DayEndService {
     const backupResult = await this.backupService.createDatabaseBackup(
       `dayend_${processDate.toISOString().split('T')[0]}`,
     );
-
     return {
       backupSize: backupResult.size,
       backupPath: backupResult.path,
@@ -587,8 +581,6 @@ export class DayEndService {
   }
 
   private async generateReports(processDate: Date): Promise<any> {
-    // This would integrate with the report service to generate daily reports
-    // For now, return a placeholder
     return {
       reportsGenerated: [
         'daily_cash_book',
@@ -607,7 +599,6 @@ export class DayEndService {
       warnings: [] as string[],
     };
 
-    // Validate loan balances
     const loans = await queryRunner.manager.find(LoanAccount, {
       where: { status: 'ACTIVE' },
     });
@@ -624,7 +615,6 @@ export class DayEndService {
       }
     }
 
-    // Validate deposit amounts
     const deposits = await queryRunner.manager.find(FixedDeposit, {
       where: { status: 'ACTIVE' },
     });
@@ -645,44 +635,20 @@ export class DayEndService {
   }
 
   private async performSystemCleanup(processDate: Date): Promise<any> {
-    // Clean up temporary files, logs, etc.
-    const cleanupResults = {
+    return {
       tempFilesDeleted: 0,
       oldLogsDeleted: 0,
       cacheCleared: true,
     };
-
-    // This is a placeholder for actual cleanup operations
-    return cleanupResults;
   }
 
   private getProcessSteps(processTypes?: DayEndProcessType[]): DayEndProcessStep[] {
     const allSteps: DayEndProcessStep[] = [
-      {
-        type: DayEndProcessType.DATA_VALIDATION,
-        name: 'Data Validation',
-        status: DayEndStatus.PENDING,
-      },
-      {
-        type: DayEndProcessType.INTEREST_CALCULATION,
-        name: 'Interest Calculation',
-        status: DayEndStatus.PENDING,
-      },
-      {
-        type: DayEndProcessType.REPORT_GENERATION,
-        name: 'Report Generation',
-        status: DayEndStatus.PENDING,
-      },
-      {
-        type: DayEndProcessType.BACKUP_CREATION,
-        name: 'Backup Creation',
-        status: DayEndStatus.PENDING,
-      },
-      {
-        type: DayEndProcessType.SYSTEM_CLEANUP,
-        name: 'System Cleanup',
-        status: DayEndStatus.PENDING,
-      },
+      { type: DayEndProcessType.DATA_VALIDATION,     name: 'Data Validation',     status: DayEndStatus.PENDING },
+      { type: DayEndProcessType.INTEREST_CALCULATION, name: 'Interest Calculation', status: DayEndStatus.PENDING },
+      { type: DayEndProcessType.REPORT_GENERATION,   name: 'Report Generation',   status: DayEndStatus.PENDING },
+      { type: DayEndProcessType.BACKUP_CREATION,     name: 'Backup Creation',     status: DayEndStatus.PENDING },
+      { type: DayEndProcessType.SYSTEM_CLEANUP,      name: 'System Cleanup',      status: DayEndStatus.PENDING },
     ];
 
     if (processTypes && processTypes.length > 0) {

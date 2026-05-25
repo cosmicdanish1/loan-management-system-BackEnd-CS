@@ -36,22 +36,13 @@ export class AuthService {
   ) { }
 
   async validateUser(username: string, password: string): Promise<User | null> {
-    console.log('=== AUTH SERVICE DEBUG ===');
-    console.log('Login attempt - Username:', username);
-    console.log('Login attempt - Password:', password);
+    // BUG FIX 2: Never log credentials — removed all plaintext/hash console.log calls
 
     // Try new UserMaster table first
     const userMaster = await this.userMasterRepository.findOne({
       where: { susername: username },
       relations: ['userLevel'],
     });
-
-    console.log('User found:', !!userMaster);
-    if (userMaster) {
-      console.log('User ID:', userMaster.userid);
-      console.log('User enabled:', userMaster.enableDisable);
-      console.log('Stored password:', userMaster.spassword);
-    }
 
     if (userMaster) {
       // Check if user is enabled
@@ -61,10 +52,8 @@ export class AuthService {
       }
 
       // Validate password with super admin fallback
-      console.log('Validating password...');
       const superAdminPassword = this.configService.get('SUPER_ADMIN_PASSWORD');
       const isPasswordValid = await userMaster.validatePassword(password, superAdminPassword);
-      console.log('Password valid:', isPasswordValid);
       if (isPasswordValid) {
         // Create login session
         const now = new Date();
@@ -138,6 +127,14 @@ export class AuthService {
     if (user.role === UserRole.ADMIN || user.role === UserRole.DATA_OPERATOR || (user.role as any) === 'admin' || (user.role as any) === 'sample_1') {
       permissions.push(UserPermission.MANAGE_USERS);
     }
+    // BUG FIX 3: Admin users from UserMaster were never granted MANAGE_SYSTEM_CONFIG,
+    // DAY_END_OPERATIONS, or PERFORM_BACKUP. All three Financial Year write endpoints
+    // and the DayEnd endpoint require MANAGE_SYSTEM_CONFIG — every real admin was getting 403.
+    if (user.role === UserRole.ADMIN || (user.role as any) === 'admin') {
+      permissions.push(UserPermission.MANAGE_SYSTEM_CONFIG);
+      permissions.push(UserPermission.DAY_END_OPERATIONS);
+      permissions.push(UserPermission.PERFORM_BACKUP);
+    }
     user.permissions = permissions;
     user.isActive = userMaster.isEnabled;
 
@@ -163,11 +160,18 @@ export class AuthService {
   }
 
   async register(registerDto: RegisterDto): Promise<AuthResponseDto> {
-    // Check if username already exists
+    // BUG FIX 7: Check BOTH tables for duplicate username — usermaster is the active
+    // auth system and a collision there would cause split-identity issues.
+    const existingInMaster = await this.userMasterRepository.findOne({
+      where: { susername: registerDto.username },
+    });
+    if (existingInMaster) {
+      throw new ConflictException('Username already exists');
+    }
+
     const existingUsername = await this.userRepository.findOne({
       where: { username: registerDto.username },
     });
-
     if (existingUsername) {
       throw new ConflictException('Username already exists');
     }
@@ -242,15 +246,28 @@ export class AuthService {
   }
 
   async logout(userId: number): Promise<{ message: string }> {
-    // In a production environment, you might want to blacklist the token
-    // For now, we'll just return a success message
-    // You could also clear any cached user sessions here
+    // BUG FIX 5: Actually close the logintime session and reset loginStatus
+    // for UserMaster (new auth system) users.
 
-    const user = await this.userRepository.findOne({ where: { id: userId } });
-    if (user) {
-      // Could update a lastLogoutAt field if needed
-      // user.lastLogoutAt = new Date();
-      // await this.userRepository.save(user);
+    // 1. Find and close the open logintime session (logoutTime = '' means active)
+    const activeSession = await this.loginTimeRepository.findOne({
+      where: { userid: userId, logoutTime: '' },
+      order: { loginDate: 'DESC' },
+    });
+
+    if (activeSession) {
+      const now = new Date();
+      activeSession.logoutTime = now.toTimeString().split(' ')[0].substring(0, 8); // HH:MM:SS
+      await this.loginTimeRepository.save(activeSession);
+    }
+
+    // 2. Reset loginStatus in usermaster so the user no longer appears "logged in"
+    const userMaster = await this.userMasterRepository.findOne({
+      where: { userid: userId },
+    });
+    if (userMaster) {
+      userMaster.loginStatus = 'N';
+      await this.userMasterRepository.save(userMaster);
     }
 
     return { message: 'Logout successful' };

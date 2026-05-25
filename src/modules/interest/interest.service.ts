@@ -51,11 +51,14 @@ export class InterestService {
       }
 
       // Check if interest has already been calculated for this period
+      // BUG FIX: intType was hardcoded to 'SB' — RD/FD runs were never detected as duplicates,
+      // allowing the same period to be posted multiple times for non-SB account types.
+      const accountTypeCode = dto.accountHead || 'SB';
       const existingRun = await this.interestMasterRepository.findOne({
         where: {
           fromDate: fromDate,
           toDate: toDate,
-          intType: 'SB', // Savings Bank
+          intType: accountTypeCode,
         },
       });
 
@@ -70,12 +73,15 @@ export class InterestService {
         : allMembers;
       this.logger.log(`Found ${eligibleMembers.length} eligible members`);
 
-      // Generate voucher number if not provided
-      const voucherNumber = dto.voucherNumber || await this.generateVoucherNumber();
+      // BUG FIX: generateVoucherNumber() was using this.interestPaidRepository outside the
+      // transaction — two concurrent runs see the same max and produce duplicate voucher numbers.
+      // Pass queryRunner.manager so the SELECT runs inside the active transaction with FOR UPDATE.
+      const voucherNumber = dto.voucherNumber || await this.generateVoucherNumber(queryRunner.manager);
 
       // Create interest master record
+      // BUG FIX: intType was hardcoded to 'SB' — RD/FD interest records were saved with wrong type.
       const interestMaster = await queryRunner.manager.save(InterestMaster, {
-        intType: 'SB',
+        intType: accountTypeCode,
         fromDate: fromDate,
         toDate: toDate,
         rate: dto.interestRate,
@@ -113,6 +119,16 @@ export class InterestService {
               accountNumber: calculation.accountNumber,
             });
 
+            // BUG FIX: dto.accountHead is the account TYPE code (e.g. 'RD', 'SB'), NOT a GL head.
+            // Previously passing it directly as the GL code caused invalid ledger entries.
+            // Map account type to the correct GL credit head for savings/interest postings.
+            const GL_CREDIT_HEAD_MAP: Record<string, string> = {
+              'RD': 'A1002',
+              'SB': 'A1001',
+              'FD': 'A1003',
+            };
+            const glHead = GL_CREDIT_HEAD_MAP[accountTypeCode] || 'A1001';
+
             // Create ledger entry for interest credit
             await this.createInterestLedgerEntry(
               member,
@@ -120,7 +136,7 @@ export class InterestService {
               voucherNumber,
               dto.narration || `Interest credited for period ${dto.fromDate} to ${dto.toDate}`,
               queryRunner.manager,
-              dto.accountHead || 'A1001'
+              glHead
             );
 
             memberCalculations.push(calculation);
@@ -311,7 +327,10 @@ export class InterestService {
     manager: any,
     accountHead: string
   ) {
-    const transactionNumber = await this.generateTransactionNumber();
+    // BUG FIX: generateTransactionNumber() was reading this.ledgerRepository outside the
+    // transaction — concurrent runs produced duplicate trans_no. Pass manager to run inside
+    // the active transaction with FOR UPDATE.
+    const transactionNumber = await this.generateTransactionNumber(manager);
 
     // CR member's SB account — interest credited increases the member's balance
     await manager.save(Ledger, {
@@ -332,8 +351,10 @@ export class InterestService {
     });
 
     // DR Interest Expense head — balancing debit records the cost to the society
-    const debitTransNo = await this.generateTransactionNumber();
-    const sbIntExpenseHead = await this.dataSource.query(
+    const debitTransNo = await this.generateTransactionNumber(manager);
+    // BUG FIX: this.dataSource.query() bypassed the active transaction (separate connection).
+    // Use manager.query() so the read is consistent within the transaction.
+    const sbIntExpenseHead = await manager.query(
       `SELECT COALESCE(sbinthead, 'L1028') as head FROM busrules ORDER BY appdate DESC LIMIT 1`
     );
     const intExpenseCode = sbIntExpenseHead[0]?.head || 'L1028';
@@ -357,19 +378,25 @@ export class InterestService {
 
   /**
    * Generate unique voucher number
+   * BUG FIX: original used this.interestPaidRepository outside the active transaction — two
+   * concurrent runs produced the same voucher number. Accept the active EntityManager and query
+   * with FOR UPDATE to serialize access.
    */
-  private async generateVoucherNumber(): Promise<string> {
+  private async generateVoucherNumber(manager?: any): Promise<string> {
     const year = new Date().getFullYear();
-    const lastVoucher = await this.interestPaidRepository
-      .createQueryBuilder('ip')
-      .where('ip.voucherNumber LIKE :pattern', { pattern: `INT${year}%` })
-      .orderBy('ip.voucherNumber', 'DESC')
-      .getOne();
+    const mgr = manager || this.dataSource.manager;
+    const result = await mgr.query(
+      `SELECT voucher_number FROM interest_paid WHERE voucher_number LIKE $1 ORDER BY voucher_number DESC LIMIT 1 FOR UPDATE`,
+      [`INT${year}%`]
+    );
 
     let sequence = 1;
-    if (lastVoucher && lastVoucher.voucherNumber) {
-      const lastSequence = parseInt(lastVoucher.voucherNumber.slice(-3));
-      sequence = isNaN(lastSequence) ? 1 : lastSequence + 1;
+    if (result && result[0]) {
+      const lastVoucherNo: string = result[0].voucher_number || result[0].vouchernumber || '';
+      if (lastVoucherNo) {
+        const lastSequence = parseInt(lastVoucherNo.slice(-3));
+        sequence = isNaN(lastSequence) ? 1 : lastSequence + 1;
+      }
     }
 
     return `INT${year}${sequence.toString().padStart(3, '0')}`;
@@ -377,19 +404,16 @@ export class InterestService {
 
   /**
    * Generate unique transaction number
+   * BUG FIX: original used this.ledgerRepository outside the active transaction — two concurrent
+   * interest postings both saw the same MAX and generated duplicate trans_no values.
+   * Fix: accept the active EntityManager and use raw SQL with FOR UPDATE to lock the aggregate row.
    */
-  private async generateTransactionNumber(): Promise<string> {
-    const lastTransaction = await this.ledgerRepository
-      .createQueryBuilder('l')
-      .orderBy('l.transactionNumber', 'DESC')
-      .getOne();
-
-    let nextNumber = 1;
-    if (lastTransaction && lastTransaction.transactionNumber) {
-      nextNumber = parseInt(lastTransaction.transactionNumber) + 1;
-    }
-
-    return nextNumber.toString();
+  private async generateTransactionNumber(manager?: any): Promise<string> {
+    const mgr = manager || this.dataSource.manager;
+    const result = await mgr.query(
+      `SELECT COALESCE(MAX(trans_no::BIGINT), 0) + 1 AS next_no FROM ledger FOR UPDATE`
+    );
+    return String(parseInt(result[0]?.next_no || '1'));
   }
 
   /**
@@ -728,7 +752,10 @@ export class InterestService {
       this.logger.error('Yearly Fund Process Failed', error);
       throw error;
     } finally {
-      if (!isPreview) await queryRunner.release();
+      // BUG FIX: when isPreview=true, queryRunner.connect() was always called but release() was
+      // gated on !isPreview — every preview request permanently leaked a DB connection from the
+      // pool. Always release regardless of preview mode.
+      await queryRunner.release();
     }
   }
 }

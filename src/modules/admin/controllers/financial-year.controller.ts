@@ -55,4 +55,15 @@ export class FinancialYearController {
         const username = req.user?.username || 'admin';
         return this.financialYearService.performPLYearEndProcess(username);
     }
+
+    // BUG FIX 4: New endpoint — formally closes a financial year by stamping closed_at.
+    // This is the action that FinancialYearClosing.tsx triggers after the admin confirms.
+    @Post('close-year')
+    @Roles(UserRole.ADMIN)
+    @RequirePermissions(UserPermission.MANAGE_SYSTEM_CONFIG)
+    @ApiOperation({ summary: 'Formally close (lock) a financial year' })
+    async closeYear(@Body('yearCode') yearCode: number, @Request() req: any) {
+        const username = req.user?.username || 'admin';
+        return this.financialYearService.closeFinancialYear(yearCode, username);
+    }
 }

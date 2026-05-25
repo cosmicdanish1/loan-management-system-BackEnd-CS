@@ -115,7 +115,7 @@ export class LoanQueryService {
     async getMemberLoansFromMaster(memberNo: string) {
         try {
             const query = `
-        SELECT 
+        SELECT DISTINCT ON (loancaseno)
           loancaseno,
           loantype,
           loan_amt::numeric as loan_amt,
@@ -154,7 +154,7 @@ export class LoanQueryService {
     async getMemberLoansFromPending(memberNo: string) {
         try {
             const query = `
-        SELECT 
+        SELECT DISTINCT ON (loancaseno)
           loancaseno,
           loantype,
           applied_amt,

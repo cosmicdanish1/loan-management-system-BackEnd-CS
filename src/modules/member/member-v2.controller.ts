@@ -19,8 +19,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { MemberCrudService, MemberLookupService, MemberBalanceService, SignatureService } from './services-v2';
 import { signatureUploadConfig } from './config/multer.config';
-import { createReadStream } from 'fs';
-import { join } from 'path';
+import { createReadStream, existsSync } from 'fs';
+import { join, extname } from 'path';
 import type { Response } from 'express';
 import {
     CreateMemberDto,
@@ -158,9 +158,9 @@ export class MemberV2Controller {
         @Param('id', ParseIntPipe) id: number,
         @UploadedFile(
             new ParseFilePipeBuilder()
-                .addFileTypeValidator({
-                    fileType: /(jpg|jpeg|png)$/,
-                })
+                // NOTE: addFileTypeValidator is intentionally omitted.
+                // NestJS FileTypeValidator reads file.buffer, which diskStorage never populates.
+                // MIME-type filtering is handled by signatureUploadConfig.fileFilter in multer.config.ts.
                 .addMaxSizeValidator({
                     maxSize: 2 * 1024 * 1024, // 2MB
                 })
@@ -182,29 +182,84 @@ export class MemberV2Controller {
         const filePath = await this.signatureService.getSignaturePath(id);
 
         if (!filePath) {
-            // Handle no signature case - maybe return a default placeholder or 404
-            // For now, let's return 404 via service if file not found, but service returns path.
-            // If path is null, return 404
             const notFoundExc = new Error('Signature not found');
             (notFoundExc as any).status = 404;
             throw notFoundExc;
         }
 
         const fullPath = join(process.cwd(), filePath);
-        const file = createReadStream(fullPath);
+        // BUG FIX 4: guard against orphan DB reference when file deleted from disk
+        if (!existsSync(fullPath)) {
+            const notFoundExc = new Error('Signature file missing on disk');
+            (notFoundExc as any).status = 404;
+            throw notFoundExc;
+        }
 
+        // BUG FIX 5: derive MIME type from actual file extension, not hardcoded png
+        const ext = extname(filePath).toLowerCase();
+        const mimeType = ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/png';
         res.set({
-            'Content-Type': 'image/png', // Adjust based on extension if needed
-            'Content-Disposition': 'inline; filename="signature.png"',
+            'Content-Type': mimeType,
+            'Content-Disposition': `inline; filename="signature${ext}"`,
         });
 
-        return new StreamableFile(file);
+        return new StreamableFile(createReadStream(fullPath));
     }
 
     @Delete(':id/signature')
     @ApiOperation({ summary: 'Delete member signature' })
     async deleteSignature(@Param('id', ParseIntPipe) id: number) {
         return this.signatureService.deleteSignature(id);
+    }
+
+    // ==================== member_master Signature Routes (legacy members) ====================
+    // BUG FIX 1+2: The /:id/signature routes above use the TypeORM `members` table (new system).
+    // Real members live in member_master and are identified by mbno (string).
+    // These routes use mbno and store paths in member_master.signature_image_path.
+
+    @Post('master/:mbno/signature')
+    @ApiOperation({ summary: 'Upload signature for legacy member_master member' })
+    @ApiConsumes('multipart/form-data')
+    @UseInterceptors(FileInterceptor('file', signatureUploadConfig))
+    async uploadSignatureMaster(
+        @Param('mbno') mbno: string,
+        @UploadedFile(
+            new ParseFilePipeBuilder()
+                // NOTE: addFileTypeValidator omitted — diskStorage does not populate file.buffer,
+                // so NestJS FileTypeValidator always fails. MIME filtering is done by multer.config.ts fileFilter.
+                .addMaxSizeValidator({ maxSize: 2 * 1024 * 1024 })
+                .build({ errorHttpStatusCode: HttpStatus.UNPROCESSABLE_ENTITY, fileIsRequired: true }),
+        ) file: Express.Multer.File,
+    ) {
+        await this.signatureService.uploadSignatureMaster(mbno, file.path);
+        return { message: 'Signature uploaded successfully', mbno };
+    }
+
+    @Get('master/:mbno/signature')
+    @ApiOperation({ summary: 'Get signature image for legacy member_master member' })
+    async getSignatureMaster(
+        @Param('mbno') mbno: string,
+        @Res({ passthrough: true }) res: Response,
+    ): Promise<StreamableFile> {
+        const filePath = await this.signatureService.getSignaturePathMaster(mbno);
+        if (!filePath) {
+            const e = new Error('Signature not found'); (e as any).status = 404; throw e;
+        }
+        const fullPath = join(process.cwd(), filePath);
+        if (!existsSync(fullPath)) {
+            const e = new Error('Signature file missing on disk'); (e as any).status = 404; throw e;
+        }
+        const ext = extname(filePath).toLowerCase();
+        const mimeType = ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/png';
+        res.set({ 'Content-Type': mimeType, 'Content-Disposition': `inline; filename="signature${ext}"` });
+        return new StreamableFile(createReadStream(fullPath));
+    }
+
+    @Delete('master/:mbno/signature')
+    @ApiOperation({ summary: 'Delete signature for legacy member_master member' })
+    async deleteSignatureMaster(@Param('mbno') mbno: string) {
+        await this.signatureService.deleteSignatureMaster(mbno);
+        return { message: 'Signature deleted', mbno };
     }
 
     // ==================== Legacy Support ====================

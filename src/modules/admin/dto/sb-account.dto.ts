@@ -1,5 +1,6 @@
 import { IsNotEmpty, IsNumber, IsOptional, IsString, IsDecimal } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
+import { PartialType } from '@nestjs/swagger';
 
 export class CreateSbAccountDto {
     @ApiProperty({ description: 'Account Number' })
@@ -52,4 +53,6 @@ export class CreateSbAccountDto {
     nomineeRelation: string;
 }
 
-export class UpdateSbAccountDto extends CreateSbAccountDto { }
+// BUG FIX: PartialType makes all fields optional — extending CreateSbAccountDto directly
+// inherited @IsNotEmpty() on accountNo/memberNo, causing PATCH validation failures.
+export class UpdateSbAccountDto extends PartialType(CreateSbAccountDto) { }
