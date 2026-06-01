@@ -25,14 +25,14 @@ async function bootstrap() {
   // Global configuration
   app.setGlobalPrefix(configService.get('API_PREFIX', 'api/v1'));
 
-  // Enable CORS for frontend — include the actual backend port so same-origin Swagger works
-  const allowedOrigins = [
-    'http://localhost:5177',  // Vite dev server (Electron renderer)
-    'http://localhost:3000',  // Legacy / alternate port
-    `http://localhost:${configService.get('PORT', 3001)}`, // Actual backend port from .env
-  ];
+  // Enable CORS — allow any origin on the LAN.
+  // BUG FIX: the old strict localhost whitelist blocked every client PC on the
+  // LAN because their requests arrive from a different Origin (e.g. file://, or
+  // a local Electron renderer that Chromium labels differently).
+  // Electron apps do not send a meaningful Origin header, so whitelist-based
+  // CORS is both ineffective and harmful here — allow all origins instead.
   app.enableCors({
-    origin: allowedOrigins,
+    origin: (_origin, callback) => callback(null, true),
     credentials: true,
   });
 
@@ -76,9 +76,13 @@ async function bootstrap() {
   SwaggerModule.setup('api/docs', app, document);
 
   const port = configService.get('PORT', 3000);
-  await app.listen(port);
+  // BUG FIX: bind to 0.0.0.0 so NestJS listens on ALL network interfaces
+  // (Ethernet, Wi-Fi, LAN adapter) — not just the loopback interface.
+  // Without this, client PCs on the LAN cannot reach the backend even if
+  // the firewall port is open.
+  await app.listen(port, '0.0.0.0');
 
-  logger.log(`🚀 Application is running on: http://localhost:${port}`);
+  logger.log(`🚀 Application is running on: http://0.0.0.0:${port} (all interfaces)`);
   logger.log(`📚 Swagger documentation: http://localhost:${port}/api/docs`);
 }
 

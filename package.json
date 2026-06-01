@@ -2,7 +2,7 @@
   "name": "loan-management-backend",
   "version": "1.0.0",
   "description": "NestJS backend for Loan Management System",
-  "author": "Bican Pvt. Ltd",
+  "author": "Paperwhite Technology",
   "private": true,
   "license": "ISC",
   "scripts": {
