@@ -12,12 +12,25 @@ export class JournalTransferService {
      * Post a balancing Journal Entry
      */
     async postJournalEntry(dto: CreateJournalVoucherDto, username: string = 'admin') {
+        if (!dto.rows?.length) {
+            throw new BadRequestException('Journal entry requires at least two rows');
+        }
+
         // 1. Validate Balance
-        const totalDebit = dto.rows.reduce((sum, row) => sum + row.debit, 0);
-        const totalCredit = dto.rows.reduce((sum, row) => sum + row.credit, 0);
+        const totalDebit = dto.rows.reduce((sum, row) => sum + Number(row.debit || 0), 0);
+        const totalCredit = dto.rows.reduce((sum, row) => sum + Number(row.credit || 0), 0);
 
         if (Math.abs(totalDebit - totalCredit) > 0.01) {
             throw new BadRequestException(`Unbalanced Journal Entry: Total Debit (₹${totalDebit}) must equal Total Credit (₹${totalCredit})`);
+        }
+
+        if (totalDebit <= 0) {
+            throw new BadRequestException('Journal entry amount must be greater than zero');
+        }
+
+        const postingRows = dto.rows.filter(row => Number(row.debit || 0) > 0 || Number(row.credit || 0) > 0);
+        if (postingRows.length < 2) {
+            throw new BadRequestException('Journal entry requires at least two rows with amounts');
         }
 
         const queryRunner = this.dataSource.createQueryRunner();
@@ -52,23 +65,30 @@ export class JournalTransferService {
             // 5. Post Transaction Rows
             let currentTransNo = await this.getNextId(queryRunner, 'transactions', 'trans_no');
 
-            for (const row of dto.rows) {
-                const amount = row.debit > 0 ? row.debit : row.credit;
-                const type = row.debit > 0 ? 'P' : 'R'; // P for Debit (Payment), R for Credit (Receipt)
+            for (const row of postingRows) {
+                const debit = Number(row.debit || 0);
+                const credit = Number(row.credit || 0);
+                const amount = debit > 0 ? debit : credit;
+                const type = debit > 0 ? 'P' : 'R'; // P for Debit (Payment), R for Credit (Receipt)
+                const headCode = (row.code || '').toString().trim().toUpperCase().substring(0, 5);
+                const accNo = Number(row.rdSdSrNo || 0) || 0;
+                const accType = 'JV';
 
                 // a. Base Transaction
                 await queryRunner.query(`
                     INSERT INTO transactions (
-                        trans_no, trans_type, trans_date, mbno, trans_amt, receipt_vchr_no, 
+                        trans_no, trans_type, trans_date, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, 
                         vchr_type, modeofpay, pass_flag, cashier_flag, code, narration, username, cheq_no, cheq_amt
-                    ) VALUES ($1, $2, NOW(), $3, $4, $5, 'JV', 'J', 'Y', 'Y', $6, $7, $8, $9, 0)
+                    ) VALUES ($1, $2, NOW(), $3, $4, $5, $6, $7, 'JV', 'J', 'Y', 'Y', $8, $9, $10, $11, 0)
                 `, [
                     currentTransNo++,
                     type,
                     row.mbno || null,
+                    accNo,
+                    accType,
                     amount,
                     voucherNo,
-                    row.code || null,
+                    headCode || null,
                     row.narration || dto.narration,
                     username,
                     dto.chequeNo
@@ -87,7 +107,7 @@ export class JournalTransferService {
                     let accountType = 'LIABILITY'; // Default: Credit increases balance (Deposits)
 
                     // Map Code to Member Balance Column
-                    const codeUpper = (row.code || '').toUpperCase();
+                    const codeUpper = headCode;
                     if (['CD', 'THRIFT', 'D'].includes(codeUpper)) {
                         balanceColumn = 'compulsory_deposit';
                     } else if (['SH', 'SHARE', 'S'].includes(codeUpper)) {
@@ -138,20 +158,43 @@ export class JournalTransferService {
                     // a NOT NULL constraint violation or NULL trans_no on every journal ledger row.
                     await queryRunner.query(`
                         INSERT INTO ledger (
-                            trans_no, trans_date, trans_type, mbno, trans_amt, receipt_vchr_no,
-                            vchr_type, pl_balance, narration, username, ledgerid, code
-                        ) VALUES ($1, NOW(), $2, $3, $4, $5, 'JV', $6, $7, $8, $9, $10)
+                            trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt,
+                            receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid
+                        ) VALUES ($1, NOW(), $2, $3, $4, $5, $6, $7, $8, 'JV', 'J', $9, $10, $11, $12)
                     `, [
                         ledgerTransNo,
                         type,
+                        headCode || null,
                         row.mbno,
+                        accNo,
+                        accType,
                         amount,
                         voucherNo,
                         newBal, // Snapshot balance after transaction
                         row.narration || dto.narration,
                         username,
-                        ledgerId,
-                        row.code
+                        ledgerId
+                    ]);
+                } else {
+                    const ledgerTransNo = await this.getNextId(queryRunner, 'ledger', 'trans_no');
+                    const ledgerId = await this.getNextId(queryRunner, 'ledger', 'ledgerid');
+
+                    await queryRunner.query(`
+                        INSERT INTO ledger (
+                            trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt,
+                            receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid
+                        ) VALUES ($1, NOW(), $2, $3, NULL, $4, $5, $6, $7, 'JV', 'J', 0, $8, $9, $10)
+                    `, [
+                        ledgerTransNo,
+                        type,
+                        headCode || null,
+                        accNo,
+                        accType,
+                        amount,
+                        voucherNo,
+                        row.narration || dto.narration,
+                        username,
+                        ledgerId
                     ]);
                 }
             }

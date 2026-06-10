@@ -48,11 +48,14 @@ export class SequenceGeneratorService {
     }
 
     /**
-     * Generate next sequential member number (8 digits)
+     * Generate next 9-digit member number for a given branch code.
+     * Format: [2-digit branch code][7-digit sequence], e.g. 610000001 for BHILAI.
+     * Per-branch sequences ensure each branch increments independently.
      */
-    async generateNextMemberNumber(): Promise<string> {
-        const { value } = await this.getNextValue('MEMBER_NO');
-        return value.toString().padStart(8, '0');
+    async generateNextMemberNumber(branchCode: string = '61'): Promise<string> {
+        const code = branchCode.toString().padStart(2, '0');
+        const { value } = await this.getNextValue(`MEMBER_NO_${code}`);
+        return `${code}${value.toString().padStart(7, '0')}`;
     }
 
     /**

@@ -51,11 +51,21 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       error = exception.name;
     }
 
-    // Log the error
-    this.logger.error(
-      `${request.method} ${request.url} - ${status} - ${message}`,
-      exception instanceof Error ? exception.stack : exception,
-    );
+    // Skip noisy browser auto-requests
+    if (request.url === '/favicon.ico') {
+      response.status(status).json({ statusCode: status, error, message });
+      return;
+    }
+
+    // 404s are expected misses — warn, not error
+    if (status === HttpStatus.NOT_FOUND) {
+      this.logger.warn(`${request.method} ${request.url} - ${status} - ${message}`);
+    } else {
+      this.logger.error(
+        `${request.method} ${request.url} - ${status} - ${message}`,
+        exception instanceof Error ? exception.stack : exception,
+      );
+    }
 
     const errorResponse = {
       statusCode: status,

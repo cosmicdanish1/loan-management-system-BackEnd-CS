@@ -37,10 +37,10 @@ export class MemberCrudService {
     ) { }
 
     /**
-     * Generate next sequential member number
+     * Generate next sequential member number (defaults to BHILAI branch code 61)
      */
-    async generateNextMemberNumber(): Promise<string> {
-        return this.sequenceGenerator.generateNextMemberNumber();
+    async generateNextMemberNumber(branchCode: string = '61'): Promise<string> {
+        return this.sequenceGenerator.generateNextMemberNumber(branchCode);
     }
 
     /**
@@ -380,8 +380,10 @@ export class MemberCrudService {
                 // Return raw row — TransformInterceptor handles the { success, data } envelope
                 return result[0];
             } else {
-                // Insert new member - use shared sequence generator
-                const memberNumber = await this.sequenceGenerator.generateNextMemberNumber();
+                // Insert new member - derive branch code from branchmsno (e.g. "1-BHILAI-BHILAI-61" → "61")
+                const branchParts = (memberData.branchmsno || '').split('-');
+                const branchCode = branchParts.length >= 2 ? branchParts[branchParts.length - 1].trim() : '61';
+                const memberNumber = await this.sequenceGenerator.generateNextMemberNumber(branchCode);
 
                 // BUG FIX 2: INSERT was missing aadharno, phoneno, pan_no, frs_no,
                 // fathers_name, branchmsno — all present in the UPDATE path but silently
