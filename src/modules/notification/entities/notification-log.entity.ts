@@ -28,6 +28,12 @@ export enum NotificationType {
     LOAN_QUERY = 'LOAN_QUERY',
     MANUAL = 'MANUAL',
     MONTHLY_SUMMARY = 'MONTHLY_SUMMARY',
+    MATURITY_ALERT = 'MATURITY_ALERT',
+    MEMBER_UPDATE = 'MEMBER_UPDATE',
+    LOAN_APPLICATION = 'LOAN_APPLICATION',
+    LOAN_DISBURSED = 'LOAN_DISBURSED',
+    TRANSACTION_POSTED = 'TRANSACTION_POSTED',
+    INTEREST_CREDITED = 'INTEREST_CREDITED',
 }
 
 @Entity('notification_logs')
@@ -74,6 +80,12 @@ export class NotificationLog {
 
     @Column({ type: 'timestamp', nullable: true })
     sentAt: Date;
+
+    @Column({ type: 'varchar', length: 64, nullable: true, unique: true })
+    dedupeKey: string;
+
+    @Column({ type: 'varchar', length: 30, nullable: true })
+    msgRef: string;
 
     @Column({ type: 'jsonb', nullable: true })
     metadata: any;

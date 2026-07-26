@@ -536,17 +536,22 @@ export class LoanReportsService {
     const receivables = await this.dataSource.query(receivableQuery, receivableParams);
 
     let receivedQuery = `
-      SELECT 
+      SELECT
         EXTRACT(MONTH FROM trans_date) as month,
         EXTRACT(YEAR FROM trans_date) as year,
         SUM(CASE WHEN trans_type = 'CR' THEN COALESCE(trans_amt, 0) ELSE -COALESCE(trans_amt, 0) END) as received
       FROM ledger
       WHERE code IN ('I1002', 'I1008')
-        AND trans_date >= $1 AND trans_date <= $2
+        AND trans_date >= $1 AND trans_date < $2
     `;
 
+    // Upper bound is the first day of the month AFTER toMonth (exclusive), so it
+    // covers the whole end month without constructing an invalid date like
+    // "2026-06-31" (June has 30 days) — which threw a DB "out of range" error.
     const startDate = `${fromYear}-${fromMonth.toString().padStart(2, '0')}-01`;
-    const endDate = `${toYear}-${toMonth.toString().padStart(2, '0')}-31`;
+    const endExclusiveYear = toMonth >= 12 ? toYear + 1 : toYear;
+    const endExclusiveMonth = toMonth >= 12 ? 1 : toMonth + 1;
+    const endDate = `${endExclusiveYear}-${endExclusiveMonth.toString().padStart(2, '0')}-01`;
     const receivedParams: any[] = [startDate, endDate];
 
     if (dto.fromMember) {
@@ -685,30 +690,29 @@ export class LoanReportsService {
       // In this system, transactions are stored in the 'ledger' table
       // We look for entries matching the loancaseno in narration or specific head_code if applicable
       const transactions = await this.dataSource.query(`
-        SELECT 
-          date as transaction_date,
-          voucherno as voucher_no,
-          particulars as narration,
-          CAST(debit AS numeric) as debit,
-          CAST(credit AS numeric) as credit
+        SELECT
+          trans_date as transaction_date,
+          receipt_vchr_no as voucher_no,
+          narration,
+          trans_type,
+          CAST(trans_amt AS numeric) as trans_amt
         FROM ledger
-        WHERE mbno = $1 
-          AND particulars LIKE '%' || $2 || '%'
-          AND date >= $3 AND date <= $4
-        ORDER BY date ASC
-      `, [memberNo, loan.loancaseno, fromDate, toDate]);
+        WHERE CAST(mbno AS text) = $1
+          AND (narration LIKE '%' || $2 || '%' OR code = $2)
+          AND trans_date >= $3 AND trans_date <= $4
+        ORDER BY trans_date ASC
+      `, [memberNo, String(loan.loancaseno), parseSafeDate(fromDate), parseSafeDate(toDate)]);
 
       const mappedTransactions = transactions.map((t: any) => {
-        const debit = parseFloat(t.debit) || 0;
-        const credit = parseFloat(t.credit) || 0;
-        totalDebits += debit;
-        totalCredits += credit;
+        const amt = parseFloat(t.trans_amt) || 0;
+        const isCr = t.trans_type === 'CR' || t.trans_type === 'R';
+        if (isCr) totalCredits += amt; else totalDebits += amt;
         totalTransactions++;
 
         return {
           transactionDate: t.transaction_date,
-          transactionType: credit > 0 ? 'CR' : 'DR',
-          transactionAmount: credit > 0 ? credit : debit,
+          transactionType: isCr ? 'CR' : 'DR',
+          transactionAmount: amt,
           narration: t.narration,
           voucherNo: t.voucher_no
         };

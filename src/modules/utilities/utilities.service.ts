@@ -4,6 +4,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { UserPreference } from './entities/user-preference.entity';
 import { SystemSetting } from './entities/system-setting.entity';
 import { UpdateUserPreferenceDto } from './dto/update-user-preference.dto';
+import { generateVoucherNo } from '../shared/utils/voucher-utils';
+import { LoanEligibilityService } from '../loan/services-v2/loan-eligibility.service';
 
 @Injectable()
 export class UtilitiesService {
@@ -14,7 +16,8 @@ export class UtilitiesService {
     @InjectRepository(UserPreference)
     private readonly preferenceRepo: Repository<UserPreference>,
     @InjectRepository(SystemSetting)
-    private readonly systemRepo: Repository<SystemSetting>
+    private readonly systemRepo: Repository<SystemSetting>,
+    private readonly loanEligibilityService: LoanEligibilityService
   ) { }
 
   async searchDeposits(memberNo: string, type: 'RD' | 'FD'): Promise<any[]> {
@@ -173,11 +176,24 @@ export class UtilitiesService {
 
       const sbResult = await this.dataSource.query(sbQuery, [parseInt(memberNo)]);
 
+      // Loan balances (RLN = regular loan, ELN = emergency loan) from member_balances
+      const loanQuery = `
+        SELECT
+          COALESCE(regularloan, 0) as rln_balance,
+          COALESCE(emergency_loan_balance, 0) as eln_balance,
+          COALESCE(loanint_rate, 0) as rln_rate,
+          COALESCE(eloanint_rate, 0) as eln_rate
+        FROM member_balances
+        WHERE mbno = $1
+      `;
+      const loanResult = await this.dataSource.query(loanQuery, [parseInt(memberNo)]);
+
       return {
         member: member,
         rd_summary: rdResult[0] || { rd_accounts: 0, total_rd_deposited: 0, total_monthly_installment: 0 },
         fd_summary: fdResult[0] || { fd_accounts: 0, total_fd_deposited: 0 },
-        sb_summary: sbResult[0] || { sb_accounts: 0, total_sb_balance: 0 }
+        sb_summary: sbResult[0] || { sb_accounts: 0, total_sb_balance: 0 },
+        loan_summary: loanResult[0] || { rln_balance: 0, eln_balance: 0, rln_rate: 0, eln_rate: 0 }
       };
 
     } catch (error) {
@@ -360,6 +376,19 @@ export class UtilitiesService {
     }
   }
 
+  /**
+   * Running ledger balance for an account head (asset convention: DR increases,
+   * CR decreases) — used to show the live Bank/Cash balance on voucher screens.
+   */
+  async getHeadBalance(code: string): Promise<number> {
+    const res = await this.dataSource.query(
+      `SELECT COALESCE(SUM(CASE WHEN trans_type = 'DR' THEN trans_amt::numeric ELSE -trans_amt::numeric END), 0) AS balance
+       FROM ledger WHERE code = $1`,
+      [code],
+    );
+    return Number(res[0]?.balance || 0);
+  }
+
   async getUserPreferences(userId: number): Promise<UserPreference> {
     let prefs = await this.preferenceRepo.findOne({ where: { userId } });
     if (!prefs) {
@@ -459,6 +488,7 @@ export class UtilitiesService {
       chequeNo?: string;
       chequeDate?: string;
       bankName?: string;
+      bankCode?: string;
       narration: string;
     },
     username: string = 'system',
@@ -494,26 +524,21 @@ export class UtilitiesService {
       const isDeposit = data.transactionType === 'deposit';
       const transType = isDeposit ? 'CR' : 'DR';
       const vchrType = isDeposit ? 'R' : 'P';
+      // Deposit = receipt (R), withdrawal = payment (P) — canonical voucher_master counters
       let voucherNo = data.voucherNo;
-      
       if (!voucherNo) {
-        const vchrKey = isDeposit ? 'r_vchr_no' : 'p_vchr_no';
-        // BUG FIX: added FOR UPDATE to prevent duplicate voucher numbers under concurrent requests
-        const vmResult = await queryRunner.query(`SELECT ${vchrKey} FROM voucher_master LIMIT 1 FOR UPDATE`);
-        const lastNo = vmResult[0]?.[vchrKey] || (isDeposit ? 'R00000' : 'P00000');
-        const prefix = isDeposit ? 'R' : 'P';
-        const num = parseInt(lastNo.replace(/\D/g, '')) + 1;
-        voucherNo = `${prefix}${num.toString().padStart(5, '0')}`;
-        await queryRunner.query(`UPDATE voucher_master SET ${vchrKey} = $1`, [voucherNo]);
+        voucherNo = await generateVoucherNo(queryRunner, isDeposit ? 'R' : 'P');
       }
 
       const transDate = data.transDate ? new Date(data.transDate) : new Date();
       const modeOfPay = data.paymentMode === 'cash' ? 'C' : 'B';
 
-      // Member SB account leg — CR on deposit (balance increases), DR on withdrawal
+      // Member SB account leg — CR on deposit (balance increases), DR on withdrawal.
+      // Posts to A001 (Savings Bank Account control head) — NOT A1001 (Cash in Hand);
+      // previously both legs used A1001, netting the SB head to zero in the general ledger.
       await queryRunner.query(
         `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid, cheque_no, cheque_date, bank_name)
-         VALUES ($1, $2, $3, 'A1001', $4, $5, 'SB', $6, $7, $8, $9, 0, $10, $11, $12, $13, $14, $15)`,
+         VALUES ($1, $2, $3, 'A001', $4, $5, 'SB', $6, $7, $8, $9, 0, $10, $11, $12, $13, $14, $15)`,
         [
           nextTransNo,
           transDate,
@@ -533,9 +558,10 @@ export class UtilitiesService {
         ]
       );
 
-      // Cash/bank offsetting leg — DR on deposit (cash in), CR on withdrawal (cash out)
+      // Cash/bank offsetting leg — DR on deposit (cash in), CR on withdrawal (cash out).
+      // Bank mode uses the chosen bank account; cash uses A1001.
       const cashAccType = modeOfPay === 'B' ? 'BANK' : 'CINH';
-      const cashCode = modeOfPay === 'B' ? 'A1008' : 'A1001';
+      const cashCode = modeOfPay === 'B' ? (data.bankCode || 'A1008') : 'A1001';
       const cashTransType = isDeposit ? 'DR' : 'CR';
       await queryRunner.query(
         `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid, cheque_no, cheque_date, bank_name)
@@ -560,10 +586,13 @@ export class UtilitiesService {
         ]
       );
 
-      // Update sbmaster balance
-      const newBalance = isDeposit 
-        ? account.balance + data.amount 
-        : account.balance - data.amount;
+      // Update sbmaster balance. Postgres numeric comes back as a JS string, so coerce both
+      // operands — otherwise `+` concatenates ("0.00" + 500 => "0.00500").
+      const curBalance = Number(account.balance) || 0;
+      const txnAmount = Number(data.amount) || 0;
+      const newBalance = isDeposit
+        ? curBalance + txnAmount
+        : curBalance - txnAmount;
 
       await queryRunner.query(
         `UPDATE sbmaster SET balance = $1 WHERE acc_no = $2`,
@@ -596,7 +625,7 @@ export class UtilitiesService {
               matamount as "maturityAmount", interestamount as "interestAmount",
               lastintpaydate as "lastIntPayDate", intpaid as "interestPaid",
               interestpayamentmode as "intPaymentMode", interestbalance as "interestBalance",
-              depperiod as "depositPeriod", depunit as "depositUnit", status
+              depperiod as "depositPeriod", depunit as "depositUnit", intcalmethod as "intCalMethod", status
        FROM fdmaster WHERE mbno = $1 AND fdrdflag = 'F' AND status = '0'
        ORDER BY account_number`,
       [parseInt(memberNo)]
@@ -683,12 +712,8 @@ export class UtilitiesService {
       const nextTransNo = Number(maxResult[0]?.next_trans_no ?? 1);
       const nextLedgerId = Number(maxResult[0]?.next_ledger_id ?? 1);
 
-      // BUG FIX: added FOR UPDATE to prevent duplicate voucher numbers under concurrent requests
-      const vmResult = await queryRunner.query(`SELECT j_vchr_no FROM voucher_master LIMIT 1 FOR UPDATE`);
-      const lastNo = vmResult[0]?.j_vchr_no || 'J00000';
-      const num = parseInt(lastNo.replace(/\D/g, '')) + 1;
-      const voucherNo = `J${num.toString().padStart(5, '0')}`;
-      await queryRunner.query(`UPDATE voucher_master SET j_vchr_no = $1`, [voucherNo]);
+      // FD interest accrual is a journal entry — canonical voucher_master J counter
+      const voucherNo = await generateVoucherNo(queryRunner, 'J');
 
       const transDate = data.transDate ? new Date(data.transDate) : new Date();
 
@@ -730,6 +755,80 @@ export class UtilitiesService {
     }
   }
 
+  /**
+   * Pay accrued FD interest OUT to the member (the FD stays open).
+   * DR A003/FD (reduce the accrued interest held in the FD) + CR cash/bank (money paid out).
+   * Payment voucher (vchr_type 'P', voucher_master P counter). Records the payment on fdmaster.
+   */
+  async payFdInterest(
+    data: {
+      memberNo: number;
+      accountNumber: number;
+      certNo?: string;
+      interestAmount: number;
+      transDate?: string;
+      paymentMode?: string;
+      bankCode?: string;
+      chequeNo?: string;
+      bankName?: string;
+      narration?: string;
+    },
+    username: string = 'system',
+  ): Promise<{ success: boolean; transNo: number; voucherNo: string; message: string }> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const amount = Number(data.interestAmount) || 0;
+      if (amount <= 0) throw new Error('Interest amount must be greater than zero');
+
+      const maxResult = await queryRunner.query(
+        `SELECT COALESCE(MAX(trans_no), 0) + 1 AS next_trans_no, COALESCE(MAX(ledgerid), 0) + 1 AS next_ledger_id FROM ledger`
+      );
+      const nextTransNo = Number(maxResult[0]?.next_trans_no ?? 1);
+      const nextLedgerId = Number(maxResult[0]?.next_ledger_id ?? 1);
+
+      // FD interest payout is a payment to the member — voucher_master P counter
+      const voucherNo = await generateVoucherNo(queryRunner, 'P');
+      const transDate = data.transDate ? new Date(data.transDate) : new Date();
+      const modeOfPay = data.paymentMode === 'bank' ? 'B' : 'C';
+      const narration = data.narration || `FD Interest Payout - ${data.certNo || data.accountNumber}`;
+
+      // DR A003 (FD liability) — paying interest out reduces the accrued interest in the FD
+      await queryRunner.query(
+        `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid)
+         VALUES ($1, $2, 'DR', 'A003', $3, $4, 'FD', $5, $6, 'P', $7, 0, $8, $9, $10)`,
+        [nextTransNo, transDate, data.memberNo, data.accountNumber, amount, voucherNo, modeOfPay, narration, username, nextLedgerId]
+      );
+
+      // CR cash/bank — money paid out (asset decreases). Bank mode credits the chosen account.
+      const crCode = modeOfPay === 'B' ? (data.bankCode || 'A1008') : 'A1001';
+      const crAccType = modeOfPay === 'B' ? 'BANK' : 'CINH';
+      await queryRunner.query(
+        `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid)
+         VALUES ($1, $2, 'CR', $3, $4, 0, $5, $6, $7, 'P', $8, 0, $9, $10, $11)`,
+        [nextTransNo + 1, transDate, crCode, data.memberNo, crAccType, amount, voucherNo, modeOfPay, narration, username, nextLedgerId + 1]
+      );
+
+      // Record the payout on fdmaster (FD stays open)
+      await queryRunner.query(
+        `UPDATE fdmaster SET lastintpaydate = $1, intpaid = COALESCE(intpaid, 0) + $2 WHERE account_number = $3`,
+        [transDate, amount, data.accountNumber]
+      );
+
+      await queryRunner.commitTransaction();
+      this.logger.log(`[FDInterest] Paid out vchr=${voucherNo} FD=${data.accountNumber} amount=${amount}`);
+      return { success: true, transNo: nextTransNo, voucherNo, message: `FD interest paid out. Voucher: ${voucherNo}` };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      this.logger.error(`[FDInterest] Payout failed:`, error);
+      throw new Error(`Failed to pay FD interest: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
   async createFixedDepositReceipt(
     data: {
       memberNo: number;
@@ -748,14 +847,17 @@ export class UtilitiesService {
       modeOfPayment: number;
       intAmount?: number;
       intCalMethod?: number;
+      operationMode?: number;
       headCode?: string;
       nomineeName?: string;
       nomineeAge?: string;
       nomineeAddress?: string;
       nomineeRelation?: string;
+      nominees?: Array<{ name?: string; age?: number | string; address?: string; relation?: string }>;
       paymentMode: string;
       chequeNo?: string;
       bankName?: string;
+      bankCode?: string;
     },
     username: string = 'system',
   ): Promise<{ success: boolean; accountNumber: number; voucherNo: string; message: string }> {
@@ -779,12 +881,8 @@ export class UtilitiesService {
       const nextTransNo = Number(maxResult[0]?.next_trans_no ?? 1);
       const nextLedgerId = Number(maxResult[0]?.next_ledger_id ?? 1);
 
-      // BUG FIX: added FOR UPDATE to prevent duplicate voucher numbers under concurrent requests
-      const vmResult = await queryRunner.query(`SELECT r_vchr_no FROM voucher_master LIMIT 1 FOR UPDATE`);
-      const lastNo = vmResult[0]?.r_vchr_no || 'R00000';
-      const num = parseInt(lastNo.replace(/\D/g, '')) + 1;
-      const voucherNo = `R${num.toString().padStart(5, '0')}`;
-      await queryRunner.query(`UPDATE voucher_master SET r_vchr_no = $1`, [voucherNo]);
+      // FD opening is a receipt of deposit money — canonical voucher_master R counter
+      const voucherNo = await generateVoucherNo(queryRunner, 'R');
 
       const depDate = data.depositDate ? new Date(data.depositDate) : new Date();
       const matDate = data.maturityDate ? new Date(data.maturityDate) : new Date();
@@ -793,7 +891,7 @@ export class UtilitiesService {
       // Insert into fdmaster
       await queryRunner.query(
         `INSERT INTO fdmaster (mbno, account_number, prefix, f_name, m_name, l_name, certno, depunit, depperiod, rate, depdate, matdate, fdamount, matamount, interestbalance, interestpayamentmode, interestamount, intpaid, status, nominee, nage, naddr, nrelation, fdrdflag, remarks, openbal, operationmode, intcalmethod, headcode)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 0, $15, $16, 0, '0', $17, $18, $19, $20, 'F', '', 0, 1, $21, $22)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 0, $15, $16, 0, '0', $17, $18, $19, $20, 'F', '', 0, $21, $22, $23)`,
         [
           data.memberNo, accountNumber,
           data.prefix || '', data.firstName || '', data.middleName || '', data.lastName || '',
@@ -803,7 +901,7 @@ export class UtilitiesService {
           data.depositAmount, data.maturityAmount,
           data.modeOfPayment || 1, data.intAmount || 0,
           data.nomineeName || '', data.nomineeAge || '', data.nomineeAddress || '', data.nomineeRelation || '',
-          data.intCalMethod || 1, data.headCode || 'A003'
+          data.operationMode || 1, data.intCalMethod || 1, data.headCode || 'A003'
         ]
       );
 
@@ -814,13 +912,41 @@ export class UtilitiesService {
         [nextTransNo, depDate, data.headCode || 'A003', data.memberNo, accountNumber, data.depositAmount, voucherNo, modeOfPay, username, nextLedgerId]
       );
 
-      // DR cash/bank — the asset (cash received) must increase to balance the entry
-      const cashCode = modeOfPay === 'B' ? 'A1008' : 'A1001';
+      // DR cash/bank — the asset (cash received) must increase to balance the entry.
+      // Bank mode debits the chosen bank account (BANK); cash debits A1001 (CINH).
+      const cashCode = modeOfPay === 'B' ? (data.bankCode || 'A1008') : 'A1001';
+      const cashAccType = modeOfPay === 'B' ? 'BANK' : 'CINH';
       await queryRunner.query(
         `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid)
-         VALUES ($1, $2, 'DR', $3, $4, 0, 'CINH', $5, $6, 'R', $7, 0, 'Fixed Deposit Opening - Cash/Bank', $8, $9)`,
-        [nextTransNo + 1, depDate, cashCode, data.memberNo, data.depositAmount, voucherNo, modeOfPay, username, nextLedgerId + 1]
+         VALUES ($1, $2, 'DR', $3, $4, 0, $5, $6, $7, 'R', $8, 0, 'Fixed Deposit Opening - Cash/Bank', $9, $10)`,
+        [nextTransNo + 1, depDate, cashCode, data.memberNo, cashAccType, data.depositAmount, voucherNo, modeOfPay, username, nextLedgerId + 1]
       );
+
+      // Nominees → fd_nominee (multi-nominee, mirrors loan_nominee). Table is created
+      // on first use (idempotent) since the schema has no FD nominee table yet.
+      const nominees = (data.nominees || []).filter(n => (n.name || '').toString().trim());
+      if (nominees.length > 0) {
+        await queryRunner.query(`
+          CREATE TABLE IF NOT EXISTS fd_nominee (
+            id SERIAL PRIMARY KEY,
+            account_number numeric,
+            mbno numeric,
+            srno smallint,
+            name varchar(100),
+            address varchar(200),
+            age smallint,
+            relation varchar(50)
+          )
+        `);
+        for (let i = 0; i < nominees.length; i++) {
+          const n = nominees[i];
+          await queryRunner.query(
+            `INSERT INTO fd_nominee (account_number, mbno, srno, name, address, age, relation)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [accountNumber, data.memberNo, i + 1, (n.name || '').toString(), (n.address || '').toString(), parseInt(String(n.age)) || 0, (n.relation || '').toString()]
+          );
+        }
+      }
 
       await queryRunner.commitTransaction();
       this.logger.log(`[FDReceipt] Created FD account=${accountNumber} vchr=${voucherNo} member=${data.memberNo}`);
@@ -855,9 +981,11 @@ export class UtilitiesService {
       dividendIds: number[];
       totalAmount: number;
       paymentMode: string;
+      transDate?: string;
       chequeNo?: string;
       chequeDate?: string;
       bankName?: string;
+      bankCode?: string;
       narration?: string;
     },
     username: string = 'system',
@@ -876,14 +1004,11 @@ export class UtilitiesService {
       const nextTransNo = Number(maxResult[0]?.next_trans_no ?? 1);
       const nextLedgerId = Number(maxResult[0]?.next_ledger_id ?? 1);
 
-      // BUG FIX: added FOR UPDATE to prevent duplicate voucher numbers under concurrent requests
-      const vmResult = await queryRunner.query(`SELECT r_vchr_no FROM voucher_master LIMIT 1 FOR UPDATE`);
-      const lastNo = vmResult[0]?.r_vchr_no || 'R00000';
-      const num = parseInt(lastNo.replace(/\D/g, '')) + 1;
-      const voucherNo = `R${num.toString().padStart(5, '0')}`;
-      await queryRunner.query(`UPDATE voucher_master SET r_vchr_no = $1`, [voucherNo]);
+      // Dividend voucher number from voucher_master (D counter) — per the legacy
+      // Demand/Dividend series, not the Receipt (R) counter.
+      const voucherNo = await generateVoucherNo(queryRunner, 'D');
 
-      const transDate = new Date();
+      const transDate = data.transDate ? new Date(data.transDate) : new Date();
       const modeOfPay = data.paymentMode === 'bank' ? 'B' : 'C';
       const memberNoInt = parseInt(data.memberNo);
 
@@ -894,10 +1019,9 @@ export class UtilitiesService {
         [nextTransNo, transDate, memberNoInt, data.totalAmount, voucherNo, modeOfPay, data.narration || 'Dividend Payment', username, nextLedgerId]
       );
 
-      // BUG FIX: Missing balancing CR to cash/bank (double-entry bookkeeping).
-      // Dividend is paid OUT → DR Dividend expense (L1024) + CR Cash/Bank.
-      // Previously only the DR side was inserted, leaving the ledger permanently unbalanced.
-      const crCode    = modeOfPay === 'B' ? 'A1008' : 'A1001';  // bank or cash
+      // Balancing CR to cash/bank (double-entry): dividend paid OUT → DR L1024 + CR Cash/Bank.
+      // Bank mode credits the chosen bank account (not a hardcoded one); cash credits A1001.
+      const crCode    = modeOfPay === 'B' ? (data.bankCode || 'A1008') : 'A1001';
       const crAccType = modeOfPay === 'B' ? 'BANK'  : 'CINH';
 
       await queryRunner.query(
@@ -954,15 +1078,10 @@ export class UtilitiesService {
       let nextTransNo = Number(maxResult[0]?.next_trans_no ?? 1);
       let nextLedgerId = Number(maxResult[0]?.next_ledger_id ?? 1);
 
-      // Generate R voucher number if not provided
+      // Generate R voucher number if not provided — canonical voucher_master R counter
       let voucherNo = data.voucherNo;
       if (!voucherNo) {
-        // BUG FIX: added FOR UPDATE to prevent duplicate voucher numbers under concurrent requests
-        const vmResult = await queryRunner.query(`SELECT r_vchr_no FROM voucher_master LIMIT 1 FOR UPDATE`);
-        const lastNo = vmResult[0]?.r_vchr_no || 'R00000';
-        const num = parseInt(lastNo.replace(/\D/g, '')) + 1;
-        voucherNo = `R${num.toString().padStart(5, '0')}`;
-        await queryRunner.query(`UPDATE voucher_master SET r_vchr_no = $1`, [voucherNo]);
+        voucherNo = await generateVoucherNo(queryRunner, 'R');
       }
 
       const transDate = data.transDate ? new Date(data.transDate) : new Date();
@@ -970,13 +1089,30 @@ export class UtilitiesService {
       const modeOfPay = data.modeOfPay || 'B';
       const bankCode = data.bankCode || 'A1008';
 
+      // Derive the canonical acc_type for each row's code from ledger history
+      // (authoritative & complete — replaces the limited hardcoded frontend map).
+      const codes = data.rows.map(r => r.code).filter(Boolean);
+      const accTypeMap: Record<string, string> = {};
+      if (codes.length > 0) {
+        const accRows = await queryRunner.query(
+          `SELECT code, acc_type FROM (
+             SELECT code, acc_type, ROW_NUMBER() OVER (PARTITION BY code ORDER BY COUNT(*) DESC) AS rn
+             FROM ledger WHERE code = ANY($1) AND acc_type IS NOT NULL AND acc_type <> ''
+             GROUP BY code, acc_type
+           ) t WHERE rn = 1`,
+          [codes]
+        );
+        for (const r of accRows) accTypeMap[r.code] = r.acc_type;
+      }
+
       // CR entries for each row (vchr_type='R') — loan recovery, interest, etc.
       for (const row of data.rows) {
         if (!row.code || !row.amount) continue;
+        const accType = accTypeMap[row.code] || row.accType || 'OTH';
         await queryRunner.query(
           `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid)
            VALUES ($1, $2, 'CR', $3, $4, 0, $5, $6, $7, 'R', $8, 0, $9, $10, $11)`,
-          [nextTransNo++, transDate, row.code, data.memberNo, row.accType, row.amount, voucherNo, modeOfPay, data.narration || '', username, nextLedgerId++]
+          [nextTransNo++, transDate, row.code, data.memberNo, accType, row.amount, voucherNo, modeOfPay, data.narration || '', username, nextLedgerId++]
         );
       }
 
@@ -1009,6 +1145,7 @@ export class UtilitiesService {
   async saveReceiptVoucher(
     data: {
       memberNo: number;
+      paymentType?: string;
       voucherNo: string;
       transDate: string;
       modeOfPay: string;
@@ -1016,6 +1153,7 @@ export class UtilitiesService {
       cheqNo?: string;
       cheqDate?: string;
       bankName?: string;
+      receiveIntoCode?: string;
       rows: Array<{ code: string; accType: string; amount: number }>;
     },
     username: string = 'system',
@@ -1025,54 +1163,92 @@ export class UtilitiesService {
     await queryRunner.startTransaction();
 
     try {
-      this.logger.log(`[VoucherPayment] Saving to TRANSACTIONS for member ${data.memberNo} rows=${data.rows.length}`);
+      this.logger.log(`[VoucherPayment] Staging receipt for member ${data.memberNo} rows=${data.rows.length}`);
 
-      // Get next trans_no for transactions table
-      const maxResult = await queryRunner.query(
-        `SELECT COALESCE(MAX(trans_no), 0) + 1 AS next_trans_no FROM transactions`
-      );
-      let nextTransNo = Number(maxResult[0]?.next_trans_no ?? 1);
-
-      // Generate R voucher number if not provided (uses R_VCHR_NO from voucher_master)
-      let voucherNo = data.voucherNo;
-      if (!voucherNo) {
-        // BUG FIX: added FOR UPDATE to prevent duplicate voucher numbers under concurrent requests
-        const vmResult = await queryRunner.query(`SELECT r_vchr_no FROM voucher_master LIMIT 1 FOR UPDATE`);
-        const lastNo = vmResult[0]?.r_vchr_no || 'R00000';
-        const num = parseInt(lastNo.replace(/\D/g, '')) + 1;
-        voucherNo = `R${num.toString().padStart(5, '0')}`;
-        await queryRunner.query(`UPDATE voucher_master SET r_vchr_no = $1`, [voucherNo]);
-      }
-
+      const voucherNo = data.voucherNo || await generateVoucherNo(queryRunner, 'R');
       const transDate = data.transDate ? new Date(data.transDate) : new Date();
       const totalAmount = data.rows.reduce((s, r) => s + r.amount, 0);
       const modeOfPay = data.modeOfPay || 'C';
+      const isBank = modeOfPay === 'B';
+      const receiveIntoCode = isBank ? (data.receiveIntoCode || 'A1001') : 'A1001';
 
-      // DR CINH (A1001) — cash/bank received increases the asset
+      // 1. Insert vouchers header with PENDING status
+      const nextVoucherId = await queryRunner.query(
+        `SELECT COALESCE(MAX(id), 0) + 1 as next_id FROM vouchers`
+      );
+      const voucherId = Number(nextVoucherId[0]?.next_id ?? 1);
+
       await queryRunner.query(
-        `INSERT INTO transactions (trans_no, trans_type, trans_date, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, cheq_no, cheq_amt, cheq_date, bankname, pass_flag, cashier_flag, code, narration, username)
-         VALUES ($1, 'DR', $2, $3, 0, 'CINH', $4, $5, 'R', $6, $7, 0, $8, $9, 'N', 'Y', 'A1001', $10, $11)`,
-        [nextTransNo++, transDate, data.memberNo, totalAmount, voucherNo, modeOfPay,
-         data.cheqNo || '', data.cheqDate ? new Date(data.cheqDate) : null, data.bankName || '',
-         data.narration || '', username]
+        `INSERT INTO vouchers (
+          "id", "voucherNumber", "voucherDate", "voucherType", "totalAmount",
+          "description", "memberId", "payeeName", "status", "remarks",
+          "chequeNumber", "chequeDate", "bankName", "createdAt"
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+        [
+          voucherId,
+          voucherNo,
+          transDate,
+          'RECEIPT',
+          totalAmount,
+          data.narration || '',
+          data.memberNo,
+          '',
+          'PENDING',
+          `RECEIVE_INTO:${receiveIntoCode}|PAY_MODE:${isBank ? 'BANK' : 'CASH'}`,
+          data.cheqNo || null,
+          data.cheqDate ? new Date(data.cheqDate) : null,
+          data.bankName || null,
+          new Date(),
+        ]
       );
 
-      // CR each row (loan recovery, interest income, etc.) — credit the income/liability accounts
+      // 2. DR the receiving account (cash/bank)
+      const receiveAccType = isBank && receiveIntoCode !== 'A1001' ? 'BANK' : 'CINH';
+      let nextTransNo = Number((await queryRunner.query(
+        `SELECT COALESCE(MAX(trans_no), 0) + 1 AS next_trans_no FROM transactions`
+      ))[0]?.next_trans_no ?? 1);
+      const firstTransNo = nextTransNo;
+
+      await queryRunner.query(
+        `INSERT INTO transactions (trans_no, trans_type, trans_date, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, cheq_no, cheq_amt, cheq_date, bankname, pass_flag, cashier_flag, code, narration, username)
+         VALUES ($1, 'DR', $2, $3, 0, $4, $5, $6, 'R', $7, $8, 0, $9, $10, 'N', 'Y', $11, $12, $13)`,
+        [nextTransNo++, transDate, data.memberNo, receiveAccType, totalAmount, voucherNo, modeOfPay,
+         data.cheqNo || '', data.cheqDate ? new Date(data.cheqDate) : null, data.bankName || '',
+         receiveIntoCode, data.narration || '', username]
+      );
+
+      // Derive the canonical acc_type for each row's code from ledger history
+      const codes = data.rows.map(r => r.code).filter(Boolean);
+      const accTypeMap: Record<string, string> = {};
+      if (codes.length > 0) {
+        const accRows = await queryRunner.query(
+          `SELECT code, acc_type FROM (
+             SELECT code, acc_type, ROW_NUMBER() OVER (PARTITION BY code ORDER BY COUNT(*) DESC) AS rn
+             FROM ledger WHERE code = ANY($1) AND acc_type IS NOT NULL AND acc_type <> ''
+             GROUP BY code, acc_type
+           ) t WHERE rn = 1`,
+          [codes]
+        );
+        for (const r of accRows) accTypeMap[r.code] = r.acc_type;
+      }
+
+      // 3. CR each row (loan recovery, interest income, etc.)
       for (const row of data.rows) {
         if (!row.code || !row.amount) continue;
+        const accType = accTypeMap[row.code] || row.accType || 'OTH';
         await queryRunner.query(
           `INSERT INTO transactions (trans_no, trans_type, trans_date, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, cheq_no, cheq_amt, cheq_date, bankname, pass_flag, cashier_flag, code, narration, username)
            VALUES ($1, 'CR', $2, $3, 0, $4, $5, $6, 'R', $7, $8, 0, $9, $10, 'N', 'Y', $11, $12, $13)`,
-          [nextTransNo++, transDate, data.memberNo, row.accType, row.amount, voucherNo, modeOfPay,
+          [nextTransNo++, transDate, data.memberNo, accType, row.amount, voucherNo, modeOfPay,
            data.cheqNo || '', data.cheqDate ? new Date(data.cheqDate) : null, data.bankName || '',
            row.code, data.narration || '', username]
         );
       }
 
       await queryRunner.commitTransaction();
-      this.logger.log(`[VoucherPayment] Saved vchr=${voucherNo} member=${data.memberNo} total=${totalAmount} rows=${data.rows.length} → TRANSACTIONS (pass_flag=N)`);
+      this.logger.log(`[VoucherPayment] Staged vchr=${voucherNo} member=${data.memberNo} total=${totalAmount} rows=${data.rows.length} → Pass Transactions`);
 
-      return { success: true, transNo: nextTransNo - data.rows.length - 1, voucherNo, message: `Voucher ${voucherNo} staged in TRANSACTIONS (pending pass). Total: ${totalAmount}` };
+      return { success: true, transNo: firstTransNo, voucherNo, message: `Voucher ${voucherNo} staged (pending pass). Total: ${totalAmount}` };
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error(`[VoucherPayment] Failed:`, error);
@@ -1090,6 +1266,7 @@ export class UtilitiesService {
       paymentType: string;
       officeNo?: string;
       narration: string;
+      payFromCode?: string;
       rows: Array<{ code: string; name: string; amount: number; rdSrNo?: string }>;
     },
     username: string = 'system',
@@ -1099,53 +1276,119 @@ export class UtilitiesService {
     await queryRunner.startTransaction();
 
     try {
-      this.logger.log(`[PaymentVoucher] Saving payment for member ${data.memberNo} rows=${data.rows?.length}`);
+      this.logger.log(`[PaymentVoucher] Staging payment for member ${data.memberNo} rows=${data.rows?.length}`);
 
-      // Get next trans_no and ledgerid
-      const maxResult = await queryRunner.query(
-        `SELECT COALESCE(MAX(trans_no), 0) + 1 AS next_trans_no, COALESCE(MAX(ledgerid), 0) + 1 AS next_ledger_id FROM ledger`
-      );
-      let nextTransNo = Number(maxResult[0]?.next_trans_no ?? 1);
-      let nextLedgerId = Number(maxResult[0]?.next_ledger_id ?? 1);
-
-      // Generate voucher number if not provided
-      let voucherNo = data.voucherNo;
-      if (!voucherNo) {
-        // BUG FIX: added FOR UPDATE to prevent duplicate voucher numbers under concurrent requests
-        const vmResult = await queryRunner.query(`SELECT p_vchr_no FROM voucher_master LIMIT 1 FOR UPDATE`);
-        const lastNo = vmResult[0]?.p_vchr_no || 'P00000';
-        const num = parseInt(lastNo.replace(/\D/g, '')) + 1;
-        voucherNo = `P${num.toString().padStart(5, '0')}`;
-        await queryRunner.query(`UPDATE voucher_master SET p_vchr_no = $1`, [voucherNo]);
-      }
-
+      const voucherNo = data.voucherNo || await generateVoucherNo(queryRunner, 'P');
       const transDate = data.transDate ? new Date(data.transDate) : new Date();
       const rows = data.rows || [];
+      const total = rows.reduce((s, r) => s + (r.amount || 0), 0);
+      const payFromCode = (data.payFromCode || 'A1001').trim();
+      const isCash = payFromCode === 'A1001';
+      const modeOfPay = isCash ? 'C' : 'B';
 
-      // DR one row per breakdown item (expense/asset accounts being paid out)
+      // 1. Insert into vouchers table with PENDING status
+      const nextVoucherId = await queryRunner.query(
+        `SELECT COALESCE(MAX(id), 0) + 1 as next_id FROM vouchers`
+      );
+      const voucherId = Number(nextVoucherId[0]?.next_id ?? 1);
+
+      await queryRunner.query(
+        `INSERT INTO vouchers (
+          "id", "voucherNumber", "voucherDate", "voucherType", "totalAmount",
+          "description", "memberId", "payeeName", "status", "remarks",
+          "chequeNumber", "chequeDate", "bankName", "createdAt"
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+        [
+          voucherId,
+          voucherNo,
+          transDate,
+          'PAYMENT',
+          total,
+          data.narration || '',
+          data.memberNo,
+          '',
+          'PENDING',
+          `PAY_FROM:${payFromCode}|PAY_MODE:${isCash ? 'CASH' : 'BANK'}`,
+          null,
+          null,
+          isCash ? null : payFromCode,
+          new Date(),
+        ]
+      );
+
+      // 2. Insert DR rows into transactions table with pass_flag = 'N'
+      let firstTransNo = 0;
       for (const row of rows) {
         if (!row.code || !row.amount) continue;
+        const transNoResult = await queryRunner.query(
+          `SELECT COALESCE(MAX(trans_no), 0) + 1 as next_id FROM transactions`
+        );
+        const transNo = Number(transNoResult[0]?.next_id ?? 1);
+        if (!firstTransNo) firstTransNo = transNo;
+
         await queryRunner.query(
-          `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid)
-           VALUES ($1, $2, 'DR', $3, $4, 0, 'BANK', $5, $6, 'P', 'B', 0, $7, $8, $9)`,
-          [nextTransNo++, transDate, row.code, data.memberNo, row.amount, voucherNo, data.narration || row.name || '', username, nextLedgerId++]
+          `INSERT INTO transactions (
+            trans_no, trans_type, trans_date, mbno, trans_amt,
+            receipt_vchr_no, vchr_type, modeofpay, pass_flag, cashier_flag,
+            narration, code, username, acc_no, cheq_amt
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+          [
+            transNo,
+            'P',
+            transDate,
+            data.memberNo,
+            row.amount,
+            voucherNo,
+            'PV',
+            modeOfPay,
+            'N',
+            'N',
+            data.narration || row.name || '',
+            row.code,
+            username,
+            row.rdSrNo ? parseInt(row.rdSrNo.replace(/[^0-9]/g, '')) || null : null,
+            0,
+          ]
         );
       }
 
-      // CR cash/bank for the total — balances the payment voucher
-      const total = rows.reduce((s, r) => s + (r.amount || 0), 0);
+      // 3. Insert CR row for the "pay from" account (balancing entry)
       if (total > 0) {
+        const crTransNoResult = await queryRunner.query(
+          `SELECT COALESCE(MAX(trans_no), 0) + 1 as next_id FROM transactions`
+        );
+        const crTransNo = Number(crTransNoResult[0]?.next_id ?? 1);
+
         await queryRunner.query(
-          `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid)
-           VALUES ($1, $2, 'CR', 'A1001', $3, 0, 'CINH', $4, $5, 'P', 'C', 0, $6, $7, $8)`,
-          [nextTransNo++, transDate, data.memberNo, total, voucherNo, data.narration || '', username, nextLedgerId++]
+          `INSERT INTO transactions (
+            trans_no, trans_type, trans_date, mbno, trans_amt,
+            receipt_vchr_no, vchr_type, modeofpay, pass_flag, cashier_flag,
+            narration, code, username, acc_no, cheq_amt
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+          [
+            crTransNo,
+            'R',
+            transDate,
+            data.memberNo,
+            total,
+            voucherNo,
+            'PV',
+            modeOfPay,
+            'N',
+            'N',
+            data.narration || '',
+            payFromCode,
+            username,
+            null,
+            0,
+          ]
         );
       }
 
       await queryRunner.commitTransaction();
-      this.logger.log(`[PaymentVoucher] Saved vchr=${voucherNo} member=${data.memberNo} total=${total} rows=${rows.length}`);
+      this.logger.log(`[PaymentVoucher] Staged vchr=${voucherNo} member=${data.memberNo} total=${total} rows=${rows.length} → Pass Transactions`);
 
-      return { success: true, transNo: nextTransNo - rows.length - 1, voucherNo, message: `Payment voucher ${voucherNo} saved. Total: ${total}` };
+      return { success: true, transNo: firstTransNo, voucherNo, message: `Payment voucher ${voucherNo} saved (pending pass). Total: ${total}` };
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error(`[PaymentVoucher] Failed:`, error);
@@ -1171,6 +1414,9 @@ export class UtilitiesService {
     },
     username: string = 'system',
   ): Promise<{ success: boolean; loanCaseNo: number; message: string }> {
+    // --- Share Value & FD Eligibility rule check ---
+    await this.loanEligibilityService.enforceEligibility(data.memberNo.toString(), data.loanAmount);
+
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -1364,6 +1610,115 @@ export class UtilitiesService {
       ORDER BY hm.code
     `);
     return result;
+  }
+
+  async rebuildBalancesheet(): Promise<{ success: boolean; message: string; leafCount: number }> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      this.logger.log('[BuildTree] Rebuilding balancesheet from ledger...');
+
+      // Clear existing balancesheet
+      await queryRunner.query(`DELETE FROM balancesheet`);
+
+      // Rebuild from ledger in one CTE-based INSERT.
+      // Leaf nodes = codes that are NOT listed as parent_code of any other headmaster row,
+      // excluding M1000 (root) and orphan nodes (parent_code is null / '' / '0').
+      // Closing balance formula:
+      //   L/I accounts (credit-normal): opening = -op_bal, closing = op_bal + CR - DR
+      //   A/E accounts (debit-normal):  opening = +op_bal, closing = op_bal + DR - CR
+      const result = await queryRunner.query(`
+        INSERT INTO balancesheet
+          (head_code, parent_code, head_name, opening_balance, debit, credit,
+           closingbalance, closingbal_db, closing_cr, maincd)
+        SELECT
+          hm.code,
+          hm.parent_code,
+          hm.head_name,
+          -- opening: stored negative for credit-normal (L/I), positive for debit-normal (A/E)
+          CASE WHEN hm.code LIKE 'L%' OR hm.code LIKE 'I%'
+               THEN -COALESCE(hm.op_bal, 0)
+               ELSE  COALESCE(hm.op_bal, 0) END AS opening_balance,
+          COALESCE(lag.total_dr, 0) AS debit,
+          COALESCE(lag.total_cr, 0) AS credit,
+          -- closing balance
+          CASE WHEN hm.code LIKE 'L%' OR hm.code LIKE 'I%'
+               THEN COALESCE(hm.op_bal, 0) + COALESCE(lag.total_cr, 0) - COALESCE(lag.total_dr, 0)
+               ELSE COALESCE(hm.op_bal, 0) + COALESCE(lag.total_dr, 0) - COALESCE(lag.total_cr, 0)
+               END AS closingbalance,
+          -- closingbal_db: debit-normal accounts only
+          CASE WHEN hm.code NOT LIKE 'L%' AND hm.code NOT LIKE 'I%'
+               THEN GREATEST(0, COALESCE(hm.op_bal, 0) + COALESCE(lag.total_dr, 0) - COALESCE(lag.total_cr, 0))
+               ELSE 0 END AS closingbal_db,
+          -- closing_cr: credit-normal accounts only
+          CASE WHEN hm.code LIKE 'L%' OR hm.code LIKE 'I%'
+               THEN GREATEST(0, COALESCE(hm.op_bal, 0) + COALESCE(lag.total_cr, 0) - COALESCE(lag.total_dr, 0))
+               ELSE 0 END AS closing_cr,
+          CASE WHEN hm.code LIKE 'L%' THEN 1
+               WHEN hm.code LIKE 'A%' THEN 2
+               WHEN hm.code LIKE 'I%' THEN 3
+               WHEN hm.code LIKE 'E%' THEN 4
+               ELSE 2 END AS maincd
+        FROM headmaster hm
+        LEFT JOIN (
+          SELECT code,
+            SUM(CASE WHEN trans_type = 'DR' THEN trans_amt::numeric ELSE 0 END) AS total_dr,
+            SUM(CASE WHEN trans_type = 'CR' THEN trans_amt::numeric ELSE 0 END) AS total_cr
+          FROM ledger
+          GROUP BY code
+        ) lag ON lag.code = hm.code
+        WHERE hm.code NOT IN (
+          SELECT DISTINCT parent_code FROM headmaster
+          WHERE parent_code IS NOT NULL AND parent_code != '' AND parent_code != '0'
+        )
+        AND hm.code != 'M1000'
+        AND hm.parent_code IS NOT NULL
+        AND hm.parent_code != ''
+        AND hm.parent_code != '0'
+      `);
+
+      await queryRunner.commitTransaction();
+      const leafCount = result[1] ?? 0;
+      this.logger.log(`[BuildTree] Rebuilt ${leafCount} leaf balances from ledger`);
+
+      return {
+        success: true,
+        message: `Balance sheet rebuilt from ledger. ${leafCount} accounts updated.`,
+        leafCount,
+      };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      this.logger.error('[BuildTree] Failed:', error);
+      throw new Error(`Failed to rebuild balance sheet: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  async deleteHeadMaster(code: string): Promise<{ success: boolean; message: string }> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      const children = await queryRunner.query(
+        `SELECT COUNT(*)::int AS cnt FROM headmaster WHERE parent_code = $1`, [code]
+      );
+      if (children[0].cnt > 0) {
+        throw new Error(`${code} has ${children[0].cnt} child heads — remove children first.`);
+      }
+      await queryRunner.query(`DELETE FROM headmaster   WHERE code      = $1`, [code]);
+      await queryRunner.query(`DELETE FROM balancesheet WHERE head_code = $1`, [code]);
+      await queryRunner.commitTransaction();
+      this.logger.log(`[DeleteHead] Deleted head ${code}`);
+      return { success: true, message: `${code} deleted successfully.` };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw new Error(error instanceof Error ? error.message : 'Delete failed');
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   async saveHeadMaster(data: any): Promise<{ success: boolean; message: string }> {
@@ -1734,6 +2089,96 @@ export class UtilitiesService {
       throw new Error(
         `Failed to transfer entries: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  async getFinancialYears(): Promise<any[]> {
+    const rows = await this.dataSource.query(
+      `SELECT DISTINCT yearcode FROM yearend WHERE yearcode IS NOT NULL ORDER BY yearcode`
+    );
+    return rows.map((r: any) => {
+      const yc = parseInt(r.yearcode);
+      const startDate = `01 Apr ${yc - 1}`;
+      const endDate   = `31 Mar ${yc}`;
+      return { yearcode: yc, startDate, endDate, label: `${startDate} - ${endDate}` };
+    });
+  }
+
+  async getHeadOpeningBalances(yearcode: number): Promise<any[]> {
+    return this.dataSource.query(`
+      SELECT
+        hm.code,
+        hm.parent_code  AS "parentCode",
+        hm.head_name    AS "headName",
+        hm.headtype     AS "headType",
+        COALESCE(yh.closing_bal, hm.op_bal, 0) AS "openingBal",
+        (yh.head_code IS NOT NULL) AS "hasYearData"
+      FROM headmaster hm
+      LEFT JOIN (
+        SELECT DISTINCT ON (head_code) head_code, closing_bal
+        FROM yearend_head
+        WHERE yearcode = $1
+        ORDER BY head_code
+      ) yh ON yh.head_code = hm.code
+      ORDER BY hm.code
+    `, [yearcode]);
+  }
+
+  async saveHeadOpeningBalances(
+    yearcode: number,
+    balances: Array<{ headCode: string; closingBal: number }>,
+  ): Promise<{ success: boolean; message: string }> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      await queryRunner.query(
+        `DELETE FROM yearend_head WHERE yearcode = $1 AND head_code IN (SELECT code FROM headmaster)`,
+        [yearcode],
+      );
+      for (const b of balances) {
+        await queryRunner.query(
+          `INSERT INTO yearend_head (yearcode, head_code, parent_code, closing_bal)
+           SELECT $1, hm.code, hm.parent_code, $3 FROM headmaster hm WHERE hm.code = $2`,
+          [yearcode, b.headCode, b.closingBal],
+        );
+      }
+      await queryRunner.commitTransaction();
+      this.logger.log(`[HeadOpenBal] Saved ${balances.length} balances for year ${yearcode}`);
+      return { success: true, message: `Saved ${balances.length} head balances for year ${yearcode}.` };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw new Error(`Failed to save opening balances: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  async applyYearOpeningBalances(yearcode: number): Promise<{ success: boolean; message: string; updated: number }> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      const result = await queryRunner.query(`
+        UPDATE headmaster hm
+        SET op_bal = yh.closing_bal
+        FROM (
+          SELECT DISTINCT ON (head_code) head_code, closing_bal
+          FROM yearend_head
+          WHERE yearcode = $1 AND head_code IN (SELECT code FROM headmaster)
+          ORDER BY head_code
+        ) yh
+        WHERE hm.code = yh.head_code
+      `, [yearcode]);
+      await queryRunner.commitTransaction();
+      const updated = result[1] ?? 0;
+      this.logger.log(`[HeadOpenBal] Applied year ${yearcode} → ${updated} accounts updated`);
+      return { success: true, message: `Applied year ${yearcode} balances to ${updated} account heads.`, updated };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw new Error(`Failed to apply opening balances: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       await queryRunner.release();
     }

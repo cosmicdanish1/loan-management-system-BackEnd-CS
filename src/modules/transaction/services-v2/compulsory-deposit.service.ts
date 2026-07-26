@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { PostCDTransactionDto } from '../dto/compulsory-deposit.dto';
+import { generateVoucherNo } from '../../shared/utils/voucher-utils';
 
 @Injectable()
 export class CompulsoryDepositService {
@@ -54,10 +55,11 @@ export class CompulsoryDepositService {
         try {
             this.logger.log(`Starting bulk CD posting: Head ${dto.incomeHeadCode}, Total ${dto.totalAmount}`);
 
-            // 1. Generate Voucher Number (Simplified or use SequenceGenerator)
-            const vchrQuery = `SELECT COALESCE(MAX(CAST("voucherNumber" AS INTEGER)), 1000) + 1 as next_vchr FROM vouchers`;
-            const vchrRes = await queryRunner.query(vchrQuery);
-            const voucherNo = vchrRes[0].next_vchr.toString();
+            // 1. Canonical Journal voucher number from voucher_master (J). CD interest is
+            // posted as a journal entry (vchr_type 'J'). This also removes the previous
+            // MAX(CAST(voucherNumber AS INTEGER)) read, which would break now that other
+            // voucher types write prefixed strings (e.g. J00002) into the shared vouchers table.
+            const voucherNo = await generateVoucherNo(queryRunner, 'J');
 
             // 2. Create Voucher Header
             const nextVchrId = await this.getNextId(queryRunner, 'vouchers', 'id');
@@ -74,7 +76,7 @@ export class CompulsoryDepositService {
                 INSERT INTO transactions (
                     trans_no, trans_type, trans_date, trans_amt, receipt_vchr_no, vchr_type, 
                     modeofpay, pass_flag, cashier_flag, code, narration, username
-                ) VALUES ($1, 'P', NOW(), $2, $3, 'CD', 'J', 'Y', 'Y', $4, $5, $6)
+                ) VALUES ($1, 'DR', NOW(), $2, $3, 'CD', 'J', 'Y', 'Y', $4, $5, $6)
             `, [nextTransId, dto.totalAmount, voucherNo, dto.incomeHeadCode.substring(0, 5), 'Bulk CD Post (Debit Head)', username]);
 
             // 4. Post CREDIT entries per member and update balances
@@ -87,7 +89,7 @@ export class CompulsoryDepositService {
                     INSERT INTO transactions (
                         trans_no, trans_type, trans_date, mbno, trans_amt, receipt_vchr_no, 
                         vchr_type, modeofpay, pass_flag, cashier_flag, narration, username
-                    ) VALUES ($1, 'R', NOW(), $2, $3, $4, 'CD', 'J', 'Y', 'Y', $5, $6)
+                    ) VALUES ($1, 'CR', NOW(), $2, $3, $4, 'CD', 'J', 'Y', 'Y', $5, $6)
                 `, [currentTransNo++, dist.memberNo, dist.postAmount, voucherNo, `CD Credit: ${dto.narration}`, username]);
 
                 // b. Update Member Balance
@@ -103,7 +105,7 @@ export class CompulsoryDepositService {
                     INSERT INTO ledger (
                         trans_date, trans_type, mbno, trans_amt, receipt_vchr_no, 
                         vchr_type, pl_balance, narration, username, ledgerid
-                    ) VALUES (NOW(), 'R', $1, $2, $3, 'CD', $4, $5, $6, $7)
+                    ) VALUES (NOW(), 'CR', $1, $2, $3, 'CD', $4, $5, $6, $7)
                 `, [dist.memberNo, dist.postAmount, voucherNo, dist.currentBalance + dist.postAmount, `CD Post: ${dto.narration}`, username, ledgerId]);
             }
 

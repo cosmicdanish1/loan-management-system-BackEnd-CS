@@ -16,7 +16,7 @@ import {
   ApiBody,
   ApiQuery,
 } from '@nestjs/swagger';
-import { BackupService, BackupOptions, BackupResult, BackupInfo } from './backup.service';
+import { BackupService, BackupOptions, BackupResult, BackupInfo, RestoreOptions, RestoreResult } from './backup.service';
 
 @ApiTags('Database Backup')
 @Controller('backup')
@@ -73,6 +73,49 @@ export class BackupController {
   })
   async createBackup(@Body() options: BackupOptions): Promise<BackupResult> {
     return this.backupService.createBackup(options);
+  }
+
+  @Post('restore')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Restore the database from a backup file (DESTRUCTIVE — overwrites all current data)',
+    description:
+      'Decrypts and restores a backup created by POST /backup/create. Overwrites the current database. ' +
+      'Requires "confirm" to equal the exact target database name. Automatically takes a pre-restore ' +
+      'safety backup first (unless skipSafetyBackup=true) so the operation is reversible.',
+  })
+  @ApiResponse({ status: 200, description: 'Restore completed (see success flag)' })
+  @ApiResponse({ status: 400, description: 'Missing/invalid confirmation or backup file not found' })
+  @ApiResponse({ status: 500, description: 'Restore failed' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        fileName: {
+          type: 'string',
+          description: 'Backup file name (looked up in backup log / BACKUP_PATH)',
+          example: 'backup_2026-07-25T10-00-00-000Z.sql.safe',
+        },
+        filePath: {
+          type: 'string',
+          description: 'Absolute path to the backup file (overrides fileName)',
+        },
+        confirm: {
+          type: 'string',
+          description: 'Must equal the exact target database name to proceed',
+          example: 'EMP_Espat_Society',
+        },
+        skipSafetyBackup: {
+          type: 'boolean',
+          description: 'Skip the automatic pre-restore safety backup',
+          default: false,
+        },
+      },
+      required: ['confirm'],
+    },
+  })
+  async restoreBackup(@Body() options: RestoreOptions): Promise<RestoreResult> {
+    return this.backupService.restoreBackup(options);
   }
 
   @Post('validate-destination')

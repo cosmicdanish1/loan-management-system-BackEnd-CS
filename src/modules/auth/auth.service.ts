@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   UnauthorizedException,
   ConflictException,
   NotFoundException,
@@ -22,6 +23,8 @@ import { JwtPayload } from './strategies/jwt.strategy';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @InjectRepository(User)
     private userRepository: Repository<User>,
@@ -47,7 +50,7 @@ export class AuthService {
     if (userMaster) {
       // Check if user is enabled
       if (userMaster.enableDisable !== 'E') {
-        console.log('User account is disabled');
+        this.logger.log('User account is disabled');
         throw new UnauthorizedException('User account is disabled');
       }
 
@@ -68,7 +71,7 @@ export class AuthService {
           });
           await this.loginTimeRepository.save(loginSession);
         } catch (error) {
-          console.log('Login session save error (non-critical):', error.message);
+          this.logger.warn(`Login session save error (non-critical): ${error.message}`);
         }
 
         // Update user login status - SKIP FOR NOW to avoid varchar error
@@ -207,7 +210,7 @@ export class AuthService {
         secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
       });
 
-      console.log('Refresh token payload:', payload);
+      this.logger.debug('Refresh token payload received');
 
       // 1. Try UserMaster (new system)
       const userMaster = await this.userMasterRepository.findOne({
@@ -240,7 +243,7 @@ export class AuthService {
         user: this.mapUserToResponseDto(user),
       };
     } catch (error) {
-      console.error('Refresh token error:', error);
+      this.logger.error(`Refresh token error: ${error.message}`);
       throw new UnauthorizedException('Invalid refresh token');
     }
   }
@@ -401,6 +404,15 @@ export class AuthService {
       userlevelid: u.userlevelid,
       enable_disable: u.enableDisable,
     }));
+  }
+
+  async getUsernames(): Promise<any> {
+    const users = await this.userMasterRepository.find({
+      select: ['userid', 'susername'],
+      where: { enableDisable: 'E' },
+      order: { susername: 'ASC' },
+    });
+    return users.map(u => ({ userid: u.userid, susername: u.susername }));
   }
 
   async changePassword(

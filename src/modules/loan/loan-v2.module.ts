@@ -7,7 +7,10 @@ import {
     LoanApplicationService,
     LoanSanctionService,
     LoanSuretyService,
-    LoanQueryService
+    LoanQueryService,
+    LoanRepaymentService,
+    LoanMonthEndService,
+    LoanEligibilityService,
 } from './services-v2';
 import { LoanV2Controller } from './loan-v2.controller';
 
@@ -32,12 +35,18 @@ import { UtilityModule } from '../utility/utility.module';
         LoanSanctionService,
         LoanSuretyService,
         LoanQueryService,
+        LoanRepaymentService,
+        LoanMonthEndService,
+        LoanEligibilityService,
     ],
     exports: [
         LoanApplicationService,
         LoanSanctionService,
         LoanSuretyService,
         LoanQueryService,
+        LoanRepaymentService,
+        LoanMonthEndService,
+        LoanEligibilityService,
     ],
 })
 export class LoanV2Module { }

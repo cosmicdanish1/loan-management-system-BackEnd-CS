@@ -1,17 +1,20 @@
 import { Controller, Get, Post, Body, Query, Logger } from '@nestjs/common';
+import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { CashBookService } from './cashbook.service';
-import { 
-  GetCashBookDto, 
+import {
+  GetCashBookDto,
   CashBookSummaryDto,
-  CreateTransactionDto 
+  CreateTransactionDto
 } from './dto/cashbook.dto';
 
+@ApiTags('Cash Book')
 @Controller('cashbook')
 export class CashBookController {
   private readonly logger = new Logger(CashBookController.name);
 
   constructor(private readonly cashBookService: CashBookService) {}
 
+  @ApiOperation({ summary: 'Daily cash book report (receipts & payments) for a given date' })
   @Get('report')
   async getCashBookReport(@Query() dto: GetCashBookDto): Promise<{
     success: boolean;
@@ -38,6 +41,7 @@ export class CashBookController {
     }
   }
 
+  @ApiOperation({ summary: 'Record a cash book transaction (receipt or payment entry)' })
   @Post('transaction')
   async createTransaction(@Body() dto: CreateTransactionDto): Promise<{
     success: boolean;
@@ -64,6 +68,7 @@ export class CashBookController {
     }
   }
 
+  @ApiOperation({ summary: 'List active members (for cash book entry dropdowns)' })
   @Get('members/active')
   async getActiveMembers(): Promise<{
     success: boolean;
@@ -88,6 +93,7 @@ export class CashBookController {
     }
   }
 
+  @ApiOperation({ summary: 'Current savings interest rate used by the cash book' })
   @Get('interest-rate')
   async getCurrentInterestRate(): Promise<{
     success: boolean;
@@ -112,6 +118,7 @@ export class CashBookController {
     }
   }
 
+  @ApiOperation({ summary: 'Get a member current cash/savings balance by member code' })
   @Get('member/balance')
   async getMemberBalance(@Query('memberCode') memberCode: string): Promise<{
     success: boolean;
@@ -136,6 +143,7 @@ export class CashBookController {
     }
   }
 
+  @ApiOperation({ summary: 'List cash book transactions within a start/end date range' })
   @Get('transactions')
   async getTransactionsByDateRange(
     @Query('startDate') startDate: string,

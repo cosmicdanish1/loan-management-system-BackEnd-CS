@@ -57,12 +57,13 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       return;
     }
 
-    // 404s are expected misses — warn, not error
+    const requestId = (request as any).requestId || 'no-id';
+
     if (status === HttpStatus.NOT_FOUND) {
-      this.logger.warn(`${request.method} ${request.url} - ${status} - ${message}`);
+      this.logger.warn(`[${requestId}] ${request.method} ${request.url} - ${status} - ${message}`);
     } else {
       this.logger.error(
-        `${request.method} ${request.url} - ${status} - ${message}`,
+        `[${requestId}] ${request.method} ${request.url} - ${status} - ${message}`,
         exception instanceof Error ? exception.stack : exception,
       );
     }
@@ -74,6 +75,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       method: request.method,
       error,
       message,
+      requestId,
     };
 
     response.status(status).json(errorResponse);

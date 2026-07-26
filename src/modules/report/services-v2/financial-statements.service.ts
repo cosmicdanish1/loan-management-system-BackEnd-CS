@@ -1,8 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
 @Injectable()
 export class FinancialStatementsService {
+    private readonly logger = new Logger(FinancialStatementsService.name);
+
     constructor(private readonly dataSource: DataSource) { }
 
     /**
@@ -92,7 +94,7 @@ export class FinancialStatementsService {
             return { success: true, data: { id: scheduleId } };
         } catch (error) {
             await queryRunner.rollbackTransaction();
-            console.error('Error creating schedule:', error);
+            this.logger.error('Error creating schedule:', error);
             return { success: false, error: 'Failed to create schedule' };
         } finally {
             await queryRunner.release();

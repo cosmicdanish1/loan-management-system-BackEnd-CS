@@ -1,14 +1,32 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { SwaggerModule } from '@nestjs/swagger';
+import { WINSTON_MODULE_NEST_PROVIDER } from 'nest-winston';
 import { AppModule } from './app.module';
+import { buildSwaggerConfig } from './config/swagger.config';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
+import { HttpAccessLogInterceptor } from './common/interceptors/http-access-log.interceptor';
 import * as compression from 'compression';
 
+const bootstrapLogger = new Logger('Bootstrap');
+
+process.on('unhandledRejection', (reason) => {
+  bootstrapLogger.error(`Unhandled Rejection: ${reason instanceof Error ? reason.stack : reason}`);
+});
+
+process.on('uncaughtException', (error) => {
+  bootstrapLogger.error(`Uncaught Exception: ${error.stack || error.message}`);
+});
+
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  // Install winston as the application logger so every Logger.* call flows through
+  // the configured transports (rotation, redaction, per-domain routing) and picks
+  // up the request correlation id. Without this, Nest's default console logger is
+  // used and the winston file logging stays dormant.
+  app.useLogger(app.get(WINSTON_MODULE_NEST_PROVIDER));
   app.use(compression());
   const configService = app.get(ConfigService);
   const logger = new Logger('Bootstrap');
@@ -52,28 +70,32 @@ async function bootstrap() {
   app.useGlobalFilters(new GlobalExceptionFilter());
 
   // Global interceptors
-  app.useGlobalInterceptors(new TransformInterceptor());
+  app.useGlobalInterceptors(
+    new HttpAccessLogInterceptor(),
+    new TransformInterceptor(),
+  );
 
-  // Swagger documentation
-  const config = new DocumentBuilder()
-    .setTitle('Paper White Technology - LMS API')
-    .setDescription('Comprehensive API for Paper White Technology Loan Management System')
-    .setVersion('1.0')
-    .addBearerAuth(
-      {
-        type: 'http',
-        scheme: 'bearer',
-        bearerFormat: 'JWT',
-        name: 'JWT',
-        description: 'Enter JWT token',
-        in: 'header',
-      },
-      'JWT-auth',
-    )
-    .build();
+  // Swagger documentation.
+  //
+  // Exposing this hands any LAN user a complete map of the API, so it is OFF in
+  // production by default. For emergency direct-IP access (e.g. hitting the
+  // server from Postman when the desktop client is unavailable) an operator can
+  // set ENABLE_SWAGGER=true in the server .env, restart, use the docs, then turn
+  // it back off. Outside production it is always on for local development.
+  const isProduction = configService.get('NODE_ENV') === 'production';
+  const swaggerForced =
+    String(configService.get('ENABLE_SWAGGER', 'false')).toLowerCase() === 'true';
+  const swaggerEnabled = !isProduction || swaggerForced;
 
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document);
+  if (swaggerEnabled) {
+    const document = SwaggerModule.createDocument(app, buildSwaggerConfig());
+    SwaggerModule.setup('api/docs', app, document);
+    if (isProduction && swaggerForced) {
+      logger.warn(
+        '⚠️  Swagger is ENABLED in production via ENABLE_SWAGGER=true — the full API map is exposed on the LAN. Disable it when the emergency task is done.',
+      );
+    }
+  }
 
   const port = configService.get('PORT', 3000);
   // BUG FIX: bind to 0.0.0.0 so NestJS listens on ALL network interfaces
@@ -83,7 +105,10 @@ async function bootstrap() {
   await app.listen(port, '0.0.0.0');
 
   logger.log(`🚀 Application is running on: http://0.0.0.0:${port} (all interfaces)`);
-  logger.log(`📚 Swagger documentation: http://localhost:${port}/api/docs`);
+  if (swaggerEnabled) {
+    logger.log(`📚 Swagger documentation: http://localhost:${port}/api/docs`);
+    logger.log(`📄 OpenAPI JSON:          http://localhost:${port}/api/docs-json`);
+  }
 }
 
 bootstrap();

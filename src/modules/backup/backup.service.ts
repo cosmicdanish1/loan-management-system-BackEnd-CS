@@ -8,6 +8,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { BackupLog } from './entities/backup-log.entity';
+import { loadDbConfig } from '../../config/db-config.loader';
 
 const execAsync = promisify(exec);
 
@@ -34,6 +35,30 @@ export interface BackupInfo {
   fileSize: number;
   createdAt: string;
   type: 'full' | 'schema' | 'data';
+}
+
+export interface RestoreOptions {
+  /** Backup file name (looked up in backup_log / BACKUP_PATH). */
+  fileName?: string;
+  /** Explicit absolute path to a backup file. Overrides fileName. */
+  filePath?: string;
+  /**
+   * Safety confirmation. Must equal the exact target database name — a guard so
+   * a restore (which overwrites the whole database) can never fire accidentally.
+   */
+  confirm: string;
+  /** Skip the automatic pre-restore safety backup of the current database. */
+  skipSafetyBackup?: boolean;
+}
+
+export interface RestoreResult {
+  success: boolean;
+  message: string;
+  restoredFrom?: string;
+  /** Path of the safety backup taken before overwriting (if any). */
+  safetyBackupPath?: string;
+  duration?: number;
+  timestamp?: string;
 }
 
 @Injectable()
@@ -130,13 +155,10 @@ export class BackupService implements OnApplicationBootstrap {
     try {
       this.logger.debug('Starting backup creation check...');
 
-      const dbConfig = {
-        host: this.configService.get<string>('DB_HOST', 'localhost'),
-        port: this.configService.get<number>('DB_PORT', 5432),
-        username: this.configService.get<string>('DB_USERNAME', 'postgres'),
-        password: this.configService.get<string>('DB_PASSWORD'),
-        database: this.configService.get<string>('DB_DATABASE'),
-      };
+      // Same source as the live DB connection (db-config.json, falling back
+      // to .env) — backups always target whatever database the app is
+      // actually using, even after db-config.json is edited independently.
+      const dbConfig = loadDbConfig();
 
       if (!dbConfig.password || !dbConfig.database) {
         throw new Error('Database configuration (password or database name) is incomplete');
@@ -246,6 +268,144 @@ export class BackupService implements OnApplicationBootstrap {
         message: `Backup failed: ${errorMessage}`,
         duration,
       };
+    }
+  }
+
+  /**
+   * Restore the database from a previously created (encrypted) backup file.
+   *
+   * DESTRUCTIVE: the backup is created with pg_dump --clean --if-exists, so
+   * restoring DROPs and recreates the objects, overwriting current data. Guards:
+   *  - `confirm` must equal the exact target database name.
+   *  - a pre-restore safety backup of the current DB is taken automatically
+   *    (unless skipSafetyBackup) so the operation is reversible.
+   */
+  async restoreBackup(options: RestoreOptions): Promise<RestoreResult> {
+    const startTime = Date.now();
+    const dbConfig = loadDbConfig();
+
+    if (!dbConfig.password || !dbConfig.database) {
+      throw new Error('Database configuration (password or database name) is incomplete');
+    }
+
+    // Confirmation guard — refuse unless the caller names the exact database.
+    if (!options.confirm || options.confirm !== dbConfig.database) {
+      throw new Error(
+        `Restore not confirmed. Set "confirm" to the exact target database name "${dbConfig.database}" to proceed. This overwrites all current data.`,
+      );
+    }
+
+    // Resolve the backup file: explicit path wins, else look it up by name.
+    const defaultPath = this.configService.get('BACKUP_PATH', './backups');
+    let filePath = options.filePath;
+    if (!filePath && options.fileName) {
+      const log = await this.backupLogRepository.findOne({ where: { fileName: options.fileName } });
+      filePath = log?.filePath || path.join(path.resolve(defaultPath), options.fileName);
+    }
+    if (!filePath) {
+      throw new Error('Provide either "fileName" or "filePath" of the backup to restore.');
+    }
+    filePath = path.resolve(filePath);
+    if (!fs.existsSync(filePath)) {
+      throw new Error(`Backup file not found: ${filePath}`);
+    }
+
+    this.logger.warn(`⚠️  Database RESTORE requested from ${filePath} into "${dbConfig.database}".`);
+
+    // Take a safety backup of the current state first (so restore is reversible).
+    let safetyBackupPath: string | undefined;
+    if (!options.skipSafetyBackup) {
+      this.logger.log('Taking pre-restore safety backup of the current database...');
+      const safety = await this.createBackup({
+        destinationPath: defaultPath,
+        customName: 'pre_restore_safety',
+      });
+      if (!safety.success) {
+        throw new Error(`Aborting restore — pre-restore safety backup failed: ${safety.message}`);
+      }
+      safetyBackupPath = safety.filePath;
+      this.logger.log(`Safety backup saved: ${safetyBackupPath}`);
+    }
+
+    // Decrypt encrypted (.safe) backups to a temporary plain .sql file.
+    let sqlPath = filePath;
+    let tempCreated = false;
+    if (filePath.endsWith('.safe')) {
+      const encryptionKey = this.configService.get<string>('BACKUP_ENCRYPTION_KEY', 'default_secret_key');
+      sqlPath = `${filePath.replace(/\.safe$/, '')}.restore_${Date.now()}.tmp.sql`;
+      this.logger.log('Decrypting backup file for restore...');
+      await this.decryptFile(filePath, sqlPath, encryptionKey);
+    tempCreated = true;
+    }
+
+    try {
+      const psqlPath = this.configService.get<string>('PSQL_PATH', 'psql');
+      const restoreCommand = [
+        `"${psqlPath}"`,
+        `--host=${dbConfig.host}`,
+        `--port=${dbConfig.port}`,
+        `--username=${dbConfig.username}`,
+        `--dbname=${dbConfig.database}`,
+        '--set=ON_ERROR_STOP=on',
+        '--single-transaction',
+        `--file="${sqlPath}"`,
+      ].join(' ');
+
+      this.logger.log('Executing restore (psql)...');
+      await execAsync(restoreCommand, {
+        env: { ...process.env, PGPASSWORD: dbConfig.password },
+        timeout: 600000, // 10 minutes
+        maxBuffer: 1024 * 1024 * 64,
+      });
+
+      const duration = Date.now() - startTime;
+      this.logger.log(`✓ Restore completed successfully in ${duration}ms.`);
+
+      // Audit the restore (won't appear in the backup list, which filters status='success').
+      try {
+        const stats = fs.statSync(filePath);
+        await this.backupLogRepository.save({
+          fileName: path.basename(filePath),
+          filePath,
+          fileSize: stats.size.toString(),
+          backupType: 'full',
+          status: 'restored',
+          durationMs: duration,
+          createdAt: new Date(),
+        });
+      } catch (logError) {
+        this.logger.error('Failed to log restore event', logError.stack);
+      }
+
+      return {
+        success: true,
+        message: `Database "${dbConfig.database}" restored successfully from ${path.basename(filePath)}.`,
+        restoredFrom: filePath,
+        safetyBackupPath,
+        duration,
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      this.logger.error(`Restore failed: ${error.message}`, error.stack);
+      return {
+        success: false,
+        message:
+          `Restore failed: ${error.message}.` +
+          (safetyBackupPath ? ` The pre-restore safety backup is at ${safetyBackupPath}.` : ''),
+        restoredFrom: filePath,
+        safetyBackupPath,
+        duration,
+      };
+    } finally {
+      // Always remove the decrypted temp file — it contains plaintext data.
+      if (tempCreated && fs.existsSync(sqlPath)) {
+        try {
+          fs.unlinkSync(sqlPath);
+        } catch (cleanupError) {
+          this.logger.error(`Failed to remove temp restore file ${sqlPath}`, cleanupError.stack);
+        }
+      }
     }
   }
 
@@ -373,13 +533,7 @@ export class BackupService implements OnApplicationBootstrap {
    */
   async testConnection(): Promise<{ connected: boolean; message: string }> {
     try {
-      const dbConfig = {
-        host: this.configService.get('DB_HOST', 'localhost'),
-        port: this.configService.get('DB_PORT', 5432),
-        username: this.configService.get('DB_USERNAME', 'postgres'),
-        password: this.configService.get('DB_PASSWORD'),
-        database: this.configService.get('DB_DATABASE'),
-      };
+      const dbConfig = loadDbConfig();
 
       const psqlPath = this.configService.get('PSQL_PATH', 'psql');
 
@@ -425,12 +579,7 @@ export class BackupService implements OnApplicationBootstrap {
    * Get database information
    */
   async getDatabaseInfo(): Promise<any> {
-    const dbConfig = {
-      host: this.configService.get('DB_HOST', 'localhost'),
-      port: this.configService.get('DB_PORT', 5432),
-      username: this.configService.get('DB_USERNAME', 'postgres'),
-      database: this.configService.get('DB_DATABASE'),
-    };
+    const dbConfig = loadDbConfig();
 
     return {
       host: dbConfig.host,
@@ -526,6 +675,42 @@ export class BackupService implements OnApplicationBootstrap {
       output.on('finish', () => resolve());
       output.on('error', (err) => reject(err));
       input.on('error', (err) => reject(err));
+    });
+  }
+
+  /**
+   * Decrypts a file produced by encryptFile() (AES-256-CBC).
+   * The 16-byte IV is stored as the first 16 bytes of the file.
+   */
+  private async decryptFile(inputPath: string, outputPath: string, key: string): Promise<void> {
+    const hashedKey = crypto.createHash('sha256').update(key).digest();
+
+    // Read the IV (first 16 bytes) that encryptFile() wrote at the start.
+    const iv = Buffer.alloc(16);
+    const fd = fs.openSync(inputPath, 'r');
+    try {
+      const bytesRead = fs.readSync(fd, iv, 0, 16, 0);
+      if (bytesRead < 16) {
+        throw new Error('Backup file is too small or corrupted (missing IV header).');
+      }
+    } finally {
+      fs.closeSync(fd);
+    }
+
+    return new Promise((resolve, reject) => {
+      const decipher = crypto.createDecipheriv('aes-256-cbc', hashedKey, iv);
+      // Skip the 16-byte IV header; decrypt the remainder.
+      const input = fs.createReadStream(inputPath, { start: 16 });
+      const output = fs.createWriteStream(outputPath);
+
+      input.pipe(decipher).pipe(output);
+
+      output.on('finish', () => resolve());
+      output.on('error', (err) => reject(err));
+      input.on('error', (err) => reject(err));
+      decipher.on('error', (err) =>
+        reject(new Error(`Decryption failed (wrong BACKUP_ENCRYPTION_KEY?): ${err.message}`)),
+      );
     });
   }
 }

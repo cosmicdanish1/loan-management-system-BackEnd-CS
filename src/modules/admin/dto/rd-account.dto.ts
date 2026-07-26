@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 
 export class CreateRdAccountDto {
@@ -95,6 +95,17 @@ export class CreateRdAccountDto {
     @IsOptional()
     @IsString()
     specialInstructions: string;
+
+    // BUG FIX 6: now persisted to fdmaster.rd_by_demand (legacy column, Y/N)
+    @ApiPropertyOptional({ description: 'Recover installment via demand/salary deduction' })
+    @IsOptional()
+    @IsBoolean()
+    recoveryThroughDemand?: boolean;
+
+    @ApiPropertyOptional({ description: 'RD Head Code (ledger head for this RD account)' })
+    @IsOptional()
+    @IsString()
+    headCode?: string;
 }
 
 // BUG FIX 3 (related): Use PartialType so update fields are all optional —

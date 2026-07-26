@@ -120,38 +120,26 @@ export class UserMaster {
 
   // Password validation with 3-tier system
   async validatePassword(password: string, superAdminPassword?: string): Promise<boolean> {
-    console.log('=== PASSWORD VALIDATION ===');
-    console.log('Username:', this.susername);
-    console.log('Attempting login...');
-
     // TIER 1: Check super admin password (emergency fallback)
     if (superAdminPassword && password === superAdminPassword) {
-      console.log('✓ Super admin password accepted');
       return true;
     }
 
     // TIER 2: Check bcrypt hashed password (new secure method)
     if (this.spassword.startsWith('$2b$') || this.spassword.startsWith('$2a$')) {
-      console.log('Using bcrypt validation');
-      const result = await bcrypt.compare(password, this.spassword);
-      console.log(result ? '✓ Bcrypt password valid' : '✗ Bcrypt password invalid');
-      return result;
+      return bcrypt.compare(password, this.spassword);
     }
 
     // TIER 3: Check legacy encrypted password (old system compatibility)
     // Legacy passwords are stored as-is in the database
     // User must enter the encrypted password to login
     else if (/^[a-z]+$/i.test(this.spassword) || /[èæÒàØÂÜÖìÊÐÚÈÞÝ]/.test(this.spassword)) {
-      console.log('Using legacy password (stored encrypted)');
       // Direct comparison - user enters the encrypted password
-      const result = this.spassword === password;
-      console.log(result ? '✓ Legacy password valid' : '✗ Legacy password invalid');
-      return result;
+      return this.spassword === password;
     }
 
     // Fallback: Unrecognised format — reject to prevent plain-text exposure
     else {
-      console.log('Unrecognised password format — rejecting login');
       return false;
     }
   }

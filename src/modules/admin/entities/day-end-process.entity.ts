@@ -59,6 +59,9 @@ export class DayEndProcess {
   @Column({ nullable: true })
   initiatedBy: number; // User ID who initiated the process
 
+  @Column({ nullable: true })
+  nextWorkingDate: string; // User-selected next working date (for skipping weekends/holidays)
+
   @CreateDateColumn()
   createdAt: Date;
 

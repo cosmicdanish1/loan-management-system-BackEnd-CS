@@ -37,6 +37,15 @@ export class UpdateSavingInterestDto {
   accountHead?: string;
 
   @ApiProperty({
+    description: 'Account type code (SB / RD / FD) stored as int_type in interest_master',
+    example: 'SB',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  accountType?: string;
+
+  @ApiProperty({
     description: 'Voucher number for this interest run',
     example: 'INT2025001',
     required: false,

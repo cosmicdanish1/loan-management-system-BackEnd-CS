@@ -394,6 +394,27 @@ export class SystemConfigService {
     return { message: 'Deposit slab deleted successfully' };
   }
 
+  // Bulk replace-all slabs for a given type (used by the Deposit/Loan Slab configuration screen)
+  async bulkSaveDepositSlabs(
+    type: DepositSlabType,
+    rows: CreateDepositSlabDto[],
+  ): Promise<{ saved: number; type: string }> {
+    // Delete all existing slabs for this type, then insert fresh
+    await this.depositSlabRepository.delete({ type });
+    if (rows.length > 0) {
+      const entities = rows.map(r =>
+        this.depositSlabRepository.create({
+          ...r,
+          type,
+          effectiveFrom: new Date(r.effectiveFrom),
+          effectiveTo: r.effectiveTo ? new Date(r.effectiveTo) : null,
+        }),
+      );
+      await this.depositSlabRepository.save(entities);
+    }
+    return { saved: rows.length, type };
+  }
+
   async getApplicableDepositSlab(
     type: DepositSlabType,
     amount: number,

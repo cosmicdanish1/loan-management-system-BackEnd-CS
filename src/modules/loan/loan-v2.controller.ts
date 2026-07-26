@@ -13,7 +13,10 @@ import {
     LoanApplicationService,
     LoanSanctionService,
     LoanSuretyService,
-    LoanQueryService
+    LoanQueryService,
+    LoanRepaymentService,
+    LoanMonthEndService,
+    LoanEligibilityService,
 } from './services-v2';
 
 /**
@@ -32,6 +35,9 @@ export class LoanV2Controller {
         private readonly loanSanctionService: LoanSanctionService,
         private readonly loanSuretyService: LoanSuretyService,
         private readonly loanQueryService: LoanQueryService,
+        private readonly loanRepaymentService: LoanRepaymentService,
+        private readonly loanMonthEndService: LoanMonthEndService,
+        private readonly loanEligibilityService: LoanEligibilityService,
     ) { }
 
     // ==================== Application Operations ====================
@@ -54,6 +60,12 @@ export class LoanV2Controller {
         return this.loanApplicationService.getMemberPendingLoans(memberNo);
     }
 
+    @Get('member/:memberNo/balances')
+    @ApiOperation({ summary: 'Get member outstanding loan balances from member_balances' })
+    async getMemberBalances(@Param('memberNo') memberNo: string) {
+        return this.loanApplicationService.getMemberBalances(memberNo);
+    }
+
     @Post('loan-application')
     @ApiOperation({ summary: 'Save a new loan application' })
     async saveLoanApplication(@Body() loanData: any) {
@@ -65,6 +77,15 @@ export class LoanV2Controller {
     async generateLoanCaseNumber() {
         const loanCaseNo = await this.loanApplicationService.generateNextLoanCaseNo();
         return { loanCaseNo };
+    }
+
+    @Get('eligibility/:memberNo')
+    @ApiOperation({ summary: 'Check member eligibility for loan based on Share and FD values' })
+    async checkEligibility(
+        @Param('memberNo') memberNo: string,
+        @Query('amount') amount: string
+    ) {
+        return this.loanEligibilityService.checkEligibility(memberNo, parseFloat(amount || '0'));
     }
 
     // ==================== Sanction Operations ====================
@@ -193,5 +214,57 @@ export class LoanV2Controller {
             body.tenureMonths,
             parseSafeDate(body.startDate)
         );
+    }
+
+    // ==================== Repayment Operations ====================
+
+    @Post('repayment')
+    @ApiOperation({ summary: 'Record a loan repayment installment' })
+    async recordLoanRepayment(@Body() dto: {
+        mbno: string;
+        loancaseno: string;
+        paymentMonth: number;
+        paymentYear: number;
+        paymentAmount: number;
+        receiptNo?: string;
+        narration?: string;
+        username?: string;
+    }) {
+        return this.loanRepaymentService.recordLoanRepayment(dto);
+    }
+
+    @Get('member/:memberNo/repayment-history')
+    @ApiOperation({ summary: 'Get full repayment history for a member' })
+    async getMemberRepaymentHistory(@Param('memberNo') memberNo: string) {
+        return this.loanRepaymentService.getMemberRepaymentHistory(memberNo);
+    }
+
+    @Get('case/:caseNo/repayment-summary')
+    @ApiOperation({ summary: 'Get repayment summary for a specific loan case' })
+    async getLoanRepaymentSummary(@Param('caseNo') caseNo: string) {
+        return this.loanRepaymentService.getLoanRepaymentSummary(caseNo);
+    }
+
+    // ==================== Month-End Operations ====================
+
+    @Post('month-end/snapshot')
+    @ApiOperation({ summary: 'Capture month-end loan balance snapshot for all members' })
+    async captureMonthEndSnapshot(@Body() body: { month: number; year: number }) {
+        return this.loanMonthEndService.captureMonthEndSnapshot(body.month, body.year);
+    }
+
+    @Get('month-end/report')
+    @ApiOperation({ summary: 'Get month-end loan balance report' })
+    async getMonthlyBalanceReport(
+        @Query('month') month: string,
+        @Query('year') year: string,
+    ) {
+        return this.loanMonthEndService.getMonthlyBalanceReport(parseInt(month), parseInt(year));
+    }
+
+    @Get('member/:memberNo/balance-history')
+    @ApiOperation({ summary: 'Get month-end balance history for a member' })
+    async getMemberBalanceHistory(@Param('memberNo') memberNo: string) {
+        return this.loanMonthEndService.getMemberBalanceHistory(memberNo);
     }
 }

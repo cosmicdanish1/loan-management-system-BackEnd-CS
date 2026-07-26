@@ -95,6 +95,9 @@ export class User {
   isActive: boolean;
 
   @Column({ nullable: true })
+  avatar: string;
+
+  @Column({ nullable: true })
   lastLoginAt: Date;
 
   @CreateDateColumn()

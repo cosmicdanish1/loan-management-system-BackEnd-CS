@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { UserLevelMaster, MenuMaster, UserLevelDefaultRights } from '../../auth/entities';
@@ -6,6 +6,8 @@ import { UpdateDefaultRightsDto } from '../dto/role-management.dto';
 
 @Injectable()
 export class RoleManagementService {
+    private readonly logger = new Logger(RoleManagementService.name);
+
     constructor(
         @InjectRepository(UserLevelMaster)
         private userLevelRepository: Repository<UserLevelMaster>,
@@ -113,9 +115,9 @@ export class RoleManagementService {
                 }
             }
 
-            console.log('Role Management standard data seeded successfully.');
+            this.logger.log('Role Management standard data seeded successfully.');
         } catch (err) {
-            console.error('Failed to seed Role Management data:', err.message);
+            this.logger.error(`Failed to seed Role Management data: ${err.message}`);
         }
     }
 
@@ -136,6 +138,16 @@ export class RoleManagementService {
             where: { userlevelid: userLevelId },
         });
         return rights.map(r => r.menuid);
+    }
+
+    async createUserLevel(levelName: string): Promise<UserLevelMaster> {
+        const all = await this.userLevelRepository.find({ order: { userlevelid: 'DESC' }, take: 1 });
+        const nextId = all.length > 0 ? all[0].userlevelid + 1 : 11;
+        const newLevel = this.userLevelRepository.create({
+            userlevelid: nextId,
+            userlevel: levelName.toUpperCase().slice(0, 20),
+        });
+        return this.userLevelRepository.save(newLevel);
     }
 
     async updateDefaultRights(updateDto: UpdateDefaultRightsDto) {

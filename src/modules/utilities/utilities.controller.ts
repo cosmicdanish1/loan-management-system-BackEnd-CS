@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Body, Query, Param, Logger, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Query, Param, Logger, UseGuards, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { UtilitiesService } from './utilities.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -16,6 +16,13 @@ export class UtilitiesController {
   private readonly logger = new Logger(UtilitiesController.name);
 
   constructor(private readonly utilitiesService: UtilitiesService) { }
+
+  @Get('head-balance/:code')
+  @ApiOperation({ summary: 'Get the running ledger balance for an account head (e.g. a bank/cash account)' })
+  async getHeadBalance(@Param('code') code: string) {
+    const balance = await this.utilitiesService.getHeadBalance(code);
+    return { success: true, data: { code, balance } };
+  }
 
   @Get('search/deposits')
   @ApiOperation({ summary: 'Search for deposit accounts (RD/FD) by member number' })
@@ -198,8 +205,7 @@ export class UtilitiesController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Get all account heads from headmaster with balance sheet data' })
   async getHeadMaster() {
-    const data = await this.utilitiesService.getHeadMaster();
-    return { success: true, data };
+    return await this.utilitiesService.getHeadMaster();
   }
 
   @Get('divisions')
@@ -245,11 +251,22 @@ export class UtilitiesController {
   @Post('fd-interest/post')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ summary: 'Post FD interest voucher — CR A003/FD, vchr_type=J' })
+  @ApiOperation({ summary: 'Post FD interest voucher (accrual) — CR A003/FD, vchr_type=J' })
   async postFdInterestVoucher(@Body() body: any, @Req() req: any) {
     const username = req.user?.susername || req.user?.username || 'system';
     this.logger.log(`[FDInterest] POST FD=${body.accountNumber} amount=${body.interestAmount} by ${username}`);
     const result = await this.utilitiesService.postFdInterestVoucher(body, username);
+    return result;
+  }
+
+  @Post('fd-interest/pay')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Pay FD interest out to member — DR A003/FD, CR cash/bank, vchr_type=P' })
+  async payFdInterest(@Body() body: any, @Req() req: any) {
+    const username = req.user?.susername || req.user?.username || 'system';
+    this.logger.log(`[FDInterest] PAY OUT FD=${body.accountNumber} amount=${body.interestAmount} by ${username}`);
+    const result = await this.utilitiesService.payFdInterest(body, username);
     return result;
   }
 
@@ -356,6 +373,15 @@ export class UtilitiesController {
     return result;
   }
 
+  @Post('head-master/rebuild-tree')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Rebuild balancesheet from ledger transactions (like legacy Build Tree)' })
+  async rebuildBalancesheet() {
+    const result = await this.utilitiesService.rebuildBalancesheet();
+    return result;
+  }
+
   @Post('head-master')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
@@ -363,6 +389,46 @@ export class UtilitiesController {
   async saveHeadMaster(@Body() body: any) {
     const result = await this.utilitiesService.saveHeadMaster(body);
     return result;
+  }
+
+  @Delete('head-master/:code')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Delete an account head (blocked if it has children)' })
+  async deleteHeadMaster(@Param('code') code: string) {
+    return await this.utilitiesService.deleteHeadMaster(code);
+  }
+
+  @Get('financial-years')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Get distinct financial years from yearend table' })
+  async getFinancialYears() {
+    return await this.utilitiesService.getFinancialYears();
+  }
+
+  @Get('head-opening-balance')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Get head opening balances for a financial year' })
+  async getHeadOpeningBalances(@Query('yearcode') yearcode: string) {
+    return await this.utilitiesService.getHeadOpeningBalances(parseInt(yearcode));
+  }
+
+  @Post('head-opening-balance/apply/:yearcode')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Apply year opening balances to headmaster.op_bal' })
+  async applyYearOpeningBalances(@Param('yearcode') yearcode: string) {
+    return await this.utilitiesService.applyYearOpeningBalances(parseInt(yearcode));
+  }
+
+  @Post('head-opening-balance')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Save head opening balances for a financial year' })
+  async saveHeadOpeningBalances(@Body() body: { yearcode: number; balances: Array<{ headCode: string; closingBal: number }> }) {
+    return await this.utilitiesService.saveHeadOpeningBalances(body.yearcode, body.balances);
   }
 
   @Get('deposit-loan-slabs')  @UseGuards(JwtAuthGuard)

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { CalculationService } from '../../utility/services/calculation.service';
 
@@ -10,6 +10,8 @@ import { CalculationService } from '../../utility/services/calculation.service';
  */
 @Injectable()
 export class LoanQueryService {
+    private readonly logger = new Logger(LoanQueryService.name);
+
     constructor(
         private readonly dataSource: DataSource,
         private readonly calculationService: CalculationService,
@@ -55,7 +57,7 @@ export class LoanQueryService {
                 status: 'ACTIVE'
             };
         } catch (error) {
-            console.error('[LoanQuery] Error getting loan from master:', error);
+            this.logger.error(`Error getting loan from master: ${error.message}`);
             throw error;
         }
     }
@@ -104,7 +106,7 @@ export class LoanQueryService {
                 status: loan.flg_paid === 'Y' ? 'DISBURSED' : loan.flg_sanctioned === 'Y' ? 'SANCTIONED' : 'PENDING'
             };
         } catch (error) {
-            console.error('[LoanQuery] Error getting loan from pending:', error);
+            this.logger.error(`Error getting loan from pending: ${error.message}`);
             throw error;
         }
     }
@@ -143,7 +145,7 @@ export class LoanQueryService {
                 status: 'ACTIVE'
             }));
         } catch (error) {
-            console.error('[LoanQuery] Error getting member loans from master:', error);
+            this.logger.error(`Error getting member loans from master: ${error.message}`);
             return [];
         }
     }
@@ -190,7 +192,7 @@ export class LoanQueryService {
                 status: loan.flg_paid === 'Y' ? 'DISBURSED' : loan.flg_sanctioned === 'Y' ? 'SANCTIONED' : 'PENDING'
             }));
         } catch (error) {
-            console.error('[LoanQuery] Error getting member loans from pending:', error);
+            this.logger.error(`Error getting member loans from pending: ${error.message}`);
             return [];
         }
     }
@@ -269,7 +271,7 @@ export class LoanQueryService {
 
             return results;
         } catch (error) {
-            console.error('[LoanQuery] Error searching loans:', error);
+            this.logger.error(`Error searching loans: ${error.message}`);
             return [];
         }
     }
@@ -414,7 +416,7 @@ export class LoanQueryService {
                 },
             };
         } catch (error) {
-            console.error('[LoanQuery] Error generating EMI schedule from master:', error);
+            this.logger.error(`Error generating EMI schedule from master: ${error.message}`);
             throw error;
         }
     }

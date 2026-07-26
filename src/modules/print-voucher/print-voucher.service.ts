@@ -65,10 +65,12 @@ export class PrintVoucherService {
             entryDto.narration = trans.narration;
             entryDto.mbno = trans.mbno;
 
-            const head = await this.headMasterRepository.findOne({
-                where: { code: trans.code },
-            });
-            entryDto.head_name = head ? head.head_name : 'Unknown Head';
+            // Use accountbalance for proper head names (headmaster only has 20 generic rows)
+            const headResult = await this.transactionsRepository.query(
+                `SELECT acname FROM accountbalance WHERE acno = $1 LIMIT 1`,
+                [trans.code]
+            );
+            entryDto.head_name = headResult[0]?.acname || trans.code || 'Unknown Head';
 
             dto.entries.push(entryDto);
             total += entryDto.amount;
@@ -80,77 +82,71 @@ export class PrintVoucherService {
     }
 
     async getAllVoucherNos(): Promise<string[]> {
-        const transactions = await this.transactionsRepository
-            .createQueryBuilder('transaction')
-            .select('DISTINCT transaction.receipt_vchr_no', 'voucher_no')
-            .where("transaction.receipt_vchr_no != ''")
-            .orderBy('voucher_no', 'DESC')
-            .getRawMany();
-
-        return transactions.map(t => t.voucher_no);
+        const rows = await this.transactionsRepository.query(`
+            SELECT DISTINCT receipt_vchr_no AS voucher_no
+            FROM transactions
+            WHERE receipt_vchr_no IS NOT NULL AND TRIM(receipt_vchr_no) != ''
+            ORDER BY voucher_no DESC
+        `);
+        return rows.map((r: any) => r.voucher_no);
     }
 
     async getAllJournalVoucherNos(): Promise<string[]> {
-        const ledgers = await this.ledgerRepository
-            .createQueryBuilder('ledger')
-            .select('DISTINCT ledger.receipt_vchr_no', 'voucher_no')
-            .where("ledger.receipt_vchr_no != ''")
-            .orderBy('voucher_no', 'DESC')
-            .getRawMany();
-
-        return ledgers.map(l => l.voucher_no);
+        const rows = await this.ledgerRepository.query(`
+            SELECT DISTINCT receipt_vchr_no AS voucher_no
+            FROM ledger
+            WHERE receipt_vchr_no IS NOT NULL AND TRIM(receipt_vchr_no) != ''
+            ORDER BY voucher_no DESC
+        `);
+        return rows.map((r: any) => r.voucher_no);
     }
 
     async getJournalVoucherByNo(voucherNo: string): Promise<JournalVoucherDto> {
-        const entries = await this.ledgerRepository.find({
-            where: { receipt_vchr_no: voucherNo },
-            order: { trans_no: 'ASC' }
-        });
+        // Single JOIN query — DISTINCT ON deduplicates old duplicate ledger rows,
+        // accountbalance gives proper head names, member_master gives member names
+        const rows = await this.ledgerRepository.query(`
+            SELECT DISTINCT ON (l.ledgerid)
+                l.ledgerid,
+                l.trans_no,
+                l.trans_date,
+                l.narration,
+                l.code                                                       AS head_code,
+                COALESCE(ab.acname, l.code)                                  AS head_name,
+                l.trans_type,
+                CAST(l.trans_amt AS numeric)                                 AS amount,
+                CAST(l.mbno AS text)                                         AS mb_no,
+                TRIM(
+                    COALESCE(m.f_name,'') || ' ' ||
+                    COALESCE(m.m_name,'') || ' ' ||
+                    COALESCE(m.l_name,'')
+                )                                                            AS member_name
+            FROM ledger l
+            LEFT JOIN accountbalance  ab ON ab.acno = l.code
+            LEFT JOIN member_master   m  ON CAST(m.mbno AS text) = CAST(l.mbno AS text)
+            WHERE l.receipt_vchr_no = $1
+            ORDER BY l.ledgerid
+        `, [voucherNo]);
 
-        if (!entries || entries.length === 0) {
+        if (!rows || rows.length === 0) {
             throw new NotFoundException(`Journal Voucher ${voucherNo} not found`);
         }
 
         const dto = new JournalVoucherDto();
         dto.voucher_no = voucherNo;
-        dto.trans_date = entries[0].trans_date;
-        dto.narration = entries[0].narration;
-        dto.entries = [];
-
-        for (const entry of entries) {
-            const entryDto = new JournalEntryDto();
-            entryDto.trans_no = entry.trans_no;
-            entryDto.member_code = entry.mbno;
-            entryDto.head_code = entry.code;
-            // Parse money string (e.g., "₹ 25,000.00" -> 25000)
-            const parseMoneyString = (moneyStr: any): number => {
-                if (!moneyStr) return 0;
-                const str = moneyStr.toString();
-                console.log(`Parsing money string: "${str}"`); // Debug log
-                // Remove currency symbols, spaces, and commas, then parse
-                const cleanStr = str.replace(/[₹$,\s]/g, '');
-                const result = parseFloat(cleanStr) || 0;
-                console.log(`Parsed result: ${result}`); // Debug log
-                return result;
-            };
-
-            entryDto.debit = entry.trans_type === 'DR' ? parseMoneyString(entry.trans_amt) : 0;
-            entryDto.credit = entry.trans_type === 'CR' ? parseMoneyString(entry.trans_amt) : 0;
-
-            // Fetch Member Name
-            const member = await this.memberMasterRepository.findOne({
-                where: { mbno: entry.mbno.toString() }
-            });
-            entryDto.member_name = member ? member.fullName : `Member ${entry.mbno}`;
-
-            // Fetch Head Name
-            const head = await this.headMasterRepository.findOne({
-                where: { code: entry.code }
-            });
-            entryDto.head_name = head ? head.head_name : `Head ${entry.code}`;
-
-            dto.entries.push(entryDto);
-        }
+        dto.trans_date = rows[0].trans_date;
+        dto.narration  = rows[0].narration;
+        dto.entries    = rows.map((r: any) => {
+            const amt = parseFloat(r.amount) || 0;
+            const entryDto       = new JournalEntryDto();
+            entryDto.trans_no    = r.trans_no;
+            entryDto.member_code = r.mb_no;
+            entryDto.member_name = r.member_name?.trim() || r.mb_no || '';
+            entryDto.head_code   = r.head_code;
+            entryDto.head_name   = r.head_name;
+            entryDto.debit       = r.trans_type === 'DR' ? amt : 0;
+            entryDto.credit      = r.trans_type === 'CR' ? amt : 0;
+            return entryDto;
+        });
 
         return dto;
     }

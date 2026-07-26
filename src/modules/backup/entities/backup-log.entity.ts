@@ -18,7 +18,7 @@ export class BackupLog {
     backupType: 'full' | 'schema' | 'data';
 
     @Column({ name: 'status' })
-    status: 'success' | 'failed';
+    status: 'success' | 'failed' | 'restored';
 
     @Column({ name: 'duration_ms', type: 'int' })
     durationMs: number;

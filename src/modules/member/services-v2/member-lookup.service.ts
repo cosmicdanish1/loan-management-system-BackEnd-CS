@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { MemberLookupResponseDto } from '../dto/member-lookup.dto';
 
@@ -10,6 +10,8 @@ import { MemberLookupResponseDto } from '../dto/member-lookup.dto';
  */
 @Injectable()
 export class MemberLookupService {
+    private readonly logger = new Logger(MemberLookupService.name);
+
     constructor(private readonly dataSource: DataSource) { }
 
     /**
@@ -17,7 +19,7 @@ export class MemberLookupService {
      */
     async lookupMembers(search?: string, limit?: number, offset?: number): Promise<MemberLookupResponseDto[]> {
         try {
-            console.log('[MemberLookup] Looking up members with search:', search, 'limit:', limit, 'offset:', offset);
+            this.logger.debug(`Looking up members with search: ${search}, limit: ${limit}, offset: ${offset}`);
 
             // Set defaults and limits
             const actualLimit = Math.min(limit || 500, 1000); // Default 500, max 1000
@@ -47,9 +49,9 @@ export class MemberLookupService {
         LIMIT $1 OFFSET $2
       `;
 
-            console.log('[MemberLookup] Executing query with limit:', actualLimit, 'offset:', actualOffset);
+            this.logger.debug(`Executing query with limit: ${actualLimit}, offset: ${actualOffset}`);
             const result = await this.dataSource.query(query, params);
-            console.log('[MemberLookup] Query result count:', result.length);
+            this.logger.debug(`Query result count: ${result.length}`);
 
             const mappedResult = result.map((member: any) => ({
                 memberNo: member.memberno,
@@ -59,10 +61,10 @@ export class MemberLookupService {
                 officeName: member.officename
             }));
 
-            console.log('[MemberLookup] Mapped result count:', mappedResult.length);
+            this.logger.debug(`Mapped result count: ${mappedResult.length}`);
             return mappedResult;
         } catch (error) {
-            console.error('[MemberLookup] Error in lookupMembers:', error);
+            this.logger.error(`Error in lookupMembers: ${error.message}`);
             return [];
         }
     }
@@ -124,7 +126,7 @@ export class MemberLookupService {
             const result = await this.dataSource.query(query, [memberNo]);
             return result[0] || null;
         } catch (error) {
-            console.error('[MemberLookup] Error getting member details:', error);
+            this.logger.error(`Error getting member details: ${error.message}`);
             throw error;
         }
     }
@@ -149,7 +151,7 @@ export class MemberLookupService {
             const result = await this.dataSource.query(query, [memberNo]);
             return result[0] || null;
         } catch (error) {
-            console.error('[MemberLookup] Error finding member:', error);
+            this.logger.error(`Error finding member: ${error.message}`);
             return null;
         }
     }

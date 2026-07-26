@@ -1,7 +1,6 @@
 export * from './user-management.controller';
 export * from './system-config.controller';
 export * from './day-end.controller';
-export * from './backup.controller';
 export * from './certificate-template.controller';
 export * from './passbook-template.controller';
 export * from './designation.controller';

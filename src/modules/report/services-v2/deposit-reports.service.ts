@@ -236,39 +236,41 @@ export class DepositReportsService {
 
         // Query fixed deposits
         let fdQuery = `
-      SELECT 
-        fd.accountNumber as account_no,
-        fd.memberId as member_no,
+      SELECT
+        fd."accountNumber" as account_no,
+        fd."memberId" as member_no,
         TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
         d.name as office_name,
         'Fixed Deposit' as deposit_type,
-        CAST(fd.principalAmount AS numeric) as amount,
-        fd.maturityDate as due_date,
-        CAST(fd.interestRate AS numeric) as interest_rate,
-        CAST(fd.maturityAmount AS numeric) as maturity_amount
+        CAST(fd."principalAmount" AS numeric) as amount,
+        fd."depositDate" as deposit_date,
+        fd."maturityDate" as due_date,
+        CAST(fd."interestRate" AS numeric) as interest_rate,
+        CAST(fd."maturityAmount" AS numeric) as maturity_amount
       FROM fixed_deposits fd
-      LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(fd.memberId AS text)
+      LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(fd."memberId" AS text)
       LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
-      WHERE fd.maturityDate >= $1 AND fd.maturityDate <= $2
+      WHERE fd."maturityDate" >= $1 AND fd."maturityDate" <= $2
         AND fd.status = 'ACTIVE'
     `;
 
         // Query recurring deposits
         let rdQuery = `
-      SELECT 
-        rd.accountNumber as account_no,
-        rd.memberId as member_no,
+      SELECT
+        rd."accountNumber" as account_no,
+        rd."memberId" as member_no,
         TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
         d.name as office_name,
         'Recurring Deposit' as deposit_type,
-        CAST(rd.monthlyInstallment AS numeric) as amount,
-        rd.maturityDate as due_date,
-        CAST(rd.interestRate AS numeric) as interest_rate,
-        CAST(rd.maturityAmount AS numeric) as maturity_amount
+        CAST(rd."monthlyInstallment" AS numeric) as amount,
+        rd."startDate" as deposit_date,
+        rd."maturityDate" as due_date,
+        CAST(rd."interestRate" AS numeric) as interest_rate,
+        CAST(rd."maturityAmount" AS numeric) as maturity_amount
       FROM recurring_deposits rd
-      LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(rd.memberId AS text)
+      LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(rd."memberId" AS text)
       LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
-      WHERE rd.maturityDate >= $1 AND rd.maturityDate <= $2
+      WHERE rd."maturityDate" >= $1 AND rd."maturityDate" <= $2
         AND rd.status = 'ACTIVE'
     `;
 
@@ -277,9 +279,9 @@ export class DepositReportsService {
         // If deposit type is specified, only query that type
         let query = '';
         if (depositType === 'Fixed Deposit') {
-            query = fdQuery + ` ORDER BY fd.maturityDate ASC`;
+            query = fdQuery + ` ORDER BY fd."maturityDate" ASC`;
         } else if (depositType === 'Recurring Deposit') {
-            query = rdQuery + ` ORDER BY rd.maturityDate ASC`;
+            query = rdQuery + ` ORDER BY rd."maturityDate" ASC`;
         } else {
             // Union both queries for all types
             query = `(${fdQuery}) UNION ALL (${rdQuery}) ORDER BY due_date ASC`;
@@ -294,6 +296,7 @@ export class DepositReportsService {
             memberName: r.member_name,
             depositType: r.deposit_type,
             amount: parseFloat(r.amount) || 0,
+            depositDate: r.deposit_date,
             dueDate: r.due_date,
             interestRate: parseFloat(r.interest_rate) || 0,
             maturityAmount: parseFloat(r.maturity_amount) || 0
@@ -307,27 +310,27 @@ export class DepositReportsService {
         const { memberNo, accountNo, certificateNo } = dto;
 
         let query = `
-      SELECT 
-        fd.accountNumber as account_no,
-        fd.memberId as member_no,
+      SELECT
+        fd."accountNumber" as account_no,
+        fd."memberId" as member_no,
         TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
         m.present_address as address,
         d.name as office_name,
-        CAST(fd.principalAmount AS numeric) as principal_amount,
-        CAST(fd.interestRate AS numeric) as interest_rate,
-        fd.depositDate as deposit_date,
-        fd.maturityDate as maturity_date,
-        CAST(fd.maturityAmount AS numeric) as maturity_amount,
-        fd.tenureMonths as duration_months
+        CAST(fd."principalAmount" AS numeric) as principal_amount,
+        CAST(fd."interestRate" AS numeric) as interest_rate,
+        fd."depositDate" as deposit_date,
+        fd."maturityDate" as maturity_date,
+        CAST(fd."maturityAmount" AS numeric) as maturity_amount,
+        fd."tenureMonths" as duration_months
       FROM fixed_deposits fd
-      LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(fd.memberId AS text)
+      LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(fd."memberId" AS text)
       LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
-      WHERE CAST(fd.memberId AS text) = $1
+      WHERE CAST(fd."memberId" AS text) = $1
     `;
 
         const params: any[] = [memberNo];
         if (accountNo) {
-            query += ` AND fd.accountNumber = $2`;
+            query += ` AND fd."accountNumber" = $2`;
             params.push(accountNo);
         }
 
@@ -397,21 +400,21 @@ export class DepositReportsService {
         const { memberNo } = dto;
 
         const query = `
-      SELECT 
-        rd.accountNumber as account_no,
-        rd.memberId as member_no,
+      SELECT
+        rd."accountNumber" as account_no,
+        rd."memberId" as member_no,
         TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
         'RD' as account_type,
-        rd.startDate as start_date,
-        rd.maturityDate as maturity_date,
-        CAST(rd.monthlyInstallment AS numeric) as amount,
-        rd.installmentsPaid as installments_paid,
-        rd.installmentsMissed as installments_missed,
-        CAST(rd.totalDeposited AS numeric) as total_deposited,
+        rd."startDate" as start_date,
+        rd."maturityDate" as maturity_date,
+        CAST(rd."monthlyInstallment" AS numeric) as amount,
+        rd."installmentsPaid" as installments_paid,
+        rd."installmentsMissed" as installments_missed,
+        CAST(rd."totalDeposited" AS numeric) as total_deposited,
         rd.status
       FROM recurring_deposits rd
-      LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(rd.memberId AS text)
-      WHERE CAST(rd.memberId AS text) = $1
+      LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(rd."memberId" AS text)
+      WHERE CAST(rd."memberId" AS text) = $1
     `;
 
         const result = await this.dataSource.query(query, [memberNo]);
@@ -436,25 +439,27 @@ export class DepositReportsService {
      */
     async getLienAccountInformation() {
         const query = `
-      SELECT 
+      SELECT
         l.mbno as member_no,
         TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
         m.present_address as address,
         l.loancaseno as loan_case_no,
-        l.fdrdaccountno as fdrd_account_no,
+        l.fdrd_accountnumber as fdrd_account_no,
         l.fromdate as lien_from_date,
-        l.certificate_no,
-        l.principal_amt as account_amount,
-        l.rate as interest_rate,
-        l.deposit_date,
-        l.maturity_date,
-        l.type as account_type,
-        l.loan_amt as loan_amount,
-        l.loan_bal as loan_balance,
-        l.loan_date,
-        l.loan_type
+        COALESCE(CAST(lm.loan_amt AS numeric), 0) as loan_amount,
+        COALESCE(CAST(lm.balance AS numeric), 0) as loan_balance,
+        lm.payment_date as loan_date,
+        lm.loantype as loan_type,
+        fd."accountNumber" as fd_account_no,
+        COALESCE(CAST(fd."principalAmount" AS numeric), 0) as fd_amount,
+        COALESCE(CAST(fd."interestRate" AS numeric), 0) as fd_rate,
+        fd."depositDate" as fd_deposit_date,
+        fd."maturityDate" as fd_maturity_date
       FROM fdrdlienmaster l
       LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(l.mbno AS text)
+      LEFT JOIN loan_master lm ON CAST(lm.loancaseno AS text) = CAST(l.loancaseno AS text)
+        AND CAST(lm.mbno AS text) = CAST(l.mbno AS text)
+      LEFT JOIN fixed_deposits fd ON fd."accountNumber" = l.fdrd_accountnumber
       ORDER BY l.fromdate DESC
     `;
 
@@ -469,12 +474,12 @@ export class DepositReportsService {
             fdrdAccountNumber: r.fdrd_account_no,
             lienFromDate: r.lien_from_date,
             accountDetails: {
-                certificateNo: r.certificate_no,
-                accountAmount: parseFloat(r.account_amount) || 0,
-                interestRate: parseFloat(r.interest_rate) || 0,
-                depositDate: r.deposit_date,
-                maturityDate: r.maturity_date,
-                accountType: r.account_type === 'F' ? 'Fixed Deposit' : r.account_type === 'R' ? 'Recurring Deposit' : 'Savings',
+                certificateNo: r.fdrd_account_no || '',
+                accountAmount: parseFloat(r.fd_amount) || 0,
+                interestRate: parseFloat(r.fd_rate) || 0,
+                depositDate: r.fd_deposit_date,
+                maturityDate: r.fd_maturity_date,
+                accountType: r.fd_account_no ? 'Fixed Deposit' : 'FD/RD',
             },
             loanDetails: {
                 loanAmount: parseFloat(r.loan_amount) || 0,
@@ -486,122 +491,124 @@ export class DepositReportsService {
     }
 
     /**
-     * Get passbook mapping/printing data
+     * Get passbook printing data.
+     * Tracking from bank_passbook; transactions from ledger (pivoted by acc_type).
+     *
+     * Deposit columns: SHR→Share, CD→Compulsory Deposit, MD1→FRS-1, MD2→FRS-2
+     * Loan columns:    RLN→Regular Loan, ALN→Emergency Loan
      */
     async getPassBookPrinting(dto: {
         memberNo: string;
-        accountNo?: string;
         accountType?: string;
         fromDate?: string;
         toDate?: string;
-        includeZeroBalance?: boolean;
     }) {
-        const { memberNo, accountNo, accountType, fromDate, toDate, includeZeroBalance } = dto;
+        const mbno = (dto.memberNo || '').trim();
 
-        // 1. Get Member details
+        // 1. Member info
         const memberRes = await this.dataSource.query(`
-      SELECT 
-        mbno as "memberNo",
-        TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) as "memberName",
-        m.present_address as "address",
-        m.memb_date as "membershipDate"
-      FROM member_master m
-      WHERE CAST(m.mbno AS text) = $1
-    `, [memberNo]);
+            SELECT CAST(mbno AS text) AS "memberNo",
+              TRIM(COALESCE(f_name,'')||' '||COALESCE(m_name,'')||' '||COALESCE(l_name,'')) AS "memberName",
+              present_address AS "address",
+              memb_date AS "membershipDate",
+              pfno AS "pfNo"
+            FROM member_master WHERE CAST(mbno AS text) = $1
+        `, [mbno]);
+        const memberDetails = memberRes[0] || { memberNo: mbno, memberName: '', address: '', membershipDate: null, pfNo: '' };
 
-        if (memberRes.length === 0) throw new Error('Member not found');
+        // 2. Print-tracking (bank_passbook.account_number = ledger.mbno)
+        const tracking = await this.dataSource.query(`
+            SELECT TRIM(account_number) AS "accountNumber",
+              accounttype AS "accountType",
+              tr_date AS "trDate",
+              CAST(ledgerid AS bigint) AS "ledgerId",
+              lastlineno AS "lastLineNo",
+              row_id AS "rowId",
+              printedon AS "printedOn"
+            FROM bank_passbook
+            WHERE TRIM(account_number) = $1
+            ORDER BY accounttype
+        `, [mbno]);
 
-        // 2. Get Accounts (FD and RD)
-        let accountsQuery = `
-      SELECT * FROM (
-        SELECT 
-          "accountNumber" as "accountNo",
-          'Fixed Deposit' as "accountType",
-          CAST("principalAmount" AS numeric) as "currentBalance",
-          CAST("interestRate" AS numeric) as "interestRate",
-          "depositDate" as "openDate",
-          status
-        FROM fixed_deposits
-        WHERE CAST("memberId" AS text) = $1
-        UNION ALL
-        SELECT 
-          "accountNumber" as "accountNo",
-          'Recurring Deposit' as "accountType",
-          CAST("totalDeposited" AS numeric) as "currentBalance",
-          CAST("interestRate" AS numeric) as "interestRate",
-          "startDate" as "openDate",
-          status
-        FROM recurring_deposits
-        WHERE CAST("memberId" AS text) = $1
-      ) accs
-      WHERE 1=1
-    `;
-        const accountParams: any[] = [memberNo];
-        if (accountNo) {
-            accountsQuery += ` AND "accountNo" = $2`;
-            accountParams.push(accountNo);
-        }
+        const depositTracking = tracking.find((t: any) => t.accountType === 'D') || null;
+        const loanTracking    = tracking.find((t: any) => t.accountType === 'L') || null;
 
-        const accounts = await this.dataSource.query(accountsQuery, accountParams);
+        const lastDepositId = Number(depositTracking?.ledgerId ?? 0);
+        const lastLoanId    = Number(loanTracking?.ledgerId ?? 0);
 
-        // 3. Get Transactions from Ledger
-        let ledgerQuery = `
-      SELECT 
-        trans_date as "transactionDate",
-        trans_type as "transactionType",
-        CAST(trans_amt AS numeric) as "amount",
-        narration,
-        receipt_vchr_no as "voucherNo",
-        acc_no as "accountNo"
-      FROM ledger
-      WHERE CAST(mbno AS text) = $1
-    `;
-        const ledgerParams: any[] = [memberNo];
-        if (accountNo) {
-            ledgerQuery += ` AND CAST(acc_no AS text) = $${ledgerParams.length + 1}`;
-            ledgerParams.push(accountNo);
-        }
-        if (fromDate && toDate) {
-            ledgerQuery += ` AND trans_date >= $${ledgerParams.length + 1} AND trans_date <= $${ledgerParams.length + 2}`;
-            ledgerParams.push(parseSafeDate(fromDate), parseSafeDate(toDate));
-        }
-        ledgerQuery += ' ORDER BY trans_date ASC, trans_no ASC';
+        // 3. Pivoted deposit transactions
+        // SHR→Share, CD/MD→Compulsory Deposit (FD cols), MD1→FRS-1, MD2→FRS-2
+        const depositRows = await this.dataSource.query(`
+            SELECT
+              trans_date AS "transDate",
+              receipt_vchr_no AS "vchrNo",
+              COALESCE(SUM(CASE WHEN acc_type='SHR' AND trans_type='DR' THEN trans_amt END), 0) AS "SH_Dr_Amt",
+              COALESCE(SUM(CASE WHEN acc_type='SHR' AND trans_type='CR' THEN trans_amt END), 0) AS "SH_Cr_Amt",
+              COALESCE(MAX(CASE WHEN acc_type='SHR'                      THEN pl_balance  END), 0) AS "SH_Bal_Amt",
+              COALESCE(SUM(CASE WHEN acc_type IN ('CD','MD') AND trans_type='DR' THEN trans_amt END), 0) AS "FD_Dr_Amt",
+              COALESCE(SUM(CASE WHEN acc_type IN ('CD','MD') AND trans_type='CR' THEN trans_amt END), 0) AS "FD_Cr_Amt",
+              COALESCE(MAX(CASE WHEN acc_type IN ('CD','MD')              THEN pl_balance  END), 0) AS "FD_Bal_Amt",
+              COALESCE(SUM(CASE WHEN acc_type='MD1' AND trans_type='DR'  THEN trans_amt END), 0) AS "FRS_Dr_Amt",
+              COALESCE(SUM(CASE WHEN acc_type='MD1' AND trans_type='CR'  THEN trans_amt END), 0) AS "FRS_Cr_Amt",
+              COALESCE(SUM(CASE WHEN acc_type='MD2' AND trans_type='CR'  THEN trans_amt END), 0) AS "FRS_Cr_Amt1",
+              MAX(ledgerid) AS "maxLedgerId"
+            FROM ledger
+            WHERE CAST(mbno AS text) = $1
+              AND ledgerid > $2
+              AND acc_type IN ('SHR','CD','MD','MD1','MD2')
+            GROUP BY trans_date, receipt_vchr_no
+            ORDER BY trans_date, MAX(ledgerid)
+        `, [mbno, lastDepositId]);
 
-        const allTransactions = await this.dataSource.query(ledgerQuery, ledgerParams);
-
-        // 4. Map transactions to accounts and calculate running balance
-        const accountsWithDetails = accounts.map(acc => {
-            const accTrans = allTransactions.filter(t => t.accountNo === acc.accountNo || (!t.accountNo && accounts.length === 1));
-
-            let runningBalance = 0;
-            const mappedTrans = accTrans.map(t => {
-                const amt = parseFloat(t.amount) || 0;
-                if (t.transactionType === 'CR') runningBalance += amt;
-                else runningBalance -= amt;
-
-                return {
-                    ...t,
-                    amount: amt,
-                    runningBalance
-                };
-            });
-
-            return {
-                ...acc,
-                currentBalance: parseFloat(acc.currentBalance) || 0,
-                transactions: mappedTrans,
-                transactionCount: mappedTrans.length,
-                totalCredits: mappedTrans.filter(t => t.transactionType === 'CR').reduce((sum, t) => sum + t.amount, 0),
-                totalDebits: mappedTrans.filter(t => t.transactionType === 'DR').reduce((sum, t) => sum + t.amount, 0),
-            };
-        });
+        // 4. Pivoted loan transactions (acc_type: RLN, ALN, ELN)
+        const loanRows = await this.dataSource.query(`
+            SELECT
+              trans_date AS "transDate",
+              receipt_vchr_no AS "vchrNo",
+              COALESCE(SUM(CASE WHEN acc_type='RLN' AND trans_type='DR'         THEN trans_amt END), 0) AS "RLN_Dr_Amt",
+              COALESCE(SUM(CASE WHEN acc_type='RLN' AND trans_type='CR'         THEN trans_amt END), 0) AS "RLN_Cr_Amt",
+              COALESCE(MAX(CASE WHEN acc_type='RLN'                             THEN pl_balance  END), 0) AS "RLN_Bal_Amt",
+              COALESCE(SUM(CASE WHEN acc_type IN ('ALN','ELN') AND trans_type='DR' THEN trans_amt END), 0) AS "ALN_Dr_Amt",
+              COALESCE(SUM(CASE WHEN acc_type IN ('ALN','ELN') AND trans_type='CR' THEN trans_amt END), 0) AS "ALN_Cr_Amt",
+              COALESCE(MAX(CASE WHEN acc_type IN ('ALN','ELN')                  THEN pl_balance  END), 0) AS "ALN_Bal_Amt",
+              MAX(ledgerid) AS "maxLedgerId"
+            FROM ledger
+            WHERE CAST(mbno AS text) = $1
+              AND ledgerid > $2
+              AND acc_type IN ('RLN','ALN','ELN')
+            GROUP BY trans_date, receipt_vchr_no
+            ORDER BY trans_date, MAX(ledgerid)
+        `, [mbno, lastLoanId]);
 
         return {
-            memberDetails: memberRes[0],
-            accounts: accountsWithDetails,
-            totalAccounts: accountsWithDetails.length,
-            totalTransactions: allTransactions.length,
-            generatedAt: new Date().toISOString()
+            memberDetails,
+            depositTracking,
+            loanTracking,
+            allTracking: tracking,
+            depositRows,
+            loanRows,
+            totalDepositRows: depositRows.length,
+            totalLoanRows: loanRows.length,
         };
+    }
+
+    /** Reset passbook print tracking — set ledgerid=0 so everything re-prints */
+    async resetPassbookPrinting(memberNo: string, accountType?: string) {
+        const mbno = memberNo.trim();
+        const params: any[] = [mbno];
+        let q = `UPDATE bank_passbook SET ledgerid=0, lastlineno=0, tr_date=NULL WHERE TRIM(account_number)=$1`;
+        if (accountType) { params.push(accountType); q += ` AND accounttype=$2`; }
+        await this.dataSource.query(q, params);
+        return { success: true, message: 'Passbook printing reset successfully' };
+    }
+
+    /** Update bank_passbook tracking after a successful print */
+    async updatePassbookTracking(memberNo: string, accountType: string, lastLedgerId: number, lastLineNo: number) {
+        await this.dataSource.query(`
+            UPDATE bank_passbook
+            SET ledgerid=$1, lastlineno=$2, tr_date=NOW(), printedon=NOW()
+            WHERE TRIM(account_number)=$3 AND accounttype=$4
+        `, [lastLedgerId, lastLineNo, memberNo.trim(), accountType]);
+        return { success: true };
     }
 }

@@ -9,6 +9,7 @@ import {
 export enum DepositSlabType {
   FIXED_DEPOSIT = 'fixed_deposit',
   RECURRING_DEPOSIT = 'recurring_deposit',
+  LOAN = 'loan',
 }
 
 @Entity('deposit_slabs')

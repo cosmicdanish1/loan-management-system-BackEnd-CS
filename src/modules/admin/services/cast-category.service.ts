@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CastCategory } from '../entities/cast-category.entity';
@@ -6,6 +6,8 @@ import { CreateCastCategoryDto, UpdateCastCategoryDto } from '../dto/cast-catego
 
 @Injectable()
 export class CastCategoryService {
+    private readonly logger = new Logger(CastCategoryService.name);
+
     constructor(
         @InjectRepository(CastCategory)
         private castCategoryRepository: Repository<CastCategory>,
@@ -34,11 +36,42 @@ export class CastCategoryService {
 
     async update(id: number, updateCastCategoryDto: UpdateCastCategoryDto): Promise<CastCategory> {
         const castCategory = await this.findOne(id);
+        const oldName = castCategory.name;
         Object.assign(castCategory, updateCastCategoryDto);
-        return this.castCategoryRepository.save(castCategory);
+        const saved = await this.castCategoryRepository.save(castCategory);
+
+        // Members store their category by NAME — cascade a rename so assigned members stay consistent.
+        if (saved.name && oldName && saved.name !== oldName) {
+            const updated = await this.castCategoryRepository.query(
+                `UPDATE member_master SET cast_category = $1
+                 WHERE LOWER(TRIM(cast_category)) = LOWER(TRIM($2))
+                 RETURNING mbno`,
+                [saved.name, oldName]
+            );
+            const affected = Array.isArray(updated) ? updated.length : 0;
+            if (affected) {
+                this.logger.log(`Renamed "${oldName}" → "${saved.name}", updated ${affected} member(s)`);
+            }
+        }
+        return saved;
     }
 
     async remove(id: number): Promise<void> {
+        // Guard: members store their category by NAME in member_master.cast_category.
+        // Deleting a category that's in use would orphan those members, so block it.
+        const category = await this.findOne(id); // throws NotFound if missing
+        const inUse = await this.castCategoryRepository.query(
+            `SELECT COUNT(*)::int AS count FROM member_master
+             WHERE LOWER(TRIM(cast_category)) = LOWER(TRIM($1))`,
+            [category.name]
+        );
+        const count = inUse?.[0]?.count ?? 0;
+        if (count > 0) {
+            throw new ConflictException(
+                `Cannot delete "${category.name}" — ${count} member(s) are assigned to this category. Reassign them first.`
+            );
+        }
+
         const result = await this.castCategoryRepository.delete(id);
         if (result.affected === 0) {
             throw new NotFoundException(`Cast Category with ID ${id} not found`);

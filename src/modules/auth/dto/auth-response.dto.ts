@@ -59,6 +59,13 @@ export class UserResponseDto {
   isActive: boolean;
 
   @ApiProperty({
+    description: 'User avatar/profile photo URL',
+    example: '/uploads/avatars/user-1.jpg',
+    required: false,
+  })
+  avatar?: string;
+
+  @ApiProperty({
     description: 'Last login timestamp',
     example: '2023-10-17T10:30:00Z',
   })

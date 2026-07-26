@@ -11,6 +11,7 @@ import {
 } from './dto';
 import { SystemConfigService } from '../admin/services/system-config.service';
 import { FundsMaster } from '../admin/entities/funds-master.entity';
+import { validateDoubleEntry } from '../shared/utils/ledger-validation';
 
 @Injectable()
 export class InterestService {
@@ -51,9 +52,8 @@ export class InterestService {
       }
 
       // Check if interest has already been calculated for this period
-      // BUG FIX: intType was hardcoded to 'SB' — RD/FD runs were never detected as duplicates,
-      // allowing the same period to be posted multiple times for non-SB account types.
-      const accountTypeCode = dto.accountHead || 'SB';
+      // Use explicit accountType (SB/RD/FD) for intType; accountHead carries the GL code.
+      const accountTypeCode = dto.accountType || 'SB';
       const existingRun = await this.interestMasterRepository.findOne({
         where: {
           fromDate: fromDate,
@@ -99,6 +99,7 @@ export class InterestService {
             toDate,
             dto.interestRate,
             queryRunner.manager,
+            accountTypeCode,
           );
 
           if (calculation.interestAmount > 0) {
@@ -139,18 +140,53 @@ export class InterestService {
               glHead
             );
 
+            // Update fdmaster after FD interest posting
+            if (accountTypeCode === 'FD') {
+              await queryRunner.manager.query(
+                `UPDATE fdmaster SET interestamount = COALESCE(interestamount, 0) + $1,
+                        lastintpaydate = NOW()
+                 WHERE mbno = $2 AND fdrdflag = 'F'
+                   AND (status = '0' OR status = 'A' OR status IS NULL)`,
+                [calculation.interestAmount, member.mbno]
+              );
+            }
+
             memberCalculations.push(calculation);
             totalInterestAmount += calculation.interestAmount;
           }
         } catch (error) {
           this.logger.error(`Error calculating interest for member ${member.mbno}:`, error);
-          // Continue with other members
         }
+      }
+
+      // F5: Double-entry validation — all CR entries should equal all DR entries
+      const ledgerEntries = memberCalculations.flatMap(c => [
+        { transType: 'CR' as const, amount: c.interestAmount },
+        { transType: 'DR' as const, amount: c.interestAmount },
+      ]);
+      const validation = validateDoubleEntry(ledgerEntries);
+      if (!validation.valid) {
+        throw new BadRequestException(
+          `Double-entry validation failed: DR=${validation.drTotal}, CR=${validation.crTotal}, diff=${validation.difference}`
+        );
       }
 
       await queryRunner.commitTransaction();
 
       this.logger.log(`Interest calculation completed. Total amount: ${totalInterestAmount}`);
+
+      // Auto-queue interest notification for each member
+      try {
+        const { autoQueueNotification } = require('../shared/utils/auto-notify');
+        for (const calc of memberCalculations) {
+          if (calc.interestAmount > 0) {
+            autoQueueNotification(this.dataSource, String(calc.memberNumber),
+              `Interest of ₹${calc.interestAmount.toLocaleString('en-IN')} credited to your ${accountTypeCode} account for period ${dto.fromDate} to ${dto.toDate}. — FIBE Credit Society`,
+              'INTEREST_CREDITED'
+            ).catch(() => {});
+          }
+        }
+      } catch {}
 
       return {
         totalMembers: memberCalculations.length,
@@ -189,11 +225,11 @@ export class InterestService {
   /**
    * Get opening balance for a member as of a specific date
    */
-  private async getOpeningBalance(memberNo: string, date: Date, manager: any): Promise<number> {
+  private async getOpeningBalance(memberNo: string, date: Date, manager: any, accountType: string = 'SB'): Promise<number> {
     const lastTransaction = await manager.findOne(Ledger, {
       where: {
         memberNumber: memberNo,
-        accountType: 'SB',
+        accountType: accountType,
         transactionDate: Between(new Date(0), new Date(date.getTime() - 1)),
       },
       order: {
@@ -206,7 +242,7 @@ export class InterestService {
   }
 
   /**
-   * Calculate interest for a specific member
+   * Calculate interest for a specific member — dispatches to FD/RD/SB-specific logic
    */
   private async calculateMemberInterest(
     member: MemberMaster,
@@ -214,15 +250,22 @@ export class InterestService {
     toDate: Date,
     annualRate: number,
     manager: any,
+    accountType: string = 'SB',
   ): Promise<InterestCalculationResultDto> {
-    // Get opening balance
-    const openingBalance = await this.getOpeningBalance(member.mbno, fromDate, manager);
+    if (accountType === 'FD') {
+      return this.calculateMemberFDInterest(member, fromDate, toDate, annualRate, manager);
+    }
+    if (accountType === 'RD') {
+      return this.calculateMemberRDInterest(member, fromDate, toDate, annualRate, manager);
+    }
 
-    // Get member's ledger transactions for the period
+    // SB: daily product method (existing logic)
+    const openingBalance = await this.getOpeningBalance(member.mbno, fromDate, manager, accountType);
+
     const transactions = await manager.find(Ledger, {
       where: {
         memberNumber: member.mbno,
-        accountType: 'SB',
+        accountType: accountType,
         transactionDate: Between(fromDate, toDate),
       },
       order: {
@@ -231,24 +274,14 @@ export class InterestService {
       },
     });
 
-    // Calculate daily balances starting from openingBalance
     const dailyBalances = this.calculateDailyBalances(transactions, fromDate, toDate, openingBalance);
-
-    // Calculate interest (Daily Product Method: Sum of daily balances * Daily Rate)
-    // Most credit societies use (Sum of Daily Balances / Period Days) * Daily Rate * Period Days
-    // Which simplifies to: Sum of Daily Balances * (AnnualRate / 100 / 365)
 
     const sumOfBalances = dailyBalances.reduce((sum, day) => sum + day.balance, 0);
     const dayCount = dailyBalances.length;
     const dailyRate = annualRate / 100 / 365;
-
-    // Using simple daily product method
     const interestAmount = Math.round(sumOfBalances * dailyRate * 100) / 100;
+    const averageBalance = dayCount > 0 ? sumOfBalances / dayCount : 0;
 
-    // The average balance for display/logging
-    const averageBalance = sumOfBalances / dayCount;
-
-    // Calculate total debits and credits
     let totalDebit = 0;
     let totalCredit = 0;
     transactions.forEach(t => {
@@ -269,6 +302,164 @@ export class InterestService {
       interestAmount,
       closingBalance,
       days: dayCount,
+    };
+  }
+
+  /**
+   * F3: FD Interest — exact legacy formula (Days/Months/Years)
+   * Legacy: (P*R*Y)/100 + (P*R*M)/1200 + (P*R*D)/36500
+   */
+  private async calculateMemberFDInterest(
+    member: MemberMaster,
+    fromDate: Date,
+    toDate: Date,
+    annualRate: number,
+    manager: any,
+  ): Promise<InterestCalculationResultDto> {
+    const fdAccounts = await manager.query(
+      `SELECT account_number, fdamount, rate, depdate, matdate,
+              COALESCE(interestbalance, 0) as interestbalance,
+              COALESCE(intpaid, 0) as intpaid
+       FROM fdmaster
+       WHERE mbno = $1 AND fdrdflag = 'F'
+         AND (status = '0' OR status = 'A' OR status IS NULL)`,
+      [member.mbno]
+    );
+
+    let totalInterest = 0;
+    let totalPrincipal = 0;
+
+    for (const fd of fdAccounts) {
+      const principal = parseFloat(fd.fdamount) || 0;
+      const rate = parseFloat(fd.rate) || annualRate;
+      const depositDate = new Date(fd.depdate);
+      const calcDate = toDate < new Date(fd.matdate || toDate) ? toDate : new Date(fd.matdate);
+
+      const interest = this.calculateFDInterest(principal, rate, depositDate, calcDate);
+      const alreadyPaid = parseFloat(fd.intpaid) || 0;
+      const netInterest = Math.max(interest - alreadyPaid, 0);
+
+      totalInterest += netInterest;
+      totalPrincipal += principal;
+    }
+
+    totalInterest = Math.round(totalInterest * 100) / 100;
+
+    return {
+      memberNumber: member.mbno,
+      memberName: member.fullName,
+      accountNumber: fdAccounts[0]?.account_number || member.mbno,
+      openingBalance: totalPrincipal,
+      totalDebit: 0,
+      totalCredit: 0,
+      averageBalance: totalPrincipal,
+      interestAmount: totalInterest,
+      closingBalance: totalPrincipal + totalInterest,
+      days: Math.ceil((toDate.getTime() - fromDate.getTime()) / (1000 * 60 * 60 * 24)),
+    };
+  }
+
+  /**
+   * FD interest exact formula matching legacy stored procedure
+   */
+  private calculateFDInterest(principal: number, annualRate: number, depositDate: Date, calcDate: Date): number {
+    let totalDays = Math.ceil((calcDate.getTime() - depositDate.getTime()) / (1000 * 60 * 60 * 24));
+    if (totalDays <= 0) return 0;
+
+    const years = Math.floor(totalDays / 365);
+    let remaining = totalDays - (years * 365);
+    const months = Math.floor(remaining / 30);
+    const days = remaining - (months * 30);
+
+    const yearInterest = (principal * annualRate * years) / 100;
+    const monthInterest = (principal * annualRate * months) / 1200;
+    const dayInterest = (principal * annualRate * days) / 36500;
+
+    return Math.round((yearInterest + monthInterest + dayInterest) * 100) / 100;
+  }
+
+  /**
+   * F4: RD Interest — product-based calculation matching legacy Pr_RDInterestCalculation
+   * Builds running balance from ledger, calculates balance×days products
+   */
+  private async calculateMemberRDInterest(
+    member: MemberMaster,
+    fromDate: Date,
+    toDate: Date,
+    annualRate: number,
+    manager: any,
+  ): Promise<InterestCalculationResultDto> {
+    // Get RD head codes
+    const rdHeads = await manager.query(
+      `SELECT code FROM headmaster WHERE headtype = 'RD' OR headtype LIKE 'RD%'`
+    );
+    const rdCodes = rdHeads.map((h: any) => h.code.trim());
+
+    if (rdCodes.length === 0) {
+      return {
+        memberNumber: member.mbno, memberName: member.fullName, accountNumber: member.mbno,
+        openingBalance: 0, totalDebit: 0, totalCredit: 0, averageBalance: 0,
+        interestAmount: 0, closingBalance: 0, days: 0,
+      };
+    }
+
+    // Opening balance: all RD transactions before fromDate
+    const opResult = await manager.query(`
+      SELECT COALESCE(SUM(CASE WHEN trans_type='CR' THEN trans_amt::numeric ELSE -trans_amt::numeric END), 0) as bal
+      FROM ledger WHERE mbno = $1 AND code = ANY($2) AND trans_date::date < $3::date
+    `, [member.mbno, rdCodes, fromDate]);
+    const openingBalance = parseFloat(opResult[0]?.bal) || 0;
+
+    // Period transactions sorted by date
+    const txns = await manager.query(`
+      SELECT trans_date, trans_type, trans_amt::numeric as amt
+      FROM ledger WHERE mbno = $1 AND code = ANY($2)
+        AND trans_date::date >= $3::date AND trans_date::date <= $4::date
+      ORDER BY trans_date, ledgerid
+    `, [member.mbno, rdCodes, fromDate, toDate]);
+
+    // Build product-based interest: sum of (balance × days at that balance level)
+    let runningBalance = openingBalance;
+    let totalProduct = 0;
+    let lastDate = new Date(fromDate);
+    let totalDebit = 0;
+    let totalCredit = 0;
+
+    for (const txn of txns) {
+      const txnDate = new Date(txn.trans_date);
+      const daysBetween = Math.max(Math.ceil((txnDate.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24)), 0);
+      totalProduct += runningBalance * daysBetween;
+
+      const amt = parseFloat(txn.amt) || 0;
+      if (txn.trans_type === 'CR') {
+        runningBalance += amt;
+        totalCredit += amt;
+      } else {
+        runningBalance -= amt;
+        totalDebit += amt;
+      }
+      lastDate = txnDate;
+    }
+
+    // Remaining days after last transaction
+    const remainingDays = Math.max(Math.ceil((toDate.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24)), 0);
+    totalProduct += runningBalance * remainingDays;
+
+    const totalDays = Math.ceil((toDate.getTime() - fromDate.getTime()) / (1000 * 60 * 60 * 24));
+    const interestAmount = Math.round((totalProduct * annualRate / 36500) * 100) / 100;
+    const averageBalance = totalDays > 0 ? totalProduct / totalDays : 0;
+
+    return {
+      memberNumber: member.mbno,
+      memberName: member.fullName,
+      accountNumber: member.mbno,
+      openingBalance,
+      totalDebit,
+      totalCredit,
+      averageBalance,
+      interestAmount,
+      closingBalance: runningBalance + interestAmount,
+      days: totalDays,
     };
   }
 
@@ -352,12 +543,13 @@ export class InterestService {
 
     // DR Interest Expense head — balancing debit records the cost to the society
     const debitTransNo = await this.generateTransactionNumber(manager);
-    // BUG FIX: this.dataSource.query() bypassed the active transaction (separate connection).
-    // Use manager.query() so the read is consistent within the transaction.
-    const sbIntExpenseHead = await manager.query(
-      `SELECT COALESCE(sbinthead, 'L1028') as head FROM busrules ORDER BY appdate DESC LIMIT 1`
+    // Look up the correct expense head based on the credit account head type
+    const headLookupMap: Record<string, string> = { 'A1001': 'sbinthead', 'A1002': 'rdinthead', 'A1003': 'fdinthead' };
+    const busruleCol = headLookupMap[accountHead] || 'sbinthead';
+    const expenseHeadResult = await manager.query(
+      `SELECT COALESCE(${busruleCol}, 'L1028') as head FROM busrules ORDER BY appdate DESC LIMIT 1`
     );
-    const intExpenseCode = sbIntExpenseHead[0]?.head || 'L1028';
+    const intExpenseCode = expenseHeadResult[0]?.head || 'L1028';
     await manager.save(Ledger, {
       transactionNumber: debitTransNo,
       transactionDate: new Date(),
@@ -474,6 +666,7 @@ export class InterestService {
       throw new BadRequestException('From date must be before to date');
     }
 
+    const accountTypeCode = dto.accountType || 'SB';
     const allMembers = await this.getEligibleMembers();
     const eligibleMembers = dto.memberNo
       ? allMembers.filter(m => m.mbno === dto.memberNo)
@@ -490,6 +683,7 @@ export class InterestService {
           toDate,
           dto.interestRate,
           this.dataSource.manager,
+          accountTypeCode,
         );
 
         if (calculation.interestAmount > 0) {
@@ -546,7 +740,7 @@ export class InterestService {
         where: {
           fromDate: fromDate,
           toDate: toDate,
-          intType: 'SB',
+          intType: dto.accountType || 'SB',
         },
       });
 
@@ -691,7 +885,7 @@ export class InterestService {
           // 3. Insurance Deduction (Debit)
           if (deductionInsurance > 0) {
             // Determine transaction number
-            const transNo = await this.generateTransactionNumber();
+            const transNo = await this.generateTransactionNumber(queryRunner.manager);
             await queryRunner.manager.save(Ledger, {
               transactionNumber: transNo,
               transactionDate: processDate,

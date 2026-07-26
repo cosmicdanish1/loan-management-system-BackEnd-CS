@@ -94,6 +94,28 @@ export class DayEndService {
       throw new BadRequestException('Another day-end process is currently in progress');
     }
 
+    // Block day-end if unposted (unpassed) transactions exist — matches legacy behavior
+    const unpassed = await this.dataSource.query(
+      `SELECT COUNT(*) as cnt FROM transactions WHERE pass_flag = 'N'`
+    );
+    const unpassedCount = parseInt(unpassed[0]?.cnt || '0');
+    if (unpassedCount > 0) {
+      throw new BadRequestException(
+        `Cannot perform Day End — ${unpassedCount} unpass voucher(s) found! Go to Pass Transactions first.`
+      );
+    }
+
+    // Block day-end if pending loans exist (pass_flag='N' — not yet approved/declined)
+    const pendingLoans = await this.dataSource.query(
+      `SELECT COUNT(*) as cnt FROM loan_pending WHERE COALESCE(pass_flag, 'N') = 'N' AND flg_sanctioned = 'N'`
+    );
+    const pendingLoanCount = parseInt(pendingLoans[0]?.cnt || '0');
+    if (pendingLoanCount > 0) {
+      throw new BadRequestException(
+        `Cannot perform Day End — ${pendingLoanCount} pending loan application(s) awaiting approval! Go to Pass Transactions to approve or decline them.`
+      );
+    }
+
     // FIX BUG 4: Generate next ID inside a serialized query to prevent race conditions
     const nextIdResult = await this.dataSource.query(
       `SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM day_end_processes`
@@ -109,9 +131,10 @@ export class DayEndService {
       startedAt: new Date(),
       initiatedBy: userId,
       processSteps,
-    });
+      nextWorkingDate: initiateDayEndDto.nextWorkingDate || null,
+    } as any);
 
-    const savedProcess = await this.dayEndProcessRepository.save(dayEndProcess);
+    const savedProcess = await this.dayEndProcessRepository.save(dayEndProcess) as unknown as DayEndProcess;
 
     // Start processing asynchronously — errors are caught and persisted internally
     this.executeDayEndProcess(savedProcess.id).catch(error => {
@@ -212,6 +235,12 @@ export class DayEndService {
       const totalDebit = await this.calculateTodayDebits(workingDate);
       const closingBalance = openingBalance + totalCredit - totalDebit;
 
+      // Check pending loans awaiting approval
+      const pendingLoansResult = await this.dataSource.query(
+        `SELECT COUNT(*) as cnt FROM loan_pending WHERE COALESCE(pass_flag, 'N') = 'N' AND flg_sanctioned = 'N'`
+      );
+      const pendingLoans = parseInt(pendingLoansResult[0]?.cnt || '0');
+
       return {
         date: workingDate.toISOString().split('T')[0],
         openingBalance: Number(openingBalance.toFixed(2)),
@@ -222,6 +251,7 @@ export class DayEndService {
         receiptVouchers,
         journalVouchers,
         dayendFlag: workingDateResult[0]?.dayend_flag || 'Y',
+        pendingLoans,
       };
     } catch (error) {
       this.logger.error('Error fetching current day-end summary:', error);
@@ -428,9 +458,12 @@ export class DayEndService {
         );
       }
 
-      // Insert next working day (skip if already exists)
-      const nextDay = new Date(process.processDate);
-      nextDay.setDate(nextDay.getDate() + 1);
+      // Insert next working day — use frontend-provided date or default to +1 day
+      const nextDay = process.nextWorkingDate
+        ? new Date(process.nextWorkingDate)
+        : new Date(process.processDate);
+      if (!process.nextWorkingDate) nextDay.setDate(nextDay.getDate() + 1);
+      nextDay.setHours(0, 0, 0, 0);
 
       const existingNext = await queryRunner.query(
         `SELECT 1 FROM getworkingdate WHERE working_date::date = $1::date`, [nextDay]

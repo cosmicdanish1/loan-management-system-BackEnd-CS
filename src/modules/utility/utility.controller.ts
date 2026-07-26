@@ -338,6 +338,7 @@ export class UtilityController {
   }
 
   // Legacy endpoint
+  @ApiOperation({ summary: 'Legacy: list available utility services (index/health ping)' })
   @Get()
   async findAll() {
     return { 

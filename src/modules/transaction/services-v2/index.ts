@@ -9,5 +9,4 @@ export * from './ledger-posting.service';
 export * from './demand-report.service';
 export * from './compulsory-deposit.service';
 export * from './journal-transfer.service';
-export * from './dividend-payment.service';
 export * from './fixed-deposit.service';

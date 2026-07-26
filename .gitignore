@@ -2,6 +2,9 @@
 /dist
 /node_modules
 
+# Installer output (large .exe — built by deploy/backend-installer)
+/release
+
 # Logs
 logs
 *.log
@@ -39,6 +42,9 @@ lerna-debug.log*
 .env.local
 .env.development
 .env.production
+
+# Database targeting (contains DB password) — keep the .example, ignore the real one
+db-config.json
 
 # Uploads and temporary files
 /uploads

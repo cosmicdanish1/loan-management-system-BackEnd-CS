@@ -14,11 +14,12 @@ import {
     Res,
     ParseFilePipeBuilder,
     HttpStatus,
+    NotFoundException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { MemberCrudService, MemberLookupService, MemberBalanceService, SignatureService } from './services-v2';
-import { signatureUploadConfig } from './config/multer.config';
+import { signatureUploadConfig, photoUploadConfig, documentUploadConfig } from './config/multer.config';
 import { createReadStream, existsSync } from 'fs';
 import { join, extname } from 'path';
 import type { Response } from 'express';
@@ -27,6 +28,7 @@ import {
     UpdateMemberDto,
     MemberResponseDto,
     SearchMemberDto,
+    UpdateMemberStatusDto,
 } from './dto';
 
 /**
@@ -115,6 +117,16 @@ export class MemberV2Controller {
         @Body() updateMemberDto: UpdateMemberDto,
     ): Promise<MemberResponseDto> {
         return this.memberCrudService.update(id, updateMemberDto);
+    }
+
+    @Patch(':id/status')
+    @ApiOperation({ summary: 'Change a member lifecycle status (active/inactive/resigned/expired/…)' })
+    @ApiResponse({ status: 200, description: 'Member status updated' })
+    async updateStatus(
+        @Param('id', ParseIntPipe) id: number,
+        @Body() dto: UpdateMemberStatusDto,
+    ): Promise<MemberResponseDto> {
+        return this.memberCrudService.updateStatus(id, dto.status, dto.reason);
     }
 
     @Delete(':id')
@@ -242,13 +254,9 @@ export class MemberV2Controller {
         @Res({ passthrough: true }) res: Response,
     ): Promise<StreamableFile> {
         const filePath = await this.signatureService.getSignaturePathMaster(mbno);
-        if (!filePath) {
-            const e = new Error('Signature not found'); (e as any).status = 404; throw e;
-        }
+        if (!filePath) throw new NotFoundException('Signature not found');
         const fullPath = join(process.cwd(), filePath);
-        if (!existsSync(fullPath)) {
-            const e = new Error('Signature file missing on disk'); (e as any).status = 404; throw e;
-        }
+        if (!existsSync(fullPath)) throw new NotFoundException('Signature file missing on disk');
         const ext = extname(filePath).toLowerCase();
         const mimeType = ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/png';
         res.set({ 'Content-Type': mimeType, 'Content-Disposition': `inline; filename="signature${ext}"` });
@@ -260,6 +268,97 @@ export class MemberV2Controller {
     async deleteSignatureMaster(@Param('mbno') mbno: string) {
         await this.signatureService.deleteSignatureMaster(mbno);
         return { message: 'Signature deleted', mbno };
+    }
+
+    // ==================== Photo Routes (profile / doc_front / doc_back) ====================
+
+    @Post('master/:mbno/photo/:type')
+    @ApiOperation({ summary: 'Upload photo for member_master member (type: profile | doc_front | doc_back)' })
+    @ApiConsumes('multipart/form-data')
+    @UseInterceptors(FileInterceptor('file', photoUploadConfig))
+    async uploadPhotoMaster(
+        @Param('mbno') mbno: string,
+        @Param('type') type: string,
+        @UploadedFile(
+            new ParseFilePipeBuilder()
+                .addMaxSizeValidator({ maxSize: 5 * 1024 * 1024 })
+                .build({ errorHttpStatusCode: HttpStatus.UNPROCESSABLE_ENTITY, fileIsRequired: true }),
+        ) file: Express.Multer.File,
+    ) {
+        await this.signatureService.uploadPhotoMaster(mbno, file.path, type);
+        return { message: `Photo (${type}) uploaded successfully`, mbno, type };
+    }
+
+    @Get('master/:mbno/photo/:type')
+    @ApiOperation({ summary: 'Get photo for member_master member' })
+    async getPhotoMaster(
+        @Param('mbno') mbno: string,
+        @Param('type') type: string,
+        @Res({ passthrough: true }) res: Response,
+    ): Promise<StreamableFile> {
+        const filePath = await this.signatureService.getPhotoPathMaster(mbno, type);
+        if (!filePath) throw new NotFoundException('Photo not found');
+        const fullPath = join(process.cwd(), filePath);
+        if (!existsSync(fullPath)) throw new NotFoundException('Photo file missing on disk');
+        const ext = extname(filePath).toLowerCase();
+        const mimeType = ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/png';
+        res.set({ 'Content-Type': mimeType, 'Content-Disposition': `inline; filename="${type}${ext}"` });
+        return new StreamableFile(createReadStream(fullPath));
+    }
+
+    @Delete('master/:mbno/photo/:type')
+    @ApiOperation({ summary: 'Delete photo for member_master member' })
+    async deletePhotoMaster(@Param('mbno') mbno: string, @Param('type') type: string) {
+        await this.signatureService.deletePhotoMaster(mbno, type);
+        return { message: `Photo (${type}) deleted`, mbno };
+    }
+
+    // ==================== KYC Documents (multi-document per member) ====================
+
+    @Post('master/:mbno/document')
+    @ApiOperation({ summary: 'Upload a KYC document (body: docType) for a member' })
+    @ApiConsumes('multipart/form-data')
+    @UseInterceptors(FileInterceptor('file', documentUploadConfig))
+    async uploadDocument(
+        @Param('mbno') mbno: string,
+        @Body('docType') docType: string,
+        @UploadedFile(
+            new ParseFilePipeBuilder()
+                .addMaxSizeValidator({ maxSize: 10 * 1024 * 1024 })
+                .build({ errorHttpStatusCode: HttpStatus.UNPROCESSABLE_ENTITY, fileIsRequired: true }),
+        ) file: Express.Multer.File,
+    ) {
+        const doc = await this.signatureService.addDocument(mbno, docType, file.path, file.originalname);
+        return { message: 'Document uploaded', mbno, document: doc };
+    }
+
+    @Get('master/:mbno/documents')
+    @ApiOperation({ summary: 'List KYC documents for a member' })
+    async listDocuments(@Param('mbno') mbno: string) {
+        return this.signatureService.listDocuments(mbno);
+    }
+
+    @Get('master/:mbno/document/:id')
+    @ApiOperation({ summary: 'Stream/download a KYC document file' })
+    async getDocument(
+        @Param('id') id: string,
+        @Res({ passthrough: true }) res: Response,
+    ): Promise<StreamableFile> {
+        const filePath = await this.signatureService.getDocumentPath(parseInt(id, 10));
+        if (!filePath) throw new NotFoundException('Document not found');
+        const fullPath = join(process.cwd(), filePath);
+        if (!existsSync(fullPath)) throw new NotFoundException('Document file missing on disk');
+        const ext = extname(filePath).toLowerCase();
+        const mimeType = ext === '.pdf' ? 'application/pdf' : (ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/png');
+        res.set({ 'Content-Type': mimeType, 'Content-Disposition': `inline; filename="document${ext}"` });
+        return new StreamableFile(createReadStream(fullPath));
+    }
+
+    @Delete('master/:mbno/document/:id')
+    @ApiOperation({ summary: 'Delete a KYC document' })
+    async deleteDocument(@Param('id') id: string) {
+        await this.signatureService.deleteDocument(parseInt(id, 10));
+        return { message: 'Document deleted', id };
     }
 
     // ==================== Legacy Support ====================

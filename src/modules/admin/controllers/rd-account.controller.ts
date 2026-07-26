@@ -22,6 +22,12 @@ export class RdAccountController {
         return this.rdAccountService.findAll(memberNo);
     }
 
+    @Get('next-number')
+    @ApiOperation({ summary: 'Get next auto-generated account number (MAX + 1 from fdmaster)' })
+    getNextAccountNumber() {
+        return this.rdAccountService.getNextAccountNumber();
+    }
+
     @Get(':id')
     @ApiOperation({ summary: 'Get an RD Account by ID' })
     @ApiResponse({ status: 200, description: 'Return the RD Account.' })

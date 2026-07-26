@@ -1,5 +1,6 @@
 import {
     Injectable,
+    Logger,
     NotFoundException,
     ConflictException,
     BadRequestException,
@@ -26,6 +27,8 @@ import { SystemConfigService } from '../../admin/services/system-config.service'
  */
 @Injectable()
 export class MemberCrudService {
+    private readonly logger = new Logger(MemberCrudService.name);
+
     constructor(
         @InjectRepository(Member)
         private readonly memberRepository: Repository<Member>,
@@ -328,6 +331,31 @@ export class MemberCrudService {
     }
 
     /**
+     * Update only a member's lifecycle status (ACTIVE / INACTIVE / RESIGNED / ...).
+     * A focused, safe alternative to a full update — does not touch balances or
+     * any financial data. `reason` is accepted for audit but the member table has
+     * no note column, so it is logged only.
+     */
+    async updateStatus(id: number, status: string, reason?: string): Promise<MemberResponseDto> {
+        const member = await this.memberRepository.findOne({ where: { id } });
+
+        if (!member) {
+            throw new NotFoundException(`Member with ID ${id} not found`);
+        }
+
+        const previous = member.status;
+        member.status = status;
+        const updatedMember = await this.memberRepository.save(member);
+
+        this.logger.log(
+            `Member ${id} status changed ${previous} -> ${status}` +
+            (reason ? ` (reason: ${reason})` : ''),
+        );
+
+        return new MemberResponseDto(updatedMember);
+    }
+
+    /**
      * Delete member
      */
     async remove(id: number): Promise<void> {
@@ -347,6 +375,40 @@ export class MemberCrudService {
      */
     async saveMemberMaster(memberData: any) {
         try {
+            const currentMbno = (memberData.mbno && memberData.mbno !== 'auto') ? memberData.mbno : null;
+
+            // Duplicate checks for fields that must be unique across all members.
+            // On UPDATE, exclude the current member (currentMbno). On INSERT, currentMbno is null so all rows are checked.
+            const uniqueChecks: { field: string; column: string; label: string }[] = [
+                { field: 'pfno',    column: 'pfno',    label: 'P.NO / PF No' },
+                { field: 'aadharno', column: 'aadharno', label: 'Aadhar No' },
+                { field: 'pan_no',  column: 'pan_no',  label: 'PAN Card No' },
+                { field: 'frs_no',  column: 'frs_no',  label: 'FRS Number' },
+                { field: 'phoneno', column: 'phoneno', label: 'Phone Number' },
+                { field: 'email',   column: 'email',   label: 'Email' },
+            ];
+
+            for (const { field, column, label } of uniqueChecks) {
+                const value = (memberData[field] || '').trim();
+                if (!value) continue;
+
+                const rows = currentMbno
+                    ? await this.dataSource.query(
+                        `SELECT mbno FROM member_master WHERE ${column} = $1 AND mbno != $2 LIMIT 1`,
+                        [value, currentMbno]
+                      )
+                    : await this.dataSource.query(
+                        `SELECT mbno FROM member_master WHERE ${column} = $1 LIMIT 1`,
+                        [value]
+                      );
+
+                if (rows.length > 0) {
+                    throw new ConflictException(
+                        `${label} '${value}' is already registered under member no. ${rows[0].mbno}`
+                    );
+                }
+            }
+
             if (memberData.mbno && memberData.mbno !== 'auto') {
                 // Update existing member
                 const updateQuery = `
@@ -358,7 +420,8 @@ export class MemberCrudService {
             pfno = $22, flg_insured = $23, insureamt = $24, remarks = $25, dept_name = $26,
             isactive = $27, flg_retire = $28, aadharno = $29, phoneno = $30, pan_no = $31,
             frs_no = $32, fathers_name = $33, branchmsno = $34,
-            supanuationdate = $35, compulsory_deposit = $36, share_amount = $37, cast_category = $38
+            supanuationdate = $35, compulsory_deposit = $36, share_amount = $37, cast_category = $38,
+            email = $39
           WHERE mbno = $1
           RETURNING *
         `;
@@ -374,7 +437,8 @@ export class MemberCrudService {
                     memberData.flg_retire, memberData.aadharno, memberData.phoneno, memberData.pan_no,
                     memberData.frs_no, memberData.fathers_name, memberData.branchmsno,
                     memberData.supanuationdate || null, memberData.compulsory_deposit || 0,
-                    memberData.share_amount || 0, memberData.cast_category || ''
+                    memberData.share_amount || 0, memberData.cast_category || '',
+                    memberData.email || ''
                 ]);
 
                 // Return raw row — TransformInterceptor handles the { success, data } envelope
@@ -396,37 +460,68 @@ export class MemberCrudService {
             nominee_relation, declare_date, memb_date, pfno, lfno, flg_incometax,
             flg_insured, insureamt, remarks, dept_name, isactive, flg_retire,
             aadharno, phoneno, pan_no, frs_no, fathers_name, branchmsno,
-            supanuationdate, compulsory_deposit, share_amount, cast_category
+            supanuationdate, compulsory_deposit, share_amount, cast_category, email
           ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
             $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24,
             $25, $26, $27, $28, $29, $30,
             $31, $32, $33, $34, $35, $36,
-            $37, $38, $39, $40
+            $37, $38, $39, $40, $41
           )
           RETURNING *
         `;
 
-                const result = await this.dataSource.query(insertQuery, [
-                    memberNumber, memberData.prefix, memberData.f_name, memberData.m_name,
-                    memberData.l_name, memberData.sex, memberData.desig, memberData.present_address,
-                    memberData.permanent_address, memberData.wingno, memberData.officeno, memberData.age,
-                    memberData.dob, memberData.dor, memberData.gross_salary, memberData.basic_pay,
-                    memberData.nominee_name, memberData.nominee_address, memberData.nominee_relation,
-                    memberData.declare_date, memberData.memb_date, memberData.pfno, memberData.lfno,
-                    memberData.flg_incometax, memberData.flg_insured, memberData.insureamt,
-                    memberData.remarks, memberData.dept_name, memberData.isactive, memberData.flg_retire,
-                    memberData.aadharno || '', memberData.phoneno || '', memberData.pan_no || '',
-                    memberData.frs_no || '', memberData.fathers_name || '', memberData.branchmsno || '',
-                    memberData.supanuationdate || null, memberData.compulsory_deposit || 0,
-                    memberData.share_amount || 0, memberData.cast_category || ''
-                ]);
+                const queryRunner = this.dataSource.createQueryRunner();
+                await queryRunner.connect();
+                await queryRunner.startTransaction();
 
-                // Return raw row — TransformInterceptor handles the { success, data } envelope
-                return result[0];
+                try {
+                    const result = await queryRunner.query(insertQuery, [
+                        memberNumber, memberData.prefix, memberData.f_name, memberData.m_name,
+                        memberData.l_name, memberData.sex, memberData.desig, memberData.present_address,
+                        memberData.permanent_address, memberData.wingno, memberData.officeno, memberData.age,
+                        memberData.dob, memberData.dor, memberData.gross_salary, memberData.basic_pay,
+                        memberData.nominee_name, memberData.nominee_address, memberData.nominee_relation,
+                        memberData.declare_date, memberData.memb_date, memberData.pfno, memberData.lfno,
+                        memberData.flg_incometax, memberData.flg_insured, memberData.insureamt,
+                        memberData.remarks, memberData.dept_name, memberData.isactive, memberData.flg_retire,
+                        memberData.aadharno || '', memberData.phoneno || '', memberData.pan_no || '',
+                        memberData.frs_no || '', memberData.fathers_name || '', memberData.branchmsno || '',
+                        memberData.supanuationdate || null, memberData.compulsory_deposit || 0,
+                        memberData.share_amount || 0, memberData.cast_category || '', memberData.email || ''
+                    ]);
+
+                    // Initialize fundsmaster row (legacy: cdamt = compulsory_deposit, rest = 0)
+                    await queryRunner.query(
+                        `INSERT INTO fundsmaster (mbno, mdamt, cdamt, shareamt, mdopbal, shareopbal, cdopbal, lnexecrec, suspbal)
+                         VALUES ($1, 0, $2, $3, 0, 0, 0, 0, 0)
+                         ON CONFLICT DO NOTHING`,
+                        [memberNumber, memberData.compulsory_deposit || 0, memberData.share_amount || 0]
+                    );
+
+                    // Initialize membercategory row (legacy: categoryCode from cast_category, memberType)
+                    const castMap: Record<string, number> = { 'OBC': 1, 'General': 2, 'SC': 3, 'ST': 4 };
+                    const memberTypeMap: Record<string, number> = { 'Regular': 1, 'Associate': 2, 'Honorary': 3 };
+                    const categoryCode = castMap[memberData.cast_category] || 1;
+                    const memberType = memberTypeMap[memberData.member_type] || 1;
+                    await queryRunner.query(
+                        `INSERT INTO membercategory (mbno, categorycode, membertype)
+                         VALUES ($1, $2, $3)
+                         ON CONFLICT DO NOTHING`,
+                        [memberNumber, categoryCode, memberType]
+                    );
+
+                    await queryRunner.commitTransaction();
+                    return result[0];
+                } catch (txError) {
+                    await queryRunner.rollbackTransaction();
+                    throw txError;
+                } finally {
+                    await queryRunner.release();
+                }
             }
         } catch (error) {
-            console.error('[MemberCrudService] Error saving member master:', error);
+            this.logger.error(`Error saving member master: ${error.message}`);
             throw error;
         }
     }

@@ -21,12 +21,11 @@ import {
     DemandReportService,
     CompulsoryDepositService,
     JournalTransferService,
-    DividendPaymentService,
     FixedDepositService
 } from './services-v2';
+import { MemberBalanceTransferService } from './services-v2/member-balance-transfer.service';
 import { CompulsoryDepositController } from './compulsory-deposit.controller';
 import { JournalTransferController } from './journal-transfer.controller';
-import { DividendPaymentController } from './dividend-payment.controller';
 import { FixedDepositController } from './fixed-deposit.controller';
 
 @Module({
@@ -49,20 +48,19 @@ import { FixedDepositController } from './fixed-deposit.controller';
         DemandReportController, // Register
         CompulsoryDepositController,
         JournalTransferController,
-        DividendPaymentController,
         FixedDepositController
     ],
     providers: [
         VoucherService,
         PassTransactionService,
         ShortRecoveryService,
-        DemandGenerationService, // Register
-        LedgerPostingService, // Register
-        DemandReportService, // Register
+        DemandGenerationService,
+        LedgerPostingService,
+        DemandReportService,
         CompulsoryDepositService,
         JournalTransferService,
-        DividendPaymentService,
-        FixedDepositService
+        FixedDepositService,
+        MemberBalanceTransferService,
     ],
     exports: [
         VoucherService,
@@ -73,7 +71,6 @@ import { FixedDepositController } from './fixed-deposit.controller';
         DemandReportService,
         CompulsoryDepositService,
         JournalTransferService,
-        DividendPaymentService,
         FixedDepositService
     ]
 })

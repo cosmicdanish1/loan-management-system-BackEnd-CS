@@ -1,10 +1,12 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Query, Logger } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { SearchService, SearchResult } from './search.service';
 
 @ApiTags('Search')
 @Controller('search')
 export class SearchController {
+  private readonly logger = new Logger(SearchController.name);
+
   constructor(private readonly searchService: SearchService) {}
 
   @Get('global')
@@ -43,44 +45,22 @@ export class SearchController {
     @Query('limit') limit: number = 50
   ): Promise<{ success: boolean; data: SearchResult[] }> {
     try {
-      console.log(`🔍 [CONTROLLER] Search API called`);
-      console.log(`🔍 [CONTROLLER] Query: "${query}"`);
-      console.log(`🔍 [CONTROLLER] Type: "${type}"`);
-      console.log(`🔍 [CONTROLLER] Limit: ${limit}`);
-      
+      this.logger.debug(`Search API called: query="${query}", type="${type}", limit=${limit}`);
+
       if (!query || query.trim().length === 0) {
-        console.log(`🔍 [CONTROLLER] Empty query, returning empty results`);
         return { success: true, data: [] };
       }
 
-      console.log(`🔍 [CONTROLLER] Calling searchService.globalSearch...`);
       const results = await this.searchService.globalSearch(query.trim(), type, limit);
-      
-      console.log(`✅ [CONTROLLER] SearchService returned ${results.length} results`);
-      console.log(`✅ [CONTROLLER] Sample result:`, results[0]);
-      
-      const response = {
+
+      this.logger.debug(`Search returned ${results.length} results`);
+
+      return {
         success: true,
         data: results
       };
-      
-      console.log(`✅ [CONTROLLER] Final API response:`, {
-        success: response.success,
-        dataLength: response.data.length,
-        dataType: typeof response.data,
-        isArray: Array.isArray(response.data)
-      });
-      
-      return response;
     } catch (error) {
-      console.error('❌ [CONTROLLER] Error in search controller:', error);
-      console.error('❌ [CONTROLLER] Error details:', {
-        message: error.message,
-        stack: error.stack,
-        query,
-        type,
-        limit
-      });
+      this.logger.error(`Error in search controller: ${error.message}`, error.stack);
       return { success: false, data: [] };
     }
   }
@@ -94,30 +74,22 @@ export class SearchController {
     @Query('limit') limit: number = 5
   ): Promise<{ success: boolean; data: string[] }> {
     try {
-      console.log(`🔍 [CONTROLLER] Suggestions API called for: "${query}"`);
-      
+      this.logger.debug(`Suggestions API called for: "${query}"`);
+
       if (!query || query.trim().length < 2) {
-        console.log(`🔍 [CONTROLLER] Query too short for suggestions`);
         return { success: true, data: [] };
       }
 
-      console.log(`🔍 [CONTROLLER] Calling searchService.getSearchSuggestions...`);
       const suggestions = await this.searchService.getSearchSuggestions(query.trim(), limit);
-      
-      console.log(`✅ [CONTROLLER] SearchService returned ${suggestions.length} suggestions`);
+
+      this.logger.debug(`Returned ${suggestions.length} suggestions`);
       
       return {
         success: true,
         data: suggestions
       };
     } catch (error) {
-      console.error('❌ [CONTROLLER] Error getting search suggestions:', error);
-      console.error('❌ [CONTROLLER] Error details:', {
-        message: error.message,
-        stack: error.stack,
-        query,
-        limit
-      });
+      this.logger.error(`Error getting search suggestions: ${error.message}`, error.stack);
       return { success: false, data: [] };
     }
   }

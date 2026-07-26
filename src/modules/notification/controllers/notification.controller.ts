@@ -1,22 +1,43 @@
-import { Controller, Get, Post, Body, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, Param, ParseIntPipe } from '@nestjs/common';
+import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { NotificationService } from '../services/notification.service';
 import { NotificationChannel } from '../entities/notification-log.entity';
 
+@ApiTags('Notifications')
 @Controller('notifications')
 export class NotificationController {
-    constructor(private readonly notificationService: NotificationService) { }
+    constructor(private readonly notificationService: NotificationService) {}
 
+    @ApiOperation({ summary: 'List recent notification log entries (default last 100)' })
     @Get('history')
     async getHistory(@Query('limit') limit?: string) {
-        return this.notificationService.getHistory(limit ? parseInt(limit) : 50);
+        return this.notificationService.getHistory(limit ? parseInt(limit) : 100);
     }
 
+    @ApiOperation({ summary: 'Notification counts/stats (sent, failed, pending)' })
     @Get('stats')
     async getStats() {
-        const pendingCount = await this.notificationService.getPendingCount();
-        return { pendingCount };
+        return this.notificationService.getStats();
     }
 
+    @ApiOperation({ summary: 'Configured/available notification channels and their status (SMS/email/etc.)' })
+    @Get('channel-status')
+    async getChannelStatus() {
+        return this.notificationService.getChannelStatus();
+    }
+
+    @ApiOperation({ summary: 'Queue a manual notification to a member for later sending' })
+    @Post('queue-manual')
+    async queueManual(@Body() data: {
+        memberNo: string;
+        channel: NotificationChannel;
+        message: string;
+        recipient: string;
+    }) {
+        return this.notificationService.sendManualNotification(data);
+    }
+
+    @ApiOperation({ summary: 'Send a manual notification to a member immediately' })
     @Post('send-manual')
     async sendManual(@Body() data: {
         memberNo: string;
@@ -27,10 +48,47 @@ export class NotificationController {
         return this.notificationService.sendManualNotification(data);
     }
 
+    @ApiOperation({ summary: 'Send a single queued notification by its log id' })
+    @Post('send-one/:id')
+    async sendOne(@Param('id', ParseIntPipe) id: number) {
+        return this.notificationService.sendNotification(id);
+    }
+
+    @ApiOperation({ summary: 'Send a batch of queued notifications by their ids' })
+    @Post('send-batch')
+    async sendBatch(@Body() data: { ids: number[] }) {
+        return this.notificationService.sendBatch(data.ids);
+    }
+
+    @ApiOperation({ summary: 'Cancel a batch of queued notifications by their ids' })
+    @Post('cancel-batch')
+    async cancelBatch(@Body() data: { ids: number[] }) {
+        return this.notificationService.cancelNotifications(data.ids);
+    }
+
+    @ApiOperation({ summary: 'Manually run the EMI-due check and queue EMI reminder alerts' })
     @Post('trigger-emi-check')
     async triggerEmiCheck() {
-        // Manual trigger for testing
         await this.notificationService.scheduleEmiAlerts();
-        return { success: true, message: 'EMI alert generation triggered' };
+        return { success: true, message: 'EMI alerts queued for review' };
+    }
+
+    @ApiOperation({ summary: 'Manually run the deposit-maturity check and queue maturity alerts' })
+    @Post('trigger-maturity-check')
+    async triggerMaturityCheck() {
+        await this.notificationService.scheduleDepositMaturityAlerts();
+        return { success: true, message: 'Maturity alerts queued for review' };
+    }
+
+    @ApiOperation({ summary: 'Queue a transaction alert notification for a member' })
+    @Post('queue-transaction-alert')
+    async queueTransactionAlert(@Body() data: {
+        memberNo: string;
+        transactionType: string;
+        amount: number;
+        recipient?: string;
+        channel?: NotificationChannel;
+    }) {
+        return this.notificationService.queueTransactionAlert(data);
     }
 }

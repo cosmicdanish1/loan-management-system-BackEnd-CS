@@ -139,4 +139,12 @@ export class AuthController {
   async getUsersList(): Promise<any> {
     return this.authService.getUsersList();
   }
+
+  @Public()
+  @Get('usernames')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Get usernames only for password change dropdown (no sensitive data)' })
+  async getUsernames(): Promise<any> {
+    return this.authService.getUsernames();
+  }
 }

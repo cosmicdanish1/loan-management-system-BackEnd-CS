@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
 /**
@@ -9,6 +9,8 @@ import { DataSource } from 'typeorm';
  */
 @Injectable()
 export class MemberBalanceService {
+    private readonly logger = new Logger(MemberBalanceService.name);
+
     constructor(private readonly dataSource: DataSource) { }
 
     /**
@@ -16,7 +18,7 @@ export class MemberBalanceService {
      */
     async getMemberBalance(memberNo: string) {
         try {
-            console.log(`[MemberBalance] Getting comprehensive balance for member: ${memberNo}`);
+            this.logger.debug(`Getting comprehensive balance for member: ${memberNo}`);
 
             // Get comprehensive member and balance info in a single query
             const comprehensiveQuery = `
@@ -75,7 +77,7 @@ export class MemberBalanceService {
                     }
                 });
             } catch (error) {
-                console.log('[MemberBalance] loan_master table query failed, using member_balances data only');
+                this.logger.warn('loan_master table query failed, using member_balances data only');
             }
 
             // Create comprehensive balance items
@@ -192,17 +194,11 @@ export class MemberBalanceService {
                 }
             };
 
-            console.log(`[MemberBalance] Comprehensive balance calculated for member ${memberNo}:`, {
-                memberName: member.member_name,
-                totalAssets: totalAssets,
-                totalLiabilities: totalLiabilities,
-                netBalance: netBalance,
-                balanceItemsCount: balanceItems.length
-            });
+            this.logger.debug(`Comprehensive balance calculated for member ${memberNo}: assets=${totalAssets}, liabilities=${totalLiabilities}, net=${netBalance}, items=${balanceItems.length}`);
 
             return balanceData;
         } catch (error) {
-            console.error('[MemberBalance] Error getting member balance:', error);
+            this.logger.error(`Error getting member balance: ${error.message}`);
             throw error;
         }
     }
@@ -244,7 +240,7 @@ export class MemberBalanceService {
                 netBalance: assets - loans
             };
         } catch (error) {
-            console.error('[MemberBalance] Error getting quick balance:', error);
+            this.logger.error(`Error getting quick balance: ${error.message}`);
             return {
                 shares: 0,
                 compulsoryDeposit: 0,

@@ -73,11 +73,46 @@ export class MemberLedgerSummaryDto {
 export class MemberDetailLedgerSummaryDto {
   memberNumber: string;
   memberName: string;
+  officeNo: string;
+  officeName: string;
   fromDate: string;
   toDate: string;
+  openingByCode: Record<string, number>;
   entries: MemberDetailLedgerEntryDto[];
   totalDebits: number;
   totalCredits: number;
+}
+
+// Columnar member detail ledger (legacy "MEMBER DETAIL LEDGER" — 4 fixed account columns)
+export class ColumnarCellDto {
+  dr: number;
+  cr: number;
+  bal: number | null; // null when the account had no activity that date
+}
+
+export class ColumnarRowDto {
+  date: string;
+  share: ColumnarCellDto;   // L1001 SHARE VALUE        (bal = Cr - Dr)
+  ltl: ColumnarCellDto;     // A1002 REGULAR LOAN       (bal = Dr - Cr, outstanding)
+  emer: ColumnarCellDto;    // A1047 EMERGENCY LOAN     (bal = Dr - Cr, outstanding)
+  cd: ColumnarCellDto;      // L1004 COMPULSORY DEPOSIT (bal = Cr - Dr)
+}
+
+export class ColumnarBalancesDto {
+  share: number;
+  ltl: number;
+  emer: number;
+  cd: number;
+}
+
+export class MemberColumnarLedgerDto {
+  memberNumber: string;
+  memberName: string;
+  fromDate: string;
+  toDate: string;
+  opening: ColumnarBalancesDto;
+  closing: ColumnarBalancesDto;
+  rows: ColumnarRowDto[];
 }
 
 export class HeadMasterDto {

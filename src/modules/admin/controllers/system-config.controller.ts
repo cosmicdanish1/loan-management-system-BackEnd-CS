@@ -274,6 +274,20 @@ export class SystemConfigController {
     return this.systemConfigService.createDepositSlab(createDto);
   }
 
+  @Post('deposit-slabs/bulk')
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @RequirePermissions(UserPermission.MANAGE_SYSTEM_CONFIG)
+  @ApiOperation({ summary: 'Bulk replace all deposit slabs for a given type' })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Slabs saved successfully' })
+  async bulkSaveDepositSlabs(
+    @Body() body: { type: string; rows: CreateDepositSlabDto[] },
+  ): Promise<{ saved: number; type: string }> {
+    return this.systemConfigService.bulkSaveDepositSlabs(
+      body.type as DepositSlabType,
+      body.rows,
+    );
+  }
+
   @Get('deposit-slabs')
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.LOAN_OFFICER, UserRole.ACCOUNTANT)
   @RequirePermissions(UserPermission.MANAGE_SYSTEM_CONFIG)

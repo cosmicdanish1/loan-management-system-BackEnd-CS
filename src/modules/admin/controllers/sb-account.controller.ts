@@ -22,6 +22,12 @@ export class SbAccountController {
         return this.sbAccountService.findAll();
     }
 
+    @Get('next-number')
+    @ApiOperation({ summary: 'Get next auto-generated SB account number (MAX + 1)' })
+    getNextAccountNumber() {
+        return this.sbAccountService.getNextAccountNumber();
+    }
+
     @Get(':id')
     @ApiOperation({ summary: 'Get an SB Account by ID' })
     @ApiResponse({ status: 200, description: 'Return the SB Account.' })

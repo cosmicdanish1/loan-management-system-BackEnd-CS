@@ -6,7 +6,6 @@ import { AdminService } from './admin.service';
 import { UserManagementController } from './controllers/user-management.controller';
 import { SystemConfigController } from './controllers/system-config.controller';
 import { DayEndController } from './controllers/day-end.controller';
-import { BackupController } from './controllers/backup.controller';
 import { CertificateTemplateController } from './controllers/certificate-template.controller';
 import { PassbookTemplateController } from './controllers/passbook-template.controller';
 import { RoleManagementController } from './controllers/role-management.controller';
@@ -21,6 +20,8 @@ import { RdAccountController } from './controllers/rd-account.controller';
 import { MemberAdminController } from './controllers/member-admin.controller';
 import { MemberFundsController } from './controllers/member-funds.controller';
 import { FinancialYearController } from './controllers/financial-year.controller';
+import { SaakhScoreController } from './controllers/saakh-score.controller';
+import { SaakhScoreService } from './services/saakh-score.service';
 import { UserManagementService } from './services/user-management.service';
 import { SystemConfigService } from './services/system-config.service';
 import { DayEndService } from './services/day-end.service';
@@ -96,7 +97,6 @@ import { Member } from '../member/entities/member.entity';
     UserManagementController,
     SystemConfigController,
     DayEndController,
-    BackupController,
     CertificateTemplateController,
     PassbookTemplateController,
     RoleManagementController,
@@ -111,6 +111,7 @@ import { Member } from '../member/entities/member.entity';
     MemberAdminController,
     MemberFundsController,
     FinancialYearController,
+    SaakhScoreController,
   ],
   providers: [
     AdminService,
@@ -132,6 +133,7 @@ import { Member } from '../member/entities/member.entity';
     MemberAdminService,
     MemberFundsService,
     FinancialYearService,
+    SaakhScoreService,
   ],
   exports: [
     AdminService,
@@ -153,6 +155,7 @@ import { Member } from '../member/entities/member.entity';
     MemberAdminService,
     MemberFundsService,
     FinancialYearService,
+    SaakhScoreService,
   ],
 })
 export class AdminModule { }

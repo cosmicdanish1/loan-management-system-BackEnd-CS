@@ -122,13 +122,14 @@ export class CashBookService {
 
   private async calculateOpeningBalance(date: Date): Promise<number> {
     try {
+      // Cash head (A1001) is an Asset — debit-normal: balance = DR - CR
       const result = await this.ledgerRepository
         .createQueryBuilder('l')
         .select(`
-          SUM(CASE WHEN l.trans_type = 'CR' THEN l.trans_amt ELSE 0 END) - 
-          SUM(CASE WHEN l.trans_type = 'DR' THEN l.trans_amt ELSE 0 END)
+          SUM(CASE WHEN l.trans_type = 'DR' THEN l.trans_amt ELSE 0 END) -
+          SUM(CASE WHEN l.trans_type = 'CR' THEN l.trans_amt ELSE 0 END)
         `, 'balance')
-        .where('l.trans_date < :date', { date })
+        .where("l.code = 'A1001' AND l.trans_date < :date", { date })
         .getRawOne();
 
       return Number(result?.balance || 0);

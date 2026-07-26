@@ -1,8 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { generateVoucherNo } from '../../shared/utils/voucher-utils';
 
 @Injectable()
 export class FixedDepositService {
+    private readonly logger = new Logger(FixedDepositService.name);
+
     constructor(private readonly dataSource: DataSource) { }
 
     async createFixedDeposit(data: any) {
@@ -98,7 +101,7 @@ export class FixedDepositService {
 
         } catch (error) {
             await queryRunner.rollbackTransaction();
-            console.error('Error creating FD:', error);
+            this.logger.error('Error creating FD:', error);
             throw error;
         } finally {
             await queryRunner.release();
@@ -145,7 +148,7 @@ export class FixedDepositService {
             `;
 
             const voucherRes = await queryRunner.query(query, [
-                data.voucherNo || `INT-${Date.now()}`,
+                data.voucherNo || (await generateVoucherNo(queryRunner, 'P')),
                 new Date(data.transDate),
                 data.fdOption === 'interest' ? 'FD_INT' : 'FD_PAY',
                 data.totalAmount,
@@ -179,7 +182,7 @@ export class FixedDepositService {
 
         try {
             const transDate = new Date(data.transDate || new Date());
-            const voucherNumber = data.voucherNo || `CLS-${Date.now()}`;
+            const voucherNumber = data.voucherNo || (await generateVoucherNo(queryRunner, 'P'));
             const modeOfPay = data.paymentMode === 'bank' ? 'B' : 'C';
             const memberNoInt = parseInt(data.memberNo);
             const totalAmount = parseFloat(data.totalAmount) || 0;
@@ -239,8 +242,9 @@ export class FixedDepositService {
                 [nextTransNo, transDate, memberNoInt, totalAmount, voucherNumber, modeOfPay, narration, nextLedgerId]
             );
 
-            // CR cash/bank — money paid out to member (asset decreases)
-            const crCode    = modeOfPay === 'B' ? 'A1008' : 'A1001';
+            // CR cash/bank — money paid out to member (asset decreases).
+            // Bank mode credits the chosen bank account; cash credits A1001.
+            const crCode    = modeOfPay === 'B' ? (data.bankCode || 'A1008') : 'A1001';
             const crAccType = modeOfPay === 'B' ? 'BANK'  : 'CINH';
             await queryRunner.query(
                 `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type,

@@ -251,6 +251,29 @@ export class UserManagementController {
     return this.userManagementService.getUserActivities(id, page, limit);
   }
 
+  @Get(':id/login-history')
+  @Roles(UserRole.ADMIN, UserRole.BRANCH_MANAGER)
+  @RequirePermissions(UserPermission.MANAGE_USERS)
+  @ApiOperation({ summary: 'Get a user login/logout history (audit trail)' })
+  @ApiParam({ name: 'id', type: Number, description: 'User ID' })
+  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page number' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Items per page' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Login history retrieved successfully',
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: 'No login records found for user',
+  })
+  async getUserLoginHistory(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 20,
+  ) {
+    return this.userManagementService.getUserLoginHistory(id, page, limit);
+  }
+
   @Put('change-password')
   @ApiOperation({ summary: 'Change own password' })
   @ApiResponse({

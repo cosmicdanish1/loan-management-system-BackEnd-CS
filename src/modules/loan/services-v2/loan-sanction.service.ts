@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { parseSafeDate } from '../../shared/utils/date-utils';
 
@@ -10,6 +10,8 @@ import { parseSafeDate } from '../../shared/utils/date-utils';
  */
 @Injectable()
 export class LoanSanctionService {
+    private readonly logger = new Logger(LoanSanctionService.name);
+
     constructor(private readonly dataSource: DataSource) { }
 
     /**
@@ -33,13 +35,13 @@ export class LoanSanctionService {
         WHERE lp.flg_sanctioned = 'Y'
           AND lp.flg_paid = 'N'
           AND NOT EXISTS (
-              SELECT 1 FROM vouchers v
-              WHERE v.remarks LIKE 'LOAN_CASE:' || lp.loancaseno || '%'
-              AND v.status = 'PENDING'
-          )
-          AND NOT EXISTS (
               SELECT 1 FROM loan_master lm
               WHERE lm.loancaseno::text = lp.loancaseno::text
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM vouchers v
+              WHERE v.remarks LIKE '%LOAN_CASE:' || lp.loancaseno || '%'
+              AND v.status IN ('PENDING', 'POSTED')
           )
         ORDER BY lp.loancaseno, lp.app_date ASC
       `;
@@ -57,7 +59,7 @@ export class LoanSanctionService {
                 sanctioned: true
             }));
         } catch (error) {
-            console.error('[LoanSanction] Error getting sanctioned loan cases:', error);
+            this.logger.error(`Error getting sanctioned loan cases: ${error.message}`);
             return [];
         }
     }
@@ -126,7 +128,7 @@ export class LoanSanctionService {
             }
 
             const loan = result[0];
-            console.log('[LoanSanction] Fetched Loan Details for Case:', caseNo);
+            this.logger.log(`Fetched Loan Details for Case: ${caseNo}`);
 
             return {
                 loanCaseNo: loan.loancaseno,
@@ -161,7 +163,7 @@ export class LoanSanctionService {
                 surety3: loan.g3mbno || '0'
             };
         } catch (error) {
-            console.error('[LoanSanction] Error getting loan details:', error);
+            this.logger.error(`Error getting loan details: ${error.message}`);
             throw error;
         }
     }
@@ -171,13 +173,26 @@ export class LoanSanctionService {
      */
     async updateLoanSanction(caseNo: string, sanctionData: any) {
         try {
+            // Block sanction if loan already has a voucher or is paid/passed
+            // Only check the active (unpaid) row — old completed rows with same case number are ignored
+            const lockCheck = await this.dataSource.query(`
+                SELECT lp.flg_paid, lp.flg_sanctioned,
+                    (SELECT COUNT(*) FROM vouchers WHERE remarks LIKE '%LOAN_CASE:' || $1 || '%' AND status IN ('PENDING','POSTED')) as voucher_count
+                FROM loan_pending lp
+                WHERE lp.loancaseno::numeric = $1::numeric AND lp.flg_paid != 'Y'
+                ORDER BY lp.app_date DESC LIMIT 1
+            `, [caseNo]);
+            if (lockCheck.length > 0 && parseInt(lockCheck[0].voucher_count) > 0) {
+                throw new Error('Cannot modify sanction — voucher already generated for this loan');
+            }
+
             const updateQuery = `
         UPDATE loan_pending SET
           sanctioned_amt = $1,
           sanctioned_date = $2,
           no_of_instal = $3,
           flg_sanctioned = 'Y'
-        WHERE loancaseno::numeric = $4::numeric
+        WHERE loancaseno::numeric = $4::numeric AND flg_paid != 'Y'
         RETURNING *
       `;
 
@@ -192,7 +207,7 @@ export class LoanSanctionService {
                 throw new Error('Loan case not found');
             }
 
-            console.log(`[LoanSanction] ✅ Loan ${caseNo} sanctioned successfully`);
+            this.logger.log(`Loan ${caseNo} sanctioned successfully`);
 
             return {
                 success: true,
@@ -200,7 +215,7 @@ export class LoanSanctionService {
                 data: result[0]
             };
         } catch (error: any) {
-            console.error('[LoanSanction] Error updating loan sanction:', error);
+            this.logger.error(`Error updating loan sanction: ${error.message}`);
             throw new Error('Failed to update loan sanction: ' + error.message);
         }
     }

@@ -13,6 +13,14 @@ export class RdAccountService {
         private readonly rdAccountRepository: Repository<RdAccount>,
     ) { }
 
+    // BUG FIX 6: 'Recovery Through Demand' had no column in fdmaster, so the checkbox was silently
+    // dropped. Ensure a nullable boolean column exists (idempotent, non-destructive) before insert.
+    private async ensureRecoveryColumn(): Promise<void> {
+        await this.rdAccountRepository.query(
+            `ALTER TABLE fdmaster ADD COLUMN IF NOT EXISTS recovery_through_demand BOOLEAN DEFAULT false`
+        );
+    }
+
     async create(createDto: CreateRdAccountDto): Promise<any> {
         this.logger.log(`Creating RD Account: ${createDto.accountNumber} for member: ${createDto.memberNo}`);
         const result = await this.rdAccountRepository.query(
@@ -21,13 +29,15 @@ export class RdAccountService {
                 depdate, fdamount, rate, depperiod, depunit,
                 matdate, matamount, status, nominee, nage, naddr, nrelation,
                 remarks, fdrdflag, interestpayamentmode,
-                interestbalance, interestamount, intpaid, openbal
+                interestbalance, interestamount, intpaid, openbal,
+                rd_by_demand, headcode
             ) VALUES (
                 $1, $2, $3, $4, $5, $6,
                 $7, $8, $9, $10, $11,
                 $12, $13, $14, $15, $16, $17, $18,
                 $19, 'R', 1,
-                0, 0, 0, $20
+                0, 0, 0, $20,
+                $21, $22
             ) RETURNING *`,
             [
                 createDto.accountNumber,
@@ -43,18 +53,26 @@ export class RdAccountService {
                 createDto.depositUnit || 1,
                 createDto.maturityDate || null,
                 createDto.maturityAmount || 0,
-                '0',  // status: 0 = Active
+                '0',
                 createDto.nominee || '',
                 createDto.nomineeAge || '',
                 createDto.nomineeAddress || '',
                 createDto.nomineeRelation || '',
                 createDto.specialInstructions || '',
-                // BUG FIX 4: was hardcoded 0 — now reads from DTO so opening balance is persisted
                 createDto.openingBalance || 0,
+                createDto.recoveryThroughDemand ? 'Y' : 'N',
+                createDto.headCode || '',
             ]
         );
         this.logger.log(`RD Account created: account=${createDto.accountNumber}, member=${createDto.memberNo}, amount=${createDto.amount}`);
         return result[0];
+    }
+
+    async getNextAccountNumber(): Promise<{ nextAccountNumber: number }> {
+        const rows = await this.rdAccountRepository.query(
+            `SELECT COALESCE(MAX(account_number), 0) + 1 AS next FROM fdmaster`
+        );
+        return { nextAccountNumber: parseInt(rows[0]?.next ?? '1', 10) };
     }
 
     async findAll(memberNo?: string): Promise<any[]> {

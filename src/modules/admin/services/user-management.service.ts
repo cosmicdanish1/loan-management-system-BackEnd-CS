@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   ConflictException,
   BadRequestException,
@@ -26,6 +27,8 @@ import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class UserManagementService implements OnModuleInit {
+  private readonly logger = new Logger(UserManagementService.name);
+
   constructor(
     @InjectRepository(User)
     private userRepository: Repository<User>,
@@ -51,10 +54,10 @@ export class UserManagementService implements OnModuleInit {
         ALTER COLUMN "susername" TYPE varchar(50),
         ALTER COLUMN "spassword" TYPE varchar(255)
       `);
-      console.log('Successfully updated legacy usermaster schema for synchronization.');
+      this.logger.log('Successfully updated legacy usermaster schema for synchronization.');
     } catch (err) {
       // If column doesn't exist or already updated, this might fail silently which is fine
-      console.log('Legacy usermaster schema check/update skipped:', err.message);
+      this.logger.log(`Legacy usermaster schema check/update skipped: ${err.message}`);
     }
   }
 
@@ -116,15 +119,28 @@ export class UserManagementService implements OnModuleInit {
       const userMaster = this.userMasterRepository.create({
         userid: savedUser.id,
         susername: createUserDto.username,
-        spassword: createUserDto.password, // Will be hashed by BeforeInsert
+        spassword: createUserDto.password,
         userlevelid: userLevel.userlevelid,
         enableDisable: 'E',
         loginStatus: 'N',
-        passTransactionFlag: 'Y'
+        passTransactionFlag: 'Y',
+        dateOfCreation: new Date(),
       });
       await this.userMasterRepository.save(userMaster);
+
+      // Populate userrights from userleveldefaultrights for this user level
+      const defaultRights = await this.userMasterRepository.query(
+        `SELECT menuid FROM userleveldefaultrights WHERE userlevelid = $1`,
+        [userLevel.userlevelid]
+      );
+      if (defaultRights.length > 0) {
+        const values = defaultRights.map((r: any) => `(${savedUser.id}, ${r.menuid})`).join(',');
+        await this.userMasterRepository.query(
+          `INSERT INTO userrights (userid, menuid) VALUES ${values} ON CONFLICT DO NOTHING`
+        );
+      }
     } catch (err) {
-      console.error('Failed to sync legacy UserMaster:', err.message);
+      this.logger.error(`Failed to sync legacy UserMaster: ${err.message}`);
     }
 
     return this.mapUserToResponseDto(savedUser);
@@ -132,11 +148,15 @@ export class UserManagementService implements OnModuleInit {
 
   private getLegacyLevelId(role: UserRole): number {
     switch (role) {
+      case UserRole.SYSTEM: return 0;
       case UserRole.ADMIN: return 1;
       case UserRole.BRANCH_MANAGER: return 2;
       case UserRole.OFFICER: return 3;
-      case UserRole.DATA_OPERATOR: return 4;
-      default: return 5;
+      case UserRole.PASSING_OFFICER: return 4;
+      case UserRole.AUDITOR: return 6;
+      case UserRole.CASHIER: return 7;
+      case UserRole.USER: return 8;
+      default: return 1;
     }
   }
 
@@ -256,7 +276,7 @@ export class UserManagementService implements OnModuleInit {
         await this.userMasterRepository.save(userMaster);
       }
     } catch (err) {
-      console.error('Failed to sync legacy UserMaster update:', err.message);
+      this.logger.error(`Failed to sync legacy UserMaster update: ${err.message}`);
     }
 
     return this.mapUserToResponseDto(updatedUser);
@@ -293,7 +313,7 @@ export class UserManagementService implements OnModuleInit {
         await this.userMasterRepository.remove(userMaster);
       }
     } catch (err) {
-      console.error('Failed to sync legacy UserMaster deletion:', err.message);
+      this.logger.error(`Failed to sync legacy UserMaster deletion: ${err.message}`);
     }
 
     return { message: 'User deleted successfully' };
@@ -491,6 +511,7 @@ export class UserManagementService implements OnModuleInit {
       role: user.role,
       permissions: user.permissions || [],
       isActive: user.isActive,
+      avatar: user.avatar || null,
       lastLoginAt: user.lastLoginAt,
       createdAt: user.createdAt,
     };
@@ -617,5 +638,62 @@ export class UserManagementService implements OnModuleInit {
     }
 
     return activeSessions;
+  }
+
+  /**
+   * Login/logout history for a user, newest first.
+   *
+   * The modern `users` table and the legacy `usermaster`/`logintime` tables are
+   * separate. Login events are recorded against usermaster.userid, so we bridge
+   * from the modern user id via username, falling back to treating the id as a
+   * legacy userid directly.
+   */
+  async getUserLoginHistory(id: number, page = 1, limit = 20) {
+    let userid: number | undefined;
+    let username: string | undefined;
+
+    const modernUser = await this.userRepository.findOne({ where: { id } });
+    if (modernUser) {
+      username = modernUser.username;
+      const userMaster = await this.userMasterRepository.findOne({
+        where: { susername: ILike(modernUser.username) },
+      });
+      userid = userMaster?.userid;
+    }
+
+    // Fallback: the caller may have passed a legacy usermaster.userid.
+    if (userid === undefined) {
+      const userMaster = await this.userMasterRepository.findOne({ where: { userid: id } });
+      if (userMaster) {
+        userid = userMaster.userid;
+        username = username || userMaster.susername;
+      }
+    }
+
+    if (userid === undefined) {
+      throw new NotFoundException(`No login records found for user id ${id}`);
+    }
+
+    const [rows, total] = await this.loginTimeRepository.findAndCount({
+      where: { userid },
+      order: { loginDate: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+
+    return {
+      userId: id,
+      username,
+      total,
+      page: Number(page),
+      limit: Number(limit),
+      data: rows.map((r) => ({
+        loginDate: r.loginDate,
+        loginTime: r.loginTime,
+        logoutTime: r.logoutTime || null,
+        active: !r.logoutTime,
+        sessionDurationMinutes: r.sessionDuration,
+      })),
+    };
   }
 }

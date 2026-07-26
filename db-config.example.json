@@ -1,0 +1,9 @@
+{
+  "_comment": "Copy this file to 'db-config.json' (same folder) and set the target database. This is the ONLY file you edit to point the backend at a different PostgreSQL database. Secrets like JWT stay in .env. Values here override .env; anything you omit falls back to .env, then to defaults.",
+  "host": "localhost",
+  "port": 5432,
+  "database": "loan_management_db",
+  "username": "postgres",
+  "password": "CHANGE_THIS",
+  "logging": false
+}

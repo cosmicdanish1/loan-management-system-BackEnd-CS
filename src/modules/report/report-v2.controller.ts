@@ -27,7 +27,11 @@ import { FinancialSummaryDto } from './dto/financial-summary.dto';
  * After migration is complete, these will replace the original routes.
  */
 @ApiTags('Reports')
-@Controller('reports')
+// Accept BOTH '/reports' (REST-plural convention, matches loans/members/transactions)
+// and '/report' (singular) because the frontend's API_ROUTES + api.ts call the
+// singular path. Without the singular alias every report call 404s and silently
+// falls back to [] (e.g. empty Bank/Code dropdowns in Loan Payment).
+@Controller(['reports', 'report'])
 export class ReportV2Controller {
     constructor(
         private readonly cashBookReports: CashBookReportsService,
@@ -340,6 +344,18 @@ export class ReportV2Controller {
     @ApiOperation({ summary: 'Get passbook printing data' })
     async getPassBookPrinting(@Query() dto: any) {
         return this.depositReports.getPassBookPrinting(dto);
+    }
+
+    @Post('passbook-reset')
+    @ApiOperation({ summary: 'Reset passbook print tracking for a member' })
+    async resetPassbookPrinting(@Body() body: { memberNo: string; accountType?: string }) {
+        return this.depositReports.resetPassbookPrinting(body.memberNo, body.accountType);
+    }
+
+    @Post('passbook-update-tracking')
+    @ApiOperation({ summary: 'Update passbook tracking after print' })
+    async updatePassbookTracking(@Body() body: { memberNo: string; accountType: string; lastLedgerId: number; lastLineNo: number }) {
+        return this.depositReports.updatePassbookTracking(body.memberNo, body.accountType, body.lastLedgerId, body.lastLineNo);
     }
 
     // ==================== Financial Statements (Trial/BS/PL) ====================

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
@@ -37,6 +37,7 @@ export interface CertificateData {
 
 @Injectable()
 export class CertificateService {
+  private readonly logger = new Logger(CertificateService.name);
   private readonly certificatesPath: string;
   private readonly defaultConfig: CertificateConfig;
 
@@ -160,7 +161,7 @@ export class CertificateService {
     try {
       template = await this.templateService.findDefaultByAccountType(data.certificateType);
     } catch (e) {
-      console.warn(`[CertificateService] No template found for ${data.certificateType}, falling back to static layout.`);
+      this.logger.warn(`No template found for ${data.certificateType}, falling back to static layout.`);
     }
 
     return new Promise((resolve, reject) => {

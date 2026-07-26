@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { FinancialSummaryDto } from '../dto/financial-summary.dto';
 import { parseSafeDate } from '../../shared/utils/date-utils';
@@ -11,6 +11,8 @@ import { parseSafeDate } from '../../shared/utils/date-utils';
  */
 @Injectable()
 export class UtilityReportsService {
+  private readonly logger = new Logger(UtilityReportsService.name);
+
   constructor(private readonly dataSource: DataSource) { }
 
   /**
@@ -163,7 +165,7 @@ export class UtilityReportsService {
         closingBalance: parseFloat(row.closing_balance || '0')
       }));
     } catch (error) {
-      console.error('Error in getFinancialSummary:', error);
+      this.logger.error('Error in getFinancialSummary:', error);
       throw error;
     }
   }
@@ -234,37 +236,46 @@ export class UtilityReportsService {
   async getRecoveryDetails(dto: { memberNo: string; month: string; year: number; wingNo?: string }) {
     const { memberNo, month, year } = dto;
 
-    let query = `
-      SELECT 
+    const monthMap: Record<string, number> = {
+      JAN: 1, JANUARY: 1, FEB: 2, FEBRUARY: 2, MAR: 3, MARCH: 3,
+      APR: 4, APRIL: 4, MAY: 5, JUN: 6, JUNE: 6,
+      JUL: 7, JULY: 7, AUG: 8, AUGUST: 8, SEP: 9, SEPTEMBER: 9,
+      OCT: 10, OCTOBER: 10, NOV: 11, NOVEMBER: 11, DEC: 12, DECEMBER: 12,
+    };
+    const monthNum = monthMap[(month || '').toUpperCase()] || parseInt(month) || 0;
+
+    const query = `
+      SELECT
         d.mbno as member_no,
         TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
         m.present_address as address,
         d.demand_for_month,
         d.demand_for_year,
-        d.total_demand,
+        COALESCE(d.totaldemand, 0) as total_demand,
         COALESCE(d.rln_installment_amount, 0) as rln_amt,
         COALESCE(d.eln_installment_amount, 0) as eln_amt,
         COALESCE(d.aln_installment_amount, 0) as aln_amt,
         COALESCE(d.rdbalance, 0) as rd_amt,
         COALESCE(d.mdbalance, 0) as md_amt,
         COALESCE(d.cdbalance, 0) as cd_amt,
-        COALESCE(d.sd_amount, 0) as sd_amt,
-        COALESCE(d.bank_charges, 0) as bank_charges,
-        COALESCE(d.other_charges, 0) as other_charges,
+        COALESCE(d.shr_amount, 0) as sd_amt,
+        COALESCE(d.bankcharge, 0) as bank_charges,
+        COALESCE(d."OTHERS", 0) as other_charges,
         d.demand_posted
       FROM demand_master d
       LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(d.mbno AS text)
-      WHERE CAST(d.mbno AS text) = $1 
-        AND UPPER(d.demand_for_month) = UPPER($2)
-        AND CAST(d.demand_for_year AS integer) = $3
+      WHERE CAST(d.mbno AS text) = $1
+        AND d.demand_for_month = $2
+        AND d.demand_for_year = $3
     `;
 
-    const results = await this.dataSource.query(query, [memberNo, month, year]);
+    const results = await this.dataSource.query(query, [memberNo, monthNum, year]);
 
     if (results.length === 0) {
-      throw new Error('No recovery details found for the selected member and period');
+      return null;
     }
 
+    const monthNames = ['', 'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
     const r = results[0];
     return {
       memberNo: r.member_no,
@@ -272,7 +283,7 @@ export class UtilityReportsService {
       address: r.address || 'Address not available',
       demandMonth: r.demand_for_month,
       demandYear: r.demand_for_year,
-      period: `${r.demand_for_month} ${r.demand_for_year}`,
+      period: `${monthNames[r.demand_for_month] || r.demand_for_month} ${r.demand_for_year}`,
       totalDemand: parseFloat(r.total_demand) || 0,
       loanRecoveries: {
         regularLoan: parseFloat(r.rln_amt) || 0,

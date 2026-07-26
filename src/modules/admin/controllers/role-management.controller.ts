@@ -68,6 +68,15 @@ export class RoleManagementController {
         return this.roleManagementService.getDefaultRights(levelId);
     }
 
+    @Post('levels')
+    @Roles(UserRole.ADMIN, 'sample_1' as any)
+    @RequirePermissions(UserPermission.MANAGE_USERS)
+    @ApiOperation({ summary: 'Create a new user level' })
+    @ApiResponse({ status: HttpStatus.CREATED, description: 'User level created successfully' })
+    async createUserLevel(@Body() body: { roleName: string }) {
+        return this.roleManagementService.createUserLevel(body.roleName);
+    }
+
     @Post('defaults')
     @Roles(UserRole.ADMIN, 'sample_1' as any)
     @RequirePermissions(UserPermission.MANAGE_USERS)
