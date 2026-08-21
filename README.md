@@ -22,7 +22,6 @@ A comprehensive NestJS backend API for the Loan Management System built with Typ
 - **Documentation**: Swagger/OpenAPI
 - **Testing**: Jest
 - **Logging**: Winston
-- **Caching**: Redis
 
 ## Getting Started
 
@@ -30,7 +29,6 @@ A comprehensive NestJS backend API for the Loan Management System built with Typ
 
 - Node.js 18+ (LTS recommended)
 - PostgreSQL 13+
-- Redis 6+
 - npm or yarn
 
 ### Installation
@@ -77,6 +75,8 @@ A comprehensive NestJS backend API for the Loan Management System built with Typ
 - `npm run test:cov` - Generate test coverage report
 - `npm run lint` - Lint and fix code
 - `npm run format` - Format code with Prettier
+- `npm run openapi:generate` - Regenerate the OpenAPI spec, Postman collection & API reference
+- `npm run docs:manual` - Rebuild the DOCX + PDF API manual
 
 ### Database Operations
 
@@ -94,15 +94,33 @@ src/
 │   ├── decorators/         # Custom decorators
 │   ├── filters/            # Exception filters
 │   └── interceptors/       # Response interceptors
-├── modules/                # Feature modules
-│   ├── auth/              # Authentication module
+├── modules/                # Feature modules (26)
+│   ├── admin/             # Administration, day-end, financial year, masters
+│   ├── auth/              # Authentication & authorization
 │   ├── member/            # Member management
 │   ├── loan/              # Loan processing
-│   ├── deposit/           # Deposit management
-│   ├── transaction/       # Transaction processing
+│   ├── deposit/           # Fixed & recurring deposits
+│   ├── transaction/       # Transactions, vouchers, demand generation
 │   ├── report/            # Report generation
-│   ├── admin/             # Administration
-│   └── utility/           # Utility services
+│   ├── general-ledger/    # General ledger
+│   ├── member-ledger/     # Member ledger
+│   ├── daybook/           # Daybook
+│   ├── cashbook/          # Cash book
+│   ├── interest/          # Interest calculation
+│   ├── financial-year/    # Financial year management
+│   ├── consolidation/     # Consolidation
+│   ├── print-voucher/     # Voucher printing
+│   ├── jotting-report/    # Jotting reports
+│   ├── backup/            # Backup & restore
+│   ├── license/           # Software license activation
+│   ├── notification/      # Notifications
+│   ├── notice/            # Dashboard notices
+│   ├── search/            # Search services
+│   ├── utilities/         # Utility screens
+│   ├── utility/           # Utility services
+│   ├── ai-chat/           # AI chat
+│   ├── client-logs/       # Client-side log ingestion
+│   └── shared/            # Shared providers
 ├── migrations/            # Database migrations
 ├── app.module.ts          # Root application module
 └── main.ts               # Application entry point
@@ -110,62 +128,80 @@ src/
 
 ## API Endpoints
 
-### Authentication
-- `POST /api/v1/auth/login` - User login
-- `POST /api/v1/auth/logout` - User logout
-- `POST /api/v1/auth/refresh` - Refresh token
+The API exposes **479 endpoints across 47 groups**. They are **not listed here** —
+a hand-maintained list drifts out of date. The generated reference is the source of
+truth and lives in [`docs/api/`](docs/api/):
 
-### Members
-- `GET /api/v1/members` - Get all members
-- `POST /api/v1/members` - Create new member
-- `GET /api/v1/members/:id` - Get member by ID
-- `PUT /api/v1/members/:id` - Update member
-- `DELETE /api/v1/members/:id` - Delete member
+| File | Use it for |
+| --- | --- |
+| [`docs/api/API_REFERENCE.md`](docs/api/API_REFERENCE.md) | Every endpoint (method, path, purpose), grouped by module. Start here. |
+| `docs/api/openapi.json` | Full OpenAPI 3.0 spec — import into Postman or any Swagger viewer. |
+| `docs/api/LMS-API.postman_collection.json` | Ready-to-import Postman collection with `{{baseUrl}}` / `{{token}}` set up. |
+| `docs/api/API_DOCUMENTATION.pdf` / `.docx` | Printable ~251-page manual: curl example and sample response per endpoint. |
 
-### Loans
-- `GET /api/v1/loans` - Get all loans
-- `POST /api/v1/loans` - Create loan application
-- `GET /api/v1/loans/:id` - Get loan details
-- `POST /api/v1/loans/:id/payments` - Record loan payment
+See [`docs/api/README.md`](docs/api/README.md) for the Postman quick start.
 
-### Deposits
-- `GET /api/v1/deposits` - Get all deposits
-- `POST /api/v1/deposits/fixed` - Create fixed deposit
-- `POST /api/v1/deposits/recurring` - Create recurring deposit
-- `GET /api/v1/deposits/:id/certificate` - Generate certificate
+**Regenerate after changing any controller or DTO** (no database needed):
 
-### Transactions
-- `GET /api/v1/transactions` - Get all transactions
-- `POST /api/v1/transactions` - Create transaction
-- `POST /api/v1/transactions/vouchers` - Create voucher
+```bash
+npm run openapi:generate   # openapi.json, Postman collection, API_REFERENCE.md
+npm run docs:manual        # rebuilds the DOCX + PDF manual
+```
 
-### Reports
-- `GET /api/v1/reports/daily` - Daily reports
-- `GET /api/v1/reports/monthly` - Monthly reports
-- `GET /api/v1/reports/yearly` - Yearly reports
+### Live Swagger UI
+
+- UI:   `http://localhost:3000/api/docs`
+- JSON: `http://localhost:3000/api/docs-json`
+
+Enabled automatically outside production. In production it is **off by default** so
+the API map isn't exposed on the LAN — set `ENABLE_SWAGGER=true` and restart to
+turn it on temporarily.
 
 ## Environment Variables
+
+Copy `.env.example` to `.env` and adjust. The full annotated list is in
+[`.env.example`](.env.example); the essentials:
 
 ```env
 # Application
 NODE_ENV=development
-PORT=3000
+PORT=3000                  # LAN deployments typically use 3001
 API_PREFIX=api/v1
+ENABLE_SWAGGER=false       # off in production; true to expose /api/docs
 
-# Database
+# Database (PostgreSQL only)
+DB_TYPE=postgres
 DB_HOST=localhost
 DB_PORT=5432
 DB_USERNAME=postgres
-DB_PASSWORD=password
+DB_PASSWORD=your_secure_password_here
 DB_DATABASE=loan_management_db
+DB_SYNCHRONIZE=false
+DB_LOGGING=true
 
 # JWT
-JWT_SECRET=your-secret-key
+JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
 JWT_EXPIRES_IN=24h
+JWT_REFRESH_SECRET=your-super-secret-refresh-key-change-this-in-production
+JWT_REFRESH_EXPIRES_IN=7d
 
-# Redis
-REDIS_HOST=localhost
-REDIS_PORT=6379
+# File storage
+FILE_STORAGE_PATH=./uploads
+MAX_FILE_SIZE=5242880
+ALLOWED_FILE_TYPES=jpg,jpeg,png,pdf
+
+# Logging
+LOG_LEVEL=debug
+LOG_FILE_PATH=./logs
+LOG_MAX_AGE_DAYS=60        # rotated .gz logs deleted after this many days
+
+# Rate limiting
+THROTTLE_TTL=60
+THROTTLE_LIMIT=100
+
+# Backup
+BACKUP_PATH=./backups
+BACKUP_RETENTION_DAYS=30
 ```
 
 ## Testing
@@ -183,19 +219,7 @@ npm run test:cov
 
 ## Deployment
 
-### Docker Deployment
-
-1. **Build Docker image**
-   ```bash
-   docker build -t loan-management-api .
-   ```
-
-2. **Run with Docker Compose**
-   ```bash
-   docker-compose up -d
-   ```
-
-### Production Deployment
+This project is deployed directly on the server (no containers).
 
 1. **Build application**
    ```bash
@@ -206,6 +230,9 @@ npm run test:cov
    ```bash
    npm run start:prod
    ```
+
+For LAN deployment the server binds `0.0.0.0` and typically runs on port **3001**
+(set `PORT` in `.env`); clients reach it at `http://<server-ip>:3001`.
 
 ## Contributing
 
