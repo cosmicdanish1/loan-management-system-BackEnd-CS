@@ -46,6 +46,9 @@ lerna-debug.log*
 # Database targeting (contains DB password) — keep the .example, ignore the real one
 db-config.json
 
+# Load-test credentials (never commit real login secrets)
+scripts/load-test/.credentials.json
+
 # Uploads and temporary files
 /uploads
 /temp
@@ -124,3 +127,5 @@ public
 # Temporary folders
 tmp/
 temp/
+# One-off throwaway test/apply drivers (kept local, not part of the app)
+src/scripts/_*.ts

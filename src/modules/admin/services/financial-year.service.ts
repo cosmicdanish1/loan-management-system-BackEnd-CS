@@ -20,6 +20,85 @@ export class FinancialYearService {
         });
     }
 
+    /**
+     * Creates a financial year. `yearend` starts out completely empty in a
+     * fresh install and nothing else in the app can create the first row —
+     * performPLYearEndProcess only ever derives the *next* year's dates from
+     * an *existing* current year, so there was no bootstrap path at all.
+     * This is that path, for both genesis and any later gap-year creation.
+     */
+    async createFinancialYear(startDate: string, endDate: string, username: string): Promise<FinancialYear> {
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+
+        if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+            throw new BadRequestException('Start date and end date must be valid dates.');
+        }
+        if (start >= end) {
+            throw new BadRequestException('Start date must be before end date.');
+        }
+
+        // Guard against overlapping an existing year — this table isn't append-only
+        // by date, so a bad genesis entry would otherwise silently double-book a period.
+        const overlapping = await this.financialYearRepository
+            .createQueryBuilder('fy')
+            .where('fy.startDate <= :end AND fy.endDate >= :start', { start, end })
+            .getOne();
+        if (overlapping) {
+            throw new BadRequestException(
+                `The selected period overlaps with existing Financial Year ${overlapping.yearCode} ` +
+                `(${overlapping.startDate.toISOString().slice(0, 10)} to ${overlapping.endDate.toISOString().slice(0, 10)}).`,
+            );
+        }
+
+        const lastYear = await this.financialYearRepository.find({ order: { yearCode: 'DESC' }, take: 1 });
+        const nextYearCode = lastYear.length > 0 ? lastYear[0].yearCode + 1 : 1;
+
+        const fy = this.financialYearRepository.create({
+            yearCode: nextYearCode,
+            startDate: start,
+            endDate: end,
+            username,
+        });
+        const saved = await this.financialYearRepository.save(fy);
+
+        this.logger.log(`Financial Year ${nextYearCode} created (${startDate} to ${endDate}) by ${username}`);
+        return saved;
+    }
+
+    /**
+     * Admin cleanup for a mistakenly-created year — refuses if closed (never
+     * force-able, closing is meant to be final). If Transfer Entries has
+     * already archived into it, refuses unless `force` is set, in which case
+     * the archive tables (yearend_head/yearend_member/bankopbal) are cleared
+     * too — a legitimate "redo transfer entries from scratch" path, not just
+     * a one-off escape hatch.
+     */
+    async deleteFinancialYear(yearCode: number, force = false): Promise<{ message: string }> {
+        const fy = await this.getFinancialYear(yearCode);
+
+        if (fy.closedAt) {
+            throw new BadRequestException(`Financial Year ${yearCode} is closed and cannot be deleted.`);
+        }
+
+        const archived = await this.dataSource.query(
+            `SELECT COUNT(*) as cnt FROM yearend_head WHERE yearcode = $1`, [yearCode]
+        );
+        const hasArchive = parseInt(archived[0]?.cnt || '0') > 0;
+        if (hasArchive && !force) {
+            throw new BadRequestException(`Financial Year ${yearCode} already has archived closing entries. Pass force=true to delete anyway.`);
+        }
+
+        if (hasArchive) {
+            await this.dataSource.query(`DELETE FROM yearend_head WHERE yearcode = $1`, [yearCode]);
+            await this.dataSource.query(`DELETE FROM yearend_member WHERE yearcode = $1`, [yearCode]);
+            await this.dataSource.query(`DELETE FROM bankopbal WHERE fycode = $1`, [yearCode]);
+        }
+
+        await this.financialYearRepository.delete({ yearCode });
+        return { message: `Financial Year ${yearCode} deleted.` };
+    }
+
     async getFinancialYear(yearCode: number): Promise<FinancialYear> {
         const fy = await this.financialYearRepository.findOne({
             where: { yearCode },
@@ -63,7 +142,7 @@ export class FinancialYearService {
                     COALESCE(SUM(CASE WHEN l.trans_type = 'CR' THEN l.trans_amt::numeric ELSE 0 END), 0) as total_cr
                 FROM headmaster hm
                 LEFT JOIN ledger l ON l.code = hm.code
-                    AND l.trans_date >= $1 AND l.trans_date <= $2
+                    AND l.trans_date >= $1::timestamp AND l.trans_date <= $2::timestamp
                 GROUP BY hm.code, hm.parent_code, hm.pflag, hm.op_bal
             `, [fy.startDate, fy.endDate]);
 
@@ -142,11 +221,17 @@ export class FinancialYearService {
 
             // Also populate bankopbal for backward compatibility
             await queryRunner.query(`DELETE FROM bankopbal WHERE fycode = $1`, [yearCode]);
+            // BUG FIX: $1 was reused for two columns of different types
+            // (bankopbal.fycode is integer, yearend_head.yearcode is numeric) —
+            // Postgres can't deduce one consistent type for a single placeholder
+            // used both ways, so this always failed ("inconsistent types deduced
+            // for parameter $1"). Confirmed live — this was never reachable
+            // before now since yearend had zero rows until this session.
             await queryRunner.query(`
                 INSERT INTO bankopbal (trfid, fycode, headcode, parentcode, closingbalance)
                 SELECT ROW_NUMBER() OVER (ORDER BY head_code), $1, head_code, parent_code, closing_bal
-                FROM yearend_head WHERE yearcode = $1
-            `, [yearCode]);
+                FROM yearend_head WHERE yearcode = $2
+            `, [yearCode, yearCode]);
 
             await queryRunner.commitTransaction();
 
@@ -182,18 +267,31 @@ export class FinancialYearService {
             if (fromHead.length === 0) throw new BadRequestException(`Account ${fromAccount} not found`);
             if (toHead.length === 0) throw new BadRequestException(`Account ${toAccount} not found`);
 
+            // BUG FIX: advisory lock guards both id generations below against the
+            // same MAX(id)+1 race already tracked as a systemic issue elsewhere
+            // (loan/utilities/interest services) — fixed here since this function
+            // was being rewritten anyway to fix the ledgerid crash below.
+            await queryRunner.query(`SELECT pg_advisory_xact_lock(hashtext('ledger.trans_no_ledgerid'))`);
+
             const maxResult = await queryRunner.query(`SELECT COALESCE(MAX(trans_no::bigint), 0) + 1 as next FROM ledger`);
             let nextNo = parseInt(maxResult[0]?.next || '1');
 
-            await queryRunner.query(`
-                INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username)
-                VALUES ($1, $2, 'DR', $3, 0, 0, 'OTH', $4, '', 'JV', 'T', 0, $5, $6)
-            `, [nextNo, transferDate || new Date(), fromAccount, amount, description || 'Balance Transfer', username]);
+            // BUG FIX: ledger.ledgerid is NOT NULL with no default/sequence — this
+            // raw INSERT never included it, so every balance transfer crashed
+            // ("null value in column ledgerid violates not-null constraint").
+            // Confirmed live before this fix.
+            const ledgerIdResult = await queryRunner.query(`SELECT COALESCE(MAX(ledgerid), 0) + 1 as next FROM ledger`);
+            let nextLedgerId = parseInt(ledgerIdResult[0]?.next || '1');
 
             await queryRunner.query(`
-                INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username)
-                VALUES ($1, $2, 'CR', $3, 0, 0, 'OTH', $4, '', 'JV', 'T', 0, $5, $6)
-            `, [nextNo + 1, transferDate || new Date(), toAccount, amount, description || 'Balance Transfer', username]);
+                INSERT INTO ledger (ledgerid, trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username)
+                VALUES ($1, $2, $3, 'DR', $4, 0, 0, 'OTH', $5, '', 'JV', 'T', 0, $6, $7)
+            `, [nextLedgerId, nextNo, transferDate || new Date(), fromAccount, amount, description || 'Balance Transfer', username]);
+
+            await queryRunner.query(`
+                INSERT INTO ledger (ledgerid, trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username)
+                VALUES ($1, $2, $3, 'CR', $4, 0, 0, 'OTH', $5, '', 'JV', 'T', 0, $6, $7)
+            `, [nextLedgerId + 1, nextNo + 1, transferDate || new Date(), toAccount, amount, description || 'Balance Transfer', username]);
 
             await queryRunner.commitTransaction();
             return { success: true, message: `Balance of ${amount} transferred from ${fromAccount} to ${toAccount} successfully.` };

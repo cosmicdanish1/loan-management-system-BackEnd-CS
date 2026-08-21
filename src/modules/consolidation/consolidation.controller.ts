@@ -13,21 +13,14 @@ export class ConsolidationController {
 
   constructor(private readonly consolidationService: ConsolidationService) {}
 
+  // BUG FIX: manually wrapped in {success, data, message} on top of the global
+  // TransformInterceptor's identical wrap — same pattern as daybook.controller.ts.
+  // Harmless (frontend already defensively unwraps both shapes) but fixed for
+  // consistency.
   @ApiOperation({ summary: 'Consolidation report (all-branch day totals) for a given date' })
   @Get('report')
-  async getConsolidationReport(@Query() dto: GetConsolidationDto): Promise<{
-    success: boolean;
-    data: ConsolidationSummaryDto;
-    message: string;
-  }> {
+  async getConsolidationReport(@Query() dto: GetConsolidationDto): Promise<ConsolidationSummaryDto> {
     this.logger.log(`Generating consolidation report for date: ${dto.date}, output: ${dto.outputType || 'screen'}`);
-    
-    const report = await this.consolidationService.getConsolidationReport(dto);
-    
-    return {
-      success: true,
-      data: report,
-      message: 'Consolidation report generated successfully'
-    };
+    return this.consolidationService.getConsolidationReport(dto);
   }
 }

@@ -1,16 +1,20 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { parseSafeDate } from '../../shared/utils/date-utils';
+import { LoanRepaymentService } from '../../loan/services-v2/loan-repayment.service';
 
 /**
  * Loan Reports Service - Handles loan-focused reports.
- * 
+ *
  * @version 2.0 - Part of backend restructuring
  * Extracted from report.service.ts for single responsibility
  */
 @Injectable()
 export class LoanReportsService {
-  constructor(private readonly dataSource: DataSource) { }
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly loanRepaymentService: LoanRepaymentService,
+  ) { }
 
   /**
    * Get defaulter list
@@ -66,32 +70,47 @@ export class LoanReportsService {
 
     const result = await this.dataSource.query(query, queryParams);
 
+    // Overdue duration + penal interest per case, from the same oldest-first
+    // due calculation the repayment screen uses — a defaulter list without
+    // this is just a balance sort, not actually showing who's overdue by how much.
+    const dueStatuses = await Promise.all(
+      result.map((d: any) => this.loanRepaymentService.getDueStatus(String(d.loan_case_no)).catch(() => null))
+    );
+
     return {
       metadata: {
         totalCount,
         limit: limit || totalCount,
         offset: offset || 0
       },
-      data: result.map((d: any, idx: number) => ({
-        key: ((offset || 0) + idx).toString(),
-        memberNo: d.member_no,
-        memberName: d.member_name?.trim() || '',
-        officeName: d.office_name,
-        loanType: d.loan_type,
-        loanCaseNo: d.loan_case_no,
-        loanAmount: parseFloat(d.loan_amount) || 0,
-        balance: parseFloat(d.balance) || 0,
-        installments: d.installments,
-        lastPaymentDate: d.last_payment_date
-      }))
+      data: result.map((d: any, idx: number) => {
+        const due = dueStatuses[idx];
+        const monthsOverdue = due?.unpaidInstallments?.length
+          ? Math.max(...due.unpaidInstallments.map((i: any) => i.monthsOverdue))
+          : 0;
+        return {
+          key: ((offset || 0) + idx).toString(),
+          memberNo: d.member_no,
+          memberName: d.member_name?.trim() || '',
+          officeName: d.office_name,
+          loanType: d.loan_type,
+          loanCaseNo: d.loan_case_no,
+          loanAmount: parseFloat(d.loan_amount) || 0,
+          balance: parseFloat(d.balance) || 0,
+          installments: d.installments,
+          lastPaymentDate: d.last_payment_date,
+          monthsOverdue,
+          penalDue: due?.totalPenalDue || 0,
+        };
+      })
     };
   }
 
   /**
    * Get newly disbursed loans
    */
-  async getNewLoanDisbursed(dto: { fromDate: string; toDate: string; loanType?: string; limit?: number; offset?: number }) {
-    const { fromDate, toDate, loanType, limit, offset } = dto;
+  async getNewLoanDisbursed(dto: { fromDate: string; toDate: string; loanType?: string; memberNo?: string; limit?: number; offset?: number }) {
+    const { fromDate, toDate, loanType, memberNo, limit, offset } = dto;
 
     const baseQuery = `
       FROM loan_master loan
@@ -106,6 +125,11 @@ export class LoanReportsService {
     if (loanType) {
       whereClause += ` AND loan.loantype = $${params.length + 1}`;
       params.push(loanType);
+    }
+
+    if (memberNo) {
+      whereClause += ` AND CAST(loan.mbno AS text) = $${params.length + 1}`;
+      params.push(memberNo);
     }
 
     // Get total count
@@ -226,7 +250,28 @@ export class LoanReportsService {
 
     const transactions = await this.dataSource.query(query, queryParams);
 
+    // BUG FIX: runningBalance always started at 0, ignoring any transactions
+    // before fromDate — same missing-opening-balance gap already found and
+    // fixed in getBankDetailLedger this session. Only meaningful when fromDate
+    // is actually set (otherwise "before fromDate" has no boundary).
     let runningBalance = 0;
+    if (fromDate) {
+      const obParams: any[] = [memberNo];
+      let obLoanCaseFilter = '';
+      if (loanCaseNo) {
+        obLoanCaseFilter = ` AND acc_no = $${obParams.length + 1}`;
+        obParams.push(loanCaseNo);
+      }
+      obParams.push(fromDate);
+      const obResult = await this.dataSource.query(`
+        SELECT
+          COALESCE(SUM(CASE WHEN trans_type IN ('DR','D') THEN CAST(trans_amt AS numeric) ELSE 0 END), 0) -
+          COALESCE(SUM(CASE WHEN trans_type IN ('CR','C') THEN CAST(trans_amt AS numeric) ELSE 0 END), 0) as balance
+        FROM ledger
+        ${criteria} ${obLoanCaseFilter} AND trans_date < $${obParams.length}
+      `, obParams);
+      runningBalance = parseFloat(obResult[0]?.balance || '0');
+    }
     const ledgerData = transactions.map((t: any, idx: number) => {
       const amount = parseFloat(t.amount) || 0;
       const isDebit = t.type === 'DR' || t.type === 'D';
@@ -417,8 +462,12 @@ export class LoanReportsService {
     const totalCountRes = await this.dataSource.query(`SELECT COUNT(*) ${baseQuery} ${whereClause}`, params);
     const totalCount = parseInt(totalCountRes[0].count);
 
+    // BUG FIX: s2/g2mbno (second guarantor) was already joined but never
+    // selected — every loan with a 2nd surety silently lost that row from the
+    // register. getMemberLoanDetail (a sibling report in this same module)
+    // already correctly outputs both suretyies; mirrored that pattern here.
     let query = `
-      SELECT 
+      SELECT
         lp.mbno as member_no,
         TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
         lp.loancaseno as loan_no,
@@ -426,6 +475,8 @@ export class LoanReportsService {
         CAST(lp.sanctioned_amt AS numeric) as loan_amount,
         lp.g1mbno as surety_mbno,
         TRIM(COALESCE(s1.f_name, '') || ' ' || COALESCE(s1.l_name, '')) as surety_name,
+        lp.g2mbno as surety2_mbno,
+        TRIM(COALESCE(s2.f_name, '') || ' ' || COALESCE(s2.l_name, '')) as surety2_name,
         CAST(COALESCE(lm.balance, 0) AS numeric) as outstanding_balance
       ${baseQuery} ${whereClause}
       ORDER BY lp.loancaseno DESC
@@ -453,6 +504,8 @@ export class LoanReportsService {
       loanAmount: parseFloat(r.loan_amount) || 0,
       suretyMbno: r.surety_mbno,
       suretyName: r.surety_name,
+      surety2Mbno: r.surety2_mbno,
+      surety2Name: r.surety2_name,
       outstandingBalance: parseFloat(r.outstanding_balance) || 0
     }));
   }
@@ -610,39 +663,63 @@ export class LoanReportsService {
    * Get Loan Nil Certificate (NOC)
    */
   async getLoanNilCertificate(memberNo: string) {
-    // Check for active loans (balance > 0)
-    const activeLoans = await this.dataSource.query(`
-      SELECT 
+    // Every loan case for this member — not just ones with outstanding
+    // principal. A loan can show balance = 0 (principal fully recovered)
+    // while still owing interest or penal interest on its last installment,
+    // which a balance-only check would silently certify as "Nil" incorrectly.
+    const allLoans = await this.dataSource.query(`
+      SELECT
         loantype as head_name,
         loancaseno as head_code,
         CAST(balance AS numeric) as balance
-      FROM loan_master 
-      WHERE mbno = $1 AND CAST(balance AS numeric) > 0
+      FROM loan_master
+      WHERE mbno = $1
     `, [memberNo]);
 
-    // Get member info
-    const memberRes = await this.dataSource.query(`
-      SELECT TRIM(COALESCE(f_name, '') || ' ' || COALESCE(l_name, '')) as member_name, doj
-      FROM member_master WHERE mbno = $1
-    `, [memberNo]);
+    const outstandingLoans: any[] = [];
+    for (const l of allLoans) {
+      const balance = parseFloat(l.balance) || 0;
+      let dueStatus: { totalDue: number; totalInterestDue: number; totalPenalDue: number } | null = null;
+      try {
+        dueStatus = await this.loanRepaymentService.getDueStatus(String(l.head_code));
+      } catch {
+        dueStatus = null; // loan case lookup failed — fall back to balance-only check
+      }
+      const outstandingDue = dueStatus?.totalDue || 0;
 
-    const member = memberRes[0] || { member_name: `Member ${memberNo}`, doj: null };
-
-    return {
-      success: true,
-      data: {
-        memberNo,
-        memberName: member.member_name,
-        joiningDate: member.doj,
-        isNil: activeLoans.length === 0,
-        outstandingLoans: activeLoans.map((l: any) => ({
+      if (balance > 0 || outstandingDue > 0) {
+        outstandingLoans.push({
           headName: l.head_name === 'RLN' ? 'Regular Loan' :
             l.head_name === 'ELN' ? 'Emergency Loan' :
               l.head_name === 'ALN' ? 'Against Deposit Loan' : l.head_name,
           headCode: l.head_code,
-          balance: parseFloat(l.balance) || 0
-        }))
+          balance,
+          interestDue: dueStatus?.totalInterestDue || 0,
+          penalDue: dueStatus?.totalPenalDue || 0,
+        });
       }
+    }
+
+    // Get member info
+    const memberRes = await this.dataSource.query(`
+      SELECT TRIM(COALESCE(f_name, '') || ' ' || COALESCE(l_name, '')) as member_name, memb_date
+      FROM member_master WHERE mbno = $1
+    `, [memberNo]);
+
+    const member = memberRes[0] || { member_name: `Member ${memberNo}`, memb_date: null };
+
+    // BUG FIX: this manually wrapped its payload in {success, data} on top of
+    // the global TransformInterceptor's identical wrap, and unlike most other
+    // double-wrap instances this session, this one actually broke the screen —
+    // live-confirmed memberNo landing at data.data.memberNo while the frontend
+    // only unwraps one level (`response.data`), so it always hit the "member
+    // not found" branch. Removed the manual wrap.
+    return {
+      memberNo,
+      memberName: member.member_name,
+      joiningDate: member.memb_date,
+      isNil: outstandingLoans.length === 0,
+      outstandingLoans
     };
   }
 

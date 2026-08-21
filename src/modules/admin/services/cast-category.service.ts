@@ -14,6 +14,15 @@ export class CastCategoryService {
     ) { }
 
     async create(createCastCategoryDto: CreateCastCategoryDto): Promise<CastCategory> {
+        // BUG FIX: id is the PK — repository.save() on an entity whose PK
+        // already exists silently UPDATEs instead of erroring. Confirmed live:
+        // POST-ing an existing id with a different name returned 201 and
+        // clobbered the real row with no warning. Same class of gap already
+        // fixed for Wing/Office/SB Account creation.
+        const existing = await this.castCategoryRepository.findOne({ where: { id: createCastCategoryDto.id } });
+        if (existing) {
+            throw new ConflictException(`Cast Category ${createCastCategoryDto.id} already exists`);
+        }
         const castCategory = this.castCategoryRepository.create(createCastCategoryDto);
         return this.castCategoryRepository.save(castCategory);
     }

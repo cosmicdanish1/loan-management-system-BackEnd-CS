@@ -4,7 +4,7 @@ Version 1.0. Auto-generated from Swagger metadata — do not edit by hand; run `
 
 - **Server root:** `http://<server-ip>:3001` — every path below already includes the `/api/v1` prefix.
 - **Auth:** `Authorization: Bearer <accessToken>` (from `POST /auth/login`).
-- **Total endpoints:** 465 across 46 groups.
+- **Total endpoints:** 479 across 47 groups.
 
 ## Groups
 
@@ -28,17 +28,18 @@ Version 1.0. Auto-generated from Swagger metadata — do not edit by hand; run `
 - [Client Logs](#client-logs) (1)
 - [Compulsory Deposit Transactions](#compulsory-deposit-transactions) (3)
 - [Consolidation](#consolidation) (1)
+- [Dashboard Notices](#dashboard-notices) (4)
 - [Database Backup](#database-backup) (7)
 - [Day Book](#day-book) (6)
-- [Day-End Processing](#day-end-processing) (6)
+- [Day-End Processing](#day-end-processing) (8)
 - [Deposits](#deposits) (19)
-- [Financial Year Management](#financial-year-management) (6)
+- [Financial Year Management](#financial-year-management) (8)
 - [general-ledger](#general-ledger) (2)
 - [Interest Management](#interest-management) (7)
 - [Jotting Report](#jotting-report) (4)
 - [Journal Transfer Transactions](#journal-transfer-transactions) (1)
 - [License](#license) (3)
-- [Loans](#loans) (28)
+- [Loans](#loans) (31)
 - [Member Ledger](#member-ledger) (5)
 - [Members](#members) (27)
 - [Notifications](#notifications) (11)
@@ -53,7 +54,7 @@ Version 1.0. Auto-generated from Swagger metadata — do not edit by hand; run `
 - [Transaction - Short Recovery](#transaction-short-recovery) (2)
 - [Transactions](#transactions) (16)
 - [User Management](#user-management) (15)
-- [Utilities](#utilities) (67)
+- [Utilities](#utilities) (70)
 
 ## Admin - Cast Categories
 
@@ -240,6 +241,15 @@ Version 1.0. Auto-generated from Swagger metadata — do not edit by hand; run `
 | --- | --- | --- |
 | `GET` | `/api/v1/consolidation/report` | Consolidation report (all-branch day totals) for a given date |
 
+## Dashboard Notices
+
+| Method | Path | What it does |
+| --- | --- | --- |
+| `GET` | `/api/v1/dashboard-notices` | List all dashboard notices, shared across every PC |
+| `POST` | `/api/v1/dashboard-notices` | Post a new dashboard notice |
+| `DELETE` | `/api/v1/dashboard-notices/{id}` | Delete a dashboard notice |
+| `PUT` | `/api/v1/dashboard-notices/reorder` | Persist a new drag-and-drop order for the board |
+
 ## Database Backup
 
 | Method | Path | What it does |
@@ -267,12 +277,14 @@ Version 1.0. Auto-generated from Swagger metadata — do not edit by hand; run `
 
 | Method | Path | What it does |
 | --- | --- | --- |
+| `POST` | `/api/v1/admin/day-end/initialize` | Create the genesis getworkingdate row (only when none exists) |
 | `POST` | `/api/v1/admin/day-end/initiate` | Initiate day-end processing |
 | `GET` | `/api/v1/admin/day-end/processes` | Get all day-end processes |
 | `GET` | `/api/v1/admin/day-end/processes/{id}` | Get day-end process by ID |
 | `GET` | `/api/v1/admin/day-end/processes/{id}/interest-calculations` | Get interest calculation results for a day-end process |
 | `GET` | `/api/v1/admin/day-end/processes/{id}/summary` | Get day-end process summary |
 | `GET` | `/api/v1/admin/day-end/summary` | Get current day-end summary |
+| `DELETE` | `/api/v1/admin/day-end/working-date` | Reset a mis-set initial working date (only before any day-end has completed) |
 
 ## Deposits
 
@@ -302,8 +314,10 @@ Version 1.0. Auto-generated from Swagger metadata — do not edit by hand; run `
 
 | Method | Path | What it does |
 | --- | --- | --- |
+| `DELETE` | `/api/v1/admin/financial-year/{yearCode}` | Delete an un-closed, un-archived financial year |
 | `POST` | `/api/v1/admin/financial-year/balance-transfer` | Perform manual balance transfer between accounts |
 | `POST` | `/api/v1/admin/financial-year/close-year` | Formally close (lock) a financial year |
+| `POST` | `/api/v1/admin/financial-year/create` | Create a financial year (including the genesis year when none exist) |
 | `GET` | `/api/v1/admin/financial-year/current` | Get current active financial year |
 | `GET` | `/api/v1/admin/financial-year/list` | Get all financial years |
 | `POST` | `/api/v1/admin/financial-year/pl-year-end-process` | Initiate P&L Year End Process |
@@ -358,6 +372,9 @@ Version 1.0. Auto-generated from Swagger metadata — do not edit by hand; run `
 | `POST` | `/api/v1/loans/amortization-schedule` | Generate amortization schedule |
 | `POST` | `/api/v1/loans/calculate-emi` | Calculate EMI for given parameters |
 | `GET` | `/api/v1/loans/case/{caseNo}` | Get loan details by case number |
+| `GET` | `/api/v1/loans/case/{caseNo}/due-status` | Get the oldest-unpaid-first due breakdown for a loan (principal/interest/penal) |
+| `GET` | `/api/v1/loans/case/{caseNo}/early-closure` | Calculate the final amount to close a loan early |
+| `POST` | `/api/v1/loans/case/{caseNo}/early-closure` | Execute an early closure — settles every remaining installment and zeroes the balance |
 | `GET` | `/api/v1/loans/case/{caseNo}/repayment-summary` | Get repayment summary for a specific loan case |
 | `GET` | `/api/v1/loans/cases` | Get all loan cases for processing |
 | `GET` | `/api/v1/loans/eligibility/{memberNo}` | Check member eligibility for loan based on Share and FD values |
@@ -735,11 +752,14 @@ Version 1.0. Auto-generated from Swagger metadata — do not edit by hand; run `
 | `POST` | `/api/v1/utilities/payment-voucher` | Save payment voucher to ledger (vchr_type=P, acc_type=BANK) |
 | `GET` | `/api/v1/utilities/preferences` | Get current user UI preferences |
 | `PATCH` | `/api/v1/utilities/preferences` | Update user UI preferences |
+| `GET` | `/api/v1/utilities/rd-accounts/holders` | List members who have at least one active RD account (for Premature Information dropdown) |
 | `POST` | `/api/v1/utilities/receipt` | Save receipt: CR rows (vchr_type=R) + DR bank (vchr_type=P), same R_VCHR_NO |
 | `POST` | `/api/v1/utilities/receipt-voucher` | Save receipt voucher to ledger (vchr_type=R, DR CINH + CR rows) |
 | `GET` | `/api/v1/utilities/saving/account/{accountNo}` | Get saving account details and transaction history |
 | `POST` | `/api/v1/utilities/saving/transaction` | Save SB transaction to ledger (acc_type=SB) |
+| `GET` | `/api/v1/utilities/sb-accounts/holders` | List members who have an SB account (for Premature Information dropdown) |
 | `GET` | `/api/v1/utilities/search/deposits` | Search for deposit accounts (RD/FD) by member number |
+| `GET` | `/api/v1/utilities/search/deposits-filtered` | Search deposit accounts with filters (generic multi-field filter version) |
 | `GET` | `/api/v1/utilities/search/global` | Global search across all entities |
 | `GET` | `/api/v1/utilities/search/loans` | Search loan accounts with filters |
 | `GET` | `/api/v1/utilities/search/members` | Search members with filters |

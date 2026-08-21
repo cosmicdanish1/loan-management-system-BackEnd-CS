@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Wing } from '../entities/wing.entity';
@@ -12,6 +12,15 @@ export class WingService {
     ) { }
 
     async create(createDto: CreateWingDto): Promise<Wing> {
+        // BUG FIX: wingId is the PK — repository.save() on an entity whose PK
+        // already exists silently UPDATEs instead of erroring. Confirmed live:
+        // POST-ing an existing wingId with a different name returned 201 and
+        // clobbered the real row with no warning. Same class of gap already
+        // fixed for SB Account creation.
+        const existing = await this.wingRepository.findOne({ where: { wingId: createDto.wingId } });
+        if (existing) {
+            throw new ConflictException(`Wing ${createDto.wingId} already exists`);
+        }
         const wing = this.wingRepository.create(createDto);
         return await this.wingRepository.save(wing);
     }

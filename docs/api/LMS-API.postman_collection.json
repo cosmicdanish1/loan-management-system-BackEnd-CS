@@ -807,7 +807,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"memberNo\": 0,\n  \"prefix\": \"\",\n  \"firstName\": \"\",\n  \"middleName\": \"\",\n  \"lastName\": \"\",\n  \"certificateNo\": \"\",\n  \"depositUnit\": 0,\n  \"depositPeriod\": 0,\n  \"rate\": 0,\n  \"depositDate\": \"2026-07-24T23:30:18.056Z\",\n  \"maturityDate\": \"2026-07-24T23:30:18.056Z\",\n  \"fdAmount\": 0,\n  \"maturityAmount\": 0,\n  \"interestBalance\": 0,\n  \"interestAmount\": 0,\n  \"lastIntPaymentDate\": \"2026-07-24T23:30:18.056Z\",\n  \"interestPaid\": 0,\n  \"status\": \"\",\n  \"nominee\": \"\",\n  \"nomineeAge\": \"\",\n  \"nomineeAddress\": \"\",\n  \"nomineeRelation\": \"\",\n  \"modeOfPayment\": 0\n}",
+              "raw": "{\n  \"memberNo\": 0,\n  \"prefix\": \"\",\n  \"firstName\": \"\",\n  \"middleName\": \"\",\n  \"lastName\": \"\",\n  \"certificateNo\": \"\",\n  \"depositUnit\": 0,\n  \"depositPeriod\": 0,\n  \"rate\": 0,\n  \"depositDate\": \"2026-08-21T17:23:35.549Z\",\n  \"maturityDate\": \"2026-08-21T17:23:35.549Z\",\n  \"fdAmount\": 0,\n  \"maturityAmount\": 0,\n  \"interestBalance\": 0,\n  \"interestAmount\": 0,\n  \"lastIntPaymentDate\": \"2026-08-21T17:23:35.549Z\",\n  \"interestPaid\": 0,\n  \"status\": \"\",\n  \"nominee\": \"\",\n  \"nomineeAge\": \"\",\n  \"nomineeAddress\": \"\",\n  \"nomineeRelation\": \"\",\n  \"modeOfPayment\": 0\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1691,7 +1691,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"accountNumber\": 0,\n  \"memberNo\": 0,\n  \"prefix\": \"\",\n  \"firstName\": \"\",\n  \"middleName\": \"\",\n  \"lastName\": \"\",\n  \"depositDate\": \"2026-07-24T23:30:18.056Z\",\n  \"amount\": 0,\n  \"rate\": 0,\n  \"depositPeriod\": 0,\n  \"depositUnit\": 0,\n  \"maturityDate\": \"2026-07-24T23:30:18.056Z\",\n  \"maturityAmount\": 0,\n  \"openingBalance\": 0,\n  \"nominee\": \"\",\n  \"nomineeAge\": \"\",\n  \"nomineeAddress\": \"\",\n  \"nomineeRelation\": \"\",\n  \"specialInstructions\": \"\",\n  \"recoveryThroughDemand\": false,\n  \"headCode\": \"\"\n}",
+              "raw": "{\n  \"accountNumber\": 0,\n  \"memberNo\": 0,\n  \"prefix\": \"\",\n  \"firstName\": \"\",\n  \"middleName\": \"\",\n  \"lastName\": \"\",\n  \"depositDate\": \"2026-08-21T17:23:35.550Z\",\n  \"amount\": 0,\n  \"rate\": 0,\n  \"depositPeriod\": 0,\n  \"depositUnit\": 0,\n  \"maturityDate\": \"2026-08-21T17:23:35.550Z\",\n  \"maturityAmount\": 0,\n  \"openingBalance\": 0,\n  \"nominee\": \"\",\n  \"nomineeAge\": \"\",\n  \"nomineeAddress\": \"\",\n  \"nomineeRelation\": \"\",\n  \"specialInstructions\": \"\",\n  \"recoveryThroughDemand\": false,\n  \"headCode\": \"\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1813,7 +1813,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"accountNumber\": 0,\n  \"memberNo\": 0,\n  \"prefix\": \"\",\n  \"firstName\": \"\",\n  \"middleName\": \"\",\n  \"lastName\": \"\",\n  \"depositDate\": \"2026-07-24T23:30:18.057Z\",\n  \"amount\": 0,\n  \"rate\": 0,\n  \"depositPeriod\": 0,\n  \"depositUnit\": 0,\n  \"maturityDate\": \"2026-07-24T23:30:18.057Z\",\n  \"maturityAmount\": 0,\n  \"openingBalance\": 0,\n  \"nominee\": \"\",\n  \"nomineeAge\": \"\",\n  \"nomineeAddress\": \"\",\n  \"nomineeRelation\": \"\",\n  \"specialInstructions\": \"\",\n  \"recoveryThroughDemand\": false,\n  \"headCode\": \"\"\n}",
+              "raw": "{\n  \"accountNumber\": 0,\n  \"memberNo\": 0,\n  \"prefix\": \"\",\n  \"firstName\": \"\",\n  \"middleName\": \"\",\n  \"lastName\": \"\",\n  \"depositDate\": \"2026-08-21T17:23:35.550Z\",\n  \"amount\": 0,\n  \"rate\": 0,\n  \"depositPeriod\": 0,\n  \"depositUnit\": 0,\n  \"maturityDate\": \"2026-08-21T17:23:35.550Z\",\n  \"maturityAmount\": 0,\n  \"openingBalance\": 0,\n  \"nominee\": \"\",\n  \"nomineeAge\": \"\",\n  \"nomineeAddress\": \"\",\n  \"nomineeRelation\": \"\",\n  \"specialInstructions\": \"\",\n  \"recoveryThroughDemand\": false,\n  \"headCode\": \"\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1932,7 +1932,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"accountNo\": \"\",\n  \"memberNo\": \"\",\n  \"openingDate\": \"2026-07-24T23:30:18.056Z\",\n  \"openingBalance\": 0,\n  \"ledgerGroup\": \"\",\n  \"specialInstructions\": \"\",\n  \"nomineeName\": \"\",\n  \"nomineeAge\": \"\",\n  \"nomineeAddress\": \"\",\n  \"nomineeRelation\": \"\"\n}",
+              "raw": "{\n  \"accountNo\": \"\",\n  \"memberNo\": \"\",\n  \"openingDate\": \"2026-08-21T17:23:35.550Z\",\n  \"openingBalance\": 0,\n  \"ledgerGroup\": \"\",\n  \"specialInstructions\": \"\",\n  \"nomineeName\": \"\",\n  \"nomineeAge\": \"\",\n  \"nomineeAddress\": \"\",\n  \"nomineeRelation\": \"\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2054,7 +2054,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"accountNo\": \"\",\n  \"memberNo\": \"\",\n  \"openingDate\": \"2026-07-24T23:30:18.056Z\",\n  \"openingBalance\": 0,\n  \"ledgerGroup\": \"\",\n  \"specialInstructions\": \"\",\n  \"nomineeName\": \"\",\n  \"nomineeAge\": \"\",\n  \"nomineeAddress\": \"\",\n  \"nomineeRelation\": \"\"\n}",
+              "raw": "{\n  \"accountNo\": \"\",\n  \"memberNo\": \"\",\n  \"openingDate\": \"2026-08-21T17:23:35.550Z\",\n  \"openingBalance\": 0,\n  \"ledgerGroup\": \"\",\n  \"specialInstructions\": \"\",\n  \"nomineeName\": \"\",\n  \"nomineeAge\": \"\",\n  \"nomineeAddress\": \"\",\n  \"nomineeRelation\": \"\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3446,6 +3446,139 @@
       ]
     },
     {
+      "name": "Dashboard Notices",
+      "item": [
+        {
+          "name": "GET /dashboard-notices — List all dashboard notices, shared across every PC",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/dashboard-notices",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dashboard-notices"
+              ]
+            },
+            "description": "List all dashboard notices, shared across every PC",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /dashboard-notices — Post a new dashboard notice",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/dashboard-notices",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dashboard-notices"
+              ]
+            },
+            "description": "Post a new dashboard notice",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "PUT /dashboard-notices/reorder — Persist a new drag-and-drop order for the board",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/dashboard-notices/reorder",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dashboard-notices",
+                "reorder"
+              ]
+            },
+            "description": "Persist a new drag-and-drop order for the board",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE /dashboard-notices/{id} — Delete a dashboard notice",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/dashboard-notices/:id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dashboard-notices",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Delete a dashboard notice",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
       "name": "Database Backup",
       "item": [
         {
@@ -4019,6 +4152,70 @@
               ]
             },
             "description": "Get current day-end summary",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /admin/day-end/initialize — Create the genesis getworkingdate row (only when none exists)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/day-end/initialize",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "day-end",
+                "initialize"
+              ]
+            },
+            "description": "Create the genesis getworkingdate row (only when none exists)",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE /admin/day-end/working-date — Reset a mis-set initial working date (only before any day-end has completed)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/day-end/working-date",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "day-end",
+                "working-date"
+              ]
+            },
+            "description": "Reset a mis-set initial working date (only before any day-end has completed)",
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -5035,6 +5232,84 @@
           "response": []
         },
         {
+          "name": "POST /admin/financial-year/create — Create a financial year (including the genesis year when none exist)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/financial-year/create",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "financial-year",
+                "create"
+              ]
+            },
+            "description": "Create a financial year (including the genesis year when none exist)",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE /admin/financial-year/{yearCode} — Delete an un-closed, un-archived financial year",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/financial-year/:yearCode?force=",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "financial-year",
+                ":yearCode"
+              ],
+              "query": [
+                {
+                  "key": "force",
+                  "value": "",
+                  "description": "required",
+                  "disabled": false
+                }
+              ],
+              "variable": [
+                {
+                  "key": "yearCode",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Delete an un-closed, un-archived financial year",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
           "name": "GET /admin/financial-year/current — Get current active financial year",
           "request": {
             "method": "GET",
@@ -5327,7 +5602,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"fromDate\": \"2025-01-01\",\n  \"toDate\": \"2025-03-31\",\n  \"interestRate\": 4,\n  \"accountHead\": \"A1001\",\n  \"accountType\": \"SB\",\n  \"voucherNumber\": \"INT2025001\",\n  \"narration\": \"Interest credited for Q1 2025\",\n  \"memberNo\": \"1001\"\n}",
+              "raw": "{\n  \"fromDate\": \"2025-01-01\",\n  \"toDate\": \"2025-03-31\",\n  \"interestRate\": 4,\n  \"accountHead\": \"A1001\",\n  \"accountType\": \"SB\",\n  \"voucherNumber\": \"INT2025001\",\n  \"narration\": \"Interest credited for Q1 2025\",\n  \"memberNo\": \"1001\",\n  \"expenseHeadCode\": \"L1028\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -5372,7 +5647,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"fromDate\": \"2025-01-01\",\n  \"toDate\": \"2025-03-31\",\n  \"interestRate\": 4,\n  \"accountHead\": \"A1001\",\n  \"accountType\": \"SB\",\n  \"voucherNumber\": \"INT2025001\",\n  \"narration\": \"Interest credited for Q1 2025\",\n  \"memberNo\": \"1001\"\n}",
+              "raw": "{\n  \"fromDate\": \"2025-01-01\",\n  \"toDate\": \"2025-03-31\",\n  \"interestRate\": 4,\n  \"accountHead\": \"A1001\",\n  \"accountType\": \"SB\",\n  \"voucherNumber\": \"INT2025001\",\n  \"narration\": \"Interest credited for Q1 2025\",\n  \"memberNo\": \"1001\",\n  \"expenseHeadCode\": \"L1028\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -5417,7 +5692,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"fromDate\": \"2025-01-01\",\n  \"toDate\": \"2025-03-31\",\n  \"interestRate\": 4,\n  \"accountHead\": \"A1001\",\n  \"accountType\": \"SB\",\n  \"voucherNumber\": \"INT2025001\",\n  \"narration\": \"Interest credited for Q1 2025\",\n  \"memberNo\": \"1001\"\n}",
+              "raw": "{\n  \"fromDate\": \"2025-01-01\",\n  \"toDate\": \"2025-03-31\",\n  \"interestRate\": 4,\n  \"accountHead\": \"A1001\",\n  \"accountType\": \"SB\",\n  \"voucherNumber\": \"INT2025001\",\n  \"narration\": \"Interest credited for Q1 2025\",\n  \"memberNo\": \"1001\",\n  \"expenseHeadCode\": \"L1028\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -5462,7 +5737,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"fromDate\": \"2025-01-01\",\n  \"toDate\": \"2025-03-31\",\n  \"interestRate\": 4,\n  \"accountHead\": \"A1001\",\n  \"accountType\": \"SB\",\n  \"voucherNumber\": \"INT2025001\",\n  \"narration\": \"Interest credited for Q1 2025\",\n  \"memberNo\": \"1001\"\n}",
+              "raw": "{\n  \"fromDate\": \"2025-01-01\",\n  \"toDate\": \"2025-03-31\",\n  \"interestRate\": 4,\n  \"accountHead\": \"A1001\",\n  \"accountType\": \"SB\",\n  \"voucherNumber\": \"INT2025001\",\n  \"narration\": \"Interest credited for Q1 2025\",\n  \"memberNo\": \"1001\",\n  \"expenseHeadCode\": \"L1028\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -5507,7 +5782,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"fromDate\": \"2025-01-01\",\n  \"toDate\": \"2025-03-31\",\n  \"interestRate\": 4,\n  \"accountHead\": \"A1001\",\n  \"accountType\": \"SB\",\n  \"voucherNumber\": \"INT2025001\",\n  \"narration\": \"Interest credited for Q1 2025\",\n  \"memberNo\": \"1001\"\n}",
+              "raw": "{\n  \"fromDate\": \"2025-01-01\",\n  \"toDate\": \"2025-03-31\",\n  \"interestRate\": 4,\n  \"accountHead\": \"A1001\",\n  \"accountType\": \"SB\",\n  \"voucherNumber\": \"INT2025001\",\n  \"narration\": \"Interest credited for Q1 2025\",\n  \"memberNo\": \"1001\",\n  \"expenseHeadCode\": \"L1028\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -6834,6 +7109,137 @@
               ]
             },
             "description": "Get repayment summary for a specific loan case",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /loans/case/{caseNo}/due-status — Get the oldest-unpaid-first due breakdown for a loan (principal/interest/penal)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/loans/case/:caseNo/due-status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "loans",
+                "case",
+                ":caseNo",
+                "due-status"
+              ],
+              "variable": [
+                {
+                  "key": "caseNo",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Get the oldest-unpaid-first due breakdown for a loan (principal/interest/penal)",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /loans/case/{caseNo}/early-closure — Calculate the final amount to close a loan early",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/loans/case/:caseNo/early-closure?closureDate=&adjustment=",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "loans",
+                "case",
+                ":caseNo",
+                "early-closure"
+              ],
+              "query": [
+                {
+                  "key": "closureDate",
+                  "value": "",
+                  "description": "required",
+                  "disabled": false
+                },
+                {
+                  "key": "adjustment",
+                  "value": "",
+                  "description": "required",
+                  "disabled": false
+                }
+              ],
+              "variable": [
+                {
+                  "key": "caseNo",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Calculate the final amount to close a loan early",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /loans/case/{caseNo}/early-closure — Execute an early closure — settles every remaining installment and zeroes the balance",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/loans/case/:caseNo/early-closure",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "loans",
+                "case",
+                ":caseNo",
+                "early-closure"
+              ],
+              "variable": [
+                {
+                  "key": "caseNo",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Execute an early closure — settles every remaining installment and zeroes the balance",
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -13409,7 +13815,12 @@
           "name": "POST /admin/config/deposit-slabs/bulk — Bulk replace all deposit slabs for a given type",
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/api/v1/admin/config/deposit-slabs/bulk",
               "host": [
@@ -13434,6 +13845,15 @@
                   "type": "string"
                 }
               ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"fixed_deposit\",\n  \"rows\": [\n    {\n      \"name\": null,\n      \"description\": null,\n      \"type\": null,\n      \"minAmount\": null,\n      \"maxAmount\": null,\n      \"minTenure\": null,\n      \"maxTenure\": null,\n      \"interestRate\": null,\n      \"penaltyRate\": null,\n      \"isActive\": null,\n      \"effectiveFrom\": null,\n      \"effectiveTo\": null\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             }
           },
           "response": []
@@ -14412,7 +14832,7 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/admin/users?page=&limit=&role=&isActive=",
+              "raw": "{{baseUrl}}/api/v1/admin/users?page=&limit=&role=&isActive=&username=",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -14445,6 +14865,12 @@
                   "key": "isActive",
                   "value": "",
                   "description": "Filter by active status",
+                  "disabled": true
+                },
+                {
+                  "key": "username",
+                  "value": "",
+                  "description": "Filter by username (partial match)",
                   "disabled": true
                 }
               ]
@@ -14667,7 +15093,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"username\": \"john_doe\",\n  \"password\": \"newSecurePassword123\",\n  \"email\": \"john.doe@example.com\",\n  \"firstName\": \"John\",\n  \"lastName\": \"Doe\",\n  \"role\": \"data_operator\",\n  \"permissions\": [\n    \"create_member\"\n  ],\n  \"isActive\": true\n}",
+              "raw": "{\n  \"username\": \"john_doe\",\n  \"password\": \"newSecurePassword123\",\n  \"email\": \"john.doe@example.com\",\n  \"firstName\": \"John\",\n  \"lastName\": \"Doe\",\n  \"role\": \"data_operator\",\n  \"permissions\": [\n    \"create_member\"\n  ],\n  \"isActive\": true,\n  \"avatar\": \"\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -15368,12 +15794,12 @@
           "response": []
         },
         {
-          "name": "GET /utilities/search/deposits — Search for deposit accounts (RD/FD) by member number",
+          "name": "GET /utilities/search/deposits-filtered — Search deposit accounts with filters (generic multi-field filter version)",
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/utilities/search/deposits?memberNo=&type=",
+              "raw": "{{baseUrl}}/api/v1/utilities/search/deposits-filtered?query=&memberNumber=&accountNumber=&status=&dateFrom=&dateTo=&amountFrom=&amountTo=&loanType=&memberIds=&page=&limit=",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -15382,24 +15808,84 @@
                 "v1",
                 "utilities",
                 "search",
-                "deposits"
+                "deposits-filtered"
               ],
               "query": [
                 {
-                  "key": "memberNo",
+                  "key": "query",
                   "value": "",
-                  "description": "Member number",
-                  "disabled": false
+                  "description": "General search query",
+                  "disabled": true
                 },
                 {
-                  "key": "type",
+                  "key": "memberNumber",
                   "value": "",
-                  "description": "Deposit type",
-                  "disabled": false
+                  "description": "Member number to search",
+                  "disabled": true
+                },
+                {
+                  "key": "accountNumber",
+                  "value": "",
+                  "description": "Account number to search",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "",
+                  "description": "Status filter",
+                  "disabled": true
+                },
+                {
+                  "key": "dateFrom",
+                  "value": "",
+                  "description": "Date from (YYYY-MM-DD)",
+                  "disabled": true
+                },
+                {
+                  "key": "dateTo",
+                  "value": "",
+                  "description": "Date to (YYYY-MM-DD)",
+                  "disabled": true
+                },
+                {
+                  "key": "amountFrom",
+                  "value": "",
+                  "description": "Minimum amount",
+                  "disabled": true
+                },
+                {
+                  "key": "amountTo",
+                  "value": "",
+                  "description": "Maximum amount",
+                  "disabled": true
+                },
+                {
+                  "key": "loanType",
+                  "value": "",
+                  "description": "Loan type filter",
+                  "disabled": true
+                },
+                {
+                  "key": "memberIds",
+                  "value": "",
+                  "description": "Member IDs to filter",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "",
+                  "description": "Page number",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "Items per page",
+                  "disabled": true
                 }
               ]
             },
-            "description": "Search for deposit accounts (RD/FD) by member number",
+            "description": "Search deposit accounts with filters (generic multi-field filter version)",
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -16391,6 +16877,52 @@
           "response": []
         },
         {
+          "name": "GET /utilities/search/deposits — Search for deposit accounts (RD/FD) by member number",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/utilities/search/deposits?memberNo=&type=",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "utilities",
+                "search",
+                "deposits"
+              ],
+              "query": [
+                {
+                  "key": "memberNo",
+                  "value": "",
+                  "description": "Member number",
+                  "disabled": false
+                },
+                {
+                  "key": "type",
+                  "value": "",
+                  "description": "Deposit type",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Search for deposit accounts (RD/FD) by member number",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
           "name": "GET /utilities/search/sb-accounts — Search for savings bank accounts by member number",
           "request": {
             "method": "GET",
@@ -16417,6 +16949,70 @@
               ]
             },
             "description": "Search for savings bank accounts by member number",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /utilities/rd-accounts/holders — List members who have at least one active RD account (for Premature Information dropdown)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/utilities/rd-accounts/holders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "utilities",
+                "rd-accounts",
+                "holders"
+              ]
+            },
+            "description": "List members who have at least one active RD account (for Premature Information dropdown)",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /utilities/sb-accounts/holders — List members who have an SB account (for Premature Information dropdown)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/utilities/sb-accounts/holders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "utilities",
+                "sb-accounts",
+                "holders"
+              ]
+            },
+            "description": "List members who have an SB account (for Premature Information dropdown)",
             "auth": {
               "type": "bearer",
               "bearer": [

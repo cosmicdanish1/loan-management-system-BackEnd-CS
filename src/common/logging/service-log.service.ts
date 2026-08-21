@@ -4,6 +4,20 @@ import { DataSource } from 'typeorm';
 import { Cron } from '@nestjs/schedule';
 import { ClsServiceManager } from 'nestjs-cls';
 import { DOMAIN_FILES } from './logging.config';
+import { redactText } from './redact';
+
+/** record() inserts via raw SQL, bypassing winston's redactFormat entirely —
+ *  apply the same password/token/aadhaar/pan patterns here so a login request
+ *  body or a query result touching a token column never lands in Postgres
+ *  in plaintext. */
+function redactValue<T>(value: T): T {
+  if (value === undefined || value === null) return value;
+  try {
+    return JSON.parse(redactText(JSON.stringify(value)));
+  } catch {
+    return value;
+  }
+}
 
 export type ServiceLogLevel = 'info' | 'warn' | 'error';
 
@@ -18,8 +32,12 @@ export interface ServiceLogEntry {
   metadata?: Record<string, unknown>;
 }
 
-/** Rows older than this are purged nightly. */
-const RETENTION_DAYS = 30;
+/** Total size budget across every service_log* partition. Once exceeded, the
+ *  oldest rows (by created_at) are deleted until back under budget — no age
+ *  limit; a row lives indefinitely as long as total size stays under this. */
+const MAX_TOTAL_BYTES = 1 * 1024 ** 3; // 1GB
+const DELETE_BATCH_SIZE = 500;
+const MAX_BATCHES_PER_RUN = 200; // safety cap: up to 100k rows purged per run
 
 /**
  * Structured, per-service event log persisted to Postgres.
@@ -121,8 +139,8 @@ export class ServiceLogService implements OnModuleInit {
           this.currentRequestId() ?? null,
           entry.userId ?? null,
           entry.action ?? null,
-          entry.message ?? null,
-          entry.metadata ? JSON.stringify(entry.metadata) : null,
+          entry.message ? redactText(entry.message) : null,
+          entry.metadata ? JSON.stringify(redactValue(entry.metadata)) : null,
         ],
       );
     } catch (err) {
@@ -152,17 +170,59 @@ export class ServiceLogService implements OnModuleInit {
     );
   }
 
-  /** Nightly retention — delete rows older than RETENTION_DAYS. */
-  @Cron('0 2 * * *') // 02:00 every day
-  async purgeOldLogs(): Promise<void> {
+  /** Total on-disk size across every service_log* partition (table + indexes). */
+  private async currentSizeBytes(): Promise<number> {
+    const res = await this.dataSource.query(
+      `SELECT COALESCE(SUM(pg_total_relation_size(quote_ident(table_name))), 0)::bigint AS bytes
+       FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name LIKE 'service_log%'`,
+    );
+    return Number(res[0].bytes);
+  }
+
+  /** Hourly — once total size exceeds MAX_TOTAL_BYTES, delete the oldest rows
+   *  (across every partition, by created_at) in batches until back under
+   *  budget. id alone isn't unique across partitions — the table's primary
+   *  key is (id, service) — so both are selected and matched on delete. */
+  @Cron('11 * * * *') // hourly
+  async enforceStorageBudget(): Promise<void> {
     if (!this.ready) return;
     try {
-      await this.dataSource.query(
-        `DELETE FROM service_log WHERE created_at < now() - interval '${RETENTION_DAYS} days'`,
-      );
-      this.logger.log(`Purged service_log rows older than ${RETENTION_DAYS} days`);
+      let totalBytes = await this.currentSizeBytes();
+      if (totalBytes <= MAX_TOTAL_BYTES) return;
+
+      let deletedRows = 0;
+      let batches = 0;
+      while (totalBytes > MAX_TOTAL_BYTES && batches < MAX_BATCHES_PER_RUN) {
+        const deleted = await this.dataSource.query(
+          `DELETE FROM service_log
+           WHERE (id, service) IN (
+             SELECT id, service FROM service_log ORDER BY created_at ASC LIMIT $1
+           )
+           RETURNING id`,
+          [DELETE_BATCH_SIZE],
+        );
+        const batchDeleted = deleted?.length ?? 0;
+        deletedRows += batchDeleted;
+        batches++;
+        if (batchDeleted < DELETE_BATCH_SIZE) break; // table's now empty, nothing left to delete
+
+        totalBytes = await this.currentSizeBytes();
+      }
+
+      if (deletedRows > 0) {
+        this.logger.log(
+          `service_log storage budget sweep: deleted ${deletedRows} oldest row(s) across ${batches} batch(es). ` +
+            `Size now ~${(totalBytes / 1024 ** 2).toFixed(1)}MB (budget ${(MAX_TOTAL_BYTES / 1024 ** 3).toFixed(1)}GB).`,
+        );
+      }
+      if (batches >= MAX_BATCHES_PER_RUN && totalBytes > MAX_TOTAL_BYTES) {
+        this.logger.warn(
+          `service_log still over budget after ${MAX_BATCHES_PER_RUN} batches this run — will continue next hour.`,
+        );
+      }
     } catch (err) {
-      this.logger.error(`service_log purge failed: ${(err as Error).message}`);
+      this.logger.error(`service_log storage budget sweep failed: ${(err as Error).message}`);
     }
   }
 }

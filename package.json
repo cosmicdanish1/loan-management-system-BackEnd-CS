@@ -1,6 +1,6 @@
 {
   "name": "loan-management-backend",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "NestJS backend for Loan Management System",
   "author": "Paperwhite Technology",
   "private": true,
@@ -12,7 +12,7 @@
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
-    "openapi:generate": "ts-node -r tsconfig-paths/register src/scripts/generate-openapi.ts",
+    "openapi:generate": "ts-node --files -r tsconfig-paths/register src/scripts/generate-openapi.ts",
     "docs:manual": "node src/scripts/generate-api-manual-docx.js && node src/scripts/generate-api-manual-pdf.js",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "test": "jest --config tests/jest.json",

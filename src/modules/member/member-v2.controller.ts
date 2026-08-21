@@ -15,6 +15,7 @@ import {
     ParseFilePipeBuilder,
     HttpStatus,
     NotFoundException,
+    Req,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBody } from '@nestjs/swagger';
@@ -365,7 +366,8 @@ export class MemberV2Controller {
 
     @Post('save-member')
     @ApiOperation({ summary: 'Save member to legacy member_master table' })
-    async saveMemberMaster(@Body() memberData: any) {
-        return this.memberCrudService.saveMemberMaster(memberData);
+    async saveMemberMaster(@Body() memberData: any, @Req() req: any) {
+        const username = req.user?.susername || req.user?.username || 'system';
+        return this.memberCrudService.saveMemberMaster(memberData, username);
     }
 }

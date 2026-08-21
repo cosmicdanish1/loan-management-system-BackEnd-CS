@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Body, Param, Query, ParseIntPipe, UseGuards, Request } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RoleGuard } from '../../auth/guards/role.guard';
@@ -20,6 +20,26 @@ export class FinancialYearController {
     @ApiOperation({ summary: 'Get all financial years' })
     async getYears() {
         return this.financialYearService.getFinancialYears();
+    }
+
+    // BUG FIX: yearend starts empty and nothing else could create the first
+    // row — see FinancialYearService.createFinancialYear for the full story.
+    @Post('create')
+    @Roles(UserRole.ADMIN)
+    @RequirePermissions(UserPermission.MANAGE_SYSTEM_CONFIG)
+    @ApiOperation({ summary: 'Create a financial year (including the genesis year when none exist)' })
+    async createYear(@Body() body: { startDate: string; endDate: string }, @Request() req: any) {
+        const username = req.user?.username || 'admin';
+        return this.financialYearService.createFinancialYear(body.startDate, body.endDate, username);
+    }
+
+    // Admin cleanup for a mistakenly-created year — service refuses if closed/archived.
+    @Delete(':yearCode')
+    @Roles(UserRole.ADMIN)
+    @RequirePermissions(UserPermission.MANAGE_SYSTEM_CONFIG)
+    @ApiOperation({ summary: 'Delete an un-closed, un-archived financial year' })
+    async deleteYear(@Param('yearCode', ParseIntPipe) yearCode: number, @Query('force') force?: string) {
+        return this.financialYearService.deleteFinancialYear(yearCode, force === 'true');
     }
 
     @Get('current')

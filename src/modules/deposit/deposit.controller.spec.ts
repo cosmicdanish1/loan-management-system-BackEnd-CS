@@ -334,9 +334,9 @@ describe('DepositController', () => {
         const fileName = 'FD_CERT202401001_1234567890.pdf';
         mockCertificateService.generateFixedDepositCertificate.mockResolvedValue(fileName);
 
-        const result = await controller.generateFixedDepositCertificate(1);
+        const result = await controller.generateFixedDepositCertificate('1');
 
-        expect(mockCertificateService.generateFixedDepositCertificate).toHaveBeenCalledWith(1);
+        expect(mockCertificateService.generateFixedDepositCertificate).toHaveBeenCalledWith('1');
         expect(result).toEqual({
           message: 'Certificate generated successfully',
           fileName,
@@ -347,7 +347,7 @@ describe('DepositController', () => {
       it('should handle certificate generation errors', async () => {
         mockCertificateService.generateFixedDepositCertificate.mockRejectedValue(new NotFoundException('Fixed deposit not found'));
 
-        await expect(controller.generateFixedDepositCertificate(1)).rejects.toThrow(NotFoundException);
+        await expect(controller.generateFixedDepositCertificate('1')).rejects.toThrow(NotFoundException);
       });
     });
 

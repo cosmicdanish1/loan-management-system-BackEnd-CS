@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Office } from '../entities/office.entity';
@@ -15,6 +15,13 @@ export class OfficeService {
 
     async create(createDto: CreateOfficeDto): Promise<Office> {
         this.logger.log(`Creating office: ${JSON.stringify(createDto)}`);
+        // BUG FIX: officeId is the PK — repository.save() on an entity whose PK
+        // already exists silently UPDATEs instead of erroring, same gap as
+        // WingService.create() and SB Account creation.
+        const existing = await this.officeRepository.findOne({ where: { officeId: createDto.officeId } });
+        if (existing) {
+            throw new ConflictException(`Office ${createDto.officeId} already exists`);
+        }
         const office = this.officeRepository.create(createDto);
         return await this.officeRepository.save(office);
     }

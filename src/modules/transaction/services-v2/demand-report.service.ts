@@ -1,7 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { DemandMaster } from '../entities/demand-master.entity';
+import { DataSource } from 'typeorm';
 
 export interface DemandListFiltersDto {
     month: string;
@@ -11,67 +9,67 @@ export interface DemandListFiltersDto {
     sortBy?: 'Member No.' | 'Name' | 'Account No.';
 }
 
+const MONTH_MAP: { [key: string]: number } = {
+    'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4, 'MAY': 5, 'JUN': 6,
+    'JUL': 7, 'AUG': 8, 'SEP': 9, 'OCT': 10, 'NOV': 11, 'DEC': 12,
+};
+
+const SORT_COLUMN: Record<string, string> = {
+    'Member No.': 'dm.mbno',
+    'Name': 'm.f_name',
+    'Account No.': 'dm.mbno', // no separate account number on demand_master; falls back to member number
+};
+
 @Injectable()
 export class DemandReportService {
-    constructor(
-        @InjectRepository(DemandMaster)
-        private readonly demandRepository: Repository<DemandMaster>,
-    ) { }
+    constructor(private readonly dataSource: DataSource) { }
 
+    // BUG FIX: this used to select from demand_master alone and fabricate
+    // `memberName: \`Member ${r.memberNo}\`` for every row — confirmed by the
+    // code's own comments ("mock names... to make report look good") that it
+    // never actually joined member_master, so the printed report could never
+    // show a real name. Also: `division` was validated as required by the
+    // frontend but never applied to the query at all, and `branch` only ever
+    // matched one specific hardcoded fake code ('BR-01') that doesn't
+    // correspond to anything real — so every report silently ignored the
+    // scope the user picked. Rewritten as a real join against member_master
+    // (division → wingno, same column already established for Generate).
     async getDemandList(filters: DemandListFiltersDto) {
-        const monthMap: { [key: string]: number } = {
-            'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4, 'MAY': 5, 'JUN': 6,
-            'JUL': 7, 'AUG': 8, 'SEP': 9, 'OCT': 10, 'NOV': 11, 'DEC': 12
-        };
-        const monthNum = monthMap[filters.month] || 0;
+        const monthNum = MONTH_MAP[filters.month] || 0;
         const yearNum = parseInt(filters.year);
 
-        const qb = this.demandRepository.createQueryBuilder('dm');
+        const conditions = ['dm.demand_for_month = $1', 'dm.demand_for_year = $2'];
+        const params: any[] = [monthNum, yearNum];
 
-        // Simulating Join with MemberMaster (assuming table exists, but for safety in this strict environment, 
-        // we'll rely on what's available or join loosely if entity not imported).
-        // Since we don't have MemberMaster entity imported here yet, we will select available fields 
-        // and acknowledge that name retrieval would essentially require that join.
-
-        qb.select([
-            'dm.id',
-            'dm.memberNo',
-            'dm.demand_for_month',
-            'dm.demand_for_year',
-            'dm.rln_installment_amount',
-            'dm.rln_interest',
-            'dm.totalDemand',
-            'dm.balance',
-            // Ideally: member.name
-        ]);
-
-        qb.where('dm.demand_for_month = :month', { month: monthNum })
-            .andWhere('dm.demand_for_year = :year', { year: yearNum });
-
-        // Apply Branch/Division filter if columns exist (officeno is often used for this)
+        if (filters.division) {
+            params.push(filters.division);
+            conditions.push(`m.wingno = $${params.length}`);
+        }
         if (filters.branch) {
-            // Mapping branch string to officeno code would happen here.
-            // For now, assuming no filter or mapping 'BR-01' to 1 for test
-            if (filters.branch === 'BR-01') qb.andWhere('dm.officeno = :office', { office: 1 });
+            params.push(parseInt(filters.branch, 10) || 0);
+            conditions.push(`dm.officeno = $${params.length}`);
         }
 
-        // Sort
-        if (filters.sortBy === 'Member No.') {
-            qb.orderBy('dm.memberNo', 'ASC');
-        } else if (filters.sortBy === 'Account No.') {
-            // Assuming loancaseno or similar
-            qb.orderBy('dm.memberNo', 'ASC'); // Fallback
-        } else {
-            qb.orderBy('dm.id', 'ASC');
-        }
+        const sortCol = SORT_COLUMN[filters.sortBy || 'Member No.'] || 'dm.mbno';
 
-        const results = await qb.getMany();
+        const rows = await this.dataSource.query(
+            `SELECT
+                dm.dmnd_srno as id, dm.mbno as "memberNo",
+                TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) as "memberName",
+                dm.demand_for_month as month, dm.demand_for_year as year,
+                dm.rln_installment_amount as "rlnInstallmentAmount", dm.rln_interest as "rlnInterest",
+                dm.totaldemand as "totalDemand", dm.balance_for_month as balance
+             FROM demand_master dm
+             LEFT JOIN member_master m ON m.mbno = dm.mbno
+             WHERE ${conditions.join(' AND ')}
+             ORDER BY ${sortCol} ASC`,
+            params,
+        );
 
-        // Enrich with mock names if member join isn't perfect yet, just to make report look good
-        return results.map(r => ({
+        return rows.map((r: any) => ({
             ...r,
-            memberName: `Member ${r.memberNo}`, // Placeholder until MemberMaster entity is widely available in this module
-            status: r.balance > 0 ? 'Unpaid' : 'Paid'
+            memberName: r.memberName?.trim() || `Member ${r.memberNo}`,
+            status: Number(r.balance) > 0 ? 'Unpaid' : 'Paid',
         }));
     }
 }

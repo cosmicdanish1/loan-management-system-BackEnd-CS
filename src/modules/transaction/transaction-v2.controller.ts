@@ -123,6 +123,7 @@ export class TransactionV2Controller {
         return this.memberBalanceTransferService.post(
             body.entries, body.debitHead, body.creditHead,
             body.excessHead, body.postedBy || 'admin',
+            body.creditLimit || 999999999, body.balanceAsOn,
         );
     }
 

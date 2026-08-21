@@ -118,26 +118,42 @@ export class BackupService implements OnApplicationBootstrap {
         return;
       }
 
-      const files = fs.readdirSync(defaultBackupPath);
-      for (const file of files) {
-        if (file.endsWith('.sql')) {
-          const existing = await this.backupLogRepository.findOne({ where: { fileName: file } });
-          if (!existing) {
-            const filePath = path.join(defaultBackupPath, file);
-            const stats = fs.statSync(filePath);
+      // BUG FIX 51: this check-then-insert (findOne, then save if absent) has no
+      // unique constraint on file_name and no lock — if this runs from more than
+      // one backend process around the same time (confirmed how this happened
+      // live: repeated dev restarts this session occasionally left an old
+      // process still alive briefly alongside a new one, both hitting this same
+      // startup hook), both can see "not found" and both insert, producing exact
+      // duplicate rows for the same file — confirmed live in the Database Backup
+      // screen's history list. An advisory lock serializes this sync across
+      // concurrent processes without needing a migration to add a real
+      // constraint (which would fail immediately against the duplicates that
+      // already exist from this bug).
+      await this.backupLogRepository.query(`SELECT pg_advisory_lock(hashtext('backup_log_sync'))`);
+      try {
+        const files = fs.readdirSync(defaultBackupPath);
+        for (const file of files) {
+          if (file.endsWith('.sql')) {
+            const existing = await this.backupLogRepository.findOne({ where: { fileName: file } });
+            if (!existing) {
+              const filePath = path.join(defaultBackupPath, file);
+              const stats = fs.statSync(filePath);
 
-            await this.backupLogRepository.save({
-              fileName: file,
-              filePath,
-              fileSize: stats.size.toString(),
-              backupType: this.determineBackupType(file),
-              status: 'success',
-              durationMs: 0,
-              createdAt: stats.birthtime,
-            });
-            this.logger.debug(`Synced legacy backup file: ${file}`);
+              await this.backupLogRepository.save({
+                fileName: file,
+                filePath,
+                fileSize: stats.size.toString(),
+                backupType: this.determineBackupType(file),
+                status: 'success',
+                durationMs: 0,
+                createdAt: stats.birthtime,
+              });
+              this.logger.debug(`Synced legacy backup file: ${file}`);
+            }
           }
         }
+      } finally {
+        await this.backupLogRepository.query(`SELECT pg_advisory_unlock(hashtext('backup_log_sync'))`);
       }
     } catch (error) {
       this.logger.error('Failed to sync backups with database', error.stack);

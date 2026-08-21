@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { parseSafeDate } from '../../shared/utils/date-utils';
 
@@ -40,7 +40,11 @@ export class LoanSanctionService {
           )
           AND NOT EXISTS (
               SELECT 1 FROM vouchers v
-              WHERE v.remarks LIKE '%LOAN_CASE:' || lp.loancaseno || '%'
+              -- BUG FIX 29: was '%LOAN_CASE:' || loancaseno || '%' with no trailing delimiter —
+              -- case "5" would also match a voucher's remarks for case "50", "512", etc. since
+              -- "LOAN_CASE:5" is a substring of "LOAN_CASE:50". generateLoanVoucher always writes
+              -- "LOAN_CASE:{caseNo}|PAY_MODE:...", so matching through the "|" makes this exact.
+              WHERE v.remarks LIKE '%LOAN_CASE:' || lp.loancaseno || '|%'
               AND v.status IN ('PENDING', 'POSTED')
           )
         ORDER BY lp.loancaseno, lp.app_date ASC
@@ -87,9 +91,12 @@ export class LoanSanctionService {
             ELSE 'A1047'
           END as h_code,
           
-          CASE 
+          -- BUG FIX 30: same oversight as h_code's ALN mapping — ALN (the type every real loan
+          -- in this system actually uses) fell through to the generic "LOAN ACCOUNT" label
+          -- instead of "EMERGENCY LOAN", even though h_code already correctly resolved to A1047.
+          CASE
             WHEN lp.loantype = 'R' OR lp.loantype = 'REG' OR lp.loantype = 'RLN' THEN 'REGULAR LOAN'
-            WHEN lp.loantype = 'E' OR lp.loantype = 'EMR' OR lp.loantype = 'ELN' THEN 'EMERGENCY LOAN'
+            WHEN lp.loantype = 'E' OR lp.loantype = 'EMR' OR lp.loantype = 'ELN' OR lp.loantype = 'A' OR lp.loantype = 'ALN' THEN 'EMERGENCY LOAN'
             ELSE 'LOAN ACCOUNT'
           END as h_name,
 
@@ -176,21 +183,52 @@ export class LoanSanctionService {
             // Block sanction if loan already has a voucher or is paid/passed
             // Only check the active (unpaid) row — old completed rows with same case number are ignored
             const lockCheck = await this.dataSource.query(`
-                SELECT lp.flg_paid, lp.flg_sanctioned,
-                    (SELECT COUNT(*) FROM vouchers WHERE remarks LIKE '%LOAN_CASE:' || $1 || '%' AND status IN ('PENDING','POSTED')) as voucher_count
+                SELECT lp.flg_paid, lp.flg_sanctioned, lp.applied_amt,
+                    -- BUG FIX 29 (same as above): trailing '|' avoids matching a longer case number
+                    -- that happens to start with this one's digits.
+                    (SELECT COUNT(*) FROM vouchers WHERE remarks LIKE '%LOAN_CASE:' || $1 || '|%' AND status IN ('PENDING','POSTED')) as voucher_count
                 FROM loan_pending lp
                 WHERE lp.loancaseno::numeric = $1::numeric AND lp.flg_paid != 'Y'
                 ORDER BY lp.app_date DESC LIMIT 1
             `, [caseNo]);
             if (lockCheck.length > 0 && parseInt(lockCheck[0].voucher_count) > 0) {
-                throw new Error('Cannot modify sanction — voucher already generated for this loan');
+                throw new BadRequestException('Cannot modify sanction — voucher already generated for this loan');
             }
+            if (lockCheck.length === 0) {
+                throw new NotFoundException('Loan case not found');
+            }
+
+            // BUG FIX 33: nothing stopped a sanctioned amount from exceeding what was actually
+            // applied for — an officer could sanction far more than the member ever requested,
+            // with no check anywhere (frontend only validated the amount was positive).
+            const appliedAmt = Number(lockCheck[0].applied_amt) || 0;
+            const sanctionedAmt = Number(sanctionData.sanctionedAmount) || 0;
+            if (sanctionedAmt <= 0) {
+                throw new BadRequestException('Sanctioned amount must be greater than zero.');
+            }
+            if (sanctionedAmt > appliedAmt) {
+                throw new BadRequestException(
+                    `Sanctioned amount (₹${sanctionedAmt.toLocaleString('en-IN')}) cannot exceed the applied amount (₹${appliedAmt.toLocaleString('en-IN')}).`
+                );
+            }
+
+            // rate/penalRate are optional per-case overrides — the sanctioning
+            // officer can set a different rate for this particular loan instead
+            // of whatever the rule master's default is for that loan type. Left
+            // null when not supplied, so generateLoanVoucher falls back to the
+            // rule master default at disbursement time.
+            const rateOverride = sanctionData.rate !== undefined && sanctionData.rate !== null && sanctionData.rate !== ''
+                ? parseFloat(sanctionData.rate) : null;
+            const penalRateOverride = sanctionData.penalRate !== undefined && sanctionData.penalRate !== null && sanctionData.penalRate !== ''
+                ? parseFloat(sanctionData.penalRate) : null;
 
             const updateQuery = `
         UPDATE loan_pending SET
           sanctioned_amt = $1,
           sanctioned_date = $2,
           no_of_instal = $3,
+          rate = $5,
+          penalrate = $6,
           flg_sanctioned = 'Y'
         WHERE loancaseno::numeric = $4::numeric AND flg_paid != 'Y'
         RETURNING *
@@ -200,11 +238,13 @@ export class LoanSanctionService {
                 sanctionData.sanctionedAmount,
                 parseSafeDate(sanctionData.sanctionDate),
                 sanctionData.noOfInstallments,
-                caseNo
+                caseNo,
+                rateOverride,
+                penalRateOverride,
             ]);
 
             if (result.length === 0) {
-                throw new Error('Loan case not found');
+                throw new NotFoundException('Loan case not found');
             }
 
             this.logger.log(`Loan ${caseNo} sanctioned successfully`);
@@ -216,6 +256,13 @@ export class LoanSanctionService {
             };
         } catch (error: any) {
             this.logger.error(`Error updating loan sanction: ${error.message}`);
+            // BUG FIX 34: every rejection above (bad amount, already-vouchered, not found) was a
+            // deliberate, typed exception — but this always re-wrapped it in a plain Error, which
+            // NestJS defaults to HTTP 500. That's wrong for a rejected request; only a genuine
+            // unexpected failure should be a 500.
+            if (error instanceof BadRequestException || error instanceof NotFoundException) {
+                throw error;
+            }
             throw new Error('Failed to update loan sanction: ' + error.message);
         }
     }
@@ -224,6 +271,10 @@ export class LoanSanctionService {
      * Get loan account code based on loan type
      */
     getLoanAccountCode(loanType: string): string {
+        // BUG FIX 26: ALN mapped to A1048 ("ELECTION ADVANCE" — unrelated to loans). Every real
+        // loan record in this system uses loantype='ALN' exclusively (checked live: zero RLN/ELN
+        // rows exist in loan_pending or loan_master), and A1047 itself carries headtype='ALN' in
+        // the chart of accounts under the name "EMERGENCY LOAN" — both point at A1047, not A1048.
         const codeMapping: Record<string, string> = {
             'R': 'A1002',
             'REG': 'A1002',
@@ -231,8 +282,8 @@ export class LoanSanctionService {
             'E': 'A1047',
             'EMR': 'A1047',
             'ELN': 'A1047',
-            'A': 'A1048',
-            'ALN': 'A1048'
+            'A': 'A1047',
+            'ALN': 'A1047'
         };
         return codeMapping[loanType?.toUpperCase()] || 'A1047';
     }

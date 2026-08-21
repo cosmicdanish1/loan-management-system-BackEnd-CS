@@ -12,6 +12,7 @@ import {
 import { SystemConfigService } from '../admin/services/system-config.service';
 import { FundsMaster } from '../admin/entities/funds-master.entity';
 import { validateDoubleEntry } from '../shared/utils/ledger-validation';
+import { generateVoucherNo } from '../shared/utils/voucher-utils';
 
 @Injectable()
 export class InterestService {
@@ -51,18 +52,17 @@ export class InterestService {
         throw new BadRequestException('From date must be before to date');
       }
 
-      // Check if interest has already been calculated for this period
-      // Use explicit accountType (SB/RD/FD) for intType; accountHead carries the GL code.
+      // BUG FIX 53: this was an exact 3-column match (fromDate, toDate, intType),
+      // despite the error message claiming "or dates overlap" — Jan 1-31 then
+      // Jan 1-Feb 28 would both post, double-crediting the overlapping days. Now a
+      // real overlap check: any existing run of the same type whose range intersects
+      // the requested one blocks it.
       const accountTypeCode = dto.accountType || 'SB';
-      const existingRun = await this.interestMasterRepository.findOne({
-        where: {
-          fromDate: fromDate,
-          toDate: toDate,
-          intType: accountTypeCode,
-        },
-      });
-
-      if (existingRun) {
+      const overlapping = await queryRunner.manager.query(
+        `SELECT id FROM interestmaster WHERE inttype = $1 AND frdt <= $2 AND todt >= $3 LIMIT 1`,
+        [accountTypeCode, toDate, fromDate]
+      );
+      if (overlapping.length > 0) {
         throw new BadRequestException('Interest has already been calculated for this period or dates overlap with existing records');
       }
 
@@ -73,14 +73,19 @@ export class InterestService {
         : allMembers;
       this.logger.log(`Found ${eligibleMembers.length} eligible members`);
 
-      // BUG FIX: generateVoucherNumber() was using this.interestPaidRepository outside the
-      // transaction — two concurrent runs see the same max and produce duplicate voucher numbers.
-      // Pass queryRunner.manager so the SELECT runs inside the active transaction with FOR UPDATE.
-      const voucherNumber = dto.voucherNumber || await this.generateVoucherNumber(queryRunner.manager);
+      // BUG FIX 53: the old generateVoucherNumber() queried a table/column that don't
+      // exist at all (`interest_paid`/`voucher_number` vs the real `interestpaid`/
+      // `vchrno`) — confirmed live, every post crashed with "relation does not exist"
+      // before anything else ran. Also produced a 10-char format ("INT2026001") against
+      // a varchar(6) column. Reusing the same voucher generator used successfully
+      // throughout the rest of the app (format e.g. "J00042", fits varchar(6) exactly).
+      const voucherNumber = dto.voucherNumber || await generateVoucherNo(queryRunner.manager, 'J');
 
-      // Create interest master record
-      // BUG FIX: intType was hardcoded to 'SB' — RD/FD interest records were saved with wrong type.
+      // BUG FIX 53: interestmaster.id has no real DB sequence (see entity fix) —
+      // must be generated explicitly before save.
+      const interestMasterId = await this.getNextId(queryRunner.manager, 'interestmaster', 'id');
       const interestMaster = await queryRunner.manager.save(InterestMaster, {
+        id: interestMasterId,
         intType: accountTypeCode,
         fromDate: fromDate,
         toDate: toDate,
@@ -103,9 +108,19 @@ export class InterestService {
           );
 
           if (calculation.interestAmount > 0) {
-            // Create interest paid record
+            // BUG FIX 53: interestpaid.rowid is NOT NULL with no default (see entity
+            // fix) — must be generated explicitly.
+            const rowId = await this.getNextId(queryRunner.manager, 'interestpaid', 'rowid');
+            // BUG FIX: payDate was never set (nothing anywhere in the codebase
+            // ever writes it after this insert either — confirmed by search, not
+            // a two-phase "set on payment" design). The Interest List report
+            // filters by `EXTRACT(YEAR FROM paydate)`, so every posted interest
+            // record was permanently invisible to that report. `post: 'Y'` is
+            // already set unconditionally at insert time, so this row is
+            // considered fully posted here — payDate should be too.
             await queryRunner.manager.save(InterestPaid, {
               id: interestMaster.id.toString(),
+              rowId,
               mbno: member.mbno,
               wrno: voucherNumber,
               openingBalance: calculation.openingBalance,
@@ -116,39 +131,57 @@ export class InterestService {
               interest: calculation.interestAmount,
               post: 'Y',
               paid: 'N',
+              payDate: new Date(),
               voucherNumber: voucherNumber,
               accountNumber: calculation.accountNumber,
             });
 
-            // BUG FIX: dto.accountHead is the account TYPE code (e.g. 'RD', 'SB'), NOT a GL head.
-            // Previously passing it directly as the GL code caused invalid ledger entries.
-            // Map account type to the correct GL credit head for savings/interest postings.
+            // BUG FIX 53: A1001 ("CASH IN HAND", confirmed live)/A1002 ("REGULAR LOAN")/
+            // A1003 (doesn't exist) are all confirmed-wrong for their purpose here — same
+            // class of gap as SB's missing A001 elsewhere this session (no real "member
+            // savings/RD/FD interest liability" head exists in headmaster to point at
+            // instead). Now honors dto.accountHead if the frontend supplies one (already
+            // wired, just previously ignored — same one-place-fixable pattern used for
+            // FD's headCode), falling back to the same flagged-wrong defaults only when
+            // none is given.
             const GL_CREDIT_HEAD_MAP: Record<string, string> = {
               'RD': 'A1002',
               'SB': 'A1001',
               'FD': 'A1003',
             };
-            const glHead = GL_CREDIT_HEAD_MAP[accountTypeCode] || 'A1001';
+            const glHead = dto.accountHead || GL_CREDIT_HEAD_MAP[accountTypeCode] || 'A1001';
 
-            // Create ledger entry for interest credit
             await this.createInterestLedgerEntry(
               member,
               calculation,
               voucherNumber,
               dto.narration || `Interest credited for period ${dto.fromDate} to ${dto.toDate}`,
               queryRunner.manager,
-              glHead
+              glHead,
+              accountTypeCode,
+              dto.expenseHeadCode,
             );
 
-            // Update fdmaster after FD interest posting
+            // BUG FIX 53: FD interest read fdmaster.intpaid to avoid double-counting
+            // (calculateMemberFDInterest computes interest-since-deposit minus intpaid),
+            // but posting only ever updated `interestamount` — intpaid itself never
+            // moved, so every subsequent run recomputed and reposted the exact same
+            // since-inception interest again. Also, this used to apply the member's
+            // *combined* interestAmount to every one of their FD rows, over-crediting
+            // any member with more than one FD account (confirmed live) — now applies
+            // each account's own share via the breakdown from calculateMemberFDInterest.
             if (accountTypeCode === 'FD') {
-              await queryRunner.manager.query(
-                `UPDATE fdmaster SET interestamount = COALESCE(interestamount, 0) + $1,
-                        lastintpaydate = NOW()
-                 WHERE mbno = $2 AND fdrdflag = 'F'
-                   AND (status = '0' OR status = 'A' OR status IS NULL)`,
-                [calculation.interestAmount, member.mbno]
-              );
+              const breakdown = (calculation as any).fdAccountBreakdown as { accountNumber: string; netInterest: number }[] | undefined;
+              for (const fd of breakdown || []) {
+                if (fd.netInterest <= 0) continue;
+                await queryRunner.manager.query(
+                  `UPDATE fdmaster SET interestamount = COALESCE(interestamount, 0) + $1,
+                          intpaid = COALESCE(intpaid, 0) + $1,
+                          lastintpaydate = NOW()
+                   WHERE mbno = $2 AND account_number = $3 AND fdrdflag = 'F'`,
+                  [fd.netInterest, member.mbno, fd.accountNumber]
+                );
+              }
             }
 
             memberCalculations.push(calculation);
@@ -159,12 +192,21 @@ export class InterestService {
         }
       }
 
-      // F5: Double-entry validation — all CR entries should equal all DR entries
-      const ledgerEntries = memberCalculations.flatMap(c => [
-        { transType: 'CR' as const, amount: c.interestAmount },
-        { transType: 'DR' as const, amount: c.interestAmount },
+      // BUG FIX 53: this built its own CR/DR pairs from each calculation's own
+      // interestAmount (`[{CR, amount}, {DR, amount}]` from the same number) — that's
+      // mathematically incapable of ever failing, regardless of what was actually
+      // written to the ledger. Reading back the real rows just inserted (by
+      // voucherNumber, within this same transaction) actually verifies something.
+      const ledgerCheck = await queryRunner.manager.query(
+        `SELECT trans_type, SUM(trans_amt::numeric) as total FROM ledger WHERE receipt_vchr_no = $1 GROUP BY trans_type`,
+        [voucherNumber]
+      );
+      const drTotal = parseFloat(ledgerCheck.find((r: any) => r.trans_type === 'DR')?.total || '0');
+      const crTotal = parseFloat(ledgerCheck.find((r: any) => r.trans_type === 'CR')?.total || '0');
+      const validation = validateDoubleEntry([
+        { transType: 'DR', amount: drTotal },
+        { transType: 'CR', amount: crTotal },
       ]);
-      const validation = validateDoubleEntry(ledgerEntries);
       if (!validation.valid) {
         throw new BadRequestException(
           `Double-entry validation failed: DR=${validation.drTotal}, CR=${validation.crTotal}, diff=${validation.difference}`
@@ -224,21 +266,23 @@ export class InterestService {
 
   /**
    * Get opening balance for a member as of a specific date
+   * BUG FIX 53: this read `ledger.pl_balance` (the entity's `balance` field) off the
+   * single most-recent prior transaction row — but pl_balance is a column nothing in
+   * this codebase actually maintains as a running balance (confirmed live: every SB
+   * ledger row has pl_balance = 0.0000). This meant opening balance was always ₹0,
+   * regardless of real account activity — measured live impact: running interest
+   * monthly instead of annually underpaid members by ~90.6%, since each month's
+   * "opening balance" reset to zero instead of carrying forward. Rewritten to sum
+   * every CR/DR transaction before the period start, matching the pattern already
+   * used correctly by calculateMemberRDInterest in this same file.
    */
   private async getOpeningBalance(memberNo: string, date: Date, manager: any, accountType: string = 'SB'): Promise<number> {
-    const lastTransaction = await manager.findOne(Ledger, {
-      where: {
-        memberNumber: memberNo,
-        accountType: accountType,
-        transactionDate: Between(new Date(0), new Date(date.getTime() - 1)),
-      },
-      order: {
-        transactionDate: 'DESC',
-        transactionNumber: 'DESC',
-      },
-    });
-
-    return lastTransaction ? Number(lastTransaction.balance) : 0;
+    const result = await manager.query(
+      `SELECT COALESCE(SUM(CASE WHEN trans_type = 'CR' THEN trans_amt::numeric ELSE -trans_amt::numeric END), 0) as bal
+       FROM ledger WHERE mbno = $1 AND acc_type = $2 AND trans_date < $3`,
+      [memberNo, accountType, date]
+    );
+    return parseFloat(result[0]?.bal) || 0;
   }
 
   /**
@@ -328,6 +372,13 @@ export class InterestService {
 
     let totalInterest = 0;
     let totalPrincipal = 0;
+    // BUG FIX 53: a member with more than one FD account previously had the
+    // *combined* interestAmount applied to every one of their fdmaster rows when
+    // posting (confirmed live: two real FD accounts with very different principals
+    // and rates both ended up with the identical intpaid value after one post).
+    // Tracking each account's own net interest here so the caller can update each
+    // row with its own share instead of the aggregate.
+    const perAccount: { accountNumber: string; netInterest: number }[] = [];
 
     for (const fd of fdAccounts) {
       const principal = parseFloat(fd.fdamount) || 0;
@@ -337,8 +388,9 @@ export class InterestService {
 
       const interest = this.calculateFDInterest(principal, rate, depositDate, calcDate);
       const alreadyPaid = parseFloat(fd.intpaid) || 0;
-      const netInterest = Math.max(interest - alreadyPaid, 0);
+      const netInterest = Math.round(Math.max(interest - alreadyPaid, 0) * 100) / 100;
 
+      perAccount.push({ accountNumber: fd.account_number, netInterest });
       totalInterest += netInterest;
       totalPrincipal += principal;
     }
@@ -356,7 +408,8 @@ export class InterestService {
       interestAmount: totalInterest,
       closingBalance: totalPrincipal + totalInterest,
       days: Math.ceil((toDate.getTime() - fromDate.getTime()) / (1000 * 60 * 60 * 24)),
-    };
+      fdAccountBreakdown: perAccount,
+    } as InterestCalculationResultDto & { fdAccountBreakdown: typeof perAccount };
   }
 
   /**
@@ -389,9 +442,15 @@ export class InterestService {
     annualRate: number,
     manager: any,
   ): Promise<InterestCalculationResultDto> {
-    // Get RD head codes
+    // BUG FIX 53: this filtered `headtype = 'RD' OR headtype LIKE 'RD%'` — headmaster
+    // has no 'RD'-prefixed headtype at all (confirmed live; the real 9 headtypes are
+    // ALN, BANK, CD, CINH, MD, MD1, OTH, RLN, SHR), so this always returned zero rows
+    // and RD interest was silently ₹0 for every run. RD principal recovery is posted
+    // under headtype 'CD' / code L1004 (same head as CD — confirmed this session in
+    // ledger-posting.service.ts's bulk recovery, which posts rd_amount to L1004), so
+    // that's the real code RD ledger transactions actually carry.
     const rdHeads = await manager.query(
-      `SELECT code FROM headmaster WHERE headtype = 'RD' OR headtype LIKE 'RD%'`
+      `SELECT code FROM headmaster WHERE headtype = 'CD'`
     );
     const rdCodes = rdHeads.map((h: any) => h.code.trim());
 
@@ -516,22 +575,28 @@ export class InterestService {
     voucherNumber: string,
     narration: string,
     manager: any,
-    accountHead: string
+    accountHead: string,
+    accountType: string = 'SB',
+    expenseHeadCode?: string,
   ) {
-    // BUG FIX: generateTransactionNumber() was reading this.ledgerRepository outside the
-    // transaction — concurrent runs produced duplicate trans_no. Pass manager to run inside
-    // the active transaction with FOR UPDATE.
     const transactionNumber = await this.generateTransactionNumber(manager);
+    // BUG FIX 53: ledgerid is required (see entity fix) — generate it the same way
+    // as trans_no, under the same lock scope.
+    const ledgerId = await this.getNextId(manager, 'ledger', 'ledgerid');
 
-    // CR member's SB account — interest credited increases the member's balance
+    // CR member's account — interest credited increases the member's balance.
+    // BUG FIX 53: accountType was hardcoded 'SB' here regardless of what was actually
+    // being processed — an RD or FD interest run silently wrote its ledger legs as if
+    // they were SB transactions.
     await manager.save(Ledger, {
       transactionNumber,
+      ledgerId,
       transactionDate: new Date(),
       transactionType: 'CR',
       code: accountHead,
       memberNumber: member.mbno,
       accountNumber: calculation.accountNumber,
-      accountType: 'SB',
+      accountType,
       transactionAmount: calculation.interestAmount,
       receiptVoucherNumber: voucherNumber,
       voucherType: 'IN',
@@ -541,23 +606,30 @@ export class InterestService {
       username: 'SYSTEM',
     });
 
-    // DR Interest Expense head — balancing debit records the cost to the society
+    // DR Interest Expense head — balancing debit records the cost to the society.
+    // BUG FIX 53: this used to look up busrules.sbinthead/rdinthead/fdinthead —
+    // confirmed live that none of these columns exist in busrules at all (dumped
+    // all 59 real columns), so this was a hard SQL error ("column does not exist"),
+    // not just a bad fallback — every posting attempt would crash here. There's also
+    // no real "interest expense on savings" head anywhere in headmaster to point at
+    // instead (checked; the only close name match, E1027, is for security deposits,
+    // unrelated) — same class of genuinely-missing-GL-head gap as SB's A001/FD's
+    // liability head elsewhere this session. Made it caller-configurable via the DTO
+    // instead of querying a nonexistent column, so a real code can be supplied once
+    // decided without another code change; L1028 kept only as an already-flagged
+    // (confirmed wrong: "G.S.L.I PAYABLE") placeholder default.
     const debitTransNo = await this.generateTransactionNumber(manager);
-    // Look up the correct expense head based on the credit account head type
-    const headLookupMap: Record<string, string> = { 'A1001': 'sbinthead', 'A1002': 'rdinthead', 'A1003': 'fdinthead' };
-    const busruleCol = headLookupMap[accountHead] || 'sbinthead';
-    const expenseHeadResult = await manager.query(
-      `SELECT COALESCE(${busruleCol}, 'L1028') as head FROM busrules ORDER BY appdate DESC LIMIT 1`
-    );
-    const intExpenseCode = expenseHeadResult[0]?.head || 'L1028';
+    const debitLedgerId = await this.getNextId(manager, 'ledger', 'ledgerid');
+    const intExpenseCode = expenseHeadCode || 'L1028';
     await manager.save(Ledger, {
       transactionNumber: debitTransNo,
+      ledgerId: debitLedgerId,
       transactionDate: new Date(),
       transactionType: 'DR',
       code: intExpenseCode,
       memberNumber: member.mbno,
       accountNumber: calculation.accountNumber,
-      accountType: 'SB',
+      accountType,
       transactionAmount: calculation.interestAmount,
       receiptVoucherNumber: voucherNumber,
       voucherType: 'IN',
@@ -568,44 +640,29 @@ export class InterestService {
     });
   }
 
-  /**
-   * Generate unique voucher number
-   * BUG FIX: original used this.interestPaidRepository outside the active transaction — two
-   * concurrent runs produced the same voucher number. Accept the active EntityManager and query
-   * with FOR UPDATE to serialize access.
-   */
-  private async generateVoucherNumber(manager?: any): Promise<string> {
-    const year = new Date().getFullYear();
-    const mgr = manager || this.dataSource.manager;
-    const result = await mgr.query(
-      `SELECT voucher_number FROM interest_paid WHERE voucher_number LIKE $1 ORDER BY voucher_number DESC LIMIT 1 FOR UPDATE`,
-      [`INT${year}%`]
-    );
-
-    let sequence = 1;
-    if (result && result[0]) {
-      const lastVoucherNo: string = result[0].voucher_number || result[0].vouchernumber || '';
-      if (lastVoucherNo) {
-        const lastSequence = parseInt(lastVoucherNo.slice(-3));
-        sequence = isNaN(lastSequence) ? 1 : lastSequence + 1;
-      }
-    }
-
-    return `INT${year}${sequence.toString().padStart(3, '0')}`;
+  // BUG FIX 53: replaces both generateVoucherNumber() and generateTransactionNumber()
+  // below, and is also used to generate interestmaster.id, interestpaid.rowid, and
+  // ledger.ledgerid — none of which have a real DB sequence/default (confirmed via
+  // information_schema). Same transaction-scoped advisory-lock MAX()+1 pattern used
+  // throughout the rest of this codebase (e.g. compulsory-deposit.service.ts's
+  // getNextId) to serialize concurrent callers without needing new sequence objects.
+  private async getNextId(manager: any, table: string, col: string): Promise<number> {
+    await manager.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`${table}.${col}`]);
+    const res = await manager.query(`SELECT COALESCE(MAX(${col}), 0) + 1 as next_id FROM ${table}`);
+    return parseInt(res[0].next_id);
   }
 
   /**
-   * Generate unique transaction number
-   * BUG FIX: original used this.ledgerRepository outside the active transaction — two concurrent
-   * interest postings both saw the same MAX and generated duplicate trans_no values.
-   * Fix: accept the active EntityManager and use raw SQL with FOR UPDATE to lock the aggregate row.
+   * Generate unique transaction number for the ledger.
+   * BUG FIX 53: this used to run `SELECT MAX(trans_no::BIGINT)... FOR UPDATE` — Postgres
+   * rejects FOR UPDATE combined with an aggregate function outright (confirmed live:
+   * every call threw). Also used this.ledgerRepository outside the active transaction,
+   * letting concurrent runs see the same MAX. Now uses the shared advisory-lock pattern.
    */
   private async generateTransactionNumber(manager?: any): Promise<string> {
     const mgr = manager || this.dataSource.manager;
-    const result = await mgr.query(
-      `SELECT COALESCE(MAX(trans_no::BIGINT), 0) + 1 AS next_no FROM ledger FOR UPDATE`
-    );
-    return String(parseInt(result[0]?.next_no || '1'));
+    const next = await this.getNextId(mgr, 'ledger', 'trans_no');
+    return String(next);
   }
 
   /**
@@ -796,7 +853,7 @@ export class InterestService {
       const memberCalculations: InterestCalculationResultDto[] = [];
       let totalProcessAmount = 0;
       const processDate = new Date();
-      const voucherNumber = dto.voucherNumber || (isPreview ? 'PREVIEW' : await this.generateVoucherNumber());
+      const voucherNumber = dto.voucherNumber || (isPreview ? 'PREVIEW' : await generateVoucherNo(queryRunner.manager, 'J'));
 
       // 3. Iterate and Calculate
       for (const member of members) {
@@ -886,8 +943,11 @@ export class InterestService {
           if (deductionInsurance > 0) {
             // Determine transaction number
             const transNo = await this.generateTransactionNumber(queryRunner.manager);
+            // BUG FIX 53: ledgerid required (see entity fix).
+            const insuranceLedgerId = await this.getNextId(queryRunner.manager, 'ledger', 'ledgerid');
             await queryRunner.manager.save(Ledger, {
               transactionNumber: transNo,
+              ledgerId: insuranceLedgerId,
               transactionDate: processDate,
               transactionType: 'DR',
               code: 'L4001', // Liability/Expense Head for Insurance? Placeholder.

@@ -161,7 +161,7 @@ export class ReportV2Controller {
 
     @Post('loans/new-disbursed')
     @ApiOperation({ summary: 'Get newly disbursed loans' })
-    async getNewLoanDisbursed(@Body() dto: { fromDate: string; toDate: string; loanType?: string; limit?: number; offset?: number }) {
+    async getNewLoanDisbursed(@Body() dto: { fromDate: string; toDate: string; loanType?: string; memberNo?: string; limit?: number; offset?: number }) {
         return this.loanReports.getNewLoanDisbursed(dto);
     }
 

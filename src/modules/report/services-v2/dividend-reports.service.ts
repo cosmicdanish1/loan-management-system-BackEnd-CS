@@ -311,9 +311,13 @@ export class DividendReportsService {
     const { year, type, wingNo, limit, offset } = dto;
 
     // Use interestpaid table
+    // BUG FIX: `m.mbno = ip.mbno::text` compared numeric (m.mbno) to text
+    // (ip.mbno::text) — live-confirmed crash: "operator does not exist:
+    // numeric = text", on every single call regardless of year. Both columns
+    // are numeric (confirmed via information_schema), so cast neither.
     const baseQuery = `
       FROM interestpaid ip
-      LEFT JOIN member_master m ON m.mbno = ip.mbno::text
+      LEFT JOIN member_master m ON m.mbno = ip.mbno
       LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
       WHERE EXTRACT(YEAR FROM ip.paydate) = $1
     `;

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
 /**
@@ -25,13 +25,40 @@ export class LoanSuretyService {
      * If records are missing in certain tables, it attempts to "repair" or skip gracefully.
      */
     async changeLoanSurety(caseNo: string, suretyData: { surety1: string; surety2?: string }) {
+        // 0. Fetch the loan case first (read-only) — needed for the loan amount and for the
+        // self-surety check below, before any validation or transaction runs.
+        const caseCheck = await this.dataSource.query(
+            `SELECT mbno, loancaseno, g1mbno, g2mbno FROM loan_pending WHERE loancaseno::text = $1`,
+            [caseNo]
+        );
+        if (caseCheck.length === 0) {
+            throw new BadRequestException(`Loan case ${caseNo} not found in loan_pending`);
+        }
+        const memberNo = String(caseCheck[0].mbno);
+        if (!memberNo || memberNo === 'undefined' || memberNo === 'null') {
+            throw new BadRequestException(`Invalid member number for loan case ${caseNo}`);
+        }
+
         // Validate surety members before opening a transaction
         const s1Check = await this.validateSurety(suretyData.surety1);
-        if (!s1Check.valid) throw new Error(`Surety 1: ${s1Check.message}`);
+        if (!s1Check.valid) throw new BadRequestException(`Surety 1: ${s1Check.message}`);
 
         if (suretyData.surety2) {
             const s2Check = await this.validateSurety(suretyData.surety2);
-            if (!s2Check.valid) throw new Error(`Surety 2: ${s2Check.message}`);
+            if (!s2Check.valid) throw new BadRequestException(`Surety 2: ${s2Check.message}`);
+        }
+
+        // BUG FIX 31: nothing stopped a member from guaranteeing their own loan, or from the
+        // same person filling both surety slots — confirmed live, both went through and were
+        // written to loan_pending. Either defeats the entire point of requiring a surety.
+        if (String(suretyData.surety1) === memberNo) {
+            throw new BadRequestException('Surety 1 cannot be the loan applicant themselves.');
+        }
+        if (suretyData.surety2 && String(suretyData.surety2) === memberNo) {
+            throw new BadRequestException('Surety 2 cannot be the loan applicant themselves.');
+        }
+        if (suretyData.surety2 && String(suretyData.surety1) === String(suretyData.surety2)) {
+            throw new BadRequestException('Surety 1 and Surety 2 cannot be the same member.');
         }
 
         const queryRunner = this.dataSource.createQueryRunner();
@@ -42,29 +69,7 @@ export class LoanSuretyService {
 
             this.logger.log(`Changing sureties for loan case: ${caseNo}`);
             this.logger.debug(`New Surety1: ${suretyData.surety1}, Surety2: ${suretyData.surety2 || 'none'}`);
-
-            // 1. First, fetch the loan case to get member number and verify it exists
-            const selectQuery = `
-                SELECT mbno, loancaseno, g1mbno, g2mbno
-                FROM loan_pending 
-                WHERE loancaseno::text = $1
-            `;
-
-            const selectResult = await queryRunner.query(selectQuery, [caseNo]);
-
-            if (selectResult.length === 0) {
-                throw new Error(`Loan case ${caseNo} not found in loan_pending`);
-            }
-
-            const currentData = selectResult[0];
-            const memberNo = String(currentData.mbno);
-
-            this.logger.debug(`Found loan case for member: ${memberNo}, Current G1=${currentData.g1mbno}, G2=${currentData.g2mbno}`);
-
-            // Validate we have a valid member number
-            if (!memberNo || memberNo === 'undefined' || memberNo === 'null') {
-                throw new Error(`Invalid member number for loan case ${caseNo}`);
-            }
+            this.logger.debug(`Found loan case for member: ${memberNo}, Current G1=${caseCheck[0].g1mbno}, G2=${caseCheck[0].g2mbno}`);
 
             // 2. Update loan_pending table with new guarantors
             const updateLpQuery = `
@@ -90,13 +95,23 @@ export class LoanSuretyService {
                 RETURNING mbno
             `;
 
-            const smResult = await queryRunner.query(updateSmQuery, [
+            // BUG FIX 32: `smResult.length > 0` reported `true` for updatedTables.suretymaster
+            // even when zero rows matched — confirmed live by comparing a member with no
+            // suretymaster row against one that genuinely had one; both returned `true`. TypeORM's
+            // raw query() doesn't reliably surface affected-row-count via .length here. A plain
+            // existence check beforehand is unambiguous regardless of what the driver returns.
+            const smExists = await queryRunner.query(
+                `SELECT 1 FROM suretymaster WHERE mbno = $1`, [memberNo]
+            );
+            const suretymasterHadRow = smExists.length > 0;
+
+            await queryRunner.query(updateSmQuery, [
                 suretyData.surety1,
                 suretyData.surety2 || 0,
                 memberNo
             ]);
 
-            if (smResult.length > 0) {
+            if (suretymasterHadRow) {
                 this.logger.log(`Updated suretymaster for member: ${memberNo}`);
             } else {
                 this.logger.warn(`No suretymaster record found for member: ${memberNo} (this is okay - not all loans have suretymaster entries)`);
@@ -112,7 +127,7 @@ export class LoanSuretyService {
                 loanCaseNo: caseNo,
                 updatedTables: {
                     loan_pending: true,
-                    suretymaster: smResult.length > 0
+                    suretymaster: suretymasterHadRow
                 }
             };
 

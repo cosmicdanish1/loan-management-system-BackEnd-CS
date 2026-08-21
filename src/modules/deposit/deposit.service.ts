@@ -93,21 +93,53 @@ export class DepositService {
     });
   }
 
-  async findDepositsByMemberNo(memberNo: string): Promise<{ fixedDeposits: FixedDeposit[], recurringDeposits: RecurringDeposit[] }> {
-    const member = await this.memberRepository.findOne({ where: { memberNumber: memberNo } });
-    if (!member) {
+  async findDepositsByMemberNo(memberNo: string): Promise<{ fixedDeposits: any[], recurringDeposits: RecurringDeposit[] }> {
+    // BUG FIX: this used to look the member up in the `Member`/`FixedDeposit`
+    // TypeORM entities, a disconnected "new system" scaffold with zero real
+    // data — every actual FD account lives in fdmaster, keyed by mbno, with
+    // account_number (not a numeric id) as the natural key.
+    const memberRows = await this.dataSource.query(
+      `SELECT mbno FROM member_master WHERE CAST(mbno AS text) = $1`,
+      [memberNo],
+    );
+    if (memberRows.length === 0) {
       throw new NotFoundException(`Member with number ${memberNo} not found`);
     }
 
-    const fixedDeposits = await this.fixedDepositRepository.find({
-      where: { memberId: member.id },
-      order: { createdAt: 'DESC' },
-    });
+    const fdRows = await this.dataSource.query(
+      `SELECT account_number, fdamount, rate, depdate, matdate, matamount, certno,
+         -- depperiod is unreliable (documented in deposit-reports.service.ts —
+         -- reads plain months on some accounts, years on others); tenure is
+         -- derived from the account's own dates instead.
+         CASE WHEN matdate IS NOT NULL AND depdate IS NOT NULL
+              THEN EXTRACT(YEAR FROM AGE(matdate, depdate)) * 12
+                 + EXTRACT(MONTH FROM AGE(matdate, depdate))
+              ELSE COALESCE(depperiod, 0) END as tenure_months
+       FROM fdmaster
+       WHERE mbno = $1 AND fdrdflag = 'F' AND status = '0'
+       ORDER BY depdate DESC`,
+      [memberNo],
+    );
 
-    const recurringDeposits = await this.recurringDepositRepository.find({
-      where: { memberId: member.id },
-      order: { createdAt: 'DESC' },
-    });
+    const fixedDeposits = fdRows.map((r: any) => ({
+      id: r.account_number,
+      accountNumber: r.account_number,
+      principalAmount: parseFloat(r.fdamount) || 0,
+      interestRate: parseFloat(r.rate) || 0,
+      depositDate: r.depdate,
+      maturityDate: r.matdate,
+      maturityAmount: parseFloat(r.matamount) || 0,
+      tenureMonths: parseInt(r.tenure_months) || 0,
+      certificateNo: r.certno,
+    }));
+
+    const member = await this.memberRepository.findOne({ where: { memberNumber: memberNo } });
+    const recurringDeposits = member
+      ? await this.recurringDepositRepository.find({
+        where: { memberId: member.id },
+        order: { createdAt: 'DESC' },
+      })
+      : [];
 
     return { fixedDeposits, recurringDeposits };
   }

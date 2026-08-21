@@ -223,8 +223,44 @@ export class DayEndService {
       `);
 
       const currentRow = workingDateResult[0] || lastCompletedResult[0];
-      const workingDate = currentRow ? new Date(currentRow.working_date) : new Date();
+
+      // BUG FIX: getworkingdate starts completely empty in a fresh install (confirmed
+      // live) and nothing else can create the first row — executeDayEndProcess() only
+      // ever inserts the *next* day, requiring a current row to already exist and
+      // successfully UPDATE first (same genesis gap as yearend/Financial Year, fixed
+      // earlier this session). Previously this silently faked "today" with all-zero
+      // vouchers, giving no indication anything was wrong — Day-End would then fail
+      // at its very last step (the guarded UPDATE-affected-zero-rows check) if actually
+      // run. Now surfaced explicitly so the UI can prompt for a real initial date
+      // instead of pretending everything is fine.
+      if (!currentRow) {
+        return {
+          date: new Date().toISOString().split('T')[0],
+          openingBalance: 0,
+          totalCredit: 0,
+          totalDebit: 0,
+          closingBalance: 0,
+          paymentVouchers: 0,
+          receiptVouchers: 0,
+          journalVouchers: 0,
+          dayendFlag: 'N',
+          pendingLoans: 0,
+          noWorkingDateSet: true,
+        };
+      }
+
+      const workingDate = new Date(currentRow.working_date);
       workingDate.setHours(0, 0, 0, 0);
+
+      // BUG FIX: `workingDate.toISOString()` (UTC) was used to build the display
+      // string, but pg-types parses a date-only column as LOCAL midnight (confirmed
+      // via node diagnostic: `getDate('2026-08-17')` → local Date, not UTC) — the
+      // same convention TypeORM's DateUtils and pg's own param serializer both use
+      // for `date` columns. On this server (IST, UTC+5:30) converting that local
+      // midnight to UTC rolls it back to the previous calendar day: DB held
+      // 2026-08-17, this returned 2026-08-16. Fixed by reading the date with LOCAL
+      // getters, matching every other layer that touches this Date object.
+      const workingDateStr = `${workingDate.getFullYear()}-${String(workingDate.getMonth() + 1).padStart(2, '0')}-${String(workingDate.getDate()).padStart(2, '0')}`;
 
       const paymentVouchers = currentRow?.payment_voucher || 0;
       const receiptVouchers = currentRow?.receipt_voucher || 0;
@@ -242,7 +278,7 @@ export class DayEndService {
       const pendingLoans = parseInt(pendingLoansResult[0]?.cnt || '0');
 
       return {
-        date: workingDate.toISOString().split('T')[0],
+        date: workingDateStr,
         openingBalance: Number(openingBalance.toFixed(2)),
         totalCredit: Number(totalCredit.toFixed(2)),
         totalDebit: Number(totalDebit.toFixed(2)),
@@ -257,6 +293,54 @@ export class DayEndService {
       this.logger.error('Error fetching current day-end summary:', error);
       throw error;
     }
+  }
+
+  /**
+   * Creates the genesis getworkingdate row — the only bootstrap path, since
+   * every other write to this table requires a current row to already exist.
+   * Refuses if any row already exists, to avoid double-initializing.
+   */
+  async initializeWorkingDate(workingDate: string): Promise<{ message: string }> {
+    const existing = await this.dataSource.query(`SELECT 1 FROM getworkingdate LIMIT 1`);
+    if (existing.length > 0) {
+      throw new BadRequestException('getworkingdate already has data — cannot re-initialize.');
+    }
+
+    // BUG FIX: `new Date(str); date.setHours(0,0,0,0)` is the pattern used
+    // throughout the rest of this file — confirmed live to silently shift the
+    // date back a day on this server (IST, UTC+5:30): setHours() re-anchors to
+    // LOCAL midnight, but new Date('YYYY-MM-DD') parses as UTC midnight, so the
+    // underlying instant moves to the previous day's 18:30 UTC. Avoided here by
+    // never constructing a JS Date at all — validate the string shape and let
+    // Postgres parse the literal directly as a calendar date.
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(workingDate)) {
+      throw new BadRequestException('Invalid working date — expected YYYY-MM-DD.');
+    }
+
+    await this.dataSource.query(
+      `INSERT INTO getworkingdate
+        (working_date, payment_voucher, receipt_voucher, journal_voucher, dayend_flag, updategl_flag)
+       VALUES ($1::date, 0, 0, 0, 'N', 'N')`,
+      [workingDate],
+    );
+
+    this.logger.log(`getworkingdate initialized with working date ${workingDate}`);
+    return { message: `Working date initialized to ${workingDate}.` };
+  }
+
+  /**
+   * Corrects a mis-set initial working date (e.g. fat-fingered on genesis
+   * setup) — refuses once any real day-end has ever completed, to avoid
+   * resetting a working table with real transaction history behind it.
+   */
+  async resetWorkingDate(): Promise<{ message: string }> {
+    const completed = await this.dayEndProcessRepository.count({ where: { status: DayEndStatus.COMPLETED } });
+    if (completed > 0) {
+      throw new BadRequestException('Cannot reset — day-end has already been completed at least once.');
+    }
+    await this.dataSource.query(`DELETE FROM getworkingdate`);
+    this.logger.log('getworkingdate reset (no completed day-end existed)');
+    return { message: 'Working date cleared. Set a new one to continue.' };
   }
 
   private async calculateOpeningBalance(date: Date): Promise<number> {
@@ -514,10 +598,22 @@ export class DayEndService {
       loansProcessed: 0,
       depositsProcessed: 0,
       totalInterestPosted: 0,
+      rdAccountsProcessed: 0,
+      totalRdInterestAccrued: 0,
     };
 
-    // FIX BUG 3: Read loans INSIDE the transaction via queryRunner.manager
-    // to prevent dirty reads from concurrent processes.
+    // FLAGGED, DELIBERATELY NOT FIXED: `LoanAccount` (table `loan_accounts`) is
+    // the same disconnected demo entity fixed for validateData() above — zero
+    // real rows, so this block is currently a silent no-op for every real loan.
+    // Unlike that read-only fix, repointing this one to `loan_master` is NOT
+    // safe to do without a decision: this block *writes* — it compounds daily
+    // interest directly onto loan.outstandingBalance and creates an
+    // InterestPosting row. This session's Loan Testing established that real
+    // loan interest is already embedded in the equalised EMI schedule at
+    // disbursement time (see project_loan_testing) — layering a second, daily
+    // compounding accrual on top of that here would double-count interest into
+    // real loan balances if this ever actually ran. Left inert on purpose
+    // pending a decision on whether Day-End should touch loan interest at all.
     const activeLoans = await queryRunner.manager.find(LoanAccount, {
       where: { status: 'ACTIVE' },
       relations: ['member'],
@@ -560,43 +656,72 @@ export class DayEndService {
       }
     }
 
-    // FIX BUG 3: Read deposits INSIDE the transaction via queryRunner.manager
-    const activeDeposits = await queryRunner.manager.find(FixedDeposit, {
-      where: { status: 'ACTIVE' },
-      relations: ['member'],
-    });
+    // BUG FIX 44: this read the `FixedDeposit` TypeORM entity (`fixed_deposits`
+    // table) — a disconnected demo table with zero real rows, ever. Every real FD
+    // account is created straight into `fdmaster` by FixedDepositService, so this
+    // block could never find a real FD to accrue interest on (confirmed root cause
+    // of "FD day-end broken"). RD's block just below was already corrected to read
+    // fdmaster in an earlier session; FD's just never got the same fix. Mirrors
+    // that RD block: accrual only (onto fdmaster.interestbalance), not yet posted
+    // to the ledger — same deliberate incremental scope as RD.
+    const activeFDs = await queryRunner.query(`
+      -- BUG FIX 45: '0' is the real active-status convention, confirmed against
+      -- utilities.service.ts (the code the real UI calls) — 'A' was a wrong
+      -- assumption copied from fixed-deposit.service.ts's own dead-code path.
+      SELECT account_number, rate, COALESCE(fdamount, 0) AS fdamount
+      FROM fdmaster
+      WHERE fdrdflag = 'F' AND status = '0'
+    `);
 
-    for (const deposit of activeDeposits) {
-      const principal = Number(deposit.principalAmount);
-      const rate = Number(deposit.interestRate);
+    for (const fd of activeFDs) {
+      const principal = Number(fd.fdamount);
+      const rate = Number(fd.rate);
       const dailyInterestRate = rate / 365 / 100;
       const interestAmount =
         Math.round(principal * dailyInterestRate * 100000) / 100000;
+      if (interestAmount <= 0) continue;
 
-      const interestPosting = this.interestPostingRepository.create({
-        memberId: deposit.member.id,
-        accountId: deposit.id,
-        accountNumber: deposit.accountNumber,
-        type: InterestPostingType.DEPOSIT_INTEREST,
-        principalAmount: principal,
-        interestRate: rate,
-        interestAmount,
-        calculationDate: processDate,
-        postingDate: processDate,
-        status: InterestPostingStatus.POSTED,
-        remarks: 'Daily interest calculation',
-      });
-
-      await queryRunner.manager.save(InterestPosting, interestPosting);
-
-      // FIX BUG 6: Update deposit's accrued interest — was missing entirely
-      deposit.interestAccrued =
-        Number(deposit.interestAccrued) + interestAmount;
-      await queryRunner.manager.save(FixedDeposit, deposit);
+      await queryRunner.query(
+        `UPDATE fdmaster SET interestbalance = COALESCE(interestbalance, 0) + $1 WHERE account_number = $2`,
+        [interestAmount, fd.account_number],
+      );
 
       results.depositsProcessed++;
       results.totalInterestPosted =
         Number(results.totalInterestPosted) + interestAmount;
+    }
+
+    // RD interest accrual. RD accounts are NOT in the `recurring_deposits`
+    // table (nothing in the app writes there) — the real accounts live in
+    // `fdmaster` with fdrdflag='R', same as FixedDeposit's legacy counterpart.
+    // This only accrues onto fdmaster.interestbalance; it does not post to the
+    // ledger. Once the accrual numbers have been validated, posting it into
+    // the books for real can reuse the same CR/DR pattern as
+    // UtilitiesService.postFdInterestVoucher()/payFdInterest() for FD.
+    const activeRdAccounts = await queryRunner.query(`
+      SELECT account_number, rate, COALESCE(openbal, 0) AS openbal
+      FROM fdmaster
+      WHERE fdrdflag = 'R' AND (status = '0' OR status IS NULL)
+    `);
+
+    for (const rd of activeRdAccounts) {
+      const principal = Number(rd.openbal);
+      const rate = Number(rd.rate);
+      if (principal <= 0 || rate <= 0) continue;
+
+      const dailyInterestRate = rate / 365 / 100;
+      const interestAmount =
+        Math.round(principal * dailyInterestRate * 100000) / 100000;
+      if (interestAmount <= 0) continue;
+
+      await queryRunner.query(
+        `UPDATE fdmaster SET interestbalance = COALESCE(interestbalance, 0) + $1 WHERE account_number = $2`,
+        [interestAmount, rd.account_number],
+      );
+
+      results.rdAccountsProcessed++;
+      results.totalRdInterestAccrued =
+        Number(results.totalRdInterestAccrued) + interestAmount;
     }
 
     return results;
@@ -632,32 +757,41 @@ export class DayEndService {
       warnings: [] as string[],
     };
 
-    const loans = await queryRunner.manager.find(LoanAccount, {
-      where: { status: 'ACTIVE' },
-    });
+    // BUG FIX: `LoanAccount` (table `loan_accounts`) is a disconnected demo
+    // entity with zero real rows — confirmed live. Every real loan lives in
+    // `loan_master` (4 active loans right now), so this check was silently a
+    // no-op for every real loan, every day. Read-only, so safe to repoint —
+    // unlike the interest-accrual block below, this never touches balances.
+    const loans = await queryRunner.query(
+      `SELECT loancaseno, balance FROM loan_master WHERE balance > 0`,
+    );
 
     for (const loan of loans) {
       validationResults.totalChecks++;
-      if (loan.outstandingBalance < 0) {
+      if (Number(loan.balance) < 0) {
         validationResults.failedChecks++;
         validationResults.warnings.push(
-          `Loan ${loan.accountNumber} has negative outstanding balance`,
+          `Loan ${loan.loancaseno} has negative outstanding balance`,
         );
       } else {
         validationResults.passedChecks++;
       }
     }
 
-    const deposits = await queryRunner.manager.find(FixedDeposit, {
-      where: { status: 'ACTIVE' },
-    });
+    // BUG FIX 44: same disconnected-entity issue as calculateInterest above — this
+    // validated the `fixed_deposits` table (always empty) instead of the real
+    // `fdmaster` accounts.
+    // BUG FIX 45: same wrong 'A' assumption as calculateInterest above — '0' is real.
+    const deposits = await queryRunner.query(`
+      SELECT account_number, fdamount FROM fdmaster WHERE fdrdflag = 'F' AND status = '0'
+    `);
 
     for (const deposit of deposits) {
       validationResults.totalChecks++;
-      if (deposit.principalAmount <= 0) {
+      if (Number(deposit.fdamount) <= 0) {
         validationResults.failedChecks++;
         validationResults.warnings.push(
-          `Deposit ${deposit.accountNumber} has invalid principal amount`,
+          `Deposit ${deposit.account_number} has invalid principal amount`,
         );
       } else {
         validationResults.passedChecks++;

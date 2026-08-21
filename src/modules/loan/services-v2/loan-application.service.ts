@@ -3,6 +3,7 @@ import { DataSource } from 'typeorm';
 import { SequenceGeneratorService } from '../../shared/services';
 import { SystemConfigService } from '../../admin/services/system-config.service';
 import { LoanEligibilityService } from './loan-eligibility.service';
+import { LoanSuretyService } from './loan-surety.service';
 import { autoQueueNotification } from '../../shared/utils/auto-notify';
 
 /**
@@ -20,6 +21,7 @@ export class LoanApplicationService {
         private readonly sequenceGenerator: SequenceGeneratorService,
         private readonly systemConfigService: SystemConfigService,
         private readonly loanEligibilityService: LoanEligibilityService,
+        private readonly loanSuretyService: LoanSuretyService,
     ) { }
 
     /**
@@ -80,6 +82,11 @@ export class LoanApplicationService {
 
         // --- 1. Eligibility check (outside transaction — read-only) ---
         const amount = parseFloat(loanData.loanAmount || loanData.appliedAmount || 0);
+        // BUG FIX 27: nothing rejected a zero or negative loan amount — it would pass every
+        // downstream check (trivially under any max limit) and create a real loan_pending row.
+        if (!amount || amount <= 0) {
+            throw new BadRequestException('Loan amount must be greater than zero.');
+        }
         const installments = loanData.noOfInstallments || 60;
         await this.validateLoanEligibility(loanData.memberNo, amount, installments, loanData.loanType);
 
@@ -110,6 +117,18 @@ export class LoanApplicationService {
         // Regular loan (RLN) requires at least 1 surety
         if (mappedLoanType === 'RLN' && !g1mbno) {
             throw new Error('Regular Loan requires at least 1 surety/security member');
+        }
+
+        // BUG FIX 28: surety members were never checked to exist or be active — the exact
+        // validation for this already exists and is proven working in LoanSuretyService
+        // (used by Change Loan Surety), just never called from here.
+        if (g1mbno) {
+            const s1Check = await this.loanSuretyService.validateSurety(String(g1mbno));
+            if (!s1Check.valid) throw new BadRequestException(`Surety 1: ${s1Check.message}`);
+        }
+        if (g2mbno) {
+            const s2Check = await this.loanSuretyService.validateSurety(String(g2mbno));
+            if (!s2Check.valid) throw new BadRequestException(`Surety 2: ${s2Check.message}`);
         }
 
         // --- 4. Sequence generation (before transaction so gaps are predictable) ---

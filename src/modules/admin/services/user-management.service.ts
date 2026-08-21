@@ -8,8 +8,8 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindManyOptions, ILike } from 'typeorm';
-import { User, UserRole, UserPermission } from '../../auth/entities/user.entity';
+import { Repository, ILike, In } from 'typeorm';
+import { UserRole, UserPermission } from '../../auth/entities/user.entity';
 import { UserMaster, UserLevelMaster, LoginTime } from '../../auth/entities';
 import { UserActivity } from '../entities/user-activity.entity';
 import {
@@ -23,15 +23,17 @@ import {
   UpdateUserRoleDto,
 } from '../dto';
 import { UserResponseDto } from '../../auth/dto';
-import * as bcrypt from 'bcrypt';
+import { roleFromLegacyLevel } from '../../auth/utils';
 
+// usermaster is the single source of truth for user management — the separate
+// modern `users` table it used to sync with (best-effort, via try/catch) has
+// been retired: it had zero real accounts, since real login always checked
+// usermaster first anyway. `id` everywhere below is usermaster.userid.
 @Injectable()
 export class UserManagementService implements OnModuleInit {
   private readonly logger = new Logger(UserManagementService.name);
 
   constructor(
-    @InjectRepository(User)
-    private userRepository: Repository<User>,
     @InjectRepository(UserActivity)
     private userActivityRepository: Repository<UserActivity>,
     @InjectRepository(UserMaster)
@@ -50,7 +52,7 @@ export class UserManagementService implements OnModuleInit {
     try {
       // Increase column sizes in legacy usermaster to accommodate modern hashes/long usernames
       await this.userMasterRepository.query(`
-        ALTER TABLE "usermaster" 
+        ALTER TABLE "usermaster"
         ALTER COLUMN "susername" TYPE varchar(50),
         ALTER COLUMN "spassword" TYPE varchar(255)
       `);
@@ -59,105 +61,147 @@ export class UserManagementService implements OnModuleInit {
       // If column doesn't exist or already updated, this might fail silently which is fine
       this.logger.log(`Legacy usermaster schema check/update skipped: ${err.message}`);
     }
+
+    try {
+      // usermaster is now the single source of truth for user management —
+      // these fields used to live only on the separate modern `users` table
+      // (which had zero real accounts; every real login already went through
+      // usermaster). Idempotent: IF NOT EXISTS makes this safe to run on every boot.
+      await this.userMasterRepository.query(`
+        ALTER TABLE "usermaster"
+        ADD COLUMN IF NOT EXISTS "email" varchar(100),
+        ADD COLUMN IF NOT EXISTS "first_name" varchar(50),
+        ADD COLUMN IF NOT EXISTS "last_name" varchar(50),
+        ADD COLUMN IF NOT EXISTS "avatar" text,
+        ADD COLUMN IF NOT EXISTS "permissions" text,
+        ADD COLUMN IF NOT EXISTS "updated_at" timestamp
+      `);
+      this.logger.log('Successfully ensured usermaster has modern user-management columns.');
+    } catch (err) {
+      this.logger.log(`usermaster modern-columns check/update skipped: ${err.message}`);
+    }
+
+    try {
+      // user_preferences had a real FK constraint into the modern `users`
+      // table (ON DELETE CASCADE) — blocks dropping that table entirely, and
+      // was never actually correct: userId is populated from req.user.id on
+      // the real login path, which is usermaster.userid, not users.id.
+      await this.userMasterRepository.query(`
+        ALTER TABLE "user_preferences"
+        DROP CONSTRAINT IF EXISTS "FK_user_preferences_users"
+      `);
+      this.logger.log('Successfully dropped stale user_preferences -> users FK constraint.');
+    } catch (err) {
+      this.logger.log(`user_preferences FK constraint drop skipped: ${err.message}`);
+    }
+
+    try {
+      // The modern `users` table has been fully retired — usermaster is now
+      // the single source of truth (see createUser/updateUser/findAllUsers
+      // etc. above). Nothing in the codebase queries `users` anymore and no
+      // other table has a live FK into it (verified). Safe to drop.
+      await this.userMasterRepository.query(`DROP TABLE IF EXISTS "users"`);
+      this.logger.log('Successfully dropped retired "users" table.');
+    } catch (err) {
+      this.logger.log(`"users" table drop skipped: ${err.message}`);
+    }
+  }
+
+  /**
+   * Finds the legacy userlevelmaster row matching a modern role string
+   * ('branch_manager'), normalizing for the format difference against real
+   * legacy names ('BRANCH MANAGER'). Mints a genuinely new id (real
+   * MAX(id)+1, never a hardcoded/colliding one) if no legacy level exists yet
+   * for this role — e.g. MANAGER/ACCOUNTANT/LOAN_OFFICER, which exist in the
+   * modern UserRole enum but have no legacy equivalent.
+   */
+  private async resolveOrCreateUserLevel(role: string): Promise<UserLevelMaster> {
+    const normalizedRole = role.replace(/_/g, ' ').toUpperCase();
+    let userLevel = await this.userLevelMasterRepository
+      .createQueryBuilder('ul')
+      .where(`UPPER(REPLACE(ul.userlevel, '_', ' ')) = :role`, { role: normalizedRole })
+      .getOne();
+
+    if (!userLevel) {
+      const existingLevels = await this.userLevelMasterRepository.find({ order: { userlevelid: 'DESC' }, take: 1 });
+      const nextId = existingLevels.length > 0 ? existingLevels[0].userlevelid + 1 : 0;
+      userLevel = this.userLevelMasterRepository.create({ userlevelid: nextId, userlevel: role });
+      await this.userLevelMasterRepository.save(userLevel);
+    }
+
+    return userLevel;
+  }
+
+  private async countUsersByRole(role: UserRole, activeOnly: boolean): Promise<number> {
+    const normalizedRole = role.replace(/_/g, ' ').toUpperCase();
+    const qb = this.userMasterRepository
+      .createQueryBuilder('um')
+      .innerJoin('um.userLevel', 'ul')
+      .where(`UPPER(REPLACE(ul.userlevel, '_', ' ')) = :role`, { role: normalizedRole });
+    if (activeOnly) qb.andWhere(`um.enableDisable = 'E'`);
+    return qb.getCount();
   }
 
   async createUser(createUserDto: CreateUserDto): Promise<UserResponseDto> {
-    // Check if username already exists
-    const existingUsername = await this.userRepository.findOne({
-      where: { username: createUserDto.username },
+    const existingUsername = await this.userMasterRepository.findOne({
+      where: { susername: createUserDto.username },
     });
-
     if (existingUsername) {
       throw new ConflictException('Username already exists');
     }
 
-    // Check if email already exists
-    const existingEmail = await this.userRepository.findOne({
-      where: { email: createUserDto.email },
-    });
-
-    if (existingEmail) {
-      throw new ConflictException('Email already exists');
+    if (createUserDto.email) {
+      const existingEmail = await this.userMasterRepository.findOne({
+        where: { email: createUserDto.email },
+      });
+      if (existingEmail) {
+        throw new ConflictException('Email already exists');
+      }
     }
 
-    // Set default permissions if not provided
     const permissions = createUserDto.permissions || this.getDefaultPermissions(createUserDto.role);
+    const userLevel = await this.resolveOrCreateUserLevel(createUserDto.role);
 
-    // Find the next available ID manually (fallback for schemas without auto-increment)
-    const lastUser = await this.userRepository.find({
-      order: { id: 'DESC' } as any,
-      take: 1
-    });
-    const nextId = lastUser.length > 0 ? lastUser[0].id + 1 : 1;
+    // Real next id (matches the userlevelmaster pattern above) — no separate
+    // id space to keep in sync with anymore now that usermaster is the only table.
+    const lastUser = await this.userMasterRepository.find({ order: { userid: 'DESC' } as any, take: 1 });
+    const nextId = lastUser.length > 0 ? lastUser[0].userid + 1 : 1;
 
-    // Create new user in modern table
-    const user = this.userRepository.create({
-      ...createUserDto,
-      id: nextId,
+    const userMaster = this.userMasterRepository.create({
+      userid: nextId,
+      susername: createUserDto.username,
+      spassword: createUserDto.password,
+      userlevelid: userLevel.userlevelid,
+      userLevel,
+      enableDisable: createUserDto.isActive === false ? 'D' : 'E',
+      loginStatus: 'N',
+      passTransactionFlag: 'Y',
+      dateOfCreation: new Date(),
+      email: createUserDto.email,
+      firstName: createUserDto.firstName,
+      lastName: createUserDto.lastName,
+      avatar: createUserDto.avatar,
       permissions,
     });
+    const saved = await this.userMasterRepository.save(userMaster);
 
-    const savedUser = await this.userRepository.save(user);
-
-    // SYNCHRONIZATION: Create in legacy UserMaster table
+    // Populate userrights from userleveldefaultrights for this user level
     try {
-      // Find or create appropriate user level
-      let userLevel = await this.userLevelMasterRepository.findOne({
-        where: { userlevel: createUserDto.role }
-      });
-
-      if (!userLevel) {
-        // Fallback or create default levels if missing
-        const levelId = this.getLegacyLevelId(createUserDto.role);
-        userLevel = this.userLevelMasterRepository.create({
-          userlevelid: levelId,
-          userlevel: createUserDto.role
-        });
-        await this.userLevelMasterRepository.save(userLevel);
-      }
-
-      const userMaster = this.userMasterRepository.create({
-        userid: savedUser.id,
-        susername: createUserDto.username,
-        spassword: createUserDto.password,
-        userlevelid: userLevel.userlevelid,
-        enableDisable: 'E',
-        loginStatus: 'N',
-        passTransactionFlag: 'Y',
-        dateOfCreation: new Date(),
-      });
-      await this.userMasterRepository.save(userMaster);
-
-      // Populate userrights from userleveldefaultrights for this user level
       const defaultRights = await this.userMasterRepository.query(
         `SELECT menuid FROM userleveldefaultrights WHERE userlevelid = $1`,
-        [userLevel.userlevelid]
+        [userLevel.userlevelid],
       );
       if (defaultRights.length > 0) {
-        const values = defaultRights.map((r: any) => `(${savedUser.id}, ${r.menuid})`).join(',');
+        const values = defaultRights.map((r: any) => `(${saved.userid}, ${r.menuid})`).join(',');
         await this.userMasterRepository.query(
-          `INSERT INTO userrights (userid, menuid) VALUES ${values} ON CONFLICT DO NOTHING`
+          `INSERT INTO userrights (userid, menuid) VALUES ${values} ON CONFLICT DO NOTHING`,
         );
       }
     } catch (err) {
-      this.logger.error(`Failed to sync legacy UserMaster: ${err.message}`);
+      this.logger.error(`Failed to populate default rights for new user: ${err.message}`);
     }
 
-    return this.mapUserToResponseDto(savedUser);
-  }
-
-  private getLegacyLevelId(role: UserRole): number {
-    switch (role) {
-      case UserRole.SYSTEM: return 0;
-      case UserRole.ADMIN: return 1;
-      case UserRole.BRANCH_MANAGER: return 2;
-      case UserRole.OFFICER: return 3;
-      case UserRole.PASSING_OFFICER: return 4;
-      case UserRole.AUDITOR: return 6;
-      case UserRole.CASHIER: return 7;
-      case UserRole.USER: return 8;
-      default: return 1;
-    }
+    return this.mapUserMasterToResponseDto(saved);
   }
 
   async findAllUsers(
@@ -165,6 +209,7 @@ export class UserManagementService implements OnModuleInit {
     limit: number = 10,
     role?: UserRole,
     isActive?: boolean,
+    username?: string,
   ): Promise<{
     users: UserResponseDto[];
     total: number;
@@ -175,147 +220,100 @@ export class UserManagementService implements OnModuleInit {
     const p = Number(page) || 1;
     const l = Number(limit) || 10;
 
-    const options: FindManyOptions<User> = {
-      skip: (p - 1) * l,
-      take: l,
-      order: { createdAt: 'DESC' },
-    };
+    const qb = this.userMasterRepository
+      .createQueryBuilder('um')
+      .leftJoinAndSelect('um.userLevel', 'ul')
+      .orderBy('um.dateOfCreation', 'DESC', 'NULLS LAST')
+      .skip((p - 1) * l)
+      .take(l);
 
-    const where: any = {};
-    if (role) where.role = role;
-    if (isActive !== undefined) where.isActive = isActive;
-
-    if (Object.keys(where).length > 0) {
-      options.where = where;
+    if (username) qb.andWhere('um.susername ILIKE :username', { username: `%${username}%` });
+    if (isActive !== undefined) qb.andWhere('um.enableDisable = :ed', { ed: isActive ? 'E' : 'D' });
+    if (role) {
+      const normalizedRole = role.replace(/_/g, ' ').toUpperCase();
+      qb.andWhere(`UPPER(REPLACE(ul.userlevel, '_', ' ')) = :role`, { role: normalizedRole });
     }
 
-    const [users, total] = await this.userRepository.findAndCount(options);
+    const [users, total] = await qb.getManyAndCount();
 
     return {
-      users: users.map(user => this.mapUserToResponseDto(user)),
+      users: users.map(user => this.mapUserMasterToResponseDto(user)),
       total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
+      page: p,
+      limit: l,
+      totalPages: Math.ceil(total / l),
     };
   }
 
   async findUserById(id: number): Promise<UserResponseDto> {
-    const user = await this.userRepository.findOne({
-      where: { id },
-    });
-
-    if (!user) {
+    const userMaster = await this.userMasterRepository.findOne({ where: { userid: id } });
+    if (!userMaster) {
       throw new NotFoundException('User not found');
     }
-
-    return this.mapUserToResponseDto(user);
+    return this.mapUserMasterToResponseDto(userMaster);
   }
 
   async updateUser(id: number, updateUserDto: UpdateUserDto): Promise<UserResponseDto> {
-    const user = await this.userRepository.findOne({
-      where: { id },
-    });
-
-    if (!user) {
+    const userMaster = await this.userMasterRepository.findOne({ where: { userid: id } });
+    if (!userMaster) {
       throw new NotFoundException('User not found');
     }
 
-    // Check if email is being updated and already exists
-    if (updateUserDto.email && updateUserDto.email !== user.email) {
-      const existingEmail = await this.userRepository.findOne({
-        where: { email: updateUserDto.email },
-      });
-
+    if (updateUserDto.email && updateUserDto.email !== userMaster.email) {
+      const existingEmail = await this.userMasterRepository.findOne({ where: { email: updateUserDto.email } });
       if (existingEmail) {
         throw new ConflictException('Email already exists');
       }
     }
 
-    // Check if username is being updated and already exists
-    if (updateUserDto.username && updateUserDto.username !== user.username) {
-      const existingUsername = await this.userRepository.findOne({
-        where: { username: updateUserDto.username },
-      });
-
+    if (updateUserDto.username && updateUserDto.username !== userMaster.susername) {
+      const existingUsername = await this.userMasterRepository.findOne({ where: { susername: updateUserDto.username } });
       if (existingUsername) {
         throw new ConflictException('Username already exists');
       }
     }
 
-    // If role is being updated, set default permissions for new role
-    if (updateUserDto.role && updateUserDto.role !== user.role) {
-      if (!updateUserDto.permissions) {
-        updateUserDto.permissions = this.getDefaultPermissions(updateUserDto.role);
-      }
+    if (updateUserDto.username) userMaster.susername = updateUserDto.username;
+    if (updateUserDto.password) userMaster.spassword = updateUserDto.password;
+    if (updateUserDto.email !== undefined) userMaster.email = updateUserDto.email;
+    if (updateUserDto.firstName !== undefined) userMaster.firstName = updateUserDto.firstName;
+    if (updateUserDto.lastName !== undefined) userMaster.lastName = updateUserDto.lastName;
+    if (updateUserDto.avatar !== undefined) userMaster.avatar = updateUserDto.avatar;
+    if (updateUserDto.isActive !== undefined) userMaster.enableDisable = updateUserDto.isActive ? 'E' : 'D';
+
+    if (updateUserDto.role) {
+      const userLevel = await this.resolveOrCreateUserLevel(updateUserDto.role);
+      // `userLevel` is an eager relation mapped to this same userlevelid
+      // column — findOne() auto-loads it, and TypeORM derives the FK from
+      // that stale relation object on save(), silently reverting a
+      // scalar-only assignment. Both must be set.
+      userMaster.userlevelid = userLevel.userlevelid;
+      userMaster.userLevel = userLevel;
+      userMaster.permissions = updateUserDto.permissions || this.getDefaultPermissions(updateUserDto.role);
+    } else if (updateUserDto.permissions) {
+      userMaster.permissions = updateUserDto.permissions;
     }
 
-    Object.assign(user, updateUserDto);
-    const updatedUser = await this.userRepository.save(user);
-
-    // SYNCHRONIZATION: Update legacy UserMaster table
-    try {
-      const userMaster = await this.userMasterRepository.findOne({
-        where: { userid: id }
-      });
-
-      if (userMaster) {
-        if (updateUserDto.username) userMaster.susername = updateUserDto.username;
-        if (updateUserDto.password) userMaster.spassword = updateUserDto.password;
-        if (updateUserDto.isActive !== undefined) {
-          userMaster.enableDisable = updateUserDto.isActive ? 'E' : 'D';
-        }
-        if (updateUserDto.role) {
-          const userLevel = await this.userLevelMasterRepository.findOne({
-            where: { userlevel: updateUserDto.role }
-          });
-          if (userLevel) {
-            userMaster.userlevelid = userLevel.userlevelid;
-          }
-        }
-        await this.userMasterRepository.save(userMaster);
-      }
-    } catch (err) {
-      this.logger.error(`Failed to sync legacy UserMaster update: ${err.message}`);
-    }
-
-    return this.mapUserToResponseDto(updatedUser);
+    userMaster.updatedAt = new Date();
+    const updated = await this.userMasterRepository.save(userMaster);
+    return this.mapUserMasterToResponseDto(updated);
   }
 
   async deleteUser(id: number): Promise<{ message: string }> {
-    const user = await this.userRepository.findOne({
-      where: { id },
-    });
-
-    if (!user) {
+    const userMaster = await this.userMasterRepository.findOne({ where: { userid: id } });
+    if (!userMaster) {
       throw new NotFoundException('User not found');
     }
 
-    // Prevent deletion of the last admin user
-    if (user.role === UserRole.ADMIN) {
-      const adminCount = await this.userRepository.count({
-        where: { role: UserRole.ADMIN, isActive: true },
-      });
-
+    const role = roleFromLegacyLevel(userMaster.userLevel?.userlevel || '');
+    if (role === UserRole.ADMIN) {
+      const adminCount = await this.countUsersByRole(UserRole.ADMIN, true);
       if (adminCount <= 1) {
         throw new ForbiddenException('Cannot delete the last admin user');
       }
     }
 
-    await this.userRepository.remove(user);
-
-    // SYNCHRONIZATION: Remove from legacy table
-    try {
-      const userMaster = await this.userMasterRepository.findOne({
-        where: { userid: id }
-      });
-      if (userMaster) {
-        await this.userMasterRepository.remove(userMaster);
-      }
-    } catch (err) {
-      this.logger.error(`Failed to sync legacy UserMaster deletion: ${err.message}`);
-    }
-
+    await this.userMasterRepository.remove(userMaster);
     return { message: 'User deleted successfully' };
   }
 
@@ -323,23 +321,18 @@ export class UserManagementService implements OnModuleInit {
     userId: number,
     changePasswordDto: ChangePasswordDto,
   ): Promise<{ message: string }> {
-    const user = await this.userRepository.findOne({
-      where: { id: userId },
-    });
-
-    if (!user) {
+    const userMaster = await this.userMasterRepository.findOne({ where: { userid: userId } });
+    if (!userMaster) {
       throw new NotFoundException('User not found');
     }
 
-    // Verify current password
-    const isCurrentPasswordValid = await user.validatePassword(changePasswordDto.currentPassword);
+    const isCurrentPasswordValid = await userMaster.validatePassword(changePasswordDto.currentPassword);
     if (!isCurrentPasswordValid) {
       throw new BadRequestException('Current password is incorrect');
     }
 
-    // Update password
-    user.password = changePasswordDto.newPassword;
-    await this.userRepository.save(user);
+    userMaster.spassword = changePasswordDto.newPassword;
+    await this.userMasterRepository.save(userMaster);
 
     return { message: 'Password changed successfully' };
   }
@@ -348,17 +341,13 @@ export class UserManagementService implements OnModuleInit {
     userId: number,
     adminChangePasswordDto: AdminChangePasswordDto,
   ): Promise<{ message: string }> {
-    const user = await this.userRepository.findOne({
-      where: { id: userId },
-    });
-
-    if (!user) {
+    const userMaster = await this.userMasterRepository.findOne({ where: { userid: userId } });
+    if (!userMaster) {
       throw new NotFoundException('User not found');
     }
 
-    // Update password
-    user.password = adminChangePasswordDto.newPassword;
-    await this.userRepository.save(user);
+    userMaster.spassword = adminChangePasswordDto.newPassword;
+    await this.userMasterRepository.save(userMaster);
 
     return { message: 'Password changed successfully' };
   }
@@ -367,41 +356,44 @@ export class UserManagementService implements OnModuleInit {
     userId: number,
     updateUserRoleDto: UpdateUserRoleDto,
   ): Promise<UserResponseDto> {
-    const user = await this.userRepository.findOne({
-      where: { id: userId },
-    });
-
-    if (!user) {
+    const userMaster = await this.userMasterRepository.findOne({ where: { userid: userId } });
+    if (!userMaster) {
       throw new NotFoundException('User not found');
     }
 
-    // Prevent changing role of the last admin user
-    if (user.role === UserRole.ADMIN && updateUserRoleDto.role !== UserRole.ADMIN) {
-      const adminCount = await this.userRepository.count({
-        where: { role: UserRole.ADMIN, isActive: true },
-      });
-
+    const currentRole = roleFromLegacyLevel(userMaster.userLevel?.userlevel || '');
+    if (currentRole === UserRole.ADMIN && updateUserRoleDto.role !== UserRole.ADMIN) {
+      const adminCount = await this.countUsersByRole(UserRole.ADMIN, true);
       if (adminCount <= 1) {
         throw new ForbiddenException('Cannot change role of the last admin user');
       }
     }
 
-    user.role = updateUserRoleDto.role;
-    user.permissions = updateUserRoleDto.permissions || this.getDefaultPermissions(updateUserRoleDto.role);
+    const userLevel = await this.resolveOrCreateUserLevel(updateUserRoleDto.role);
+    userMaster.userlevelid = userLevel.userlevelid;
+    userMaster.userLevel = userLevel;
+    userMaster.permissions = updateUserRoleDto.permissions || this.getDefaultPermissions(updateUserRoleDto.role);
 
-    const updatedUser = await this.userRepository.save(user);
-    return this.mapUserToResponseDto(updatedUser);
+    const updated = await this.userMasterRepository.save(userMaster);
+    return this.mapUserMasterToResponseDto(updated);
+  }
+
+  /** Builds the small user summary embedded in activity responses, from usermaster. */
+  private toActivityUserSummary(userMaster: UserMaster) {
+    return {
+      id: userMaster.userid,
+      username: userMaster.susername,
+      firstName: userMaster.firstName || userMaster.susername,
+      lastName: userMaster.lastName || '',
+    };
   }
 
   async logUserActivity(
     userId: number,
     activityDto: UserActivityDto,
   ): Promise<UserActivityResponseDto> {
-    const user = await this.userRepository.findOne({
-      where: { id: userId },
-    });
-
-    if (!user) {
+    const userMaster = await this.userMasterRepository.findOne({ where: { userid: userId } });
+    if (!userMaster) {
       throw new NotFoundException('User not found');
     }
 
@@ -414,12 +406,7 @@ export class UserManagementService implements OnModuleInit {
 
     return {
       ...savedActivity,
-      user: {
-        id: user.id,
-        username: user.username,
-        firstName: user.firstName,
-        lastName: user.lastName,
-      },
+      user: this.toActivityUserSummary(userMaster),
     };
   }
 
@@ -436,21 +423,17 @@ export class UserManagementService implements OnModuleInit {
   }> {
     const [activities, total] = await this.userActivityRepository.findAndCount({
       where: { userId },
-      relations: ['user'],
       skip: (page - 1) * limit,
       take: limit,
       order: { createdAt: 'DESC' },
     });
 
+    const userMaster = await this.userMasterRepository.findOne({ where: { userid: userId } });
+
     return {
       activities: activities.map(activity => ({
         ...activity,
-        user: activity.user ? {
-          id: activity.user.id,
-          username: activity.user.username,
-          firstName: activity.user.firstName,
-          lastName: activity.user.lastName,
-        } : undefined,
+        user: userMaster ? this.toActivityUserSummary(userMaster) : undefined,
       })),
       total,
       page,
@@ -470,22 +453,25 @@ export class UserManagementService implements OnModuleInit {
     totalPages: number;
   }> {
     const [activities, total] = await this.userActivityRepository.findAndCount({
-      relations: ['user'],
       skip: (page - 1) * limit,
       take: limit,
       order: { createdAt: 'DESC' },
     });
 
+    const userIds = [...new Set(activities.map(a => a.userId))];
+    const userMasters = userIds.length > 0
+      ? await this.userMasterRepository.find({ where: { userid: In(userIds) } })
+      : [];
+    const byId = new Map(userMasters.map(u => [u.userid, u]));
+
     return {
-      activities: activities.map(activity => ({
-        ...activity,
-        user: activity.user ? {
-          id: activity.user.id,
-          username: activity.user.username,
-          firstName: activity.user.firstName,
-          lastName: activity.user.lastName,
-        } : undefined,
-      })),
+      activities: activities.map(activity => {
+        const userMaster = byId.get(activity.userId);
+        return {
+          ...activity,
+          user: userMaster ? this.toActivityUserSummary(userMaster) : undefined,
+        };
+      }),
       total,
       page,
       limit,
@@ -500,20 +486,21 @@ export class UserManagementService implements OnModuleInit {
     }));
   }
 
-  private mapUserToResponseDto(user: User): UserResponseDto {
+  private mapUserMasterToResponseDto(userMaster: UserMaster): UserResponseDto {
+    const role = roleFromLegacyLevel(userMaster.userLevel?.userlevel || '');
     return {
-      id: user.id,
-      username: user.username,
-      email: user.email,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      fullName: user.fullName,
-      role: user.role,
-      permissions: user.permissions || [],
-      isActive: user.isActive,
-      avatar: user.avatar || null,
-      lastLoginAt: user.lastLoginAt,
-      createdAt: user.createdAt,
+      id: userMaster.userid,
+      username: userMaster.susername,
+      email: userMaster.email || `${userMaster.susername.toLowerCase()}@bank.local`,
+      firstName: userMaster.firstName || userMaster.susername,
+      lastName: userMaster.lastName || '',
+      fullName: userMaster.fullName,
+      role: role as UserRole,
+      permissions: userMaster.permissions.length > 0 ? userMaster.permissions as UserPermission[] : this.getDefaultPermissions(role as UserRole),
+      isActive: userMaster.isEnabled,
+      avatar: userMaster.avatar || null,
+      lastLoginAt: null,
+      createdAt: userMaster.dateOfCreation,
     };
   }
 
@@ -640,42 +627,15 @@ export class UserManagementService implements OnModuleInit {
     return activeSessions;
   }
 
-  /**
-   * Login/logout history for a user, newest first.
-   *
-   * The modern `users` table and the legacy `usermaster`/`logintime` tables are
-   * separate. Login events are recorded against usermaster.userid, so we bridge
-   * from the modern user id via username, falling back to treating the id as a
-   * legacy userid directly.
-   */
+  /** Login/logout history for a user, newest first. Login events are recorded against usermaster.userid. */
   async getUserLoginHistory(id: number, page = 1, limit = 20) {
-    let userid: number | undefined;
-    let username: string | undefined;
-
-    const modernUser = await this.userRepository.findOne({ where: { id } });
-    if (modernUser) {
-      username = modernUser.username;
-      const userMaster = await this.userMasterRepository.findOne({
-        where: { susername: ILike(modernUser.username) },
-      });
-      userid = userMaster?.userid;
-    }
-
-    // Fallback: the caller may have passed a legacy usermaster.userid.
-    if (userid === undefined) {
-      const userMaster = await this.userMasterRepository.findOne({ where: { userid: id } });
-      if (userMaster) {
-        userid = userMaster.userid;
-        username = username || userMaster.susername;
-      }
-    }
-
-    if (userid === undefined) {
+    const userMaster = await this.userMasterRepository.findOne({ where: { userid: id } });
+    if (!userMaster) {
       throw new NotFoundException(`No login records found for user id ${id}`);
     }
 
     const [rows, total] = await this.loginTimeRepository.findAndCount({
-      where: { userid },
+      where: { userid: userMaster.userid },
       order: { loginDate: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
@@ -683,7 +643,7 @@ export class UserManagementService implements OnModuleInit {
 
     return {
       userId: id,
-      username,
+      username: userMaster.susername,
       total,
       page: Number(page),
       limit: Number(limit),

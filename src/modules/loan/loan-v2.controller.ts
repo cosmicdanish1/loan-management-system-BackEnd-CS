@@ -245,6 +245,41 @@ export class LoanV2Controller {
         return this.loanRepaymentService.getLoanRepaymentSummary(caseNo);
     }
 
+    @Get('case/:caseNo/due-status')
+    @ApiOperation({ summary: 'Get the oldest-unpaid-first due breakdown for a loan (principal/interest/penal)' })
+    async getDueStatus(@Param('caseNo') caseNo: string) {
+        return this.loanRepaymentService.getDueStatus(caseNo);
+    }
+
+    @Get('case/:caseNo/early-closure')
+    @ApiOperation({ summary: 'Calculate the final amount to close a loan early' })
+    async calculateEarlyClosure(
+        @Param('caseNo') caseNo: string,
+        @Query('closureDate') closureDate?: string,
+        @Query('adjustment') adjustment?: string,
+    ) {
+        return this.loanRepaymentService.calculateEarlyClosure(
+            caseNo,
+            parseSafeDate(closureDate),
+            adjustment ? parseFloat(adjustment) : 0,
+        );
+    }
+
+    @Post('case/:caseNo/early-closure')
+    @ApiOperation({ summary: 'Execute an early closure — settles every remaining installment and zeroes the balance' })
+    async executeEarlyClosure(
+        @Param('caseNo') caseNo: string,
+        @Body() body: { closureDate?: string; adjustment?: number; receiptNo?: string; username?: string },
+    ) {
+        return this.loanRepaymentService.executeEarlyClosure(
+            caseNo,
+            parseSafeDate(body.closureDate),
+            body.adjustment || 0,
+            body.username || 'system',
+            body.receiptNo,
+        );
+    }
+
     // ==================== Month-End Operations ====================
 
     @Post('month-end/snapshot')

@@ -37,8 +37,11 @@ export class ShortRecoveryService {
         qb.where('dm.balance > 0');
         if (monthNum) qb.andWhere('dm.month = :month', { month: monthNum });
         if (yearNum) qb.andWhere('dm.year = :year', { year: yearNum });
-
-        // Basic wing filter logic if needed
+        // BUG FIX: `wing` was accepted as a parameter but never actually applied —
+        // every call returned every member's shortfall regardless of the wing
+        // picked in the UI. mm.wingno is the same real column already
+        // established for Generate/Print Members Demand List.
+        if (wing) qb.andWhere('mm.wingno = :wing', { wing });
 
         const rawResults = await qb.getRawMany();
 

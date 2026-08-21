@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Designation } from '../entities/designation.entity';
@@ -12,6 +12,13 @@ export class DesignationService {
     ) { }
 
     async create(createDesignationDto: CreateDesignationDto): Promise<Designation> {
+        // BUG FIX: code is the PK — repository.save() on an entity whose PK
+        // already exists silently UPDATEs instead of erroring. Same class of
+        // gap already fixed for Wing/Office/CastCategory/SB Account creation.
+        const existing = await this.designationRepository.findOne({ where: { code: createDesignationDto.code } });
+        if (existing) {
+            throw new ConflictException(`Designation ${createDesignationDto.code} already exists`);
+        }
         const designation = this.designationRepository.create(createDesignationDto);
         return this.designationRepository.save(designation);
     }

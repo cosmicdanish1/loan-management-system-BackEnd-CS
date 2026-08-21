@@ -9,9 +9,9 @@ them by hand; regenerate instead (see below).
 | File | Use it for |
 | --- | --- |
 | `openapi.json` | The full OpenAPI 3.0 spec. Import into Postman **or** any Swagger viewer. |
-| `LMS-API.postman_collection.json` | Ready-to-import Postman collection — all 465 endpoints, grouped into 46 folders, with `{{baseUrl}}` / `{{token}}` variables and sample JSON bodies. |
+| `LMS-API.postman_collection.json` | Ready-to-import Postman collection — all 479 endpoints, grouped into 47 folders, with `{{baseUrl}}` / `{{token}}` variables and sample JSON bodies. |
 | `API_REFERENCE.md` | Human-readable list of every endpoint (method, path, what it does), grouped by module. |
-| `API_DOCUMENTATION.docx` / `.pdf` | Full **API manual** (~242 pages): every endpoint with description, impact, auth, parameters, a working curl example and a sample response. The polished, shareable/printable reference. |
+| `API_DOCUMENTATION.docx` / `.pdf` | Full **API manual** (~251 pages): every endpoint with description, impact, auth, parameters, a working curl example and a sample response. The polished, shareable/printable reference. |
 
 ## Quick start (Postman)
 

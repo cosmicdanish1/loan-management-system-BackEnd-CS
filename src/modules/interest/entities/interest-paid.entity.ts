@@ -45,6 +45,11 @@ export class InterestPaid {
   @Column({ name: 'account_number', type: 'numeric', precision: 9, scale: 0, nullable: true })
   accountNumber: string;
 
+  // BUG FIX 53: rowid is NOT NULL with no default/sequence and wasn't mapped —
+  // same class of gap as ledger.ledgerid. Must be generated explicitly.
+  @Column({ name: 'rowid', type: 'integer' })
+  rowId: number;
+
   @ManyToOne(() => InterestMaster, (interestMaster) => interestMaster.interestPaidRecords)
   @JoinColumn({ name: 'id' })
   interestMaster: InterestMaster;

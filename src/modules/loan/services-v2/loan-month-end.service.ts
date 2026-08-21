@@ -16,11 +16,15 @@ export class LoanMonthEndService {
 
         try {
             // Aggregate current balances from loan_master grouped by member + loantype
+            // BUG FIX 39 (same defect found in pass-transaction.service.ts and
+            // loan-repayment.service.ts): tested only 'ELN', but ALN is the loan type every real
+            // loan in this system uses — every historical month-end snapshot would have filed
+            // 100% of real emergency-loan balances under "regular" instead.
             const activeLoans = await queryRunner.query(
                 `SELECT
                     mbno,
-                    SUM(CASE WHEN loantype = 'ELN' THEN balance ELSE 0 END) as emergency_balance,
-                    SUM(CASE WHEN loantype != 'ELN' THEN balance ELSE 0 END) as regular_balance
+                    SUM(CASE WHEN loantype IN ('ELN','ALN','A','E','EMR','ADD') OR loantype ILIKE '%EMERGENCY%' THEN balance ELSE 0 END) as emergency_balance,
+                    SUM(CASE WHEN loantype IN ('ELN','ALN','A','E','EMR','ADD') OR loantype ILIKE '%EMERGENCY%' THEN 0 ELSE balance END) as regular_balance
                  FROM loan_master
                  WHERE balance > 0
                  GROUP BY mbno`

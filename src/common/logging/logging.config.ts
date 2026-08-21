@@ -3,6 +3,7 @@ import * as DailyRotateFile from 'winston-daily-rotate-file';
 import * as path from 'path';
 import { ConfigService } from '@nestjs/config';
 import { ClsServiceManager } from 'nestjs-cls';
+import { REDACT_PATTERNS } from './redact';
 
 // Service context → domain log file mapping
 const SERVICE_DOMAIN_MAP: Record<string, string> = {
@@ -103,15 +104,8 @@ const SERVICE_DOMAIN_MAP: Record<string, string> = {
 export const DOMAIN_FILES = [
   'auth', 'transactions', 'loan', 'member', 'interest',
   'day-end', 'reports', 'admin', 'backup', 'license', 'notification',
-];
-
-// PII patterns to redact
-const REDACT_PATTERNS = [
-  { regex: /("?password"?\s*[:=]\s*)"[^"]*"/gi, replacement: '$1"[REDACTED]"' },
-  { regex: /("?token"?\s*[:=]\s*)"[^"]*"/gi, replacement: '$1"[REDACTED]"' },
-  { regex: /("?aadhaar"?\s*[:=]\s*)"?\d{4}\s?\d{4}\s?\d{4}"?/gi, replacement: '$1"[REDACTED]"' },
-  { regex: /("?pan"?\s*[:=]\s*)"?[A-Z]{5}\d{4}[A-Z]"?/gi, replacement: '$1"[REDACTED]"' },
-  { regex: /Bearer\s+[A-Za-z0-9\-._~+\/]+=*/g, replacement: 'Bearer [REDACTED]' },
+  // Cross-cutting domains: every DB query, every API call, every frontend event.
+  'db-queries', 'api', 'client',
 ];
 
 const redactFormat = winston.format((info) => {
@@ -143,6 +137,16 @@ const requestIdFormat = winston.format((info) => {
 // stays isolated there and doesn't flood the console or the combined file.
 const typeormFilter = winston.format((info) =>
   String(info.context || '') === 'TypeORM' ? info : false,
+);
+
+// Isolate audit and HTTP-access entries into their own files. Without these,
+// createRotateTransport('audit'/'http-access') had no filterFormat and every
+// context ended up in both files, duplicating the combined log.
+const auditFilter = winston.format((info) =>
+  String(info.context || '') === 'Audit' ? info : false,
+);
+const httpAccessFilter = winston.format((info) =>
+  String(info.context || '') === 'HttpAccess' ? info : false,
 );
 
 function getLogPath(configService: ConfigService): string {
@@ -260,13 +264,13 @@ export function createWinstonConfig(configService: ConfigService): winston.Logge
     createRotateTransport(logPath, 'error', 'error', maxSize, maxDays),
 
     // HTTP access — written by the access-log interceptor (context = 'HttpAccess')
-    createRotateTransport(logPath, 'http-access', logLevel, maxSize, maxDays),
+    createRotateTransport(logPath, 'http-access', logLevel, maxSize, maxDays, httpAccessFilter),
 
-    // DB queries — TypeORM SQL only, captured at debug regardless of LOG_LEVEL
+    // DB queries — TypeORM SQL + results, captured at debug regardless of LOG_LEVEL
     createRotateTransport(logPath, 'db-queries', 'debug', maxSize, maxDays, typeormFilter),
 
     // Audit — written by audit service (context = 'Audit')
-    createRotateTransport(logPath, 'audit', logLevel, '50m', '365d'),
+    createRotateTransport(logPath, 'audit', logLevel, '50m', '365d', auditFilter),
   ];
 
   // Per-domain service transports

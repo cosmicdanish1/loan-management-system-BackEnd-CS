@@ -243,22 +243,22 @@ describe('CertificateService', () => {
       const mockResult = 'FIXED_DEPOSIT_FDCERT202401001_1234567890.pdf';
       (service.generateFixedDepositCertificate as jest.Mock).mockResolvedValue(mockResult);
 
-      const result = await service.generateFixedDepositCertificate(1);
+      const result = await service.generateFixedDepositCertificate('1');
 
-      expect(service.generateFixedDepositCertificate).toHaveBeenCalledWith(1);
+      expect(service.generateFixedDepositCertificate).toHaveBeenCalledWith('1');
       expect(result).toBe(mockResult);
     });
 
     it('should throw NotFoundException if fixed deposit not found', async () => {
       (service.generateFixedDepositCertificate as jest.Mock).mockRejectedValue(new NotFoundException('Fixed deposit not found'));
 
-      await expect(service.generateFixedDepositCertificate(1)).rejects.toThrow(NotFoundException);
+      await expect(service.generateFixedDepositCertificate('1')).rejects.toThrow(NotFoundException);
     });
 
     it('should throw BadRequestException for invalid deposit status', async () => {
       (service.generateFixedDepositCertificate as jest.Mock).mockRejectedValue(new BadRequestException('Certificate can only be generated for active or matured deposits'));
 
-      await expect(service.generateFixedDepositCertificate(1)).rejects.toThrow(BadRequestException);
+      await expect(service.generateFixedDepositCertificate('1')).rejects.toThrow(BadRequestException);
     });
   });
 

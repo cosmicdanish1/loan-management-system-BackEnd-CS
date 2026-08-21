@@ -108,16 +108,26 @@ export class DemandGenerationService {
             );
         }
 
+        // BUG FIX 43: office staff upload one file per branch per month, with exactly one
+        // sheet inside named "<BRANCH><YYMM>" for that month - there's no legitimate reason
+        // to guess at a different sheet when the requested branch/period isn't found. The old
+        // fallback here silently substituted "the last non-generically-named sheet in the
+        // workbook" - which, against a multi-branch archive file, picked an unrelated leftover
+        // sheet (confirmed live: a sheet named "H2" full of corrupted scientific-notation
+        // values) and imported it as if it were real demand data, with only a soft warning
+        // that the UI never surfaced. Refusing loudly is correct here - a single-sheet file
+        // still uses that one sheet unconditionally (the `let sheetName = workbook.SheetNames[0]`
+        // default above), so this only fires for multi-sheet files where nothing matched.
         if (bestMatch) {
             sheetName = bestMatch;
         } else if (workbook.SheetNames.length > 1) {
-            validationErrors.push(
-                `Could not auto-detect sheet for branch "${branchName || branch}" period ${periodPattern}. ` +
-                `Using last sheet with data. Available sheets: ${workbook.SheetNames.filter(s => !s.startsWith('Sheet')).join(', ')}`
+            const available = workbook.SheetNames.filter(s => !s.match(/^Sheet\d*$/i));
+            throw new Error(
+                `No sheet found for branch "${branchName || branch}" and period ${periodPattern}. ` +
+                `This file has ${workbook.SheetNames.length} sheets but none match a "<BRANCH>${periodPattern}"-style name. ` +
+                `Available sheets: ${(available.length > 0 ? available : workbook.SheetNames).join(', ')}. ` +
+                `Check that you selected the correct branch and month for this file.`
             );
-            // Use last non-generic sheet as fallback
-            const nonGeneric = workbook.SheetNames.filter(s => !s.match(/^Sheet\d*$/i));
-            if (nonGeneric.length > 0) sheetName = nonGeneric[nonGeneric.length - 1];
         }
 
         const sheet = workbook.Sheets[sheetName];
@@ -261,9 +271,14 @@ export class DemandGenerationService {
             const dbMember = memberLookup[fullMbno];
 
             const totalAmt = num(colTotal);
-            const status: 'Valid' | 'Error' = 'Valid';
             const errors: string[] = [];
             if (!dbMember) errors.push('New member (not in database yet)');
+            // BUG FIX 43: status was a hardcoded 'Valid' constant, never reassigned even when
+            // errors were pushed - so every row showed "Valid" regardless of whether the member
+            // actually existed (confirmed live: 2472/2472 rows marked Valid against a mostly-wiped
+            // test DB). Nothing downstream re-checks member existence before saving or posting,
+            // so this was the only place that could have caught it before real money moved.
+            const status: 'Valid' | 'Error' = errors.length > 0 ? 'Error' : 'Valid';
 
             const displayMsNo = colMsNo ? String(row[colMsNo] || '').trim() : rawMemberNo;
             const displayHoNo = colHONo ? String(row[colHONo] || '').trim() : rawMemberNo;
@@ -417,31 +432,82 @@ export class DemandGenerationService {
         await queryRunner.startTransaction();
 
         try {
+            // BUG FIX: dto.divisionRO was accepted (and required by the frontend form)
+            // but never actually applied anywhere — every call generated demand for
+            // EVERY active member system-wide regardless of the selected division.
+            // Confirmed live: member_master.wingno really does hold values like
+            // 'BHILAI' matching the frontend's Division/RO dropdown, so that's the
+            // real scoping column. The existing-demand guard below has to be scoped
+            // the same way, or the first division to generate for a month would make
+            // every other division's later "Generate" call silently no-op (it would
+            // see demand already exists for that month/year and skip entirely).
+            // dto.from/dto.to (a branch-range selector) are NOT wired up here — their
+            // intended semantics (a range over which branch field, compared how) isn't
+            // established in the frontend/DB and needs a product decision, not a guess.
             const countResult = await queryRunner.query(
-                `SELECT COUNT(*) as cnt FROM demand_master WHERE demand_for_month = $1 AND demand_for_year = $2`,
-                [monthNum, yearNum]
+                `SELECT COUNT(*) as cnt FROM demand_master dm
+                 JOIN member_master m ON m.mbno = dm.mbno
+                 WHERE dm.demand_for_month = $1 AND dm.demand_for_year = $2 AND m.wingno = $3`,
+                [monthNum, yearNum, dto.divisionRO]
             );
             if (parseInt(countResult[0]?.cnt || '0') > 0) {
                 await queryRunner.rollbackTransaction();
-                return { success: true, message: `Demand for ${dto.month} ${dto.year} already exists. Skipped.` };
+                return { success: true, message: `Demand for ${dto.month} ${dto.year} (${dto.divisionRO}) already exists. Skipped.` };
             }
 
+            // BUG FIX: `isactive IS NOT FALSE` is a boolean-only comparison, but
+            // member_master.isactive is varchar('Y'/'N') — confirmed live this crashed
+            // with a Postgres type error ("argument of IS NOT FALSE must be type
+            // boolean") on every single call. This function never once ran
+            // successfully before this fix, independent of the scoping bug above.
+            // Matches the same "active unless explicitly N" convention already used
+            // in member-balance-transfer.service.ts.
             const members = await queryRunner.query(
-                `SELECT mbno FROM member_master WHERE isactive IS NOT FALSE AND isactive IS DISTINCT FROM 'N'`
+                `SELECT mbno, officeno FROM member_master
+                 WHERE (isactive = 'Y' OR isactive IS NULL) AND wingno = $1`,
+                [dto.divisionRO]
             );
             const activeLoans = await queryRunner.query(
                 `SELECT mbno, COALESCE(SUM(instal_amt), 0) as total_emi FROM loan_master WHERE balance > 0 GROUP BY mbno`
             );
             const loanMap = new Map(activeLoans.map((l: any) => [l.mbno, parseFloat(l.total_emi)]));
 
+            // Arrears carry-forward: whatever a member didn't clear from the
+            // immediately preceding month's demand rolls into this month's demand,
+            // so a missed month keeps showing up as due instead of disappearing.
+            let prevMonth = monthNum - 1;
+            let prevYear = yearNum;
+            if (prevMonth === 0) {
+                prevMonth = 12;
+                prevYear -= 1;
+            }
+            const arrearsRows = await queryRunner.query(
+                `SELECT mbno, balance_for_month FROM demand_master
+                 WHERE demand_for_month = $1 AND demand_for_year = $2 AND balance_for_month > 0`,
+                [prevMonth, prevYear]
+            );
+            const arrearsMap = new Map(arrearsRows.map((r: any) => [r.mbno, parseFloat(r.balance_for_month) || 0]));
+
+            // BUG FIX: dmnd_srno and officeno are both NOT NULL with no DB default,
+            // but the INSERT below never set either — confirmed live, this crashed
+            // with a not-null-constraint violation on officeno the moment the two
+            // bugs above were fixed and this code ran for the first time ever. Mirrors
+            // the already-working sibling import path's pattern (same file, "Get next
+            // dmnd_srno" section) exactly: MAX(dmnd_srno)+1, officeno from the member's
+            // own member_master row.
+            const maxSrnoResult = await queryRunner.query(`SELECT COALESCE(MAX(dmnd_srno), 0) as max_srno FROM demand_master`);
+            let nextSrno = Number(maxSrnoResult[0]?.max_srno || 0) + 1;
+
             let count = 0;
             for (const member of members) {
-                const totalDemand = Number(loanMap.get(member.mbno)) || 0;
+                const currentEmi = Number(loanMap.get(member.mbno)) || 0;
+                const arrears = Number(arrearsMap.get(member.mbno)) || 0;
+                const totalDemand = currentEmi + arrears;
                 if (totalDemand > 0) {
                     await queryRunner.query(
-                        `INSERT INTO demand_master (demand_for_month, demand_for_year, mbno, totaldemand, balance_for_month)
-                         VALUES ($1, $2, $3, $4, $5)`,
-                        [monthNum, yearNum, member.mbno, totalDemand, totalDemand]
+                        `INSERT INTO demand_master (dmnd_srno, demand_for_month, demand_for_year, mbno, totaldemand, balance_for_month, officeno)
+                         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                        [nextSrno++, monthNum, yearNum, member.mbno, totalDemand, totalDemand, member.officeno]
                     );
                     count++;
                 }

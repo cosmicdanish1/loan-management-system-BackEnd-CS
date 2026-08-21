@@ -15,40 +15,26 @@ export class DayBookController {
 
   constructor(private readonly dayBookService: DayBookService) {}
 
+  // BUG FIX: both report endpoints below manually wrapped their payload in
+  // {success, data, message} on top of the global TransformInterceptor's
+  // identical wrap — same double-wrap pattern fixed repeatedly elsewhere this
+  // session. Harmless here specifically because the frontend already
+  // defensively unwraps both shapes (`response.data?.data ?? response.data`),
+  // but fixed anyway for consistency — every other endpoint of this shape has
+  // been fixed, and there's no reason for the frontend's defensive fallback to
+  // need to exist at all.
   @ApiOperation({ summary: 'Day book report (all day transactions) for a given date, optionally filtered' })
   @Get('report')
-  async getDayBookReport(@Query() dto: GetDayBookDto): Promise<{
-    success: boolean;
-    data: DayBookSummaryDto;
-    message: string;
-  }> {
+  async getDayBookReport(@Query() dto: GetDayBookDto): Promise<DayBookSummaryDto> {
     this.logger.log(`Generating day book report for date: ${dto.date}, filter: ${dto.filterType || 'all'}`);
-    
-    const report = await this.dayBookService.getDayBookReport(dto);
-    
-    return {
-      success: true,
-      data: report,
-      message: 'Day book report generated successfully'
-    };
+    return this.dayBookService.getDayBookReport(dto);
   }
 
   @ApiOperation({ summary: 'Day book report limited to savings-bank (SB) transactions for a date' })
   @Get('report/sb')
-  async getDayBookSBReport(@Query() dto: GetDayBookDto): Promise<{
-    success: boolean;
-    data: DayBookSummaryDto;
-    message: string;
-  }> {
+  async getDayBookSBReport(@Query() dto: GetDayBookDto): Promise<DayBookSummaryDto> {
     this.logger.log(`Generating day book SB report for date: ${dto.date}`);
-    
-    const report = await this.dayBookService.getDayBookSBReport(dto.date);
-    
-    return {
-      success: true,
-      data: report,
-      message: 'Day book SB report generated successfully'
-    };
+    return this.dayBookService.getDayBookSBReport(dto.date);
   }
 
   @ApiOperation({ summary: 'List active members holding savings accounts' })

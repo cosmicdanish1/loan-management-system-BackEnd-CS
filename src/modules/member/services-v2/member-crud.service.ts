@@ -18,6 +18,7 @@ import {
 import { MemberNumberUtil, MemberValidationUtil } from '../utils';
 import { SequenceGeneratorService } from '../../shared/services';
 import { SystemConfigService } from '../../admin/services/system-config.service';
+import { generateVoucherNo } from '../../shared/utils/voucher-utils';
 
 /**
  * Member CRUD Service - Handles Create, Read, Update, Delete operations for members.
@@ -139,6 +140,14 @@ export class MemberCrudService {
     /**
      * Find all members with search and pagination
      */
+    // BUG FIX 16: findAll()/getStatistics() queried `this.memberRepository` — the disconnected
+    // `Member` entity (`members` table) that `create()` writes to, which nothing in the running
+    // app actually uses for real member data. Every real member is created via saveMemberMaster()
+    // into `member_master`, so this always returned empty/wrong results. Confirmed live: Journal
+    // Transfer Entry's member picker falls back to `GET /members?limit=300` when its primary
+    // search call throws, and that fallback was silently returning nothing. Rewritten to query
+    // `member_master` directly via raw SQL, matching the pattern already proven correct in
+    // saveMemberMaster() and MemberLookupService.
     async findAll(searchDto: SearchMemberDto) {
         const {
             page = 1,
@@ -150,65 +159,58 @@ export class MemberCrudService {
             phoneNumber,
             email,
             status,
-            sortBy = 'createdAt',
-            sortOrder = 'DESC',
+            sortBy = 'memberNumber',
+            sortOrder = 'ASC',
         } = searchDto;
 
-        const queryBuilder = this.memberRepository.createQueryBuilder('member');
+        const conditions: string[] = [];
+        const params: any[] = [];
+        const p = (v: any) => { params.push(v); return `$${params.length}`; };
 
-        // Apply filters
         if (search) {
-            queryBuilder.andWhere(
-                '(member.memberNumber ILIKE :search OR member.firstName ILIKE :search OR member.lastName ILIKE :search OR member.phoneNumber ILIKE :search OR member.email ILIKE :search)',
-                { search: `%${search}%` },
-            );
+            const s = `%${search}%`;
+            conditions.push(`(mbno::text ILIKE ${p(s)} OR f_name ILIKE ${p(s)} OR l_name ILIKE ${p(s)} OR phoneno ILIKE ${p(s)} OR email ILIKE ${p(s)})`);
         }
+        if (memberNumber) conditions.push(`mbno::text ILIKE ${p(`%${memberNumber}%`)}`);
+        if (firstName) conditions.push(`f_name ILIKE ${p(`%${firstName}%`)}`);
+        if (lastName) conditions.push(`l_name ILIKE ${p(`%${lastName}%`)}`);
+        if (phoneNumber) conditions.push(`phoneno ILIKE ${p(`%${phoneNumber}%`)}`);
+        if (email) conditions.push(`email ILIKE ${p(`%${email}%`)}`);
+        if (status) conditions.push(`isactive = ${p(status === 'ACTIVE' ? 'Y' : 'N')}`);
 
-        if (memberNumber) {
-            queryBuilder.andWhere('member.memberNumber ILIKE :memberNumber', {
-                memberNumber: `%${memberNumber}%`,
-            });
-        }
+        const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
-        if (firstName) {
-            queryBuilder.andWhere('member.firstName ILIKE :firstName', {
-                firstName: `%${firstName}%`,
-            });
-        }
+        const sortColumnMap: Record<string, string> = {
+            memberNumber: 'mbno', firstName: 'f_name', lastName: 'l_name',
+            createdAt: 'mbno', updatedAt: 'mbno', // member_master has no timestamp columns
+        };
+        const sortColumn = sortColumnMap[sortBy] || 'mbno';
+        const sortDir = sortOrder === 'DESC' ? 'DESC' : 'ASC';
 
-        if (lastName) {
-            queryBuilder.andWhere('member.lastName ILIKE :lastName', {
-                lastName: `%${lastName}%`,
-            });
-        }
+        const countResult = await this.dataSource.query(
+            `SELECT COUNT(*) AS total FROM member_master ${whereClause}`, params,
+        );
+        const total = parseInt(countResult[0]?.total || '0', 10);
 
-        if (phoneNumber) {
-            queryBuilder.andWhere('member.phoneNumber ILIKE :phoneNumber', {
-                phoneNumber: `%${phoneNumber}%`,
-            });
-        }
-
-        if (email) {
-            queryBuilder.andWhere('member.email ILIKE :email', {
-                email: `%${email}%`,
-            });
-        }
-
-        if (status) {
-            queryBuilder.andWhere('member.status = :status', { status });
-        }
-
-        // Apply sorting
-        queryBuilder.orderBy(`member.${sortBy}`, sortOrder);
-
-        // Apply pagination
         const skip = (page - 1) * limit;
-        queryBuilder.skip(skip).take(limit);
-
-        const [members, total] = await queryBuilder.getManyAndCount();
+        const rows = await this.dataSource.query(
+            `SELECT mbno, f_name, m_name, l_name, phoneno, email, isactive, officeno, wingno
+             FROM member_master ${whereClause}
+             ORDER BY ${sortColumn} ${sortDir}
+             LIMIT ${p(limit)} OFFSET ${p(skip)}`,
+            params,
+        );
 
         return {
-            data: members.map(member => new MemberResponseDto(member)),
+            data: rows.map((r: any) => ({
+                memberNumber: r.mbno,
+                firstName: r.f_name,
+                lastName: r.l_name,
+                fullName: [r.f_name, r.m_name, r.l_name].filter(Boolean).join(' '),
+                phoneNumber: r.phoneno,
+                email: r.email,
+                status: r.isactive === 'Y' ? 'ACTIVE' : 'INACTIVE',
+            })),
             pagination: {
                 page,
                 limit,
@@ -222,16 +224,17 @@ export class MemberCrudService {
      * Get member statistics
      */
     async getStatistics() {
-        const totalMembers = await this.memberRepository.count();
-        const activeMembers = await this.memberRepository.count({
-            where: { status: 'ACTIVE' },
-        });
-        const inactiveMembers = await this.memberRepository.count({
-            where: { status: 'INACTIVE' },
-        });
-        const suspendedMembers = await this.memberRepository.count({
-            where: { status: 'SUSPENDED' },
-        });
+        const counts = await this.dataSource.query(
+            `SELECT
+               COUNT(*) AS total,
+               COUNT(*) FILTER (WHERE isactive = 'Y') AS active,
+               COUNT(*) FILTER (WHERE isactive != 'Y' OR isactive IS NULL) AS inactive
+             FROM member_master`,
+        );
+        const totalMembers = parseInt(counts[0]?.total || '0', 10);
+        const activeMembers = parseInt(counts[0]?.active || '0', 10);
+        const inactiveMembers = parseInt(counts[0]?.inactive || '0', 10);
+        const suspendedMembers = 0; // member_master has no separate "suspended" state
 
         return {
             totalMembers,
@@ -371,10 +374,91 @@ export class MemberCrudService {
     }
 
     /**
+     * Server-side mirror of MemberMaster.tsx's validateForm() — same rules, same regexes,
+     * same ranges, applied to the raw member_master field names saveMemberMaster receives.
+     * Every check here is optional-if-empty (matching the frontend), except firstName which
+     * is genuinely required.
+     */
+    private validateMemberMasterData(d: any): string[] {
+        const errors: string[] = [];
+
+        const fn = (d.f_name || '').trim();
+        if (!fn) errors.push('First Name is required');
+        else if (fn.length < 2 || fn.length > 50) errors.push('First Name must be 2-50 characters');
+        else if (!/^[A-Za-z\s.]+$/.test(fn)) errors.push('First Name: letters and spaces only');
+
+        const ln = (d.l_name || '').trim();
+        if (ln && (ln.length < 2 || ln.length > 50)) errors.push('Last Name must be 2-50 characters');
+        if (ln && !/^[A-Za-z\s.]+$/.test(ln)) errors.push('Last Name: letters and spaces only');
+
+        const age = Number(d.age);
+        if (d.age !== undefined && d.age !== null && d.age !== '' && (isNaN(age) || age < 0 || age > 99)) {
+            errors.push('Age must be between 0 and 99');
+        }
+
+        const aadhar = (d.aadharno || '').trim();
+        if (aadhar && !/^\d{12}$/.test(aadhar)) errors.push('Aadhar No must be exactly 12 digits');
+
+        const pan = (d.pan_no || '').trim();
+        if (pan && !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan)) errors.push('PAN must be 10 chars: 5 letters + 4 digits + 1 letter (e.g. ABCDE1234F)');
+
+        const mobile = (d.phoneno || '').trim();
+        if (mobile && !/^[6-9]\d{9}$/.test(mobile)) errors.push('Mobile must be 10 digits starting with 6-9');
+
+        const email = (d.email || '').trim();
+        if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.push('Invalid email format');
+
+        if (d.dob) {
+            const dob = new Date(d.dob);
+            if (dob > new Date()) errors.push('Date of Birth cannot be in the future');
+            if (d.dor && new Date(d.dor) <= dob) errors.push('Retirement Date must be after Date of Birth');
+        }
+
+        if (d.flg_insured === 'Y') {
+            const insAmt = Number(d.insureamt);
+            if (!insAmt || insAmt <= 0) errors.push('Insurance amount required when insured');
+            if (insAmt > 99999) errors.push('Insurance amount max ₹99,999');
+        }
+
+        const numChecks: [any, string, number, number][] = [
+            [d.basic_pay, 'Basic Pay', 0, 9999999],
+            [d.share_amount, 'Share Amount', 0, 9999999],
+            [d.gross_salary, 'Monthly Contribution', 0, 99999],
+            [d.compulsory_deposit, 'Compulsory Deposit', 0, 99999],
+        ];
+        for (const [raw, label, min, max] of numChecks) {
+            if (raw === undefined || raw === null || raw === '') continue;
+            const val = Number(raw);
+            if (isNaN(val)) errors.push(`${label} must be a valid number`);
+            else if (val < min) errors.push(`${label} cannot be negative`);
+            else if (val > max) errors.push(`${label} max ₹${max.toLocaleString('en-IN')}`);
+        }
+
+        if ((d.pfno || '').length > 10) errors.push('Sr.No/EPF/P.NO max 10 characters');
+        if ((d.frs_no || '').length > 20) errors.push('F.R.S. Number max 20 characters');
+        if ((d.branchmsno || '').length > 50) errors.push('Branch MS No max 50 characters');
+        if ((d.dept_name || '').length > 50) errors.push('Department max 50 characters');
+
+        return errors;
+    }
+
+    /**
      * Save or update member master (legacy table support)
      */
-    async saveMemberMaster(memberData: any) {
+    async saveMemberMaster(memberData: any, username: string = 'system') {
         try {
+            // BUG FIX 17: saveMemberMaster only ever checked for duplicate values — every other
+            // rule (age range, PAN/Aadhar/email/mobile format, DOB not in the future, numeric
+            // ranges, field lengths) existed only in the frontend's validateForm(). Any direct
+            // API caller bypassed all of it; confirmed live with negative age, malformed PAN,
+            // a 5-digit Aadhar, an invalid email, negative share amount, a 2099 DOB, and an
+            // empty first name all being accepted and written to member_master. Mirrors the
+            // frontend's rules exactly (same regexes/ranges) so both layers agree.
+            const validationErrors = this.validateMemberMasterData(memberData);
+            if (validationErrors.length > 0) {
+                throw new BadRequestException(validationErrors);
+            }
+
             const currentMbno = (memberData.mbno && memberData.mbno !== 'auto') ? memberData.mbno : null;
 
             // Duplicate checks for fields that must be unique across all members.
@@ -448,6 +532,7 @@ export class MemberCrudService {
                 const branchParts = (memberData.branchmsno || '').split('-');
                 const branchCode = branchParts.length >= 2 ? branchParts[branchParts.length - 1].trim() : '61';
                 const memberNumber = await this.sequenceGenerator.generateNextMemberNumber(branchCode);
+                const entryFee = await this.systemConfigService.getConfigValue('RULE_MEMBER_ENTRY_FEE').catch(() => 5);
 
                 // BUG FIX 2: INSERT was missing aadharno, phoneno, pan_no, frs_no,
                 // fathers_name, branchmsno — all present in the UPDATE path but silently
@@ -510,6 +595,57 @@ export class MemberCrudService {
                          ON CONFLICT DO NOTHING`,
                         [memberNumber, categoryCode, memberType]
                     );
+
+                    // Initialize member_balances row. Every screen that reports a
+                    // member's outstanding loan/share position LEFT JOINs this table
+                    // and COALESCEs the result to 0 — so a missing row does not read
+                    // as "unknown", it reads as a confident ₹0. That is how the Loan
+                    // Sanction screen came to show no existing debt for members
+                    // carrying lakhs. The row must exist from admission onward.
+                    const balanceName = [memberData.f_name, memberData.m_name, memberData.l_name]
+                        .filter(Boolean).join(' ').trim();
+                    await queryRunner.query(
+                        `INSERT INTO member_balances (
+                            mbno, pfno, member_name, officeno, dr_cr, shares, compulsory_deposit,
+                            rd_amt, regularloan, regularinstallamt, int_amount,
+                            emergency_loan_balance, einstallamt, eint_amount, frsbalance
+                         ) VALUES ($1, $2, $3, $4, 0, $5, $6, 0, 0, 0, 0, 0, 0, 0, 0)
+                         ON CONFLICT DO NOTHING`,
+                        [
+                            memberNumber, Number(memberData.pfno) || 0, balanceName,
+                            Number(memberData.officeno) || 0,
+                            memberData.share_amount || 0, memberData.compulsory_deposit || 0,
+                        ]
+                    );
+
+                    // Entry Fee receipt (CR I1001 / DR A1001) — same pattern legacy staff used
+                    // to manually key in on member admission (see UtilitiesService.saveReceipt).
+                    if (entryFee > 0) {
+                        const ledgerMax = await queryRunner.query(
+                            `SELECT COALESCE(MAX(trans_no), 0) + 1 AS next_trans_no, COALESCE(MAX(ledgerid), 0) + 1 AS next_ledger_id FROM ledger`
+                        );
+                        let nextTransNo = Number(ledgerMax[0]?.next_trans_no ?? 1);
+                        let nextLedgerId = Number(ledgerMax[0]?.next_ledger_id ?? 1);
+                        const feeVoucherNo = await generateVoucherNo(queryRunner, 'R');
+                        const admissionDate = memberData.memb_date || new Date();
+
+                        const accTypeRows = await queryRunner.query(
+                            `SELECT acc_type FROM ledger WHERE code = 'I1001' AND acc_type IS NOT NULL AND acc_type <> ''
+                             GROUP BY acc_type ORDER BY COUNT(*) DESC LIMIT 1`
+                        );
+                        const feeAccType = accTypeRows[0]?.acc_type || 'OTH';
+
+                        await queryRunner.query(
+                            `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid)
+                             VALUES ($1, $2, 'CR', 'I1001', $3, 0, $4, $5, $6, 'R', 'C', 0, $7, $8, $9)`,
+                            [nextTransNo++, admissionDate, memberNumber, feeAccType, entryFee, feeVoucherNo, 'Entry Fee', username, nextLedgerId++]
+                        );
+                        await queryRunner.query(
+                            `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid)
+                             VALUES ($1, $2, 'DR', 'A1001', $3, 0, 'CINH', $4, $5, 'P', 'C', 0, $6, $7, $8)`,
+                            [nextTransNo++, admissionDate, memberNumber, entryFee, feeVoucherNo, 'Entry Fee', username, nextLedgerId++]
+                        );
+                    }
 
                     await queryRunner.commitTransaction();
                     return result[0];

@@ -34,6 +34,7 @@ import { LoanV2Module } from './modules/loan/loan-v2.module';
 import { TransactionV2Module } from './modules/transaction/transaction-v2.module';
 import { ReportV2Module } from './modules/report/report-v2.module';
 import { NotificationModule } from './modules/notification/notification.module';
+import { NoticeModule } from './modules/notice/notice.module';
 import { LicenseModule } from './modules/license/license.module';
 import { AiChatModule } from './modules/ai-chat/ai-chat.module';
 import { ClientLogsModule } from './modules/client-logs/client-logs.module';
@@ -137,6 +138,7 @@ import { ClientLogsModule } from './modules/client-logs/client-logs.module';
     PrintVoucherModule,
     JottingReportModule,
     NotificationModule,
+    NoticeModule,
     LicenseModule,
     AiChatModule,
     ClientLogsModule,

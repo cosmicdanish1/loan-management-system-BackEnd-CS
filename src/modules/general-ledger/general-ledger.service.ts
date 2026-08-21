@@ -21,19 +21,25 @@ export class GeneralLedgerService {
 
   async getGeneralLedgerReport(dto: GetGeneralLedgerDto): Promise<GeneralLedgerSummaryDto> {
     try {
-      // Head name from accountbalance (has proper names like "COMPULSORY DEPOSIT")
+      // BUG FIX: accountbalance is empty in this database (0 rows, confirmed
+      // live) — this always fell straight through to dto.headCode, so the
+      // report displayed the raw code instead of a real name. Same gap
+      // already fixed for the dropdown a few lines below (see the other
+      // BUG FIX comment); the query for pflag right below this already reads
+      // headmaster for this exact code, so head_name is grabbed in the same
+      // trip instead of a third query.
       const headNameResult = await this.ledgerRepository.query(
         `SELECT acname FROM accountbalance WHERE acno = $1 LIMIT 1`,
         [dto.headCode]
       );
-      const headName = headNameResult[0]?.acname || dto.headCode;
 
-      const pflagResult = await this.ledgerRepository.query(
-        `SELECT pflag FROM headmaster WHERE code = $1 LIMIT 1`,
+      const headmasterResult = await this.ledgerRepository.query(
+        `SELECT pflag, head_name FROM headmaster WHERE code = $1 LIMIT 1`,
         [dto.headCode]
       );
-      const pflag = pflagResult[0]?.pflag || '';
+      const pflag = headmasterResult[0]?.pflag || '';
       const debitNormal = isDebitNormal(pflag);
+      const headName = headNameResult[0]?.acname || headmasterResult[0]?.head_name || dto.headCode;
 
       // Entries deduped with DISTINCT ON, date filter via ::date cast (no IST issues)
       const rows = await this.ledgerRepository.query(`
@@ -122,14 +128,31 @@ export class GeneralLedgerService {
 
   async getHeadMasters(): Promise<HeadMasterDto[]> {
     try {
-      // Use accountbalance — has proper names vs head_master's 20 generic rows
+      // BUG FIX: accountbalance is empty in this database (0 rows) — this
+      // dropdown silently had zero options. headmaster is the real,
+      // populated source of GL codes; accountbalance is only used when it
+      // actually has rows (kept as originally intended for whichever
+      // environment populates it with richer names).
       const rows = await this.ledgerRepository.query(`
         SELECT acno AS code, acname AS head_name
         FROM accountbalance
         WHERE acno IS NOT NULL AND TRIM(acno) != ''
         ORDER BY acno
       `);
-      return rows.map((r: any) => ({
+      if (rows.length > 0) {
+        return rows.map((r: any) => ({
+          code:     r.code,
+          headName: r.head_name || r.code,
+        }));
+      }
+
+      const headmasterRows = await this.ledgerRepository.query(`
+        SELECT code, head_name
+        FROM headmaster
+        WHERE code IS NOT NULL AND TRIM(code) != ''
+        ORDER BY code
+      `);
+      return headmasterRows.map((r: any) => ({
         code:     r.code,
         headName: r.head_name || r.code,
       }));

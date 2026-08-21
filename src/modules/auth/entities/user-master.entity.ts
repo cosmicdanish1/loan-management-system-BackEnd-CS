@@ -58,6 +58,28 @@ export class UserMaster {
   })
   passTransactionFlag: string;
 
+  // Fields with no legacy equivalent — added so usermaster can be the single
+  // source of truth for user management instead of the separate modern
+  // `users` table (which had zero real accounts; everything real logs in
+  // through this table already).
+  @Column({ name: 'email', type: 'varchar', length: 100, nullable: true })
+  email: string;
+
+  @Column({ name: 'first_name', type: 'varchar', length: 50, nullable: true })
+  firstName: string;
+
+  @Column({ name: 'last_name', type: 'varchar', length: 50, nullable: true })
+  lastName: string;
+
+  @Column({ name: 'avatar', type: 'text', nullable: true })
+  avatar: string;
+
+  @Column({ name: 'permissions', type: 'text', nullable: true })
+  permissionsRaw: string;
+
+  @Column({ name: 'updated_at', type: 'timestamp', nullable: true })
+  updatedAt: Date;
+
   // Relationships
   @ManyToOne(() => UserLevelMaster, { eager: true })
   @JoinColumn({ name: 'userlevelid' })
@@ -73,6 +95,18 @@ export class UserMaster {
   loginTimes: LoginTime[];
 
   // Computed properties
+  get permissions(): string[] {
+    return this.permissionsRaw ? this.permissionsRaw.split(',').filter(Boolean) : [];
+  }
+
+  set permissions(value: string[]) {
+    this.permissionsRaw = (value || []).join(',');
+  }
+
+  get fullName(): string {
+    return `${this.firstName || this.susername} ${this.lastName || ''}`.trim();
+  }
+
   get isEnabled(): boolean {
     return this.enableDisable === 'E';
   }

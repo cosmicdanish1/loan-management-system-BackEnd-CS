@@ -66,6 +66,20 @@ export class UtilitiesController {
     };
   }
 
+  @Get('rd-accounts/holders')
+  @ApiOperation({ summary: 'List members who have at least one active RD account (for Premature Information dropdown)' })
+  async listRdAccountHolders() {
+    const data = await this.utilitiesService.listRdAccountHolders();
+    return { success: true, data, message: 'RD account holders retrieved successfully' };
+  }
+
+  @Get('sb-accounts/holders')
+  @ApiOperation({ summary: 'List members who have an SB account (for Premature Information dropdown)' })
+  async listSbAccountHolders() {
+    const data = await this.utilitiesService.listSbAccountHolders();
+    return { success: true, data, message: 'SB account holders retrieved successfully' };
+  }
+
   @Get('calculator/loan-rates')
   @ApiOperation({ summary: 'Get current loan interest rates from business rules' })
   @ApiResponse({
@@ -244,8 +258,12 @@ export class UtilitiesController {
   @ApiOperation({ summary: 'Get active FD accounts for a member' })
   async getFdAccountsByMember(@Query('memberNo') memberNo: string) {
     this.logger.log(`[FDInterest] GET FD accounts for member: ${memberNo}`);
-    const data = await this.utilitiesService.getFdAccountsByMember(memberNo);
-    return { success: true, data };
+    // BUG FIX: manually wrapped in {success, data} on top of the global
+    // TransformInterceptor's identical wrap — same double-wrap pattern already
+    // fixed for business-rules/demand-print-order/deposit-loan-slabs/
+    // getPendingDividends this session; this was one of the ones flagged but
+    // not yet fixed until this screen was directly in scope.
+    return await this.utilitiesService.getFdAccountsByMember(memberNo);
   }
 
   @Post('fd-interest/post')
@@ -287,8 +305,10 @@ export class UtilitiesController {
   @ApiOperation({ summary: 'Get pending dividends for a member' })
   async getPendingDividends(@Query('memberNo') memberNo: string) {
     this.logger.log(`[Dividend] GET pending for member: ${memberNo}`);
-    const data = await this.utilitiesService.getPendingDividends(memberNo);
-    return { success: true, data };
+    // BUG FIX: manually wrapped in {success, data} on top of the global
+    // TransformInterceptor's identical wrap — same pattern already fixed for
+    // business-rules/demand-print-order/deposit-loan-slabs this session.
+    return await this.utilitiesService.getPendingDividends(memberNo);
   }
 
   @Post('dividend/pay')
@@ -435,8 +455,11 @@ export class UtilitiesController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Get deposit/loan interest slabs from fdrd_slab_details' })
   async getDepositLoanSlabs(@Query('type') type?: string) {
-    const data = await this.utilitiesService.getDepositLoanSlabs(type);
-    return { success: true, data };
+    // BUG FIX: this manually wrapped the payload in {success, data}, but the
+    // global TransformInterceptor already wraps every response the same way —
+    // callers were getting data.data instead of data. Same pattern already
+    // fixed for business-rules/demand-print-order.
+    return await this.utilitiesService.getDepositLoanSlabs(type);
   }
 
   @Post('deposit-loan-slabs')
@@ -452,8 +475,11 @@ export class UtilitiesController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Get demand print order configuration' })
   async getDemandPrintOrder() {
-    const data = await this.utilitiesService.getDemandPrintOrder();
-    return { success: true, data };
+    // BUG FIX: this manually wrapped the payload in {success, data}, but the
+    // global TransformInterceptor wraps every controller response the same
+    // way — double-wrapping meant the frontend's response.data was actually
+    // {success, data:[...]} instead of the array directly.
+    return await this.utilitiesService.getDemandPrintOrder();
   }
 
   @Post('demand-print-order')
@@ -470,8 +496,13 @@ export class UtilitiesController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Get current business rules from busrules table' })
   async getBusinessRules() {
-    const data = await this.utilitiesService.getBusinessRules();
-    return { success: true, data };
+    // BUG FIX: same double-wrap as getDemandPrintOrder above — the manual
+    // {success, data} wrapper here, stacked on top of the global
+    // TransformInterceptor's identical wrapping, meant useBusinessRules.ts's
+    // `response.data.RULE_...` reads were always undefined. Every field
+    // silently fell back to the hardcoded initialData defaults on every load,
+    // never showing (or letting you build on top of) what was actually saved.
+    return await this.utilitiesService.getBusinessRules();
   }
 
   @Post('business-rules')

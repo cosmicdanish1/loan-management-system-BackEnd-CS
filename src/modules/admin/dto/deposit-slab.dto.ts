@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
   IsString,
   IsNotEmpty,
@@ -7,6 +8,8 @@ import {
   IsBoolean,
   IsNumber,
   IsDateString,
+  IsArray,
+  ValidateNested,
   Min,
   Max,
 } from 'class-validator';
@@ -118,6 +121,25 @@ export class CreateDepositSlabDto {
   @IsDateString()
   @IsOptional()
   effectiveTo?: string;
+}
+
+export class BulkSaveDepositSlabsDto {
+  @ApiProperty({
+    description: 'Deposit slab type these rows replace',
+    enum: DepositSlabType,
+    example: DepositSlabType.FIXED_DEPOSIT,
+  })
+  @IsEnum(DepositSlabType)
+  type: DepositSlabType;
+
+  @ApiProperty({
+    description: 'Full replacement set of slabs for the given type',
+    type: [CreateDepositSlabDto],
+  })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateDepositSlabDto)
+  rows: CreateDepositSlabDto[];
 }
 
 export class UpdateDepositSlabDto {

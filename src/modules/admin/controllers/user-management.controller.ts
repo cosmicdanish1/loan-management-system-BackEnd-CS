@@ -71,6 +71,7 @@ export class UserManagementController {
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Items per page' })
   @ApiQuery({ name: 'role', required: false, enum: UserRole, description: 'Filter by role' })
   @ApiQuery({ name: 'isActive', required: false, type: Boolean, description: 'Filter by active status' })
+  @ApiQuery({ name: 'username', required: false, type: String, description: 'Filter by username (partial match)' })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Users retrieved successfully',
@@ -80,8 +81,9 @@ export class UserManagementController {
     @Query('limit') limit: number = 10,
     @Query('role') role?: UserRole,
     @Query('isActive') isActive?: boolean,
+    @Query('username') username?: string,
   ) {
-    return this.userManagementService.findAllUsers(page, limit, role, isActive);
+    return this.userManagementService.findAllUsers(page, limit, role, isActive, username);
   }
 
   @Get('roles/permissions')

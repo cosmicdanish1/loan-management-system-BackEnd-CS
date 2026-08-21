@@ -37,7 +37,16 @@ export class PrintVoucherService {
         dto.voucher_no = voucherNo;
         dto.trans_date = firstTrans.trans_date;
         dto.narration = firstTrans.narration;
-        dto.dr_cr = firstTrans.trans_type === 'DR' ? 'Payment' : 'Receipt';
+        // BUG FIX: trans_type's DR/CR convention is inconsistent across the app's
+        // 3 different voucher-creation paths (savePaymentVoucher writes 'P'/'R'
+        // into trans_type, not 'DR'/'CR'; saveReceiptVoucher inserts its cash leg
+        // — trans_type='DR' — as the FIRST row despite being a Receipt voucher).
+        // Checking firstTrans.trans_type === 'DR' was live-confirmed to show a
+        // real Payment Voucher as "Receipt". vchr_type is the one field every
+        // creation path sets consistently on every row of a voucher regardless of
+        // insertion order or that row's own DR/CR side ('R' = Receipt, everything
+        // else — 'P'/'PV' — = Payment), so it's the reliable signal here.
+        dto.dr_cr = firstTrans.vchr_type === 'R' ? 'Receipt' : 'Payment';
         dto.mode = firstTrans.modeofpay === 'C' ? 'Cash' : (firstTrans.modeofpay === 'Q' ? 'Cheque' : 'Bank');
         if (firstTrans.modeofpay === 'B') dto.mode = 'Bank Transfer';
 
@@ -65,12 +74,25 @@ export class PrintVoucherService {
             entryDto.narration = trans.narration;
             entryDto.mbno = trans.mbno;
 
-            // Use accountbalance for proper head names (headmaster only has 20 generic rows)
+            // BUG FIX: accountbalance is empty in this database (0 rows, confirmed
+            // live) — this always fell straight through to trans.code, so the
+            // voucher displayed the raw code ("A1047") instead of a real name.
+            // headmaster has 151 real rows (confirmed live) and is the fallback
+            // already established for the same gap in Member Ledger Report /
+            // General Ledger this session.
             const headResult = await this.transactionsRepository.query(
                 `SELECT acname FROM accountbalance WHERE acno = $1 LIMIT 1`,
                 [trans.code]
             );
-            entryDto.head_name = headResult[0]?.acname || trans.code || 'Unknown Head';
+            let headName = headResult[0]?.acname;
+            if (!headName) {
+                const hmResult = await this.transactionsRepository.query(
+                    `SELECT head_name FROM headmaster WHERE code = $1 LIMIT 1`,
+                    [trans.code]
+                );
+                headName = hmResult[0]?.head_name;
+            }
+            entryDto.head_name = headName || trans.code || 'Unknown Head';
 
             dto.entries.push(entryDto);
             total += entryDto.amount;
@@ -103,7 +125,12 @@ export class PrintVoucherService {
 
     async getJournalVoucherByNo(voucherNo: string): Promise<JournalVoucherDto> {
         // Single JOIN query — DISTINCT ON deduplicates old duplicate ledger rows,
-        // accountbalance gives proper head names, member_master gives member names
+        // accountbalance gives proper head names, member_master gives member names.
+        // BUG FIX: accountbalance is empty in this database (0 rows, confirmed
+        // live) — ab.acname was always NULL, so head_name always fell through
+        // to the raw code. headmaster has 151 real rows (confirmed live); added
+        // as a second fallback join, same pattern already used to fix this exact
+        // gap in Member Ledger Report / General Ledger this session.
         const rows = await this.ledgerRepository.query(`
             SELECT DISTINCT ON (l.ledgerid)
                 l.ledgerid,
@@ -111,7 +138,7 @@ export class PrintVoucherService {
                 l.trans_date,
                 l.narration,
                 l.code                                                       AS head_code,
-                COALESCE(ab.acname, l.code)                                  AS head_name,
+                COALESCE(ab.acname, hm.head_name, l.code)                    AS head_name,
                 l.trans_type,
                 CAST(l.trans_amt AS numeric)                                 AS amount,
                 CAST(l.mbno AS text)                                         AS mb_no,
@@ -122,6 +149,7 @@ export class PrintVoucherService {
                 )                                                            AS member_name
             FROM ledger l
             LEFT JOIN accountbalance  ab ON ab.acno = l.code
+            LEFT JOIN headmaster      hm ON hm.code = l.code
             LEFT JOIN member_master   m  ON CAST(m.mbno AS text) = CAST(l.mbno AS text)
             WHERE l.receipt_vchr_no = $1
             ORDER BY l.ledgerid

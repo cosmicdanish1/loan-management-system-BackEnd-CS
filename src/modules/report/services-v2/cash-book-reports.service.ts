@@ -3,6 +3,47 @@ import { DataSource } from 'typeorm';
 import { parseSafeDate } from '../../shared/utils/date-utils';
 
 /**
+ * Identifies the cash leg of a voucher — the row representing money actually
+ * entering or leaving the drawer, as opposed to the heads explaining what it
+ * was for. Posting code stamps these with acc_type CINH (see
+ * PassTransactionService and UtilitiesService.saveSavingTransaction); older
+ * rows are matched on the cash head code instead.
+ *
+ * Covers cash in hand *and* bank: tblcashbook has always carried separate
+ * rcash/rtransfer and pcash/ptransfer columns, so transfers are part of what
+ * this book reports. Both Cash Book windows use this one definition, so the
+ * pair cannot show two different balances for the same day — they previously
+ * disagreed by roughly ₹2.6 crore, partly because one counted bank and the
+ * other did not.
+ *
+ * CASH_LEG_SQL must express the same rule as isCashLeg(); change them together.
+ */
+const CASH_ACC_TYPES = new Set(['CINH', 'BANK']);
+const CASH_HEAD_CODE = 'A1001';
+const CASH_LEG_SQL = `(UPPER(COALESCE(acc_type, '')) IN ('CINH', 'BANK') OR code = '${CASH_HEAD_CODE}')`;
+
+function isCashLeg(row: { acc_type?: string | null; head_code?: string | null }): boolean {
+    return CASH_ACC_TYPES.has((row.acc_type || '').trim().toUpperCase())
+        || (row.head_code || '').trim() === CASH_HEAD_CODE;
+}
+
+/**
+ * Cash and bank carried in from before `date`. A debit increases it.
+ * Shared so both Cash Book windows open on the same figure.
+ */
+async function cashOpeningBalance(dataSource: DataSource, targetDate: any): Promise<number> {
+    const result = await dataSource.query(`
+        SELECT
+            SUM(CASE WHEN trans_type = 'DR' THEN CAST(trans_amt AS numeric) ELSE 0 END) -
+            SUM(CASE WHEN trans_type = 'CR' THEN CAST(trans_amt AS numeric) ELSE 0 END) AS balance
+        FROM ledger
+        WHERE trans_date::date < $1::date
+          AND ${CASH_LEG_SQL}
+    `, [targetDate]);
+    return parseFloat(result[0]?.balance) || 0;
+}
+
+/**
  * Cash Book Reports Service - Handles cash book and ledger reports.
  * 
  * @version 2.0 - Part of backend restructuring
@@ -22,26 +63,38 @@ export class CashBookReportsService {
             C: 'Cash', B: 'Bank', J: 'Journal', T: 'Transfer', D: 'Draft', N: 'NEFT', G: 'RTGS',
         };
 
-        // Single query: all ledger entries for the date, with head name and member name joined
+        // Single query: all ledger entries for the date, with head name and member name joined.
+        //
+        // DISTINCT ON (ledgerid) guards against join fan-out. member_master
+        // currently holds two members twice over (610033326 and 990042294),
+        // so the member join returns each of their ledger rows twice and every
+        // amount was counted twice — voucher J33437 reported ₹2,004 of cash
+        // against ₹1,002 actually received. One ledger row must contribute
+        // once no matter how many rows the lookup tables happen to match.
         const rows = await this.dataSource.query(`
-            SELECT
-                l.receipt_vchr_no,
-                CAST(l.mbno AS text)                                                AS member_no,
-                l.modeofpay,
-                l.narration,
-                l.trans_no,
-                l.code                                                              AS head_code,
-                COALESCE(h.head_name, l.code, '')                                  AS head_name,
-                CAST(l.trans_amt AS numeric)                                        AS amount,
-                l.trans_type,
-                TRIM(COALESCE(m.f_name,'')||' '||COALESCE(m.m_name,'')||' '||COALESCE(m.l_name,'')) AS member_name
-            FROM ledger l
-            LEFT JOIN head_master   h ON h.code = l.code
-            LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(l.mbno AS text)
-            WHERE l.trans_date::date = $1::date
-              AND l.receipt_vchr_no IS NOT NULL
-              AND TRIM(l.receipt_vchr_no) != ''
-            ORDER BY l.receipt_vchr_no, l.trans_no
+            SELECT * FROM (
+                SELECT DISTINCT ON (l.ledgerid)
+                    l.ledgerid,
+                    l.receipt_vchr_no,
+                    CAST(l.mbno AS text)                                                AS member_no,
+                    l.modeofpay,
+                    l.narration,
+                    l.trans_no,
+                    l.code                                                              AS head_code,
+                    COALESCE(h.head_name, l.code, '')                                  AS head_name,
+                    CAST(l.trans_amt AS numeric)                                        AS amount,
+                    l.trans_type,
+                    l.acc_type,
+                    TRIM(COALESCE(m.f_name,'')||' '||COALESCE(m.m_name,'')||' '||COALESCE(m.l_name,'')) AS member_name
+                FROM ledger l
+                LEFT JOIN headmaster    h ON h.code = l.code
+                LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(l.mbno AS text)
+                WHERE l.trans_date::date = $1::date
+                  AND l.receipt_vchr_no IS NOT NULL
+                  AND TRIM(l.receipt_vchr_no) != ''
+                ORDER BY l.ledgerid
+            ) x
+            ORDER BY x.receipt_vchr_no, x.trans_no
         `, [targetDate]);
 
         // Group rows by voucher in JS (no N+1)
@@ -72,8 +125,21 @@ export class CashBookReportsService {
             if (!row.head_code?.trim()) continue;
 
             const amount = parseFloat(row.amount) || 0;
+
+            // A cash book measures movement on the CASH account; the other heads
+            // are the analysis of what that cash was for. This used to total every
+            // head on both sides of the voucher, and since every voucher balances
+            // by construction, receipts always equalled payments and the book could
+            // never show any cash movement at all — ₹1.26 crore passed through
+            // 10-Jun-2026 and it reported the drawer unchanged.
+            if (isCashLeg(row)) {
+                // On the cash head, DR means cash came in, CR means cash went out.
+                if (row.trans_type === 'DR') v.totalReceipt += amount;
+                else v.totalPayment += amount;
+                continue; // the cash leg itself is the movement, not a line of analysis
+            }
+
             const isPayment = row.trans_type === 'DR';
-            if (isPayment) v.totalPayment += amount; else v.totalReceipt += amount;
             v._sno++;
             v.entries.push({
                 sno: v._sno,
@@ -88,16 +154,11 @@ export class CashBookReportsService {
         // Remove internal _sno helper before returning
         const voucherDetails = [...voucherMap.values()].map(({ _sno, ...v }) => v);
 
-        // Opening balance = net of all transactions BEFORE this date
-        const openingBalanceResult = await this.dataSource.query(`
-            SELECT
-                SUM(CASE WHEN trans_type = 'CR' THEN CAST(trans_amt AS numeric) ELSE 0 END) -
-                SUM(CASE WHEN trans_type = 'DR' THEN CAST(trans_amt AS numeric) ELSE 0 END) AS balance
-            FROM ledger
-            WHERE trans_date::date < $1::date
-        `, [targetDate]);
-
-        const openingBalance = parseFloat(openingBalanceResult[0]?.balance) || 0;
+        // Opening balance used to net every head in the entire ledger — loans,
+        // shares, deposits, income and cash together — which for a balanced
+        // ledger is meaningless: it returned the same ₹2,42,044 for every date
+        // in history. Now it is cash on hand, shared with Cash Book 2.
+        const openingBalance = await cashOpeningBalance(this.dataSource, targetDate);
         const totalPayments = voucherDetails.reduce((sum: number, v: any) => sum + v.totalPayment, 0);
         const totalReceipts = voucherDetails.reduce((sum: number, v: any) => sum + v.totalReceipt, 0);
         const closingBalance = openingBalance + totalReceipts - totalPayments;
@@ -113,98 +174,71 @@ export class CashBookReportsService {
     }
 
     /**
-     * Get daily cash book report (head-wise) - Using tblcashbook table
+     * Get daily cash book report (head-wise).
+     *
+     * Reads the ledger, the same source as the voucher-wise window, so the two
+     * screens describe one day's cash from one set of facts. It used to prefer
+     * tblcashbook and fall back to the ledger only for dates tblcashbook did
+     * not cover, which made the pair disagree: tblcashbook holds the balancing
+     * A1001 contra row as a *receipt*, so a disbursement day totalled equal
+     * receipts and payments and reported no cash movement at all. That table is
+     * also unusable as a dated source — 7,281 of its 7,310 rows carry no
+     * trans_date, and it has no acc_type to tell a cash leg from an analysis
+     * head.
+     *
+     * The cash and bank legs are excluded here on purpose: this window lists
+     * what the money was *for*, so payments less receipts across these heads is
+     * the day's net cash movement, matching the voucher-wise window's closing
+     * balance.
      */
     async getCashBook2Daily(date: string) {
         const targetDate = parseSafeDate(date);
 
-        // Get entries: prefer tblcashbook when it has data; fall back to ledger for dates without.
-        // Both sources join accountbalance for proper names.
+        // modeofpay is stamped per ledger row from the same transaction the analysis
+        // head row belongs to ('C' = cash, anything else = bank/cheque/NEFT/RTGS —
+        // same binary split daybook.service.ts already uses). Splitting receipt and
+        // payment by it here matches the legacy Cash Book's CASH/TRANSFER sub-columns.
         const entries = await this.dataSource.query(`
-            WITH cb AS (
-                SELECT
-                    t.headcode AS head_code,
-                    COALESCE(
-                        ab.acname,
-                        REGEXP_REPLACE(t.headname, '\\s*\\[Code:[^\\]]*\\]\\s*', '', 'g'),
-                        t.headcode
-                    ) AS head_name,
-                    COALESCE(t.rcash, 0) + COALESCE(t.rtransfer, 0) AS receipt,
-                    COALESCE(t.pcash, 0) + COALESCE(t.ptransfer, 0) AS payment
-                FROM tblcashbook t
-                LEFT JOIN accountbalance ab ON ab.acno = t.headcode
-                WHERE t.trans_date::date = $1::date
-                  AND t.headcode IS NOT NULL AND TRIM(t.headcode) != ''
-            ),
-            cb_count AS (SELECT COUNT(*) AS cnt FROM cb),
-            ledger_src AS (
+            WITH ledger_src AS (
                 SELECT DISTINCT ON (ledgerid)
-                    ledgerid, code, trans_type,
+                    ledgerid, code, trans_type, modeofpay,
                     CAST(trans_amt AS numeric) AS amt
                 FROM ledger
                 WHERE trans_date::date = $1::date
                   AND code IS NOT NULL AND TRIM(code) != ''
-                  AND code != 'A1001'
+                  AND NOT ${CASH_LEG_SQL}
                 ORDER BY ledgerid
-            ),
-            lg AS (
-                SELECT
-                    ls.code AS head_code,
-                    COALESCE(ab.acname, ls.code) AS head_name,
-                    SUM(CASE WHEN ls.trans_type = 'CR' THEN ls.amt ELSE 0 END) AS receipt,
-                    SUM(CASE WHEN ls.trans_type = 'DR' THEN ls.amt ELSE 0 END) AS payment
-                FROM ledger_src ls
-                LEFT JOIN accountbalance ab ON ab.acno = ls.code
-                GROUP BY ls.code, ab.acname
-            )
-            SELECT head_code, head_name, receipt, payment
-            FROM cb WHERE (SELECT cnt FROM cb_count) > 0
-            UNION ALL
-            SELECT head_code, head_name, receipt, payment
-            FROM lg  WHERE (SELECT cnt FROM cb_count) = 0
-              AND (receipt > 0 OR payment > 0)
-            ORDER BY head_code
-        `, [targetDate]);
-
-        const totalReceipts = entries.reduce((sum: number, e: any) => sum + (parseFloat(e.receipt) || 0), 0);
-        const totalPayments = entries.reduce((sum: number, e: any) => sum + (parseFloat(e.payment) || 0), 0);
-
-        // Opening balance: take the most recent daily_gl_history snapshot for A1001 (cash-in-hand)
-        // then extend with subsequent ledger CINH entries + tblcashbook dated entries up to the day before.
-        const openingResult = await this.dataSource.query(`
-            WITH last_gl AS (
-                SELECT CAST(balance AS numeric) AS bal, trans_date::date AS gl_date
-                FROM daily_gl_history
-                WHERE code = 'A1001' AND trans_date::date < $1::date
-                ORDER BY trans_date DESC LIMIT 1
             )
             SELECT
-                COALESCE((SELECT bal FROM last_gl), 0)
-                + COALESCE((
-                    SELECT SUM(CASE WHEN t.trans_type='DR' THEN t.amt ELSE -t.amt END)
-                    FROM (
-                        SELECT DISTINCT ON (ledgerid)
-                            ledgerid, trans_type,
-                            CAST(trans_amt AS numeric) AS amt,
-                            trans_date
-                        FROM ledger
-                        WHERE code = 'A1001' AND acc_type = 'CINH'
-                        ORDER BY ledgerid
-                    ) t
-                    WHERE t.trans_date::date > COALESCE((SELECT gl_date FROM last_gl), '2000-01-01')
-                      AND t.trans_date::date < $1::date
-                ), 0)
-                + COALESCE((
-                    SELECT SUM(COALESCE(rcash,0)+COALESCE(rtransfer,0))
-                           - SUM(COALESCE(pcash,0)+COALESCE(ptransfer,0))
-                    FROM tblcashbook
-                    WHERE trans_date IS NOT NULL
-                      AND trans_date::date > COALESCE((SELECT gl_date FROM last_gl), '2000-01-01')
-                      AND trans_date::date < $1::date
-                ), 0) AS opening_balance
+                ls.code AS head_code,
+                COALESCE(ab.acname, h.head_name, ls.code) AS head_name,
+                SUM(CASE WHEN ls.trans_type = 'CR' AND UPPER(COALESCE(ls.modeofpay, 'C')) = 'C' THEN ls.amt ELSE 0 END) AS receipt_cash,
+                SUM(CASE WHEN ls.trans_type = 'CR' AND UPPER(COALESCE(ls.modeofpay, 'C')) != 'C' THEN ls.amt ELSE 0 END) AS receipt_transfer,
+                SUM(CASE WHEN ls.trans_type = 'DR' AND UPPER(COALESCE(ls.modeofpay, 'C')) = 'C' THEN ls.amt ELSE 0 END) AS payment_cash,
+                SUM(CASE WHEN ls.trans_type = 'DR' AND UPPER(COALESCE(ls.modeofpay, 'C')) != 'C' THEN ls.amt ELSE 0 END) AS payment_transfer
+            FROM ledger_src ls
+            LEFT JOIN accountbalance ab ON ab.acno = ls.code
+            LEFT JOIN headmaster     h  ON h.code  = ls.code
+            GROUP BY ls.code, ab.acname, h.head_name
+            HAVING SUM(CASE WHEN ls.trans_type = 'CR' THEN ls.amt ELSE 0 END) > 0
+                OR SUM(CASE WHEN ls.trans_type = 'DR' THEN ls.amt ELSE 0 END) > 0
+            ORDER BY ls.code
         `, [targetDate]);
 
-        const openingBalance = parseFloat(openingResult[0]?.opening_balance) || 0;
+        const num = (v: any) => parseFloat(v) || 0;
+        const totalReceiptsCash = entries.reduce((sum: number, e: any) => sum + num(e.receipt_cash), 0);
+        const totalReceiptsTransfer = entries.reduce((sum: number, e: any) => sum + num(e.receipt_transfer), 0);
+        const totalPaymentsCash = entries.reduce((sum: number, e: any) => sum + num(e.payment_cash), 0);
+        const totalPaymentsTransfer = entries.reduce((sum: number, e: any) => sum + num(e.payment_transfer), 0);
+        const totalReceipts = totalReceiptsCash + totalReceiptsTransfer;
+        const totalPayments = totalPaymentsCash + totalPaymentsTransfer;
+
+        // Same opening balance as the voucher-wise window. This used to start
+        // from a daily_gl_history snapshot and extend it with CINH ledger rows
+        // and dated tblcashbook rows, which returned a negative cash position —
+        // around minus ₹26 lakh — on days the other window opened ₹2.38 crore
+        // positive. A drawer cannot hold negative cash.
+        const openingBalance = await cashOpeningBalance(this.dataSource, targetDate);
         const closingBalance = openingBalance + totalReceipts - totalPayments;
 
         return {
@@ -212,12 +246,20 @@ export class CashBookReportsService {
             openingBalance,
             totalReceipts,
             totalPayments,
+            totalReceiptsCash,
+            totalReceiptsTransfer,
+            totalPaymentsCash,
+            totalPaymentsTransfer,
             closingBalance,
             entries: entries.map((e: any) => ({
                 headCode: e.head_code || '',
                 headName: e.head_name || '',
-                receipt: parseFloat(e.receipt) || 0,
-                payment: parseFloat(e.payment) || 0,
+                receiptCash: num(e.receipt_cash),
+                receiptTransfer: num(e.receipt_transfer),
+                paymentCash: num(e.payment_cash),
+                paymentTransfer: num(e.payment_transfer),
+                receipt: num(e.receipt_cash) + num(e.receipt_transfer),
+                payment: num(e.payment_cash) + num(e.payment_transfer),
             }))
         };
     }
@@ -250,20 +292,28 @@ export class CashBookReportsService {
         `, [startStr, endStr]);
         const totalCount = parseInt(countRes[0].count) || 0;
 
-        // Main query: join accountbalance for proper head names (tblcashbook.headname may have [Code:...] suffixes)
+        // BUG FIX: accountbalance is empty in this database (0 rows, confirmed
+        // live) — ab.acname was always NULL, so this fell through to
+        // MAX(t.headname), but tblcashbook.headname stores each transaction's own
+        // narration text (e.g. "EMERGENCY LOAN [Code: A1047]"), not a real head
+        // name, so the report displayed narration instead of a head name.
+        // headmaster has 151 real rows (confirmed live) and is the fallback
+        // already established for this exact gap elsewhere this session — added
+        // ahead of the narration fallback so it's tried first.
         let query = `
             SELECT
                 t.headcode                                                         AS code,
-                COALESCE(ab.acname, MAX(t.headname), t.headcode)                  AS "headName",
+                COALESCE(ab.acname, hm.head_name, MAX(t.headname), t.headcode)    AS "headName",
                 SUM(COALESCE(t.rcash, 0) + COALESCE(t.rtransfer, 0))             AS receipt,
                 SUM(COALESCE(t.pcash, 0) + COALESCE(t.ptransfer, 0))             AS payment
             FROM tblcashbook t
             LEFT JOIN accountbalance ab ON ab.acno = t.headcode
+            LEFT JOIN headmaster     hm ON hm.code = t.headcode
             WHERE t.trans_date IS NOT NULL
               AND t.trans_date::date >= $1::date
               AND t.trans_date::date <= $2::date
               AND t.headcode IS NOT NULL AND TRIM(t.headcode) != ''
-            GROUP BY t.headcode, ab.acname
+            GROUP BY t.headcode, ab.acname, hm.head_name
             ORDER BY t.headcode
         `;
 
@@ -465,8 +515,35 @@ export class CashBookReportsService {
 
         const transactions = await this.dataSource.query(query, params);
 
-        const openingBalance = 0;
+        // BUG FIX: openingBalance was hardcoded to 0, ignoring all transactions
+        // before from_date — live-confirmed wrong: a bank head with a real ₹8,000
+        // prior credit before the filtered range still showed 0 here. Same
+        // opening-balance calc getDetailLedger already does correctly, mirrored.
+        const obResult = await this.dataSource.query(`
+            SELECT
+                COALESCE(SUM(CASE WHEN trans_type = 'DR' THEN CAST(trans_amt AS numeric) ELSE 0 END), 0) -
+                COALESCE(SUM(CASE WHEN trans_type = 'CR' THEN CAST(trans_amt AS numeric) ELSE 0 END), 0) as balance
+            FROM ledger
+            WHERE code = $1 AND trans_date < $2
+        `, [bank_head_code, parseSafeDate(from_date)]);
+        const openingBalance = parseFloat(obResult[0]?.balance || '0');
         let runningBalance = openingBalance;
+
+        if (offset && offset > 0) {
+            const preOffsetResult = await this.dataSource.query(`
+                SELECT
+                    COALESCE(SUM(CASE WHEN trans_type = 'DR' THEN CAST(trans_amt AS numeric) ELSE 0 END), 0) -
+                    COALESCE(SUM(CASE WHEN trans_type = 'CR' THEN CAST(trans_amt AS numeric) ELSE 0 END), 0) as balance
+                FROM (
+                    SELECT trans_type, trans_amt FROM ledger
+                    WHERE code = $1 AND trans_date >= $2 AND trans_date <= $3
+                    ORDER BY trans_date ASC, trans_no ASC
+                    LIMIT $4
+                ) pre
+            `, [bank_head_code, parseSafeDate(from_date), parseSafeDate(to_date), offset]);
+            runningBalance += parseFloat(preOffsetResult[0]?.balance || '0');
+        }
+
         const ledgerData = transactions.map((trans: any, index: number) => {
             const isDebit = trans.trans_type === 'DR';
             const debit = isDebit ? parseFloat(trans.amount) || 0 : 0;

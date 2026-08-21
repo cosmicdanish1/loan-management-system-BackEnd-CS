@@ -122,26 +122,26 @@ export class LoanQueryService {
           loantype,
           loan_amt::numeric as loan_amt,
           balance::numeric as balance,
-          int_rate,
+          rate,
           no_of_instal,
-          emi_amt,
-          disburse_date
+          instal_amt::numeric as instal_amt,
+          payment_date
         FROM loan_master
-        WHERE mbno = $1
+        WHERE CAST(mbno AS TEXT) = $1
         ORDER BY loancaseno DESC
       `;
 
             const result = await this.dataSource.query(query, [memberNo]);
 
             return result.map((loan: any) => ({
-                loanCaseNo: loan.loancaseno,
-                loanType: loan.loantype,
-                loanAmount: parseFloat(loan.loan_amt) || 0,
+                loancaseno: loan.loancaseno,
+                loantype: loan.loantype,
+                loan_amt: parseFloat(loan.loan_amt) || 0,
                 balance: parseFloat(loan.balance) || 0,
-                interestRate: loan.int_rate,
-                noOfInstallments: loan.no_of_instal,
-                emiAmount: loan.emi_amt,
-                disbursementDate: loan.disburse_date,
+                int_rate: loan.rate,
+                no_of_instal: loan.no_of_instal,
+                instal_amt: parseFloat(loan.instal_amt) || 0,
+                disburse_date: loan.payment_date,
                 status: 'ACTIVE'
             }));
         } catch (error) {
@@ -302,18 +302,21 @@ export class LoanQueryService {
 
             const loanMaster = loanResult[0];
 
-            // Get payment status from demand_master for this member
+            // Get payment status from demand_master for this member.
+            // (Real columns are demand_for_year/demand_for_month — the previous
+            // "demandforyear"/"<type>amount" names don't exist on this table and
+            // made every call to this endpoint throw.)
             const demandQuery = `
-                SELECT 
-                    "demandforyear" as year,
-                    "demandformonth" as month,
-                    CASE 
-                        WHEN ${loanMaster.loantype.toLowerCase()}amount > 0 THEN 'Paid'
+                SELECT
+                    demand_for_year as year,
+                    demand_for_month as month,
+                    CASE
+                        WHEN COALESCE(balance_for_month, 0) <= 0 THEN 'Paid'
                         ELSE 'Pending'
                     END as status
                 FROM demand_master
                 WHERE mbno = $1
-                ORDER BY "demandforyear" ASC, "demandformonth" ASC
+                ORDER BY demand_for_year ASC, demand_for_month ASC
             `;
 
             const demandRecords = await this.dataSource.query(demandQuery, [loanMaster.mbno]);
@@ -325,30 +328,68 @@ export class LoanQueryService {
                 paymentStatusMap.set(key, record.status);
             });
 
-            // Calculate EMI schedule
+            // BUG FIX 50: status here only ever checked demand_master — but the
+            // individual Loan Repayment screen writes real payments to
+            // loan_repayment_ledger (and loan_master.balance) and never touches
+            // demand_master at all (only the bulk Ledger Posting/recovery path
+            // does). Confirmed live: a loan with 2 real recorded repayments showed
+            // every installment as Overdue/Pending, "Cleared Principal: ₹0", "Debt
+            // Clearance: 0.0%" — none of it reflected the real ₹4,264 already paid
+            // (which does exactly reconcile: loan_amt 24000 - 4264 = loanMaster's
+            // real balance 19736). Fetching real repayments here and using their
+            // actual principal/interest split for the corresponding installments,
+            // oldest-due-first, so "Paid" rows reflect what actually happened
+            // instead of a theoretical projection that never looked at payment
+            // history. Rows beyond the real repayment count keep the existing
+            // equalised-interest projection and demand_master/date-based status.
+            const repaymentRows = await this.dataSource.query(
+                `SELECT principal_amount, interest_amount, payment_date
+                 FROM loan_repayment_ledger
+                 WHERE loancaseno = $1
+                 ORDER BY payment_date ASC, id ASC`,
+                [loanCaseNo]
+            );
+
+            // Calculate EMI schedule using equalised interest: constant principal
+            // (loan amount / months) + constant interest (total interest / months)
+            // every month, per the loan calculation spec — matches how
+            // LoanRepaymentService now decomposes an actual repayment, instead of
+            // a reducing-balance split where principal/interest varied per month.
             const schedule = [];
-            let balance = parseFloat(loanMaster.loan_amt);
-            const monthlyRate = parseFloat(loanMaster.rate) / 100 / 12;
+            const loanAmt = parseFloat(loanMaster.loan_amt);
             const startDate = new Date(loanMaster.payment_date);
             const installments = parseInt(loanMaster.no_of_instal);
 
-            // Calculate EMI using the installment amount from loan_master or formula
-            const emiAmount = parseFloat(loanMaster.instal_amt) ||
-                (balance * monthlyRate * Math.pow(1 + monthlyRate, installments)) /
-                (Math.pow(1 + monthlyRate, installments) - 1);
+            const monthlyPrincipal = installments > 0 ? loanAmt / installments : 0;
+            const storedEmi = parseFloat(loanMaster.instal_amt) || 0;
+            const monthlyRateForFallback = parseFloat(loanMaster.rate) / 100 / 12;
+            // The standard reducing-balance formula is used once here, only to size
+            // total interest when no EMI has been recorded yet — not to vary the
+            // monthly split, which stays constant per the equalised method.
+            const emiAmount = storedEmi || (installments > 0
+                ? (loanAmt * monthlyRateForFallback * Math.pow(1 + monthlyRateForFallback, installments)) /
+                  (Math.pow(1 + monthlyRateForFallback, installments) - 1)
+                : 0);
+            const totalInterest = Math.max(0, emiAmount * installments - loanAmt);
+            const monthlyInterest = installments > 0 ? totalInterest / installments : 0;
 
+            let balance = loanAmt;
             for (let month = 1; month <= installments; month++) {
-                const interestAmount = balance * monthlyRate;
-                const principalAmount = emiAmount - interestAmount;
-                balance -= principalAmount;
+                const realPayment = repaymentRows[month - 1];
+                const principalAmount = realPayment
+                    ? Math.min(parseFloat(realPayment.principal_amount) || 0, balance)
+                    : Math.min(monthlyPrincipal, balance);
+                const interestAmount = realPayment
+                    ? parseFloat(realPayment.interest_amount) || 0
+                    : monthlyInterest;
+                balance = Math.max(0, balance - principalAmount);
 
                 // Calculate due date
                 const dueDate = new Date(startDate);
                 dueDate.setMonth(dueDate.getMonth() + month - 1);
 
-                // Determine payment status
-                const yearMonth = `${dueDate.getFullYear()}-${dueDate.getMonth() + 1}`;
-                let status = paymentStatusMap.get(yearMonth) || 'Pending';
+                // Determine payment status — a real recorded repayment always wins
+                let status = realPayment ? 'Paid' : (paymentStatusMap.get(`${dueDate.getFullYear()}-${dueDate.getMonth() + 1}`) || 'Pending');
 
                 // If due date is past and status is pending, mark as overdue
                 if (status === 'Pending' && dueDate < new Date()) {

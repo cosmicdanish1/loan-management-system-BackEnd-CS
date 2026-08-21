@@ -1379,6 +1379,15 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "name": "username",
+            "required": false,
+            "in": "query",
+            "description": "Filter by username (partial match)",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -2452,6 +2461,16 @@
         "operationId": "SystemConfigController_bulkSaveDepositSlabs",
         "summary": "Bulk replace all deposit slabs for a given type",
         "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkSaveDepositSlabsDto"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Slabs saved successfully"
@@ -2622,6 +2641,46 @@
         "responses": {
           "200": {
             "description": "Current day-end summary retrieved successfully"
+          }
+        },
+        "tags": [
+          "Day-End Processing"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/admin/day-end/initialize": {
+      "post": {
+        "operationId": "DayEndController_initializeWorkingDate",
+        "summary": "Create the genesis getworkingdate row (only when none exists)",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Day-End Processing"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/admin/day-end/working-date": {
+      "delete": {
+        "operationId": "DayEndController_resetWorkingDate",
+        "summary": "Reset a mis-set initial working date (only before any day-end has completed)",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
           }
         },
         "tags": [
@@ -4319,6 +4378,63 @@
         ]
       }
     },
+    "/admin/financial-year/create": {
+      "post": {
+        "operationId": "FinancialYearController_createYear",
+        "summary": "Create a financial year (including the genesis year when none exist)",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Financial Year Management"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/admin/financial-year/{yearCode}": {
+      "delete": {
+        "operationId": "FinancialYearController_deleteYear",
+        "summary": "Delete an un-closed, un-archived financial year",
+        "parameters": [
+          {
+            "name": "yearCode",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "force",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Financial Year Management"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/admin/financial-year/current": {
       "get": {
         "operationId": "FinancialYearController_getCurrentYear",
@@ -5016,6 +5132,92 @@
         ]
       }
     },
+    "/loans/case/{caseNo}/due-status": {
+      "get": {
+        "operationId": "LoanV2Controller_getDueStatus",
+        "summary": "Get the oldest-unpaid-first due breakdown for a loan (principal/interest/penal)",
+        "parameters": [
+          {
+            "name": "caseNo",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Loans"
+        ]
+      }
+    },
+    "/loans/case/{caseNo}/early-closure": {
+      "get": {
+        "operationId": "LoanV2Controller_calculateEarlyClosure",
+        "summary": "Calculate the final amount to close a loan early",
+        "parameters": [
+          {
+            "name": "caseNo",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "closureDate",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "adjustment",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Loans"
+        ]
+      },
+      "post": {
+        "operationId": "LoanV2Controller_executeEarlyClosure",
+        "summary": "Execute an early closure — settles every remaining installment and zeroes the balance",
+        "parameters": [
+          {
+            "name": "caseNo",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Loans"
+        ]
+      }
+    },
     "/loans/month-end/snapshot": {
       "post": {
         "operationId": "LoanV2Controller_captureMonthEndSnapshot",
@@ -5422,41 +5624,137 @@
         ]
       }
     },
-    "/utilities/search/deposits": {
+    "/utilities/search/deposits-filtered": {
       "get": {
-        "operationId": "UtilitiesController_searchDeposits",
-        "summary": "Search for deposit accounts (RD/FD) by member number",
+        "operationId": "UtilityController_searchDeposits",
+        "summary": "Search deposit accounts with filters (generic multi-field filter version)",
         "parameters": [
           {
-            "name": "memberNo",
-            "required": true,
+            "name": "query",
+            "required": false,
             "in": "query",
-            "description": "Member number",
+            "description": "General search query",
             "schema": {
               "type": "string"
             }
           },
           {
-            "name": "type",
-            "required": true,
+            "name": "memberNumber",
+            "required": false,
             "in": "query",
-            "description": "Deposit type",
+            "description": "Member number to search",
             "schema": {
-              "enum": [
-                "RD",
-                "FD"
-              ],
               "type": "string"
+            }
+          },
+          {
+            "name": "accountNumber",
+            "required": false,
+            "in": "query",
+            "description": "Account number to search",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "Status filter",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dateFrom",
+            "required": false,
+            "in": "query",
+            "description": "Date from (YYYY-MM-DD)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dateTo",
+            "required": false,
+            "in": "query",
+            "description": "Date to (YYYY-MM-DD)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "amountFrom",
+            "required": false,
+            "in": "query",
+            "description": "Minimum amount",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "amountTo",
+            "required": false,
+            "in": "query",
+            "description": "Maximum amount",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "loanType",
+            "required": false,
+            "in": "query",
+            "description": "Loan type filter",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "memberIds",
+            "required": false,
+            "in": "query",
+            "description": "Member IDs to filter",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "Page number",
+            "schema": {
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Items per page",
+            "schema": {
+              "default": 10,
+              "type": "number"
             }
           }
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "Deposit search results returned successfully"
           }
         },
         "tags": [
           "Utilities"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
         ]
       }
     },
@@ -6841,9 +7139,9 @@
             "name": "id",
             "required": true,
             "in": "path",
-            "description": "Fixed deposit ID",
+            "description": "Fixed deposit account number",
             "schema": {
-              "type": "number"
+              "type": "string"
             }
           }
         ],
@@ -9548,6 +9846,44 @@
         ]
       }
     },
+    "/utilities/search/deposits": {
+      "get": {
+        "operationId": "UtilitiesController_searchDeposits",
+        "summary": "Search for deposit accounts (RD/FD) by member number",
+        "parameters": [
+          {
+            "name": "memberNo",
+            "required": true,
+            "in": "query",
+            "description": "Member number",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "type",
+            "required": true,
+            "in": "query",
+            "description": "Deposit type",
+            "schema": {
+              "enum": [
+                "RD",
+                "FD"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Utilities"
+        ]
+      }
+    },
     "/utilities/search/sb-accounts": {
       "get": {
         "operationId": "UtilitiesController_searchSBAccounts",
@@ -9563,6 +9899,36 @@
             }
           }
         ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Utilities"
+        ]
+      }
+    },
+    "/utilities/rd-accounts/holders": {
+      "get": {
+        "operationId": "UtilitiesController_listRdAccountHolders",
+        "summary": "List members who have at least one active RD account (for Premature Information dropdown)",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Utilities"
+        ]
+      }
+    },
+    "/utilities/sb-accounts/holders": {
+      "get": {
+        "operationId": "UtilitiesController_listSbAccountHolders",
+        "summary": "List members who have an SB account (for Premature Information dropdown)",
+        "parameters": [],
         "responses": {
           "200": {
             "description": ""
@@ -11679,6 +12045,73 @@
         ]
       }
     },
+    "/dashboard-notices": {
+      "get": {
+        "operationId": "NoticeController_findAll",
+        "summary": "List all dashboard notices, shared across every PC",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Dashboard Notices"
+        ]
+      },
+      "post": {
+        "operationId": "NoticeController_create",
+        "summary": "Post a new dashboard notice",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Dashboard Notices"
+        ]
+      }
+    },
+    "/dashboard-notices/reorder": {
+      "put": {
+        "operationId": "NoticeController_reorder",
+        "summary": "Persist a new drag-and-drop order for the board",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Dashboard Notices"
+        ]
+      }
+    },
+    "/dashboard-notices/{id}": {
+      "delete": {
+        "operationId": "NoticeController_remove",
+        "summary": "Delete a dashboard notice",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Dashboard Notices"
+        ]
+      }
+    },
     "/license/status": {
       "get": {
         "operationId": "LicenseController_getStatus",
@@ -12722,6 +13155,10 @@
             "type": "boolean",
             "description": "Whether the user account is active",
             "example": true
+          },
+          "avatar": {
+            "type": "string",
+            "description": "User avatar/profile photo (URL or data URI)"
           }
         }
       },
@@ -13369,6 +13806,32 @@
             "example": "2024-12-31"
           }
         }
+      },
+      "BulkSaveDepositSlabsDto": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "Deposit slab type these rows replace",
+            "enum": [
+              "fixed_deposit",
+              "recurring_deposit",
+              "loan"
+            ],
+            "example": "fixed_deposit"
+          },
+          "rows": {
+            "description": "Full replacement set of slabs for the given type",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CreateDepositSlabDto"
+            }
+          }
+        },
+        "required": [
+          "type",
+          "rows"
+        ]
       },
       "InitiateDayEndDto": {
         "type": "object",
@@ -15184,6 +15647,11 @@
             "type": "string",
             "description": "Filter interest calculation to a single member (specific_member mode)",
             "example": "1001"
+          },
+          "expenseHeadCode": {
+            "type": "string",
+            "description": "GL head code for the balancing interest-expense debit leg. No real \"interest paid on savings\" head currently exists in headmaster (checked) — defaults to a confirmed-wrong placeholder (L1028) until a real one is decided.",
+            "example": "L1028"
           }
         },
         "required": [

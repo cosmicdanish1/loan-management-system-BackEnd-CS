@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { DataSource, QueryRunner } from 'typeorm';
 import { SequenceGeneratorService } from '../../shared/services';
 import { generateVoucherNo } from '../../shared/utils/voucher-utils';
 import { NotificationService } from '../../notification/services/notification.service';
@@ -57,7 +57,7 @@ export class VoucherService {
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             `;
 
-            const nextVoucherId = await this.getNextId('vouchers');
+            const nextVoucherId = await this.getNextId('vouchers', queryRunner);
             const totalAmount = transactions.reduce((sum: number, t: any) => sum + (t.amount || 0), 0);
 
             await queryRunner.query(voucherHeaderQuery, [
@@ -79,7 +79,7 @@ export class VoucherService {
 
             // 3. Insert breakdown into 'transactions' table
             for (const entry of transactions) {
-                const transNo = await this.getNextId('transactions');
+                const transNo = await this.getNextId('transactions', queryRunner);
                 const transQuery = `
                     INSERT INTO transactions (
                         trans_no, trans_type, trans_date, mbno, trans_amt, 
@@ -154,9 +154,13 @@ export class VoucherService {
             const voucherNumber = await generateVoucherNo(queryRunner, 'P');
 
             // 2. Validate loan case exists and is sanctioned
+            // (no_of_instal must be selected here — it wasn't, so loan.no_of_instal
+            // was always undefined below and the `|| 60` fallback silently disbursed
+            // every loan at a hardcoded 60-month tenure regardless of what was
+            // actually applied for and sanctioned.)
             const loanQuery = `
-                SELECT loancaseno, mbno, sanctioned_amt, flg_sanctioned, flg_paid, loantype, purpose
-                FROM loan_pending 
+                SELECT loancaseno, mbno, sanctioned_amt, flg_sanctioned, flg_paid, loantype, purpose, no_of_instal, rate, penalrate
+                FROM loan_pending
                 WHERE loancaseno = $1 AND flg_sanctioned = 'Y' AND flg_paid = 'N'
             `;
 
@@ -167,9 +171,12 @@ export class VoucherService {
             const loan = loanResult[0];
 
             // Check for existing voucher for this loan case (prevent duplicates)
+            // BUG FIX 29: no trailing delimiter meant case "5" also matched case "50", "512", etc.
+            // — remarks are always written as "LOAN_CASE:{caseNo}|PAY_MODE:...", so matching
+            // through the "|" makes the case number match exact instead of prefix-fuzzy.
             const existingVoucher = await queryRunner.query(
                 `SELECT "id", "voucherNumber", "status" FROM vouchers
-                 WHERE "remarks" LIKE '%LOAN_CASE:' || $1 || '%' AND "status" IN ('PENDING', 'POSTED')`,
+                 WHERE "remarks" LIKE '%LOAN_CASE:' || $1 || '|%' AND "status" IN ('PENDING', 'POSTED')`,
                 [voucherData.loanCaseNo]
             );
             if (existingVoucher.length > 0) {
@@ -186,7 +193,7 @@ export class VoucherService {
             `;
 
             const totalAmount = voucherData.actualAmount || parseFloat(loan.sanctioned_amt.toString().replace(/[^0-9.-]+/g, ""));
-            const nextId = await this.getNextId('vouchers');
+            const nextId = await this.getNextId('vouchers', queryRunner);
 
             await queryRunner.query(voucherHeaderQuery, [
                 nextId,
@@ -223,9 +230,17 @@ export class VoucherService {
             );
             const hasExistingActiveLoan = Number(existingLoanResult[0]?.cnt || 0) > 0;
 
+            // BUG FIX 36: this recomputes the 5% rule inline instead of reusing
+            // LoanEligibilityService, and skipped that service's threshold — the rule only
+            // applies to loans ABOVE ₹5,00,000 ("Loan amount is 5,00,000 or below. 5%
+            // eligibility rules do not apply."). Confirmed live: a ₹15,000 disbursement had a
+            // ₹750 "5% Auto" FD deduction taken off it, so the member received ₹14,250 instead
+            // of the full ₹15,000 they were sanctioned. Same threshold as the eligibility
+            // service, so the two halves of the rule now agree.
+            const FIVE_PCT_RULE_MIN_LOAN = 500000;
             let shareTopUp = 0;
             let fdTopUp = 0;
-            if (!hasExistingActiveLoan) {
+            if (!hasExistingActiveLoan && sanctionedAmt > FIVE_PCT_RULE_MIN_LOAN) {
                 shareTopUp = Math.max(0, requiredShare - currentShare);
                 fdTopUp = Math.max(0, requiredFd - currentFd);
             }
@@ -255,7 +270,7 @@ export class VoucherService {
             let deductionCR = 0;
 
             for (const entry of breakdown) {
-                const transNo = await this.getNextId('transactions');
+                const transNo = await this.getNextId('transactions', queryRunner);
                 const amt = parseFloat(entry.amount) || 0;
                 const isMainLoan = (entry.rp === 'Payment');
                 const transType = isMainLoan ? 'DR' : 'CR';
@@ -274,7 +289,7 @@ export class VoucherService {
             // Cash CR = Loan DR - Deduction CRs (what member actually gets)
             const cashAmount = loanDR - deductionCR;
             const cashCode = payMode === 'C' ? 'A1001' : (voucherData.bankName || 'A1001');
-            const crTransNo = await this.getNextId('transactions');
+            const crTransNo = await this.getNextId('transactions', queryRunner);
             await queryRunner.query(transInsert, [
                 crTransNo, 'CR', new Date(), loan.mbno, cashAmount,
                 voucherNumber, 'P', payMode, 'N', 'N',
@@ -283,17 +298,36 @@ export class VoucherService {
             ]);
 
             // 6. Create loan_master record (legacy: loan account for balance tracking)
+            // Each loan type gets its own rate/penalrate from the rule master —
+            // this used to be a binary RLN-vs-everything-else split, with ELN and
+            // ALN both silently sharing RLN's rate and a borrowed edlpenalrate
+            // column (ELN/ALN never had their own penalrate columns at all).
             const busrules = await queryRunner.query(
-                `SELECT COALESCE(rlnrate, 12) as rln_rate, COALESCE(elnrate, 12) as eln_rate,
-                        COALESCE(rlnpenalrate, 2) as rln_penal, COALESCE(edlpenalrate, 2) as eln_penal
+                `SELECT COALESCE(rlnrate, 12) as rln_rate, COALESCE(elnrate, 12) as eln_rate, COALESCE(alnrate, 12) as aln_rate,
+                        COALESCE(rlnpenalrate, 2) as rln_penal, COALESCE(elnpenalrate, 2) as eln_penal, COALESCE(alnpenalrate, 2) as aln_penal
                  FROM busrules ORDER BY appdate DESC LIMIT 1`
             );
             const rules = busrules[0] || {};
-            const isRLN = ['R', 'REG', 'RLN'].includes((loan.loantype || '').toUpperCase());
-            const loanRate = parseFloat(isRLN ? rules.rln_rate : rules.eln_rate) || 12;
-            const penalRate = parseFloat(isRLN ? rules.rln_penal : rules.eln_penal) || 2;
+            const loanTypeUpper = (loan.loantype || '').toUpperCase();
+            const isRLN = ['R', 'REG', 'RLN'].includes(loanTypeUpper);
+            const isALN = ['A', 'ADD', 'ALN'].includes(loanTypeUpper);
+            const defaultRate = isRLN ? rules.rln_rate : isALN ? rules.aln_rate : rules.eln_rate;
+            const defaultPenalRate = isRLN ? rules.rln_penal : isALN ? rules.aln_penal : rules.eln_penal;
+
+            // A per-case override entered at sanction time (Loan Sanction screen's
+            // Rate / Penalty Rate fields) takes priority over the rule master default.
+            const caseRateOverride = parseFloat(loan.rate);
+            const casePenalRateOverride = parseFloat(loan.penalrate);
+            const loanRate = !isNaN(caseRateOverride) && caseRateOverride > 0 ? caseRateOverride : (parseFloat(defaultRate) || 12);
+            const penalRate = !isNaN(casePenalRateOverride) && casePenalRateOverride >= 0 ? casePenalRateOverride : (parseFloat(defaultPenalRate) || 2);
             const noOfInstal = parseInt(loan.no_of_instal) || 60;
-            const instalAmt = Math.round((sanctionedAmt / noOfInstal) * 100) / 100;
+            // Standard reducing-balance EMI (was a flat loan_amt/instalments split with
+            // no interest markup, so every disbursed loan computed to 0 total interest
+            // under the equalised-interest formula the repayment side uses).
+            const monthlyRate = loanRate / 100 / 12;
+            const instalAmt = monthlyRate > 0
+                ? Math.round((sanctionedAmt * monthlyRate * Math.pow(1 + monthlyRate, noOfInstal) / (Math.pow(1 + monthlyRate, noOfInstal) - 1)) * 100) / 100
+                : Math.round((sanctionedAmt / noOfInstal) * 100) / 100;
             const inttAmount = Math.round((sanctionedAmt * loanRate / 1200) * 100) / 100;
 
             await queryRunner.query(`
@@ -344,13 +378,25 @@ export class VoucherService {
     }
 
     /**
-     * Helper to get next numeric ID for a table
+     * Helper to get next numeric ID for a table.
+     *
+     * BUG FIX 35: this ran the MAX()+1 read on `this.dataSource` — a separate connection
+     * outside the caller's transaction — and neither `vouchers.id` nor `transactions.trans_no`
+     * have a unique constraint (checked live via pg_constraint: NOT NULL only). Two concurrent
+     * disbursements/vouchers could both compute the same "next" id and both INSERTs would
+     * succeed silently, leaving two different transactions sharing one trans_no. A plain
+     * `FOR UPDATE` can't fix this either — Postgres rejects it on an aggregate query (the exact
+     * same trap already hit and left unresolved in interest.service.ts's own MAX()+1 attempt).
+     * A transaction-scoped advisory lock, keyed by table name and taken on the caller's own
+     * queryRunner, serializes concurrent callers without needing a new sequence object or any
+     * risk of colliding with whatever IDs already exist in the table.
      */
-    private async getNextId(tableName: string): Promise<number> {
+    private async getNextId(tableName: string, queryRunner: QueryRunner): Promise<number> {
         let idColumn = 'id';
         if (tableName === 'transactions') idColumn = 'trans_no';
 
-        const result = await this.dataSource.query(`SELECT COALESCE(MAX(${idColumn}), 0) + 1 as next_id FROM ${tableName}`);
+        await queryRunner.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [tableName]);
+        const result = await queryRunner.query(`SELECT COALESCE(MAX(${idColumn}), 0) + 1 as next_id FROM ${tableName}`);
         return parseInt(result[0].next_id);
     }
 

@@ -47,6 +47,7 @@ describe('DayEndService', () => {
       save: jest.fn(),
       find: jest.fn(),
     },
+    query: jest.fn().mockResolvedValue([]),
   };
 
   const mockDataSource = {

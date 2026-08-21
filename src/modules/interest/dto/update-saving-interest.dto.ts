@@ -71,6 +71,15 @@ export class UpdateSavingInterestDto {
   @IsOptional()
   @IsString()
   memberNo?: string;
+
+  @ApiProperty({
+    description: 'GL head code for the balancing interest-expense debit leg. No real "interest paid on savings" head currently exists in headmaster (checked) — defaults to a confirmed-wrong placeholder (L1028) until a real one is decided.',
+    example: 'L1028',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  expenseHeadCode?: string;
 }
 
 export class InterestCalculationResultDto {

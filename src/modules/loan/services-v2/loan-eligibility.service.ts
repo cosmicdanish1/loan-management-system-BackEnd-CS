@@ -18,11 +18,13 @@ export class LoanEligibilityService {
     constructor(private readonly dataSource: DataSource) {}
 
     /**
-     * Check if a member meets the 5% Share and 5% FD rules for loans > 5,00,000
+     * Check if a member meets the 5% Share and 5% FD rules for loans of 5,00,000 or more
      */
     async checkEligibility(memberNo: string, loanAmount: number): Promise<EligibilityStatus> {
-        // If loan is 5L or below, the rules don't apply
-        if (loanAmount <= 500000) {
+        // BUG FIX 40: was `<= 500000`, exempting a loan of exactly ₹5,00,000 from the 5% check —
+        // confirmed live, our own test loan for exactly ₹5,00,000 sailed through with zero shares.
+        // User confirmed the rule should apply AT the threshold, not just above it.
+        if (loanAmount < 500000) {
             return {
                 isEligible: true,
                 loanAmount,
@@ -32,7 +34,7 @@ export class LoanEligibilityService {
                 requiredFd: 0,
                 currentFd: 0,
                 additionalFdRequired: 0,
-                message: 'Loan amount is 5,00,000 or below. 5% eligibility rules do not apply.',
+                message: 'Loan amount is below 5,00,000. 5% eligibility rules do not apply.',
             };
         }
 

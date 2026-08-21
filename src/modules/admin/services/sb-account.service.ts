@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { SbAccount } from '../entities/sb-account.entity';
@@ -66,8 +66,22 @@ export class SbAccountService {
                 throw new ConflictException(`Account number ${createDto.accountNo} already exists`);
             }
 
+            // FIX 4: nothing verified memberNo actually referred to a real member — confirmed live,
+            // an account opened for a nonexistent member number succeeded silently. member_master
+            // has no FK to enforce this (this schema has almost none), so it has to be checked here.
+            const memberExists = await queryRunner.query(`SELECT 1 FROM member_master WHERE mbno = $1`, [createDto.memberNo]);
+            if (!memberExists || memberExists.length === 0) {
+                throw new NotFoundException(`Member ${createDto.memberNo} does not exist`);
+            }
+
             const openingDate = createDto.openingDate ? new Date(createDto.openingDate) : new Date();
+            // FIX 5: `Number(x) || 0` treats a negative number as truthy and passes it straight
+            // through — confirmed live, an account opened with openingBalance=-5000 was accepted
+            // and stored as-is. A savings account cannot open with a negative balance.
             const openingBalance = Number(createDto.openingBalance) || 0;
+            if (openingBalance < 0) {
+                throw new BadRequestException('Opening balance cannot be negative');
+            }
 
             const inserted = await queryRunner.query(
                 `INSERT INTO sbmaster (acc_no, mbno, opening_date, opening_balance, balance, ledger_group,

@@ -399,20 +399,23 @@ export class SystemConfigService {
     type: DepositSlabType,
     rows: CreateDepositSlabDto[],
   ): Promise<{ saved: number; type: string }> {
-    // Delete all existing slabs for this type, then insert fresh
-    await this.depositSlabRepository.delete({ type });
-    if (rows.length > 0) {
-      const entities = rows.map(r =>
-        this.depositSlabRepository.create({
-          ...r,
-          type,
-          effectiveFrom: new Date(r.effectiveFrom),
-          effectiveTo: r.effectiveTo ? new Date(r.effectiveTo) : null,
-        }),
-      );
-      await this.depositSlabRepository.save(entities);
-    }
-    return { saved: rows.length, type };
+    // Delete all existing slabs for this type, then insert fresh, atomically —
+    // otherwise a failed insert leaves the type wiped with nothing re-saved.
+    return this.depositSlabRepository.manager.transaction(async manager => {
+      await manager.delete(DepositSlab, { type });
+      if (rows.length > 0) {
+        const entities = rows.map(r =>
+          manager.create(DepositSlab, {
+            ...r,
+            type,
+            effectiveFrom: new Date(r.effectiveFrom),
+            effectiveTo: r.effectiveTo ? new Date(r.effectiveTo) : null,
+          }),
+        );
+        await manager.save(DepositSlab, entities);
+      }
+      return { saved: rows.length, type };
+    });
   }
 
   async getApplicableDepositSlab(
@@ -528,6 +531,15 @@ export class SystemConfigService {
         dataType: ConfigDataType.JSON,
         category: ConfigCategory.BUSINESS_RULES,
         unit: '',
+      },
+      {
+        key: 'RULE_MEMBER_ENTRY_FEE',
+        name: 'Member Entry Fee',
+        description: 'One-time entry fee auto-posted to the ledger (CR I1001 / DR A1001) when a new member is admitted',
+        value: '5',
+        dataType: ConfigDataType.NUMBER,
+        category: ConfigCategory.BUSINESS_RULES,
+        unit: 'INR',
       },
     ];
 

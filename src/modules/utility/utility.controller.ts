@@ -88,8 +88,20 @@ export class UtilityController {
     return this.searchService.searchLoans(filters);
   }
 
-  @Get('search/deposits')
-  @ApiOperation({ summary: 'Search deposit accounts with filters' })
+  // BUG FIX 48: this route collided with utilities.controller.ts's own, unrelated
+  // 'search/deposits' (both controllers are @Controller('utilities'), and this
+  // module is imported first in app.module.ts, so this guarded handler silently
+  // won every request — confirmed live, a curl with no token returned 401 from
+  // here instead of reaching the intended handler at all). The RD Premature
+  // Information screen (and getRDAccounts/searchRDAccounts in api.ts) was built
+  // against the OTHER controller's shape (query param `memberNo`+`type`, not this
+  // one's `memberNumber`-only SearchFiltersDto with forbidNonWhitelisted=true) —
+  // so every real call from that screen was failing outright (401, or 400 once
+  // authenticated, since memberNo/type aren't recognized DTO properties). Renamed
+  // this one out of the way; nothing in the frontend calls this specific route
+  // (confirmed via full-repo grep for 'search/deposits').
+  @Get('search/deposits-filtered')
+  @ApiOperation({ summary: 'Search deposit accounts with filters (generic multi-field filter version)' })
   @ApiResponse({ status: 200, description: 'Deposit search results returned successfully' })
   async searchDeposits(@Query() filters: SearchFiltersDto): Promise<SearchResult<any>> {
     return this.searchService.searchDeposits(filters);

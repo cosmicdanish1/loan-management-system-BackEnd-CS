@@ -24,6 +24,14 @@ export interface DbConnectionConfig {
   password: string;
   database: string;
   logging: boolean;
+  /**
+   * TLS to PostgreSQL. Defaults to FALSE because this product ships to LAN
+   * servers where Postgres runs without SSL — the default Windows installer
+   * has ssl=off in postgresql.conf, and forcing SSL there fails the whole boot
+   * with "The server does not support SSL connections".
+   * Set `"ssl": true` in db-config.json only for a managed/cloud database.
+   */
+  ssl: boolean;
 }
 
 /** Shape of db-config.json (all fields optional; missing ones fall back to env). */
@@ -34,6 +42,7 @@ interface DbConfigFile {
   password?: string;
   database?: string;
   logging?: boolean;
+  ssl?: boolean;
 }
 
 /**
@@ -72,7 +81,15 @@ function readFileConfig(): DbConfigFile {
   }
 
   try {
-    const raw = JSON.parse(fs.readFileSync(filePath, 'utf8')) as DbConfigFile;
+    // Strip a UTF-8 BOM before parsing. Notepad, PowerShell's Set-Content and
+    // several Windows editors add one when a technician edits this file, and
+    // JSON.parse rejects it with an opaque "Unexpected token" error. Without
+    // this we silently fall back to env vars — and the installer's .env has no
+    // DB_* fields, so the connection quietly reverts to the default password
+    // and fails with "password authentication failed", pointing at the wrong
+    // problem entirely.
+    const text = fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '');
+    const raw = JSON.parse(text) as DbConfigFile;
     cached = raw;
     console.log(
       `[DB] Target loaded from db-config.json (${filePath}) → database="${raw.database ?? '(from .env)'}", host="${raw.host ?? '(from .env)'}"`,
@@ -105,6 +122,11 @@ export function loadDbConfig(): DbConnectionConfig {
     password: file.password ?? env.DB_PASSWORD ?? 'postgres',
     database: file.database ?? env.DB_DATABASE ?? 'loan_management_db',
     logging: file.logging ?? env.DB_LOGGING === 'true',
+    // Off unless explicitly opted in. Previously this was derived from
+    // NODE_ENV === 'production', which broke every LAN install: the service
+    // runs with NODE_ENV=production, so SSL was forced on against a Postgres
+    // that has it disabled, and the backend never finished booting.
+    ssl: file.ssl ?? env.DB_SSL === 'true',
   };
 }
 

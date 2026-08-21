@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Delete,
   Body,
   Param,
   Query,
@@ -74,6 +75,20 @@ export class DayEndController {
   })
   async getCurrentDayEndSummary() {
     return this.dayEndService.getCurrentDayEndSummary();
+  }
+
+  // BUG FIX: getworkingdate starts empty and nothing else can create the
+  // first row — see DayEndService.initializeWorkingDate for the full story.
+  @Post('initialize')
+  @ApiOperation({ summary: 'Create the genesis getworkingdate row (only when none exists)' })
+  async initializeWorkingDate(@Body('workingDate') workingDate: string) {
+    return this.dayEndService.initializeWorkingDate(workingDate);
+  }
+
+  @Delete('working-date')
+  @ApiOperation({ summary: 'Reset a mis-set initial working date (only before any day-end has completed)' })
+  async resetWorkingDate() {
+    return this.dayEndService.resetWorkingDate();
   }
 
   @Get('processes')

@@ -115,6 +115,8 @@ export class DayEndSummaryDto {
     loansProcessed: number;
     depositsProcessed: number;
     totalInterestPosted: number;
+    rdAccountsProcessed: number;
+    totalRdInterestAccrued: number;
   };
 
   @ApiProperty()

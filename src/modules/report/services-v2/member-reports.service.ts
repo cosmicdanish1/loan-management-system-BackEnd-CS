@@ -150,16 +150,21 @@ export class MemberReportsService {
       summaryParams.push(parseSafeDate(toDate));
       summaryWhere += ` AND l.trans_date::date <= $${summaryParams.length}::date`;
     }
+    // BUG FIX: accountbalance is empty in this database (0 rows, confirmed
+    // live) — head_name always fell through to the raw code. headmaster has
+    // 151 real rows (confirmed live); same fallback pattern already
+    // established for this exact gap elsewhere this session.
     const summaryResult = await this.dataSource.query(`
       SELECT
         l.code AS head_code,
-        COALESCE(ab.acname, l.code) AS head_name,
+        COALESCE(ab.acname, hm.head_name, l.code) AS head_name,
         SUM(CASE WHEN l.trans_type = 'CR' THEN CAST(l.trans_amt AS numeric) ELSE 0 END) AS total_cr,
         SUM(CASE WHEN l.trans_type = 'DR' THEN CAST(l.trans_amt AS numeric) ELSE 0 END) AS total_dr
       FROM ledger l
       LEFT JOIN accountbalance ab ON ab.acno = l.code
+      LEFT JOIN headmaster     hm ON hm.code = l.code
       ${summaryWhere}
-      GROUP BY l.code, ab.acname
+      GROUP BY l.code, ab.acname, hm.head_name
       ORDER BY l.code
     `, summaryParams);
 
@@ -184,7 +189,10 @@ export class MemberReportsService {
       toDate: toDate || 'End',
       summary,
       transactions: transactions.map((t: any, idx: number) => ({
-        key: (offset || 0 + idx).toString(),
+        // BUG FIX: `offset || 0 + idx` — `+` binds tighter than `||`, so this
+        // evaluated as `offset || idx`. Live-confirmed: with offset=2, all 3
+        // rows on that page got the identical key "2" (React duplicate keys).
+        key: ((offset || 0) + idx).toString(),
         date: t.date,
         type: t.type,
         code: t.code,

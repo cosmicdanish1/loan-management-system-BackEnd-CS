@@ -78,47 +78,50 @@ export class DepositReportsService {
      * Get RD statement
      */
     async getRDStatement(dto: { memberNo?: string; fromDate?: string; toDate?: string }) {
+        // RD accounts live in fdmaster (fdrdflag='R') — same table the RD Account
+        // Opening/Pass screens write to. See searchDeposits() in utilities.service.ts
+        // for the reference column mapping.
         let query = `
-      SELECT 
-        rd."accountNumber" as account_no,
-        rd."memberId" as member_no,
+      SELECT
+        fm.account_number as account_no,
+        fm.mbno as member_no,
         TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
         d.name as office_name,
         'RD' as deposit_type,
-        CAST(rd."monthlyInstallment" AS numeric) as monthly_amount,
-        CAST(rd."interestRate" AS numeric) as interest_rate,
-        rd."startDate" as deposit_date,
-        rd."maturityDate" as maturity_date,
-        CAST(rd."totalDeposited" AS numeric) as total_deposited,
-        CAST(rd."maturityAmount" AS numeric) as maturity_amount,
-        rd."tenureMonths" as tenure_months,
-        rd."installmentsPaid" as installments_paid,
-        rd."installmentsMissed" as installments_missed,
-        rd.status
-      FROM recurring_deposits rd
-      LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(rd."memberId" AS text)
+        CAST(fm.fdamount AS numeric) as monthly_amount,
+        CAST(fm.rate AS numeric) as interest_rate,
+        fm.depdate as deposit_date,
+        fm.matdate as maturity_date,
+        COALESCE(CAST(fm.openbal AS numeric), 0) + ${this.RD_PAID_SUM} as total_deposited,
+        CAST(fm.matamount AS numeric) as maturity_amount,
+        fm.depperiod as tenure_months,
+        ${this.RD_PAID_COUNT} as installments_paid,
+        GREATEST(0, ${this.RD_DUE_COUNT} - ${this.RD_PAID_COUNT}) as installments_missed,
+        CASE WHEN fm.status = '0' THEN 'ACTIVE' ELSE fm.status END as status
+      FROM fdmaster fm
+      LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(fm.mbno AS text)
       LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
-      WHERE 1=1
+      WHERE fm.fdrdflag = 'R'
     `;
 
         const params: any[] = [];
 
         if (dto.memberNo) {
-            query += ` AND CAST(rd."memberId" AS text) = $${params.length + 1}`;
+            query += ` AND CAST(fm.mbno AS text) = $${params.length + 1}`;
             params.push(dto.memberNo);
         }
 
         if (dto.fromDate) {
-            query += ` AND rd."startDate" >= $${params.length + 1}`;
+            query += ` AND fm.depdate >= $${params.length + 1}`;
             params.push(parseSafeDate(dto.fromDate));
         }
 
         if (dto.toDate) {
-            query += ` AND rd."startDate" <= $${params.length + 1}`;
+            query += ` AND fm.depdate <= $${params.length + 1}`;
             params.push(parseSafeDate(dto.toDate));
         }
 
-        query += ` ORDER BY rd."startDate" DESC`;
+        query += ` ORDER BY fm.depdate DESC`;
 
         const result = await this.dataSource.query(query, params);
 
@@ -234,10 +237,15 @@ export class DepositReportsService {
     async getDepositMaturity(dto: { fromDate: string; toDate: string; depositType?: string }) {
         const { fromDate, toDate, depositType } = dto;
 
+        // BUG FIX: fd."accountNumber" is character varying, fm.account_number
+        // (below) is numeric — live-confirmed crash on any query that unions
+        // both ("UNION types character varying and numeric cannot be matched"),
+        // i.e. every "all types" or "Recurring Deposit only" call. Cast to text
+        // so both sides match.
         // Query fixed deposits
         let fdQuery = `
       SELECT
-        fd."accountNumber" as account_no,
+        CAST(fd."accountNumber" AS text) as account_no,
         fd."memberId" as member_no,
         TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
         d.name as office_name,
@@ -254,24 +262,25 @@ export class DepositReportsService {
         AND fd.status = 'ACTIVE'
     `;
 
-        // Query recurring deposits
+        // Query recurring deposits — fdmaster (fdrdflag='R'), not recurring_deposits;
+        // see getRDStatement() above for why.
         let rdQuery = `
       SELECT
-        rd."accountNumber" as account_no,
-        rd."memberId" as member_no,
+        CAST(fm.account_number AS text) as account_no,
+        fm.mbno as member_no,
         TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
         d.name as office_name,
         'Recurring Deposit' as deposit_type,
-        CAST(rd."monthlyInstallment" AS numeric) as amount,
-        rd."startDate" as deposit_date,
-        rd."maturityDate" as due_date,
-        CAST(rd."interestRate" AS numeric) as interest_rate,
-        CAST(rd."maturityAmount" AS numeric) as maturity_amount
-      FROM recurring_deposits rd
-      LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(rd."memberId" AS text)
+        CAST(fm.fdamount AS numeric) as amount,
+        fm.depdate as deposit_date,
+        fm.matdate as due_date,
+        CAST(fm.rate AS numeric) as interest_rate,
+        CAST(fm.matamount AS numeric) as maturity_amount
+      FROM fdmaster fm
+      LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(fm.mbno AS text)
       LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
-      WHERE rd."maturityDate" >= $1 AND rd."maturityDate" <= $2
-        AND rd.status = 'ACTIVE'
+      WHERE fm.fdrdflag = 'R' AND fm.matdate >= $1 AND fm.matdate <= $2
+        AND (fm.status = '0' OR fm.status IS NULL)
     `;
 
         const params: any[] = [parseSafeDate(fromDate), parseSafeDate(toDate)];
@@ -281,7 +290,11 @@ export class DepositReportsService {
         if (depositType === 'Fixed Deposit') {
             query = fdQuery + ` ORDER BY fd."maturityDate" ASC`;
         } else if (depositType === 'Recurring Deposit') {
-            query = rdQuery + ` ORDER BY rd."maturityDate" ASC`;
+            // BUG FIX: referenced a nonexistent alias/column ("rd"."maturityDate"
+            // — rdQuery's own alias is "fm", and the aliased output column is
+            // due_date) — live-confirmed crash on every "Recurring Deposit only"
+            // filter. due_date is what rdQuery's SELECT actually names it.
+            query = rdQuery + ` ORDER BY due_date ASC`;
         } else {
             // Union both queries for all types
             query = `(${fdQuery}) UNION ALL (${rdQuery}) ORDER BY due_date ASC`;
@@ -394,27 +407,72 @@ export class DepositReportsService {
     }
 
     /**
+     * Derived RD progress columns, shared by getRDStatement() and
+     * getRecurringDetails() so the two windows cannot report different
+     * figures for the same account.
+     *
+     * These three columns used to be fabricated rather than read:
+     *   - installments_paid was months-elapsed-since-opening, so an account
+     *     reported installments as paid purely because time had passed;
+     *   - installments_missed was the literal 0, making it impossible for
+     *     either report to ever flag an RD defaulter;
+     *   - total_deposited read openbal, which no code path increments.
+     * Together they showed a member as up to date on an RD they had never
+     * paid a rupee into. These count what is actually recorded in the ledger.
+     *
+     * Scheduled tenure is derived from each account's own dates. RD terms
+     * vary per account — live accounts run 12, 23 and 312 months — so nothing
+     * here may assume a fixed term. depperiod is only a fallback, and depunit
+     * is deliberately ignored: it reads 2 ("years") on accounts whose
+     * depperiod is plainly months, so it cannot be trusted.
+     */
+    private readonly RD_PAID_COUNT = `
+        (SELECT COUNT(*) FROM ledger l
+          WHERE l.acc_type = 'RD' AND l.trans_type = 'CR'
+            AND CAST(l.acc_no AS text) = CAST(fm.account_number AS text))`;
+
+    private readonly RD_PAID_SUM = `
+        (SELECT COALESCE(SUM(l.trans_amt), 0) FROM ledger l
+          WHERE l.acc_type = 'RD' AND l.trans_type = 'CR'
+            AND CAST(l.acc_no AS text) = CAST(fm.account_number AS text))`;
+
+    /** Months elapsed since opening, never more than the account's own term. */
+    private readonly RD_DUE_COUNT = `
+        LEAST(
+          CASE WHEN fm.depdate IS NOT NULL
+               THEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, fm.depdate)) * 12
+                  + EXTRACT(MONTH FROM AGE(CURRENT_DATE, fm.depdate))
+               ELSE 0 END,
+          CASE WHEN fm.matdate IS NOT NULL AND fm.depdate IS NOT NULL
+               THEN EXTRACT(YEAR FROM AGE(fm.matdate, fm.depdate)) * 12
+                  + EXTRACT(MONTH FROM AGE(fm.matdate, fm.depdate))
+               ELSE COALESCE(fm.depperiod, 0) END
+        )`;
+
+    /**
      * Get recurring details
      */
     async getRecurringDetails(dto: { memberNo: string }) {
         const { memberNo } = dto;
 
+        // RD accounts live in fdmaster (fdrdflag='R'), not recurring_deposits —
+        // see getRDStatement() above for why.
         const query = `
       SELECT
-        rd."accountNumber" as account_no,
-        rd."memberId" as member_no,
+        fm.account_number as account_no,
+        fm.mbno as member_no,
         TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
         'RD' as account_type,
-        rd."startDate" as start_date,
-        rd."maturityDate" as maturity_date,
-        CAST(rd."monthlyInstallment" AS numeric) as amount,
-        rd."installmentsPaid" as installments_paid,
-        rd."installmentsMissed" as installments_missed,
-        CAST(rd."totalDeposited" AS numeric) as total_deposited,
-        rd.status
-      FROM recurring_deposits rd
-      LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(rd."memberId" AS text)
-      WHERE CAST(rd."memberId" AS text) = $1
+        fm.depdate as start_date,
+        fm.matdate as maturity_date,
+        CAST(fm.fdamount AS numeric) as amount,
+        ${this.RD_PAID_COUNT} as installments_paid,
+        GREATEST(0, ${this.RD_DUE_COUNT} - ${this.RD_PAID_COUNT}) as installments_missed,
+        COALESCE(CAST(fm.openbal AS numeric), 0) + ${this.RD_PAID_SUM} as total_deposited,
+        CASE WHEN fm.status = '0' THEN 'ACTIVE' ELSE fm.status END as status
+      FROM fdmaster fm
+      LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(fm.mbno AS text)
+      WHERE fm.fdrdflag = 'R' AND CAST(fm.mbno AS text) = $1
     `;
 
         const result = await this.dataSource.query(query, [memberNo]);
@@ -537,25 +595,35 @@ export class DepositReportsService {
         const lastLoanId    = Number(loanTracking?.ledgerId ?? 0);
 
         // 3. Pivoted deposit transactions
-        // SHR→Share, CD/MD→Compulsory Deposit (FD cols), MD1→FRS-1, MD2→FRS-2
+        // BUG FIX: this filtered on acc_type IN ('SHR','CD','MD','MD1','MD2'),
+        // but live-confirmed every real CD/FRS-1/FRS-2 row in this database has
+        // acc_type='JV' (the generic journal-transfer marker used by Demand
+        // Recovery posting) — none of the semantic acc_type values this query
+        // expects exist anywhere. The deposit half of this report has never
+        // shown a single real transaction. Switched to the head-code mapping
+        // already established and proven correct elsewhere this session
+        // (getMemberColumnarLedger): L1001=Share, L1004=Compulsory Deposit,
+        // L1002=FRS-1, L1045=FRS-2. (The old query's "MD" acc_type had no
+        // identifiable corresponding code and is dropped rather than guessed.)
+        // SHR→Share, CD→Compulsory Deposit (FD cols), MD1→FRS-1, MD2→FRS-2
         const depositRows = await this.dataSource.query(`
             SELECT
               trans_date AS "transDate",
               receipt_vchr_no AS "vchrNo",
-              COALESCE(SUM(CASE WHEN acc_type='SHR' AND trans_type='DR' THEN trans_amt END), 0) AS "SH_Dr_Amt",
-              COALESCE(SUM(CASE WHEN acc_type='SHR' AND trans_type='CR' THEN trans_amt END), 0) AS "SH_Cr_Amt",
-              COALESCE(MAX(CASE WHEN acc_type='SHR'                      THEN pl_balance  END), 0) AS "SH_Bal_Amt",
-              COALESCE(SUM(CASE WHEN acc_type IN ('CD','MD') AND trans_type='DR' THEN trans_amt END), 0) AS "FD_Dr_Amt",
-              COALESCE(SUM(CASE WHEN acc_type IN ('CD','MD') AND trans_type='CR' THEN trans_amt END), 0) AS "FD_Cr_Amt",
-              COALESCE(MAX(CASE WHEN acc_type IN ('CD','MD')              THEN pl_balance  END), 0) AS "FD_Bal_Amt",
-              COALESCE(SUM(CASE WHEN acc_type='MD1' AND trans_type='DR'  THEN trans_amt END), 0) AS "FRS_Dr_Amt",
-              COALESCE(SUM(CASE WHEN acc_type='MD1' AND trans_type='CR'  THEN trans_amt END), 0) AS "FRS_Cr_Amt",
-              COALESCE(SUM(CASE WHEN acc_type='MD2' AND trans_type='CR'  THEN trans_amt END), 0) AS "FRS_Cr_Amt1",
+              COALESCE(SUM(CASE WHEN code='L1001' AND trans_type='DR' THEN trans_amt END), 0) AS "SH_Dr_Amt",
+              COALESCE(SUM(CASE WHEN code='L1001' AND trans_type='CR' THEN trans_amt END), 0) AS "SH_Cr_Amt",
+              COALESCE(MAX(CASE WHEN code='L1001'                      THEN pl_balance  END), 0) AS "SH_Bal_Amt",
+              COALESCE(SUM(CASE WHEN code='L1004' AND trans_type='DR' THEN trans_amt END), 0) AS "FD_Dr_Amt",
+              COALESCE(SUM(CASE WHEN code='L1004' AND trans_type='CR' THEN trans_amt END), 0) AS "FD_Cr_Amt",
+              COALESCE(MAX(CASE WHEN code='L1004'                      THEN pl_balance  END), 0) AS "FD_Bal_Amt",
+              COALESCE(SUM(CASE WHEN code='L1002' AND trans_type='DR'  THEN trans_amt END), 0) AS "FRS_Dr_Amt",
+              COALESCE(SUM(CASE WHEN code='L1002' AND trans_type='CR'  THEN trans_amt END), 0) AS "FRS_Cr_Amt",
+              COALESCE(SUM(CASE WHEN code='L1045' AND trans_type='CR'  THEN trans_amt END), 0) AS "FRS_Cr_Amt1",
               MAX(ledgerid) AS "maxLedgerId"
             FROM ledger
             WHERE CAST(mbno AS text) = $1
               AND ledgerid > $2
-              AND acc_type IN ('SHR','CD','MD','MD1','MD2')
+              AND code IN ('L1001','L1004','L1002','L1045')
             GROUP BY trans_date, receipt_vchr_no
             ORDER BY trans_date, MAX(ledgerid)
         `, [mbno, lastDepositId]);

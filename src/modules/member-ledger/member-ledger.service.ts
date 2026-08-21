@@ -35,11 +35,24 @@ export class MemberLedgerService {
       const member = await this.memberRepository.findOne({ where: { mbno: memberNumberStr } });
       if (!member) throw new NotFoundException(`Member ${dto.memberNumber} not found`);
 
-      // Head name from accountbalance (preferred) then head_master
+      // BUG FIX: accountbalance is empty in this database (0 rows, confirmed
+      // live) — this always fell straight through to dto.headCode, so the
+      // report displayed the raw code ("A1001") instead of a real name
+      // ("CASH IN HAND..."). getHeadMasters() below already has this exact
+      // fallback to headmaster for the dropdown; mirrored here for the
+      // report's own header field, which that earlier fix didn't reach.
+      let headName = dto.headCode;
       const headNameResult = await this.ledgerRepository.query(
         `SELECT acname FROM accountbalance WHERE acno = $1 LIMIT 1`, [dto.headCode]
       );
-      const headName = headNameResult[0]?.acname || dto.headCode;
+      if (headNameResult[0]?.acname) {
+        headName = headNameResult[0].acname;
+      } else {
+        const hmResult = await this.ledgerRepository.query(
+          `SELECT head_name FROM headmaster WHERE code = $1 LIMIT 1`, [dto.headCode]
+        );
+        if (hmResult[0]?.head_name) headName = hmResult[0].head_name;
+      }
 
       // Entries for the date range — DISTINCT ON to avoid duplicates
       const rows = await this.ledgerRepository.query(`
@@ -138,17 +151,22 @@ export class MemberLedgerService {
       if (!memberResult.length) throw new NotFoundException(`Member ${dto.memberNumber} not found`);
       const { member_name, officeno, office_name } = memberResult[0];
 
+      // BUG FIX: accountbalance is empty in this database (0 rows, confirmed
+      // live) — head_name always fell through to the raw code. headmaster has
+      // 151 real rows (confirmed live); same fallback pattern already
+      // established for this exact gap elsewhere this session (7th occurrence).
       // In-range transactions (deduped by ledgerid)
       const rawEntries = await this.ledgerRepository.query(`
         SELECT DISTINCT ON (l.ledgerid)
           l.ledgerid, l.trans_date, l.code,
-          COALESCE(ab.acname, l.code) AS head_name,
+          COALESCE(ab.acname, hm.head_name, l.code) AS head_name,
           COALESCE(l.receipt_vchr_no, '') AS voucher_no,
           COALESCE(l.narration, '') AS narration,
           l.trans_type,
           CAST(l.trans_amt AS numeric) AS amount
         FROM ledger l
         LEFT JOIN accountbalance ab ON ab.acno = l.code
+        LEFT JOIN headmaster     hm ON hm.code = l.code
         WHERE CAST(l.mbno AS text) = $1
           AND l.trans_date::date >= $2::date
           AND l.trans_date::date <= $3::date
@@ -322,14 +340,28 @@ export class MemberLedgerService {
 
   async getHeadMasters(): Promise<HeadMasterDto[]> {
     try {
-      // Use accountbalance for proper names (preferred over head_master's 20 generic rows)
+      // BUG FIX: accountbalance is empty in this database (0 rows) — the
+      // dropdown this feeds silently had zero options. headmaster is the
+      // real, populated source of GL codes; accountbalance is only used
+      // when it actually has rows (kept as originally intended — richer
+      // names — for whichever environment populates it).
       const rows = await this.ledgerRepository.query(`
         SELECT acno AS code, acname AS head_name
         FROM accountbalance
         WHERE acno IS NOT NULL AND TRIM(acno) != ''
         ORDER BY acno
       `);
-      return rows.map((r: any) => ({ code: r.code, headName: r.head_name || r.code }));
+      if (rows.length > 0) {
+        return rows.map((r: any) => ({ code: r.code, headName: r.head_name || r.code }));
+      }
+
+      const headmasterRows = await this.ledgerRepository.query(`
+        SELECT code, head_name
+        FROM headmaster
+        WHERE code IS NOT NULL AND TRIM(code) != ''
+        ORDER BY code
+      `);
+      return headmasterRows.map((r: any) => ({ code: r.code, headName: r.head_name || r.code }));
     } catch (error) {
       this.logger.error('Error fetching head masters:', error);
       return [];

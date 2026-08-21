@@ -238,14 +238,20 @@ export class DayBookService {
         .orderBy('m.mbno', 'ASC')
         .getMany();
 
-      return members.map(member => ({
-        memberCode: member.mbno.toString(),
-        memberName: `${member.f_name || ''} ${member.m_name || ''} ${member.l_name || ''}`.trim(),
-        status: member.isactive
-      }));
+      // A handful of legacy/test rows have a null mbno despite it being the
+      // primary key at the entity level (schema predates synchronize:false,
+      // so the DB never actually enforced NOT NULL here). Skip them instead
+      // of letting one bad row crash the whole list.
+      return members
+        .filter(member => member.mbno != null)
+        .map(member => ({
+          memberCode: member.mbno.toString(),
+          memberName: `${member.f_name || ''} ${member.m_name || ''} ${member.l_name || ''}`.trim(),
+          status: member.isactive
+        }));
 
     } catch (error) {
-      this.logger.error('Error fetching active members:', error);
+      this.logger.error(`Error fetching active members: ${error instanceof Error ? error.message : String(error)}`);
       throw new Error('Failed to fetch active members');
     }
   }

@@ -105,7 +105,12 @@ export class JournalTransferService {
         }
     }
 
+    // BUG FIX 35 (same as voucher.service.ts): no unique constraint exists on any of these
+    // id/trans_no columns (confirmed via pg_constraint — NOT NULL only), so a bare MAX()+1 read
+    // lets two concurrent transactions silently compute and insert the same id. A transaction-
+    // scoped advisory lock serializes callers without needing a new sequence object.
     private async getNextId(queryRunner: any, table: string, col: string): Promise<number> {
+        await queryRunner.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [table]);
         const res = await queryRunner.query(`SELECT COALESCE(MAX(${col}), 0) + 1 as next_id FROM ${table}`);
         return parseInt(res[0].next_id);
     }

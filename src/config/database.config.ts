@@ -25,7 +25,11 @@ export class DatabaseConfig implements TypeOrmOptionsFactory {
       migrationsRun: false, // Don't auto-run migrations
       logging: db.logging ? 'all' : false,
       logger: db.logging ? new TypeOrmWinstonLogger() : undefined,
-      ssl: this.configService.get('NODE_ENV') === 'production' ? { rejectUnauthorized: false } : false,
+      // Driven by db-config.json ("ssl": true), NOT by NODE_ENV. The service
+      // always runs with NODE_ENV=production, so keying SSL off that forced
+      // TLS against LAN Postgres instances that don't offer it, failing boot
+      // with "The server does not support SSL connections".
+      ssl: db.ssl ? { rejectUnauthorized: false } : false,
       // PostgreSQL specific optimizations
       extra: {
         max: 20, // Maximum number of clients in the pool
@@ -54,6 +58,7 @@ const dataSourceOptions: DataSourceOptions = {
   migrations: [__dirname + '/../migrations/*{.ts,.js}'],
   synchronize: false,
   logging: migrationDb.logging,
+  ssl: migrationDb.ssl ? { rejectUnauthorized: false } : false,
 };
 
 export const AppDataSource = new DataSource(dataSourceOptions);

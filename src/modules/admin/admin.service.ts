@@ -1,32 +1,42 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { User } from '../auth/entities/user.entity';
+import { In, Repository } from 'typeorm';
+import { UserMaster } from '../auth/entities';
 import { UserActivity } from './entities/user-activity.entity';
 
 @Injectable()
 export class AdminService {
   constructor(
-    @InjectRepository(User)
-    private userRepository: Repository<User>,
+    @InjectRepository(UserMaster)
+    private userMasterRepository: Repository<UserMaster>,
     @InjectRepository(UserActivity)
     private userActivityRepository: Repository<UserActivity>,
   ) {}
 
   async getDashboardData() {
+    // BUG FIX: these counts/joins used to read the modern `users` table (near
+    // empty — real accounts live in usermaster, which real login checks
+    // first), so "total/active users" and "recent activities" author names
+    // were meaningless. usermaster has no `user` relation on UserActivity —
+    // resolved manually below.
     const [
       totalUsers,
       activeUsers,
       recentActivities,
     ] = await Promise.all([
-      this.userRepository.count(),
-      this.userRepository.count({ where: { isActive: true } }),
+      this.userMasterRepository.count(),
+      this.userMasterRepository.count({ where: { enableDisable: 'E' } }),
       this.userActivityRepository.find({
-        relations: ['user'],
         take: 10,
         order: { createdAt: 'DESC' },
       }),
     ]);
+
+    const userIds = [...new Set(recentActivities.map(a => a.userId))];
+    const userMasters = userIds.length > 0
+      ? await this.userMasterRepository.find({ where: { userid: In(userIds) } })
+      : [];
+    const byId = new Map(userMasters.map(u => [u.userid, u]));
 
     return {
       statistics: {
@@ -34,18 +44,21 @@ export class AdminService {
         activeUsers,
         inactiveUsers: totalUsers - activeUsers,
       },
-      recentActivities: recentActivities.map(activity => ({
-        id: activity.id,
-        activityType: activity.activityType,
-        description: activity.description,
-        createdAt: activity.createdAt,
-        user: activity.user ? {
-          id: activity.user.id,
-          username: activity.user.username,
-          firstName: activity.user.firstName,
-          lastName: activity.user.lastName,
-        } : null,
-      })),
+      recentActivities: recentActivities.map(activity => {
+        const userMaster = byId.get(activity.userId);
+        return {
+          id: activity.id,
+          activityType: activity.activityType,
+          description: activity.description,
+          createdAt: activity.createdAt,
+          user: userMaster ? {
+            id: userMaster.userid,
+            username: userMaster.susername,
+            firstName: userMaster.firstName || userMaster.susername,
+            lastName: userMaster.lastName || '',
+          } : null,
+        };
+      }),
     };
   }
 

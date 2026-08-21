@@ -86,4 +86,12 @@ export class UpdateUserDto {
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
+
+  @ApiProperty({
+    description: 'User avatar/profile photo (URL or data URI)',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  avatar?: string;
 }

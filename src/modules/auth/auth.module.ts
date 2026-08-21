@@ -5,7 +5,6 @@ import { PassportModule } from '@nestjs/passport';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
-import { User } from './entities/user.entity';
 import {
   UserMaster,
   UserLevelMaster,
@@ -17,10 +16,14 @@ import {
 } from './entities';
 import { JwtStrategy, LocalStrategy } from './strategies';
 
+// The modern `users` table (the old `User` entity) has been retired —
+// usermaster is now the single source of truth for user management. The
+// `User` class itself still exists (see entities/user.entity.ts) purely as
+// an in-memory shape for guards/strategies/UserRole+UserPermission enums; it
+// is intentionally no longer registered with TypeORM here.
 @Module({
   imports: [
     TypeOrmModule.forFeature([
-      User, // Keep old entity for backward compatibility
       UserMaster,
       UserLevelMaster,
       MenuMaster,

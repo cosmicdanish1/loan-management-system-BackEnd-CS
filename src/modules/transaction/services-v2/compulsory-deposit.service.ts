@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { PostCDTransactionDto } from '../dto/compulsory-deposit.dto';
 import { generateVoucherNo } from '../../shared/utils/voucher-utils';
@@ -32,11 +32,16 @@ export class CompulsoryDepositService {
     }
 
     /**
-     * Get Income/GL Heads from 'main' table
+     * Get Income/GL Heads.
+     * BUG FIX: this read from a `main` table — confirmed live it has 0 rows, so the
+     * Income Head dropdown was always empty, and since it's required before posting,
+     * the entire screen could never actually be used. Real GL heads (including
+     * income-type ones, pflag='I') live in `headmaster`, the same table every other
+     * head-driven screen this session already uses. Excludes I1000, the section root.
      */
     async getIncomeHeads() {
         try {
-            const query = `SELECT maincode as code, mainname as name FROM main ORDER BY mainname ASC`;
+            const query = `SELECT code, head_name as name FROM headmaster WHERE pflag = 'I' AND code != 'I1000' ORDER BY head_name ASC`;
             return await this.dataSource.query(query);
         } catch (error) {
             this.logger.error('Error fetching income heads', error);
@@ -48,6 +53,19 @@ export class CompulsoryDepositService {
      * Post Bulk CD Transaction
      */
     async postCDInterestAction(dto: PostCDTransactionDto, username: string = 'admin') {
+        // BUG FIX: nothing checked that totalAmount (the single debit) actually
+        // equals the sum of the per-member credits — the trusted frontend always
+        // computes totalAmount as that same sum, but a direct API call with a
+        // mismatched value would post an unbalanced journal entry with no error.
+        // Journal Transfer Entry already validates this server-side; this endpoint
+        // didn't.
+        const distributionSum = dto.distributions.reduce((sum, d) => sum + Number(d.postAmount || 0), 0);
+        if (Math.abs(distributionSum - Number(dto.totalAmount)) > 0.01) {
+            throw new BadRequestException(
+                `Unbalanced: totalAmount (${dto.totalAmount}) does not match the sum of distributions (${distributionSum})`,
+            );
+        }
+
         const queryRunner = this.dataSource.createQueryRunner();
         await queryRunner.connect();
         await queryRunner.startTransaction();
@@ -71,12 +89,16 @@ export class CompulsoryDepositService {
             `, [nextVchrId, voucherNo, dto.totalAmount, dto.narration || 'Bulk Compulsory Deposit Interest Posting']);
 
             // 3. Post DEBIT entry to Income Head
+            // BUG FIX: this omitted cheq_amt entirely — NOT NULL with no default
+            // (confirmed via information_schema) — so every single call crashed with
+            // a not-null-constraint violation. Confirmed live before fixing. Matches
+            // the same cheq_amt=0 convention journal-transfer.service.ts already uses.
             const nextTransId = await this.getNextId(queryRunner, 'transactions', 'trans_no');
             await queryRunner.query(`
                 INSERT INTO transactions (
-                    trans_no, trans_type, trans_date, trans_amt, receipt_vchr_no, vchr_type, 
-                    modeofpay, pass_flag, cashier_flag, code, narration, username
-                ) VALUES ($1, 'DR', NOW(), $2, $3, 'CD', 'J', 'Y', 'Y', $4, $5, $6)
+                    trans_no, trans_type, trans_date, trans_amt, receipt_vchr_no, vchr_type,
+                    modeofpay, pass_flag, cashier_flag, code, narration, username, cheq_amt
+                ) VALUES ($1, 'DR', NOW(), $2, $3, 'CD', 'J', 'Y', 'Y', $4, $5, $6, 0)
             `, [nextTransId, dto.totalAmount, voucherNo, dto.incomeHeadCode.substring(0, 5), 'Bulk CD Post (Debit Head)', username]);
 
             // 4. Post CREDIT entries per member and update balances
@@ -84,12 +106,12 @@ export class CompulsoryDepositService {
             for (const dist of dto.distributions) {
                 if (dist.postAmount <= 0) continue;
 
-                // a. Individual transaction record
+                // a. Individual transaction record — same cheq_amt NOT NULL gap as the debit leg above.
                 await queryRunner.query(`
                     INSERT INTO transactions (
-                        trans_no, trans_type, trans_date, mbno, trans_amt, receipt_vchr_no, 
-                        vchr_type, modeofpay, pass_flag, cashier_flag, narration, username
-                    ) VALUES ($1, 'CR', NOW(), $2, $3, $4, 'CD', 'J', 'Y', 'Y', $5, $6)
+                        trans_no, trans_type, trans_date, mbno, trans_amt, receipt_vchr_no,
+                        vchr_type, modeofpay, pass_flag, cashier_flag, narration, username, cheq_amt
+                    ) VALUES ($1, 'CR', NOW(), $2, $3, $4, 'CD', 'J', 'Y', 'Y', $5, $6, 0)
                 `, [currentTransNo++, dist.memberNo, dist.postAmount, voucherNo, `CD Credit: ${dto.narration}`, username]);
 
                 // b. Update Member Balance
@@ -100,13 +122,20 @@ export class CompulsoryDepositService {
                 `, [dist.postAmount, dist.memberNo]);
 
                 // c. Post to Ledger for Member Audit
+                // BUG FIX 41: this insert omitted code, trans_no, acc_no, and acc_type entirely —
+                // all four are nullable with no default (confirmed via information_schema), so
+                // every CD interest credit landed in the ledger with a NULL GL head and no
+                // transaction number. Untraceable in any GL report or reconciliation. `code`
+                // is L1004 — the real "COMPULSORY DEPOSIT" head, an exact name match, not a
+                // guess like the still-missing A001/A003 heads elsewhere.
                 const ledgerId = await this.getNextId(queryRunner, 'ledger', 'ledgerid');
+                const ledgerTransNo = await this.getNextId(queryRunner, 'ledger', 'trans_no');
                 await queryRunner.query(`
                     INSERT INTO ledger (
-                        trans_date, trans_type, mbno, trans_amt, receipt_vchr_no, 
-                        vchr_type, pl_balance, narration, username, ledgerid
-                    ) VALUES (NOW(), 'CR', $1, $2, $3, 'CD', $4, $5, $6, $7)
-                `, [dist.memberNo, dist.postAmount, voucherNo, dist.currentBalance + dist.postAmount, `CD Post: ${dto.narration}`, username, ledgerId]);
+                        trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt,
+                        receipt_vchr_no, vchr_type, pl_balance, narration, username, ledgerid
+                    ) VALUES ($1, NOW(), 'CR', 'L1004', $2, 0, 'CD', $3, $4, 'J', $5, $6, $7, $8)
+                `, [ledgerTransNo, dist.memberNo, dist.postAmount, voucherNo, dist.currentBalance + dist.postAmount, `CD Post: ${dto.narration}`, username, ledgerId]);
             }
 
             await queryRunner.commitTransaction();
@@ -121,7 +150,12 @@ export class CompulsoryDepositService {
         }
     }
 
+    // BUG FIX 35 (same as voucher.service.ts): no unique constraint exists on any of these
+    // id/trans_no columns (confirmed via pg_constraint — NOT NULL only), so a bare MAX()+1 read
+    // lets two concurrent transactions silently compute and insert the same id. A transaction-
+    // scoped advisory lock serializes callers without needing a new sequence object.
     private async getNextId(queryRunner: any, table: string, col: string): Promise<number> {
+        await queryRunner.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [table]);
         const res = await queryRunner.query(`SELECT COALESCE(MAX(${col}), 0) + 1 as next_id FROM ${table}`);
         return parseInt(res[0].next_id);
     }

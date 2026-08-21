@@ -3,11 +3,11 @@ import {
   PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
-  ManyToOne,
-  JoinColumn,
 } from 'typeorm';
-import { User } from '../../auth/entities/user.entity';
 
+// userId points at usermaster.userid — no FK relation here since usermaster is
+// a separate legacy entity; UserManagementService resolves the username/name
+// summary manually where needed.
 @Entity('user_activities')
 export class UserActivity {
   @PrimaryGeneratedColumn()
@@ -15,10 +15,6 @@ export class UserActivity {
 
   @Column()
   userId: number;
-
-  @ManyToOne(() => User, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'userId' })
-  user: User;
 
   @Column()
   activityType: string;
