@@ -245,12 +245,13 @@ export class FixedDepositService {
             // actually have run successfully until now.
             const voucherId = await this.getNextId(queryRunner, 'vouchers', 'id');
 
-            // INSERT into vouchers
+            // INSERT into vouchers — PENDING, and NOT authorized yet (authorizedAt is only
+            // ever set by Pass Transaction actually posting it — see BUG FIX below).
             const query = `
                 INSERT INTO vouchers (
                     id, "voucherNumber", "voucherDate", "voucherType", "totalAmount",
-                    "description", "memberId", "status", "authorizedAt"
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'PENDING', NOW())
+                    "description", "memberId", "status"
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'PENDING')
                 RETURNING id
             `;
 
@@ -270,40 +271,41 @@ export class FixedDepositService {
                 WHERE certno = $3 AND mbno = $4
              `, [transDate, interestAmount, data.certNo, data.memberNo]);
 
-            // BUG FIX 44: this never posted to the ledger either — the voucher row
-            // above is only a staging record. Money physically paid out to the member
-            // for FD interest was invisible in the books. Treated as an immediate cash
-            // payout since this screen collects no payment mode (unlike account
-            // opening/closure, which both let the operator pick cash/bank) — always
-            // credits A1001. DR side reuses the same unresolved FD-liability placeholder
-            // as the rest of this file (see createFixedDeposit) pending a real GL head;
-            // no real "interest paid on FD" expense head exists in headmaster either
-            // (checked live). This is a distinct, simpler path from the separately
-            // diagnosed UtilitiesService.payFdInterest() interest-calculation engine —
-            // not a fix to that engine.
-            const maxResult = await queryRunner.query(
-                `SELECT COALESCE(MAX(trans_no), 0) + 1 AS next_trans_no,
-                        COALESCE(MAX(ledgerid), 0) + 1 AS next_ledger_id FROM ledger`
-            );
-            const nextTransNo = Number(maxResult[0]?.next_trans_no ?? 1);
-            const nextLedgerId = Number(maxResult[0]?.next_ledger_id ?? 1);
+            // BUG FIX: this used to post straight to `ledger` right here, at creation
+            // time — the voucher header said 'PENDING' and showed up in Pass
+            // Transactions looking like it was awaiting approval, but the money was
+            // already irreversibly in the ledger before anyone clicked Pass, making
+            // "Pass" purely cosmetic for this voucher type. Now it only stages two
+            // balanced `transactions` rows (pass_flag='N'), exactly like Journal
+            // Transfer Entry does — pass-transaction.service.ts's generic branch does
+            // the actual ledger + cashbook posting once someone actually passes it.
+            // DR side reuses the same unresolved FD-liability placeholder as the rest
+            // of this file (see createFixedDeposit) pending a real GL head; no real
+            // "interest paid on FD" expense head exists in headmaster either (checked
+            // live). This is a distinct, simpler path from the separately diagnosed
+            // UtilitiesService.payFdInterest() interest-calculation engine — not a fix
+            // to that engine.
             const memberNoInt = parseInt(data.memberNo);
             const headCode = data.headCode || 'A003';
             const narration = data.narration || `FD Interest Payout Cert ${data.certNo}`;
 
-            // DR FD-liability placeholder (standing in for interest expense)
+            const drTransNo = await this.getNextId(queryRunner, 'transactions', 'trans_no');
             await queryRunner.query(
-                `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type,
-                  trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid)
-                 VALUES ($1, $2, 'DR', $3, $4, 0, 'FD', $5, $6, 'P', 'C', 0, $7, 'system', $8)`,
-                [nextTransNo, transDate, headCode, memberNoInt, interestAmount, voucherNumber, narration, nextLedgerId]
+                `INSERT INTO transactions (
+                    trans_no, trans_type, trans_date, mbno, acc_no, acc_type, trans_amt,
+                    receipt_vchr_no, vchr_type, modeofpay, pass_flag, cashier_flag,
+                    code, narration, username, cheq_amt
+                ) VALUES ($1, 'DR', $2, $3, 0, 'FD', $4, $5, 'P', 'C', 'N', 'N', $6, $7, 'system', 0)`,
+                [drTransNo, transDate, memberNoInt, interestAmount, voucherNumber, headCode, narration]
             );
-            // CR cash — money paid out
+            const crTransNo = await this.getNextId(queryRunner, 'transactions', 'trans_no');
             await queryRunner.query(
-                `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type,
-                  trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid)
-                 VALUES ($1, $2, 'CR', 'A1001', $3, 0, 'CINH', $4, $5, 'P', 'C', 0, $6, 'system', $7)`,
-                [nextTransNo + 1, transDate, memberNoInt, interestAmount, voucherNumber, narration, nextLedgerId + 1]
+                `INSERT INTO transactions (
+                    trans_no, trans_type, trans_date, mbno, acc_no, acc_type, trans_amt,
+                    receipt_vchr_no, vchr_type, modeofpay, pass_flag, cashier_flag,
+                    code, narration, username, cheq_amt
+                ) VALUES ($1, 'CR', $2, $3, 0, 'CINH', $4, $5, 'P', 'C', 'N', 'N', 'A1001', $6, 'system', 0)`,
+                [crTransNo, transDate, memberNoInt, interestAmount, voucherNumber, narration]
             );
 
             await queryRunner.commitTransaction();
@@ -351,7 +353,7 @@ export class FixedDepositService {
                  SET status = 'C', statusdate = NOW(), matamount = $1,
                      intpaid = COALESCE(intpaid, 0) + $2, remarks = $3
                  WHERE certno = $4 AND mbno = $5 AND status = '0'
-                 RETURNING account_number`,
+                 RETURNING account_number, fdamount`,
                 [
                     data.maturityAmount,
                     parseFloat(data.interestPaid) || 0,
@@ -371,8 +373,22 @@ export class FixedDepositService {
                     `No active FD found for Certificate No '${data.certNo}' / Member '${data.memberNo}' — it may already be closed or not exist.`
                 );
             }
+            // BUG FIX: same client-controlled-amount gap already fixed for
+            // postFdInterestVoucher/payFdInterest — confirmed live that totalAmount
+            // was posted to the ledger as-is with no bound, so a ₹100 FD could be
+            // "closed" with a ₹999,999,999 real payout voucher. Same sanity ceiling
+            // (not a full accrual recompute — that's a separate, already-flagged
+            // subsystem), checked here (post-UPDATE, pre-commit) so an out-of-bound
+            // request rolls back the status change too, not just the ledger entries.
+            const fdPrincipal = Number(updateResult[0][0].fdamount);
+            const maxSaneCloseAmount = fdPrincipal * 50;
+            if (totalAmount > maxSaneCloseAmount) {
+                throw new BadRequestException(
+                    `Withdrawal amount ${totalAmount} is implausibly large for FD principal ${fdPrincipal} — rejected`
+                );
+            }
 
-            // 2. Create Voucher record (staging/audit trail)
+            // 2. Create Voucher record (staging/audit trail) — PENDING, not authorized yet.
             // BUG FIX 44: vouchers.id is NOT NULL with no default — this INSERT never
             // supplied one, so this always crashed (confirmed live). Since the
             // ledger-posting code further below was added believing this already
@@ -381,9 +397,9 @@ export class FixedDepositService {
             const voucherRes = await queryRunner.query(
                 `INSERT INTO vouchers (
                     id, "voucherNumber", "voucherDate", "voucherType", "totalAmount",
-                    "description", "memberId", "status", "authorizedAt",
+                    "description", "memberId", "status",
                     "payeeName", "bankName", "chequeNumber", "chequeDate"
-                ) VALUES ($1, $2, $3, 'FD_CLOSE', $4, $5, $6, 'PENDING', NOW(), $7, $8, $9, $10)
+                ) VALUES ($1, $2, $3, 'FD_CLOSE', $4, $5, $6, 'PENDING', $7, $8, $9, $10)
                 RETURNING id`,
                 [
                     voucherId,
@@ -399,15 +415,14 @@ export class FixedDepositService {
                 ]
             );
 
-            // BUG FIX: Add double-entry ledger records — previously ONLY the vouchers table
-            // was written. The accounting ledger never reflected FD closures, leaving the
-            // ledger permanently unbalanced and cash/bank reports missing payout amounts.
-            const maxResult = await queryRunner.query(
-                `SELECT COALESCE(MAX(trans_no), 0) + 1 AS next_trans_no,
-                        COALESCE(MAX(ledgerid), 0) + 1 AS next_ledger_id FROM ledger`
-            );
-            const nextTransNo = Number(maxResult[0]?.next_trans_no ?? 1);
-            const nextLedgerId = Number(maxResult[0]?.next_ledger_id ?? 1);
+            // BUG FIX: this used to write straight to `ledger` right here, at creation
+            // time — the voucher said 'PENDING' but the money was already posted, and
+            // "authorizedAt" was even stamped NOW() on a voucher nobody had approved
+            // yet, before Pass Transactions ever saw it. Money physically paid out to
+            // the member for an FD closure must wait for an actual "Pass" — this now
+            // only stages two balanced `transactions` rows (pass_flag='N'), the same
+            // shape Journal Transfer Entry uses. pass-transaction.service.ts's generic
+            // branch does the real ledger + cashbook posting once it's passed.
             const narration = data.narration || `FD Closure Cert ${data.certNo}`;
 
             // DR FD liability — closing FD reduces society's liability to this member.
@@ -416,22 +431,28 @@ export class FixedDepositService {
             // createInterestVoucher/closeFixedDeposit) so all three can be corrected
             // in one place once a real GL head exists.
             const headCode = data.headCode || 'A003';
+            const drTransNo = await this.getNextId(queryRunner, 'transactions', 'trans_no');
             await queryRunner.query(
-                `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type,
-                  trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid)
-                 VALUES ($1, $2, 'DR', $3, $4, 0, 'FD', $5, $6, 'P', $7, 0, $8, 'system', $9)`,
-                [nextTransNo, transDate, headCode, memberNoInt, totalAmount, voucherNumber, modeOfPay, narration, nextLedgerId]
+                `INSERT INTO transactions (
+                    trans_no, trans_type, trans_date, mbno, acc_no, acc_type, trans_amt,
+                    receipt_vchr_no, vchr_type, modeofpay, pass_flag, cashier_flag,
+                    code, narration, username, cheq_amt
+                ) VALUES ($1, 'DR', $2, $3, 0, 'FD', $4, $5, 'P', $6, 'N', 'N', $7, $8, 'system', 0)`,
+                [drTransNo, transDate, memberNoInt, totalAmount, voucherNumber, modeOfPay, headCode, narration]
             );
 
             // CR cash/bank — money paid out to member (asset decreases).
             // Bank mode credits the chosen bank account; cash credits A1001.
             const crCode    = modeOfPay === 'B' ? (data.bankCode || 'A1008') : 'A1001';
             const crAccType = modeOfPay === 'B' ? 'BANK'  : 'CINH';
+            const crTransNo = await this.getNextId(queryRunner, 'transactions', 'trans_no');
             await queryRunner.query(
-                `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type,
-                  trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid)
-                 VALUES ($1, $2, 'CR', $3, $4, 0, $5, $6, $7, 'P', $8, 0, $9, 'system', $10)`,
-                [nextTransNo + 1, transDate, crCode, memberNoInt, crAccType, totalAmount, voucherNumber, modeOfPay, narration, nextLedgerId + 1]
+                `INSERT INTO transactions (
+                    trans_no, trans_type, trans_date, mbno, acc_no, acc_type, trans_amt,
+                    receipt_vchr_no, vchr_type, modeofpay, pass_flag, cashier_flag,
+                    code, narration, username, cheq_amt
+                ) VALUES ($1, 'CR', $2, $3, 0, $4, $5, $6, 'P', $7, 'N', 'N', $8, $9, 'system', 0)`,
+                [crTransNo, transDate, memberNoInt, crAccType, totalAmount, voucherNumber, modeOfPay, crCode, narration]
             );
 
             await queryRunner.commitTransaction();

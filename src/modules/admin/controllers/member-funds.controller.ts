@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Query, Logger } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, ParseIntPipe, Query, Logger } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { MemberFundsService } from '../services/member-funds.service';
 import { UpdateMemberFundsDto } from '../dto/member-funds.dto';
@@ -29,9 +29,9 @@ export class MemberFundsController {
     @Get(':memberNo')
     @ApiOperation({ summary: 'Get member detailed balances' })
     @ApiResponse({ status: 200, description: 'Return member fund balances.' })
-    async findOne(@Param('memberNo') memberNo: string) {
+    async findOne(@Param('memberNo', ParseIntPipe) memberNo: number) {
         this.logger.log(`[MemberFunds] GET balances for member: ${memberNo}`);
-        const data = await this.memberFundsService.findByMember(+memberNo);
+        const data = await this.memberFundsService.findByMember(memberNo);
         this.logger.log(`[MemberFunds] Returning data for member ${memberNo}`);
         return data;
     }
@@ -40,13 +40,13 @@ export class MemberFundsController {
     @ApiOperation({ summary: 'Update member detailed balances' })
     @ApiResponse({ status: 200, description: 'Balances updated successfully.' })
     async update(
-        @Param('memberNo') memberNo: string,
+        @Param('memberNo', ParseIntPipe) memberNo: number,
         @Body() updateDto: UpdateMemberFundsDto,
         @CurrentUser() user: any,
     ) {
         const changedBy = user?.username || 'system';
         this.logger.log(`[MemberFunds] PATCH balances for member: ${memberNo} by ${changedBy}`);
-        const result = await this.memberFundsService.updateBalances(+memberNo, updateDto, changedBy);
+        const result = await this.memberFundsService.updateBalances(memberNo, updateDto, changedBy);
         this.logger.log(`[MemberFunds] Saved balances for member ${memberNo}`);
         return result;
     }

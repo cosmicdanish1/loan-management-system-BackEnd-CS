@@ -1,18 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { SearchService } from './search.service';
-import { Member } from '../../member/entities/member.entity';
-import { LoanAccount } from '../../loan/entities/loan-account.entity';
-import { FixedDeposit } from '../../deposit/entities/fixed-deposit.entity';
 import { Transaction } from '../../transaction/entities/transaction.entity';
 import { SearchEntityType } from '../dto/search.dto';
 
 describe('SearchService', () => {
   let service: SearchService;
-  let memberRepository: Repository<Member>;
-  let loanRepository: Repository<LoanAccount>;
-  let depositRepository: Repository<FixedDeposit>;
+  let dataSource: DataSource;
   let transactionRepository: Repository<Transaction>;
 
   const mockQueryBuilder = {
@@ -26,10 +21,17 @@ describe('SearchService', () => {
     getMany: jest.fn().mockResolvedValue([]),
   };
 
-  const mockRepository = {
+  const mockTransactionRepository = {
     createQueryBuilder: jest.fn().mockReturnValue(mockQueryBuilder),
     find: jest.fn(),
     findOne: jest.fn(),
+  };
+
+  // searchMembers/searchLoans/searchDeposits each issue a COUNT query followed
+  // by a data query (see search.service.ts) — alternate the mock's resolved
+  // value so both calls get sensible responses regardless of call order.
+  const mockDataSource = {
+    query: jest.fn().mockResolvedValue([]),
   };
 
   beforeEach(async () => {
@@ -37,28 +39,18 @@ describe('SearchService', () => {
       providers: [
         SearchService,
         {
-          provide: getRepositoryToken(Member),
-          useValue: mockRepository,
-        },
-        {
-          provide: getRepositoryToken(LoanAccount),
-          useValue: mockRepository,
-        },
-        {
-          provide: getRepositoryToken(FixedDeposit),
-          useValue: mockRepository,
+          provide: DataSource,
+          useValue: mockDataSource,
         },
         {
           provide: getRepositoryToken(Transaction),
-          useValue: mockRepository,
+          useValue: mockTransactionRepository,
         },
       ],
     }).compile();
 
     service = module.get<SearchService>(SearchService);
-    memberRepository = module.get<Repository<Member>>(getRepositoryToken(Member));
-    loanRepository = module.get<Repository<LoanAccount>>(getRepositoryToken(LoanAccount));
-    depositRepository = module.get<Repository<FixedDeposit>>(getRepositoryToken(FixedDeposit));
+    dataSource = module.get<DataSource>(DataSource);
     transactionRepository = module.get<Repository<Transaction>>(getRepositoryToken(Transaction));
   });
 
@@ -72,6 +64,10 @@ describe('SearchService', () => {
 
   describe('globalSearch', () => {
     it('should perform global search across all entities', async () => {
+      mockDataSource.query.mockImplementation((sql: string) =>
+        sql.includes('COUNT(*)') ? Promise.resolve([{ count: 0 }]) : Promise.resolve([]),
+      );
+
       const searchDto = {
         query: 'test',
         entityType: SearchEntityType.ALL,
@@ -86,13 +82,15 @@ describe('SearchService', () => {
       expect(result).toHaveProperty('deposits');
       expect(result).toHaveProperty('transactions');
       expect(result).toHaveProperty('totalResults');
-      expect(memberRepository.createQueryBuilder).toHaveBeenCalled();
-      expect(loanRepository.createQueryBuilder).toHaveBeenCalled();
-      expect(depositRepository.createQueryBuilder).toHaveBeenCalled();
+      expect(dataSource.query).toHaveBeenCalled();
       expect(transactionRepository.createQueryBuilder).toHaveBeenCalled();
     });
 
     it('should search only members when entityType is MEMBER', async () => {
+      mockDataSource.query.mockImplementation((sql: string) =>
+        sql.includes('COUNT(*)') ? Promise.resolve([{ count: 0 }]) : Promise.resolve([]),
+      );
+
       const searchDto = {
         query: 'test',
         entityType: SearchEntityType.MEMBER,
@@ -106,89 +104,119 @@ describe('SearchService', () => {
       expect(result.loans.total).toBe(0);
       expect(result.deposits.total).toBe(0);
       expect(result.transactions.total).toBe(0);
-      expect(memberRepository.createQueryBuilder).toHaveBeenCalled();
+      expect(dataSource.query).toHaveBeenCalledWith(
+        expect.stringContaining('FROM member_master'),
+        expect.any(Array),
+      );
+    });
+
+    it('should search both loans and deposits when entityType is ACCOUNT', async () => {
+      mockDataSource.query.mockImplementation((sql: string) =>
+        sql.includes('COUNT(*)') ? Promise.resolve([{ count: 0 }]) : Promise.resolve([]),
+      );
+
+      const searchDto = {
+        query: '123',
+        entityType: SearchEntityType.ACCOUNT,
+        page: 1,
+        limit: 10,
+      };
+
+      const result = await service.globalSearch(searchDto);
+
+      expect(result.members.total).toBe(0);
+      expect(result.transactions.total).toBe(0);
+      expect(dataSource.query).toHaveBeenCalledWith(
+        expect.stringContaining('FROM loan_master'),
+        expect.any(Array),
+      );
+      expect(dataSource.query).toHaveBeenCalledWith(
+        expect.stringContaining('FROM fdmaster'),
+        expect.any(Array),
+      );
     });
   });
 
   describe('searchMembers', () => {
-    it('should search members with filters', async () => {
-      const filters = {
-        query: 'John',
-        page: 1,
-        limit: 10,
-      };
+    it('should query member_master with the search term', async () => {
+      mockDataSource.query.mockImplementation((sql: string) =>
+        sql.includes('COUNT(*)') ? Promise.resolve([{ count: 1 }]) : Promise.resolve([{ mbno: '1', name: 'John Doe' }]),
+      );
 
-      const result = await service.searchMembers(filters);
+      const result = await service.searchMembers({ query: 'John', page: 1, limit: 10 });
 
       expect(result).toHaveProperty('data');
-      expect(result).toHaveProperty('total');
+      expect(result).toHaveProperty('total', 1);
       expect(result).toHaveProperty('page', 1);
       expect(result).toHaveProperty('limit', 10);
-      expect(memberRepository.createQueryBuilder).toHaveBeenCalledWith('member');
+      expect(dataSource.query).toHaveBeenCalledWith(
+        expect.stringContaining('FROM member_master'),
+        ['%John%'],
+      );
     });
 
     it('should apply member number filter', async () => {
-      const filters = {
-        memberNumber: 'M001',
-        page: 1,
-        limit: 10,
-      };
+      mockDataSource.query.mockImplementation((sql: string) =>
+        sql.includes('COUNT(*)') ? Promise.resolve([{ count: 0 }]) : Promise.resolve([]),
+      );
 
-      await service.searchMembers(filters);
+      await service.searchMembers({ memberNumber: 'M001', page: 1, limit: 10 });
 
-      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
-        'member.memberNumber ILIKE :memberNumber',
-        { memberNumber: '%M001%' }
+      expect(dataSource.query).toHaveBeenCalledWith(
+        expect.stringContaining('m.mbno::text ILIKE $1'),
+        ['%M001%'],
       );
     });
   });
 
   describe('searchLoans', () => {
-    it('should search loans with member join', async () => {
-      const filters = {
-        query: 'loan',
-        page: 1,
-        limit: 10,
-      };
+    it('should query loan_master joined to member_master', async () => {
+      mockDataSource.query.mockImplementation((sql: string) =>
+        sql.includes('COUNT(*)') ? Promise.resolve([{ count: 0 }]) : Promise.resolve([]),
+      );
 
-      const result = await service.searchLoans(filters);
+      const result = await service.searchLoans({ query: 'loan', page: 1, limit: 10 });
 
       expect(result).toHaveProperty('data');
       expect(result).toHaveProperty('total');
-      expect(loanRepository.createQueryBuilder).toHaveBeenCalledWith('loan');
-      expect(mockQueryBuilder.leftJoinAndSelect).toHaveBeenCalledWith('loan.member', 'member');
+      expect(dataSource.query).toHaveBeenCalledWith(
+        expect.stringContaining('FROM loan_master l'),
+        expect.any(Array),
+      );
+      expect(dataSource.query).toHaveBeenCalledWith(
+        expect.stringContaining('LEFT JOIN member_master m ON l.mbno = m.mbno'),
+        expect.any(Array),
+      );
     });
 
-    it('should apply loan type filter', async () => {
-      const filters = {
-        loanType: 'PERSONAL',
-        page: 1,
-        limit: 10,
-      };
+    it('should apply account number filter', async () => {
+      mockDataSource.query.mockImplementation((sql: string) =>
+        sql.includes('COUNT(*)') ? Promise.resolve([{ count: 0 }]) : Promise.resolve([]),
+      );
 
-      await service.searchLoans(filters);
+      await service.searchLoans({ accountNumber: '555', page: 1, limit: 10 });
 
-      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
-        'loan.loanType = :loanType',
-        { loanType: 'PERSONAL' }
+      expect(dataSource.query).toHaveBeenCalledWith(
+        expect.stringContaining('l.loancaseno::text ILIKE $1'),
+        ['%555%'],
       );
     });
   });
 
   describe('searchDeposits', () => {
-    it('should search deposits with member join', async () => {
-      const filters = {
-        query: 'deposit',
-        page: 1,
-        limit: 10,
-      };
+    it('should query fdmaster joined to member_master', async () => {
+      mockDataSource.query.mockImplementation((sql: string) =>
+        sql.includes('COUNT(*)') ? Promise.resolve([{ count: 0 }]) : Promise.resolve([]),
+      );
 
-      const result = await service.searchDeposits(filters);
+      const result = await service.searchDeposits({ query: 'deposit', page: 1, limit: 10 });
 
       expect(result).toHaveProperty('data');
       expect(result).toHaveProperty('total');
-      expect(depositRepository.createQueryBuilder).toHaveBeenCalledWith('deposit');
-      expect(mockQueryBuilder.leftJoinAndSelect).toHaveBeenCalledWith('deposit.member', 'member');
+      expect(dataSource.query).toHaveBeenCalledWith(
+        expect.stringContaining('FROM fdmaster f'),
+        expect.any(Array),
+      );
     });
   });
 

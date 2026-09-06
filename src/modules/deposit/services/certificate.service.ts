@@ -476,8 +476,19 @@ export class CertificateService {
   }
 
   // Utility method to get certificate file path
+  // SECURITY: fileName comes straight from a URL param (deposit.controller.ts's
+  // GET certificates/download/:fileName) — generated certificate filenames are
+  // always flat (no path separators), so basename() strips any "../" traversal
+  // attempt outright, and the resolved-path check below is defense in depth
+  // against basename() being bypassed by a future refactor.
   getCertificateFilePath(fileName: string): string {
-    return path.join(this.certificatesPath, fileName);
+    const safeName = path.basename(fileName);
+    const resolved = path.resolve(this.certificatesPath, safeName);
+    const root = path.resolve(this.certificatesPath);
+    if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+      throw new BadRequestException('Invalid certificate file name');
+    }
+    return resolved;
   }
 
   // Method to delete certificate file

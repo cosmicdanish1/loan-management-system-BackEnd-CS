@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Member } from '../../member/entities/member.entity';
@@ -37,7 +37,8 @@ export class BalanceService {
     });
 
     if (!member) {
-      throw new Error('Member not found');
+      // 5.1 fix: was reaching callers as 500 instead of 404.
+      throw new NotFoundException('Member not found');
     }
 
     // Calculate share balance
@@ -155,7 +156,8 @@ export class BalanceService {
     });
 
     if (!member) {
-      throw new Error('Member not found');
+      // 5.1 fix: was reaching callers as 500 instead of 404.
+      throw new NotFoundException('Member not found');
     }
 
     let account: any;
@@ -298,7 +300,8 @@ export class BalanceService {
     });
 
     if (!member) {
-      throw new Error('Member not found');
+      // 5.1 fix: was reaching callers as 500 instead of 404.
+      throw new NotFoundException('Member not found');
     }
 
     const shareBalance = Number(member.shareAmount) || 0;

@@ -95,7 +95,18 @@ export class CertificateTemplateService {
 
             await manager.save(fields);
 
-            return this.findOne(savedTemplate.id);
+            // 5.3 fix: this.findOne() uses a fresh repository connection that
+            // can't see this transaction's uncommitted insert — confirmed live,
+            // every create() 404'd on its own just-created row. Read back
+            // through the transactional manager instead.
+            const created = await manager.findOne(CertificateTemplate, {
+                where: { id: savedTemplate.id },
+                relations: ['fields'],
+            });
+            if (!created) {
+                throw new NotFoundException(`Certificate template with ID ${savedTemplate.id} not found`);
+            }
+            return created;
         });
     }
 
@@ -130,7 +141,15 @@ export class CertificateTemplateService {
 
             await manager.save(newFields);
 
-            return this.findOne(id);
+            // 5.3 fix: same wrong-connection read-after-write bug as create().
+            const updated = await manager.findOne(CertificateTemplate, {
+                where: { id },
+                relations: ['fields'],
+            });
+            if (!updated) {
+                throw new NotFoundException(`Certificate template with ID ${id} not found`);
+            }
+            return updated;
         });
     }
 

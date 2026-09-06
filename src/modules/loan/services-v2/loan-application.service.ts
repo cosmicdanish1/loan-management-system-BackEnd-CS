@@ -90,8 +90,8 @@ export class LoanApplicationService {
         const installments = loanData.noOfInstallments || 60;
         await this.validateLoanEligibility(loanData.memberNo, amount, installments, loanData.loanType);
 
-        // --- 1b. Share Value & FD Eligibility rule check ---
-        await this.loanEligibilityService.enforceEligibility(loanData.memberNo, amount);
+        // --- 1b. Share Value & FD Eligibility rule check (Regular Loan only) ---
+        await this.loanEligibilityService.enforceEligibility(loanData.memberNo, amount, loanData.loanType);
 
         // --- 2. Loan type normalisation ---
         const loanTypeMapping: Record<string, string> = {
@@ -115,8 +115,10 @@ export class LoanApplicationService {
         const g2mbno = loanData.surety2 || 0;
 
         // Regular loan (RLN) requires at least 1 surety
+        // BUG FIX: was a plain Error (surfaced to the frontend as a 500), even though this
+        // is a routine validation failure — same class as the other rejections below.
         if (mappedLoanType === 'RLN' && !g1mbno) {
-            throw new Error('Regular Loan requires at least 1 surety/security member');
+            throw new BadRequestException('Regular Loan requires at least 1 surety/security member');
         }
 
         // BUG FIX 28: surety members were never checked to exist or be active — the exact
@@ -129,6 +131,21 @@ export class LoanApplicationService {
         if (g2mbno) {
             const s2Check = await this.loanSuretyService.validateSurety(String(g2mbno));
             if (!s2Check.valid) throw new BadRequestException(`Surety 2: ${s2Check.message}`);
+        }
+
+        // BUG FIX: validateSurety() only checks the member exists/is active — it never checked
+        // whether the surety IS the applicant. That check exists in LoanSuretyService.updateLoanSurety
+        // (the Change Loan Surety screen) but was never applied here, so a brand new loan application
+        // could name the applicant as their own guarantor. Confirmed live: case 889011 went through
+        // with g1mbno === mbno. Mirrors the same three checks already proven in updateLoanSurety.
+        if (g1mbno && String(g1mbno) === String(loanData.memberNo)) {
+            throw new BadRequestException('Surety 1 cannot be the loan applicant themselves.');
+        }
+        if (g2mbno && String(g2mbno) === String(loanData.memberNo)) {
+            throw new BadRequestException('Surety 2 cannot be the loan applicant themselves.');
+        }
+        if (g1mbno && g2mbno && String(g1mbno) === String(g2mbno)) {
+            throw new BadRequestException('Surety 1 and Surety 2 cannot be the same member.');
         }
 
         // --- 4. Sequence generation (before transaction so gaps are predictable) ---
@@ -388,6 +405,22 @@ export class LoanApplicationService {
 
         this.logger.debug(`Loan type: ${loanType}, Balance column: ${balanceCol}`);
         this.logger.debug(`Current outstanding: ${totalOutstanding}, Applied: ${amount}, Total: ${totalOutstanding + amount}, Max: ${maxLoanLimit}`);
+
+        // Regular Loan's maximum-limit rule now lives in LoanEligibilityService
+        // (configurable via RULE_LOAN_R_MAX_LIMIT on the Modify Business Rules
+        // screen, and applied there against the same existing-outstanding + new
+        // exposure). Skipping it here avoids two limits enforcing different
+        // configured values for the same loan. Tenure below still applies to
+        // every type.
+        if (!isEmergency) {
+            if (installments > maxTenure) {
+                throw new BadRequestException(
+                    `Requested tenure (${installments} months) exceeds maximum allowed tenure of ${maxTenure} months for Regular loans.`
+                );
+            }
+            this.logger.log(`Tenure check passed for member ${memberNo}; limit/RD/Share handled by LoanEligibilityService`);
+            return;
+        }
 
         if (totalOutstanding + amount > maxLoanLimit) {
             throw new BadRequestException(

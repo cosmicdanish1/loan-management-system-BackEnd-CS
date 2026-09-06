@@ -49,6 +49,14 @@ export class UserMaster {
   @Column({ name: 'login_status', type: 'varchar', length: 1, default: 'N' })
   loginStatus: string; // 'Y' = Logged in, 'N' = Logged out
 
+  // Set by an admin's "force logout" (LogOut User screen). Any access or
+  // refresh token issued before this timestamp is rejected regardless of its
+  // own expiry — otherwise force-logout only flipped this display flag while
+  // the target's actual JWT (and its refresh token) kept working normally,
+  // making the feature purely cosmetic.
+  @Column({ name: 'force_logout_at', type: 'timestamp', nullable: true })
+  forceLogoutAt: Date | null;
+
   @Column({
     name: 'pass_transaction_flag',
     type: 'char',
@@ -101,6 +109,19 @@ export class UserMaster {
 
   set permissions(value: string[]) {
     this.permissionsRaw = (value || []).join(',');
+  }
+
+  // Distinguishes "never configured" (permissionsRaw is NULL — legacy rows
+  // predating this column, or rows created before createUser() started
+  // assigning it) from "deliberately set to zero rights" (permissionsRaw is
+  // '' — e.g. an admin used "Revoke All" in the Access Privilege Matrix).
+  // `permissions.length > 0` can't tell these apart, which meant an admin
+  // stripping a user down to zero rights had that silently overridden by a
+  // hardcoded role-based default on every subsequent request (confirmed
+  // live: a data_operator with permissions explicitly emptied could still
+  // create other users, because the fallback grants MANAGE_USERS to that role).
+  get hasExplicitPermissions(): boolean {
+    return this.permissionsRaw !== null && this.permissionsRaw !== undefined;
   }
 
   get fullName(): string {

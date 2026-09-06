@@ -46,14 +46,14 @@ export class LogRetentionService {
   }
 
   @Cron('7 * * * *') // hourly
-  async enforceRetention(): Promise<void> {
+  async enforceRetention(): Promise<{ movedCount: number; deletedCount: number; freedBytes: number }> {
     const movedCount = this.organizeIntoDailyFolders();
     if (movedCount > 0) {
       this.logger.log(`Organized ${movedCount} rotated log file(s) into their DD-MM-YYYY folder.`);
     }
 
     const files = this.listLogFiles(this.logDir);
-    if (files.length === 0) return;
+    if (files.length === 0) return { movedCount, deletedCount: 0, freedBytes: 0 };
 
     const now = Date.now();
     let deletedCount = 0;
@@ -80,6 +80,8 @@ export class LogRetentionService {
           `freed ${(freedBytes / 1024 ** 2).toFixed(1)}MB.`,
       );
     }
+
+    return { movedCount, deletedCount, freedBytes };
   }
 
   /** Moves any loose .gz sitting directly in logs/ or logs/services/ into

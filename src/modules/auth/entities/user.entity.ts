@@ -91,6 +91,16 @@ export class User {
   @Column('simple-array', { nullable: true })
   permissions: UserPermission[];
 
+  // Not persisted — computed per-login by AuthService.getAllowedActions().
+  // null means unrestricted (SYSTEM/ADMINISTRATOR bypass), see menu-action-map.ts.
+  allowedActions?: string[] | null;
+
+  // Not persisted — mirrors usermaster.pass_transaction_flag ("TRANSACTION AUTH"
+  // in Create/Modify Users). Lets PermissionsGuard grant full loan access to a
+  // user flagged for transaction authority without needing every granular
+  // loan permission individually checked. See PermissionsGuard.
+  canPassTransactions?: boolean;
+
   @Column({ default: true })
   isActive: boolean;
 

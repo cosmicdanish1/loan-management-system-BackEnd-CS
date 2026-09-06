@@ -14,7 +14,6 @@ export enum DayEndStatus {
 }
 
 export enum DayEndProcessType {
-  INTEREST_CALCULATION = 'interest_calculation',
   BACKUP_CREATION = 'backup_creation',
   REPORT_GENERATION = 'report_generation',
   DATA_VALIDATION = 'data_validation',

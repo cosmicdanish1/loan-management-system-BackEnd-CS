@@ -8,7 +8,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, ILike, In } from 'typeorm';
+import { Repository, ILike, In, DataSource } from 'typeorm';
 import { UserRole, UserPermission } from '../../auth/entities/user.entity';
 import { UserMaster, UserLevelMaster, LoginTime } from '../../auth/entities';
 import { UserActivity } from '../entities/user-activity.entity';
@@ -42,6 +42,7 @@ export class UserManagementService implements OnModuleInit {
     private userLevelMasterRepository: Repository<UserLevelMaster>,
     @InjectRepository(LoginTime)
     private loginTimeRepository: Repository<LoginTime>,
+    private readonly dataSource: DataSource,
   ) { }
 
   async onModuleInit() {
@@ -74,7 +75,8 @@ export class UserManagementService implements OnModuleInit {
         ADD COLUMN IF NOT EXISTS "last_name" varchar(50),
         ADD COLUMN IF NOT EXISTS "avatar" text,
         ADD COLUMN IF NOT EXISTS "permissions" text,
-        ADD COLUMN IF NOT EXISTS "updated_at" timestamp
+        ADD COLUMN IF NOT EXISTS "updated_at" timestamp,
+        ADD COLUMN IF NOT EXISTS "force_logout_at" timestamp
       `);
       this.logger.log('Successfully ensured usermaster has modern user-management columns.');
     } catch (err) {
@@ -104,6 +106,30 @@ export class UserManagementService implements OnModuleInit {
       this.logger.log('Successfully dropped retired "users" table.');
     } catch (err) {
       this.logger.log(`"users" table drop skipped: ${err.message}`);
+    }
+
+    try {
+      // usermaster had NO primary key or unique constraint at all (confirmed
+      // via pg_constraint — only NOT NULL). Combined with createUser()'s
+      // unguarded MAX(userid)+1, concurrent creates silently produced
+      // duplicate-userid rows (confirmed live: 5 parallel creates -> 2
+      // duplicate pairs, all reporting success). Safe to add now — no
+      // existing duplicates in real data (verified before adding this).
+      await this.userMasterRepository.query(`ALTER TABLE "usermaster" ADD PRIMARY KEY ("userid")`);
+      this.logger.log('Successfully added primary key constraint on usermaster.userid.');
+    } catch (err) {
+      this.logger.log(`usermaster primary key check/add skipped: ${err.message}`);
+    }
+
+    try {
+      // Same gap as the userid PK above, for susername — the entity's
+      // `unique: true` was ORM metadata only, never enforced by the DB.
+      await this.userMasterRepository.query(
+        `CREATE UNIQUE INDEX IF NOT EXISTS "usermaster_susername_unique" ON "usermaster" ("susername")`,
+      );
+      this.logger.log('Successfully ensured unique index on usermaster.susername.');
+    } catch (err) {
+      this.logger.log(`usermaster susername unique index check/add skipped: ${err.message}`);
     }
   }
 
@@ -162,30 +188,55 @@ export class UserManagementService implements OnModuleInit {
     const permissions = createUserDto.permissions || this.getDefaultPermissions(createUserDto.role);
     const userLevel = await this.resolveOrCreateUserLevel(createUserDto.role);
 
-    // Real next id (matches the userlevelmaster pattern above) — no separate
-    // id space to keep in sync with anymore now that usermaster is the only table.
-    const lastUser = await this.userMasterRepository.find({ order: { userid: 'DESC' } as any, take: 1 });
-    const nextId = lastUser.length > 0 ? lastUser[0].userid + 1 : 1;
+    // usermaster has no PK/unique constraint enforced at the DB level on its
+    // own (added at boot in repairDatabaseSchema, but that's a second line of
+    // defense) — the unguarded MAX(userid)+1 read below silently produced
+    // duplicate-userid rows under concurrent creates (confirmed live: 5
+    // parallel requests -> 2 duplicate pairs, all reporting success). Same
+    // transaction-scoped advisory-lock pattern used throughout this codebase
+    // (interest.service.ts, utilities.service.ts) to serialize ID minting
+    // without needing a real DB sequence.
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    let saved: UserMaster;
+    try {
+      await queryRunner.query(`SELECT pg_advisory_xact_lock(hashtext('usermaster.userid'))`);
+      const maxResult = await queryRunner.query(`SELECT COALESCE(MAX(userid), 0) + 1 AS next_id FROM usermaster`);
+      const nextId = Number(maxResult[0].next_id);
 
-    const userMaster = this.userMasterRepository.create({
-      userid: nextId,
-      susername: createUserDto.username,
-      spassword: createUserDto.password,
-      userlevelid: userLevel.userlevelid,
-      userLevel,
-      enableDisable: createUserDto.isActive === false ? 'D' : 'E',
-      loginStatus: 'N',
-      passTransactionFlag: 'Y',
-      dateOfCreation: new Date(),
-      email: createUserDto.email,
-      firstName: createUserDto.firstName,
-      lastName: createUserDto.lastName,
-      avatar: createUserDto.avatar,
-      permissions,
-    });
-    const saved = await this.userMasterRepository.save(userMaster);
+      const userMaster = queryRunner.manager.create(UserMaster, {
+        userid: nextId,
+        susername: createUserDto.username,
+        spassword: createUserDto.password,
+        userlevelid: userLevel.userlevelid,
+        userLevel,
+        enableDisable: createUserDto.isActive === false ? 'D' : 'E',
+        loginStatus: 'N',
+        passTransactionFlag: createUserDto.allowPassTransactions === false ? 'N' : 'Y',
+        dateOfCreation: new Date(),
+        email: createUserDto.email,
+        firstName: createUserDto.firstName,
+        lastName: createUserDto.lastName,
+        avatar: createUserDto.avatar,
+      });
+      // `permissions` is a virtual getter/setter over `permissionsRaw`, not a
+      // real @Column — repository.create() builds the entity via a plain merge
+      // that skips it, so it must be assigned directly to fire the setter
+      // (confirmed live: create()-inlined permissions silently persisted as
+      // NULL, while direct assignment here and in updateUser() works).
+      userMaster.permissions = permissions;
+      saved = await queryRunner.manager.save(userMaster);
+      await queryRunner.commitTransaction();
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
 
-    // Populate userrights from userleveldefaultrights for this user level
+    // Populate userrights from userleveldefaultrights for this user level —
+    // best-effort: a failure here shouldn't undo the user that was just created.
     try {
       const defaultRights = await this.userMasterRepository.query(
         `SELECT menuid FROM userleveldefaultrights WHERE userlevelid = $1`,
@@ -280,6 +331,7 @@ export class UserManagementService implements OnModuleInit {
     if (updateUserDto.lastName !== undefined) userMaster.lastName = updateUserDto.lastName;
     if (updateUserDto.avatar !== undefined) userMaster.avatar = updateUserDto.avatar;
     if (updateUserDto.isActive !== undefined) userMaster.enableDisable = updateUserDto.isActive ? 'E' : 'D';
+    if (updateUserDto.allowPassTransactions !== undefined) userMaster.passTransactionFlag = updateUserDto.allowPassTransactions ? 'Y' : 'N';
 
     if (updateUserDto.role) {
       const userLevel = await this.resolveOrCreateUserLevel(updateUserDto.role);
@@ -496,8 +548,9 @@ export class UserManagementService implements OnModuleInit {
       lastName: userMaster.lastName || '',
       fullName: userMaster.fullName,
       role: role as UserRole,
-      permissions: userMaster.permissions.length > 0 ? userMaster.permissions as UserPermission[] : this.getDefaultPermissions(role as UserRole),
+      permissions: userMaster.hasExplicitPermissions ? userMaster.permissions as UserPermission[] : this.getDefaultPermissions(role as UserRole),
       isActive: userMaster.isEnabled,
+      allowPassTransactions: userMaster.canPassTransactions,
       avatar: userMaster.avatar || null,
       lastLoginAt: null,
       createdAt: userMaster.dateOfCreation,
@@ -581,8 +634,12 @@ export class UserManagementService implements OnModuleInit {
       throw new NotFoundException(`User identity '${trimmedUsername}' not found in matrix`);
     }
 
-    // Update login status
+    // Update login status. forceLogoutAt is what actually invalidates the
+    // target's live token(s) (checked in JwtStrategy + AuthService.refreshToken)
+    // — loginStatus alone is just the display flag this screen's own "Peek
+    // Active" list reads.
     userMaster.loginStatus = 'N';
+    userMaster.forceLogoutAt = new Date();
     await this.userMasterRepository.save(userMaster);
 
     // Update active sessions in logintime table

@@ -32,7 +32,7 @@ export class PassTransactionService {
             const voucherQuery = `SELECT * FROM vouchers WHERE "voucherNumber" = $1 AND status = 'PENDING'`;
             const headerResult = await queryRunner.query(voucherQuery, [voucherNo]);
             if (headerResult.length === 0) {
-                throw new Error('Voucher header not found or already posted');
+                throw new BadRequestException('Voucher header not found or already posted');
             }
             const header = headerResult[0];
 
@@ -263,11 +263,24 @@ export class PassTransactionService {
                 // ==================== GENERIC / JOURNAL VOUCHER POSTING ====================
                 this.logger.log(`Processing GENERIC/JV voucher: ${voucherNo}`);
 
+                // BUG FIX: this branch is the only posting path for every non-loan voucher type
+                // routed through Pass Transactions — Journal Transfer, and (as of this fix) FD
+                // Interest Payout / FD Closure, which used to bypass Pass Transactions entirely
+                // by posting straight to `ledger` at voucher-creation time (see
+                // fixed-deposit.service.ts). It always hardcoded vchr_type='JV' and, per its own
+                // now-stale comment, never wrote tblcashbook at all — correct for a pure Journal
+                // Transfer (no cash moves), but wrong for FD Interest/Closure, which physically
+                // pay cash out. `header.voucherType` (set at creation) now decides both.
+                const isJournalVoucher = (header.voucherType || '').toUpperCase() === 'JOURNAL';
+                const genericVchrType = isJournalVoucher ? 'JV' : 'P';
+
                 for (const detail of details) {
                     const amt = parseMoney(detail.trans_amt);
                     const headCode = detail.code || 'GL000';
                     const drcr = (detail.trans_type === 'CR' || detail.trans_type === 'R') ? 'CR' : 'DR';
                     const mbno = detail.mbno || header.memberId || null;
+                    const accType = (detail.acc_type || 'JV').toString().trim().toUpperCase();
+                    const legMode = detail.modeofpay === 'B' ? 'B' : (detail.modeofpay === 'C' ? 'C' : mode);
 
                     // Ledger Insert
                     this.logger.log(`Posting ledger: ${drcr} ${headCode} ${amt} mbno:${mbno}`);
@@ -276,16 +289,30 @@ export class PassTransactionService {
                             trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type,
                             trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance,
                             narration, username, ledgerid
-                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'JV', $10, 0, $11, $12, $13)
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, $12, $13, $14)
                     `, [
                         nextTransNo++, postingDate, drcr, headCode, mbno,
                         detail.acc_no || 0, detail.acc_type || 'JV',
-                        amt, voucherNo, mode,
+                        amt, voucherNo, genericVchrType,
+                        legMode,
                         detail.narration || header.description, postedBy, nextLedgerId++
                     ]);
 
-                    // Journal entries do not touch cashbook (no cash movement — pure accounting transfer)
-                    // Only Payment (P) and Receipt (R) vouchers should update tblcashbook
+                    // Cash Book leg — only for real Payment/Receipt vouchers (pure Journal
+                    // Transfers move nothing physical, so they correctly skip this), and only on
+                    // the leg that's actually cash/bank (CINH/BANK), not every line of the
+                    // voucher. DR on a cash/bank head = money coming in (receipt); CR = money
+                    // going out (payment) — mirrors the loan-disbursement branch's convention.
+                    if (!isJournalVoucher && (accType === 'CINH' || accType === 'BANK')) {
+                        const isReceiptLeg = drcr === 'DR';
+                        let rcash = 0, rtransfer = 0, pcash = 0, ptransfer = 0;
+                        if (isReceiptLeg) { if (legMode === 'C') rcash = amt; else rtransfer = amt; }
+                        else { if (legMode === 'C') pcash = amt; else ptransfer = amt; }
+                        await queryRunner.query(`
+                            INSERT INTO tblcashbook (headcode, headname, rcash, rtransfer, pcash, ptransfer, trans_date)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7)
+                        `, [headCode, detail.narration || header.description || 'Transaction', rcash, rtransfer, pcash, ptransfer, postingDate]);
+                    }
 
                     // Member balance update (if member number present)
                     if (mbno) {
@@ -407,14 +434,21 @@ export class PassTransactionService {
             const voucherQuery = `SELECT * FROM vouchers WHERE "voucherNumber" = $1 AND status = 'POSTED'`;
             const headerResult = await queryRunner.query(voucherQuery, [voucherNo]);
             if (headerResult.length === 0) {
-                throw new Error('Voucher header not found or is not in POSTED status');
+                throw new BadRequestException('Voucher header not found or is not in POSTED status');
             }
             const header = headerResult[0];
 
-            // 2. Extract loan case no
+            // 2. Extract loan case no, if any.
+            // BUG FIX: this used to throw ('Voucher metadata missing for reversal') whenever
+            // the voucher wasn't a loan disbursement — confirmed live, reversing a freshly-posted
+            // plain Journal Transfer voucher failed 100% of the time. LOAN_CASE is only ever
+            // present on loan-disbursement vouchers (see voucher.service.ts), so every other
+            // voucher type this app posts through Pass Transactions — Journal Transfer, Saving
+            // Receipt/Payment, Compulsory Deposit, FD — could never be reversed. Loan case is now
+            // optional; the loan-specific rollback below only runs when it's actually present.
             const remarksMatch = (header.remarks || '').match(/LOAN_CASE:([^|]+)/);
-            if (!remarksMatch) throw new Error('Voucher metadata missing for reversal');
-            const loanCaseNo = remarksMatch[1];
+            const isLoanVoucher = !!remarksMatch;
+            const loanCaseNo = remarksMatch ? remarksMatch[1] : null;
 
             // 3. Remove from Ledger
             await queryRunner.query(`DELETE FROM ledger WHERE "receipt_vchr_no" = $1`, [voucherNo]);
@@ -424,8 +458,8 @@ export class PassTransactionService {
             // Some legacy systems use date + headcode + amount.
             // await queryRunner.query(`DELETE FROM tblcashbook WHERE "vchr_no" = $1`, [voucherNo]);
 
-            // 5. Remove/Deactivate from loan_master and roll back member_balances
-            if (loanCaseNo) {
+            if (isLoanVoucher) {
+                // 5a. Remove/Deactivate from loan_master and roll back member_balances
                 const loanInfoResult = await queryRunner.query(
                     `SELECT mbno, loantype, loan_amt FROM loan_master WHERE loancaseno::text = $1`,
                     [loanCaseNo]
@@ -453,12 +487,42 @@ export class PassTransactionService {
                     }
                     this.logger.log(`member_balances rolled back (-${disbAmt}) for mbno: ${li.mbno}`);
                 }
+
+                await queryRunner.query(`UPDATE loan_pending SET flg_paid = 'N' WHERE loancaseno::text = $1`, [loanCaseNo]);
+            } else {
+                // 5b. Generic/journal voucher — undo any member_balances change the generic
+                // branch of passTransaction() applied, by replaying the same head→column
+                // mapping (getBalanceColumn) and inverting the DR/CR delta it used.
+                const details = await queryRunner.query(
+                    `SELECT mbno, code, trans_type, trans_amt FROM transactions WHERE receipt_vchr_no = $1`,
+                    [voucherNo]
+                );
+                for (const detail of details) {
+                    if (!detail.mbno) continue;
+                    const balCol = this.getBalanceColumn(detail.code);
+                    if (!balCol) continue;
+                    const drcr = (detail.trans_type === 'CR' || detail.trans_type === 'R') ? 'CR' : 'DR';
+                    const amt = parseFloat(detail.trans_amt) || 0;
+                    const balRes = await queryRunner.query(
+                        `SELECT COALESCE(${balCol.col}, 0) as bal FROM member_balances WHERE mbno = $1`, [detail.mbno]
+                    );
+                    if (balRes.length === 0) continue;
+                    const curBal = parseFloat(balRes[0].bal) || 0;
+                    // Inverse of passTransaction's forward formula for this balance type.
+                    const newBal = balCol.type === 'LIABILITY'
+                        ? (drcr === 'CR' ? curBal - amt : curBal + amt)
+                        : (drcr === 'CR' ? curBal + amt : curBal - amt);
+                    await queryRunner.query(
+                        `UPDATE member_balances SET ${balCol.col} = $1 WHERE mbno = $2`,
+                        [newBal, detail.mbno]
+                    );
+                    this.logger.log(`Reversed ${balCol.col}: ${curBal} → ${newBal} for mbno ${detail.mbno}`);
+                }
             }
 
             // 6. Reset Flags
             await queryRunner.query(`UPDATE vouchers SET status = 'PENDING', "authorizedAt" = NULL WHERE "voucherNumber" = $1`, [voucherNo]);
             await queryRunner.query(`UPDATE transactions SET pass_flag = 'N' WHERE receipt_vchr_no = $1`, [voucherNo]);
-            await queryRunner.query(`UPDATE loan_pending SET flg_paid = 'N' WHERE loancaseno::text = $1`, [loanCaseNo]);
 
             await queryRunner.commitTransaction();
             this.logger.log(`Transaction reversed: ${voucherNo}`);
@@ -468,6 +532,9 @@ export class PassTransactionService {
         } catch (error: any) {
             await queryRunner.rollbackTransaction();
             this.logger.error('Reversal failed:', error);
+            // 5.1 fix: same pattern as BUG FIX 34 above — don't downgrade a typed
+            // rejection to a generic Error (always served as 500).
+            if (error instanceof BadRequestException) throw error;
             throw new Error('Failed to reverse transaction: ' + error.message);
         } finally {
             await queryRunner.release();

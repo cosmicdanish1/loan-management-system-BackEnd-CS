@@ -660,23 +660,42 @@ export class DepositReportsService {
         };
     }
 
-    /** Reset passbook print tracking — set ledgerid=0 so everything re-prints */
+    /**
+     * Reset passbook print tracking — set ledgerid=0 so everything re-prints.
+     * Upserts: bank_passbook starts out with no row at all for a member+type
+     * until something is printed, and a plain UPDATE against a nonexistent
+     * row silently touches nothing (confirmed live — see updatePassbookTracking).
+     * tr_date is NOT NULL in the schema, so a reset leaves it untouched on an
+     * existing row (it still reflects the last real print) and only seeds it
+     * with NOW() when the row has to be created.
+     */
     async resetPassbookPrinting(memberNo: string, accountType?: string) {
         const mbno = memberNo.trim();
-        const params: any[] = [mbno];
-        let q = `UPDATE bank_passbook SET ledgerid=0, lastlineno=0, tr_date=NULL WHERE TRIM(account_number)=$1`;
-        if (accountType) { params.push(accountType); q += ` AND accounttype=$2`; }
-        await this.dataSource.query(q, params);
+        const types = accountType ? [accountType] : ['D', 'L'];
+        for (const type of types) {
+            await this.dataSource.query(`
+                INSERT INTO bank_passbook (account_number, accounttype, tr_date, ledgerid, lastlineno)
+                VALUES ($1, $2, NOW(), 0, 0)
+                ON CONFLICT (account_number, accounttype) DO UPDATE
+                SET ledgerid = 0, lastlineno = 0
+            `, [mbno, type]);
+        }
         return { success: true, message: 'Passbook printing reset successfully' };
     }
 
-    /** Update bank_passbook tracking after a successful print */
+    /**
+     * Update bank_passbook tracking after a successful print.
+     * Upserts for the same reason as resetPassbookPrinting: the table has no
+     * row until the first print, so this must be able to create it.
+     */
     async updatePassbookTracking(memberNo: string, accountType: string, lastLedgerId: number, lastLineNo: number) {
         await this.dataSource.query(`
-            UPDATE bank_passbook
-            SET ledgerid=$1, lastlineno=$2, tr_date=NOW(), printedon=NOW()
-            WHERE TRIM(account_number)=$3 AND accounttype=$4
-        `, [lastLedgerId, lastLineNo, memberNo.trim(), accountType]);
+            INSERT INTO bank_passbook (account_number, accounttype, tr_date, ledgerid, lastlineno, printedon)
+            VALUES ($1, $2, NOW(), $3, $4, NOW())
+            ON CONFLICT (account_number, accounttype) DO UPDATE
+            SET ledgerid = EXCLUDED.ledgerid, lastlineno = EXCLUDED.lastlineno,
+                tr_date = NOW(), printedon = NOW()
+        `, [memberNo.trim(), accountType, lastLedgerId, lastLineNo]);
         return { success: true };
     }
 }

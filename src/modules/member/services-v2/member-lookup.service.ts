@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { MemberLookupResponseDto } from '../dto/member-lookup.dto';
 
@@ -149,10 +149,18 @@ export class MemberLookupService {
       `;
 
             const result = await this.dataSource.query(query, [memberNo]);
-            return result[0] || null;
+            // 4.1 fix: a fabricated member number used to return 200 with data:null
+            // instead of 404 — any caller checking the status code rather than
+            // `data !== null` would treat a non-existent member as found. No frontend
+            // caller uses this endpoint currently, so tightening it is safe.
+            if (!result[0]) {
+                throw new NotFoundException(`Member ${memberNo} not found`);
+            }
+            return result[0];
         } catch (error) {
+            if (error instanceof NotFoundException) throw error;
             this.logger.error(`Error finding member: ${error.message}`);
-            return null;
+            throw error;
         }
     }
 }

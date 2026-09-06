@@ -14,6 +14,22 @@ export class RdAccountService {
         private readonly dataSource: DataSource,
     ) { }
 
+    // BUG FIX 48: `repository.query('UPDATE/DELETE ... RETURNING ...')` for a
+    // non-SELECT statement does not reliably return a flat rows array here —
+    // confirmed live (2026-08-24): update()/remove() checked `result.length === 0`
+    // to detect "not found", but a PATCH/DELETE against a nonexistent account
+    // number still returned HTTP 200 "success" with zero rows actually touched.
+    // The frontend's Pass RD A/C save() only checks response.ok, so this was a
+    // silent false-success on every save against a stale/mistyped account number.
+    // Normalize both possible shapes (flat rows array, or a [rows, meta] tuple)
+    // before checking emptiness.
+    private normalizeReturningRows(result: any): any[] {
+        if (Array.isArray(result) && result.length > 0 && Array.isArray(result[0])) {
+            return result[0];
+        }
+        return Array.isArray(result) ? result : [];
+    }
+
     async create(createDto: CreateRdAccountDto): Promise<any> {
         this.logger.log(`Creating RD Account: ${createDto.accountNumber} for member: ${createDto.memberNo}`);
 
@@ -147,7 +163,7 @@ export class RdAccountService {
         // to "" had no effect, repeatedly. Fixed with explicit `!== undefined` checks
         // so a real 0/"" is respected, and only a genuinely-omitted field is skipped.
         const v = <T>(x: T | undefined) => (x !== undefined ? x : null);
-        const result = await this.rdAccountRepository.query(
+        const rawResult = await this.rdAccountRepository.query(
             `UPDATE fdmaster SET
                 mbno        = COALESCE($2,  mbno),
                 prefix      = COALESCE($3,  prefix),
@@ -189,7 +205,8 @@ export class RdAccountService {
                 v(updateDto.specialInstructions),
             ]
         );
-        if (!result || result.length === 0) {
+        const result = this.normalizeReturningRows(rawResult);
+        if (result.length === 0) {
             throw new NotFoundException(`RD Account with ID ${id} not found`);
         }
         return result[0];
@@ -200,11 +217,12 @@ export class RdAccountService {
         // BUG FIX 2: was using TypeORM delete() which had no fdrdflag='R' filter —
         // could accidentally delete an FD record sharing the same account_number.
         // RETURNING lets us detect whether the row actually existed.
-        const rows = await this.rdAccountRepository.query(
+        const rawRows = await this.rdAccountRepository.query(
             `DELETE FROM fdmaster WHERE account_number = $1 AND fdrdflag = 'R' RETURNING account_number`,
             [id]
         );
-        if (!rows || rows.length === 0) {
+        const rows = this.normalizeReturningRows(rawRows);
+        if (rows.length === 0) {
             throw new NotFoundException(`RD Account with ID ${id} not found`);
         }
     }

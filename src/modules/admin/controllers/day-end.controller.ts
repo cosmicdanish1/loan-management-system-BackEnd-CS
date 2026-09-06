@@ -8,6 +8,7 @@ import {
   Query,
   UseGuards,
   ParseIntPipe,
+  DefaultValuePipe,
   HttpStatus,
 } from '@nestjs/common';
 import {
@@ -30,21 +31,24 @@ import {
   InitiateDayEndDto,
   DayEndProcessResponseDto,
   DayEndSummaryDto,
-  InterestCalculationResultDto,
 } from '../dto';
 
 @ApiTags('Day-End Processing')
 @ApiBearerAuth()
-// TODO: Re-enable controller-level guards once auth system is properly configured
-// @UseGuards(JwtAuthGuard, RoleGuard, PermissionsGuard)
+// BUG FIX: was commented out — any logged-in user, any role, could trigger or
+// reset Day-End (only the app-wide JwtAuthGuard applied, which just checks for
+// a valid token). Re-enabled now that role/permission checks have been
+// confirmed working correctly (verified live: RoleGuard/PermissionsGuard both
+// have an "administrator" master-bypass, so the admin account this was tested
+// under always passes regardless of the specific decorator below).
+@UseGuards(JwtAuthGuard, RoleGuard, PermissionsGuard)
 @Controller('admin/day-end')
 export class DayEndController {
   constructor(private readonly dayEndService: DayEndService) { }
 
   @Post('initiate')
-  // TODO: Re-enable authentication once auth system is properly configured
-  // @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  // @RequirePermissions(UserPermission.DAY_END_OPERATIONS)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @RequirePermissions(UserPermission.DAY_END_OPERATIONS)
   @ApiOperation({ summary: 'Initiate day-end processing' })
   @ApiResponse({
     status: HttpStatus.CREATED,
@@ -65,9 +69,8 @@ export class DayEndController {
   }
 
   @Get('summary')
-  // TODO: Re-enable authentication once auth system is properly configured
-  // @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.ACCOUNTANT)
-  // @RequirePermissions(UserPermission.DAY_END_OPERATIONS)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.ACCOUNTANT)
+  @RequirePermissions(UserPermission.DAY_END_OPERATIONS)
   @ApiOperation({ summary: 'Get current day-end summary' })
   @ApiResponse({
     status: HttpStatus.OK,
@@ -79,13 +82,19 @@ export class DayEndController {
 
   // BUG FIX: getworkingdate starts empty and nothing else can create the
   // first row — see DayEndService.initializeWorkingDate for the full story.
+  // Never had any role check at all (not even a commented-out one) — added
+  // one now, same as the rest of this controller.
   @Post('initialize')
+  @Roles(UserRole.ADMIN)
+  @RequirePermissions(UserPermission.DAY_END_OPERATIONS)
   @ApiOperation({ summary: 'Create the genesis getworkingdate row (only when none exists)' })
   async initializeWorkingDate(@Body('workingDate') workingDate: string) {
     return this.dayEndService.initializeWorkingDate(workingDate);
   }
 
   @Delete('working-date')
+  @Roles(UserRole.ADMIN)
+  @RequirePermissions(UserPermission.DAY_END_OPERATIONS)
   @ApiOperation({ summary: 'Reset a mis-set initial working date (only before any day-end has completed)' })
   async resetWorkingDate() {
     return this.dayEndService.resetWorkingDate();
@@ -101,9 +110,14 @@ export class DayEndController {
     status: HttpStatus.OK,
     description: 'Day-end processes retrieved successfully',
   })
+  // 5.4 fix: plain JS default parameters (`= 1`) don't reliably apply here —
+  // confirmed live: a bare GET with no query string crashed with 500 "Provided
+  // 'skip' value is not a number". DefaultValuePipe + ParseIntPipe is the
+  // idiomatic Nest fix — it substitutes the default before parsing, and throws
+  // a clean 400 for genuinely invalid input instead of reaching TypeORM as NaN.
   async getDayEndProcesses(
-    @Query('page') page: number = 1,
-    @Query('limit') limit: number = 10,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
   ) {
     return this.dayEndService.getDayEndProcesses(page, limit);
   }
@@ -146,25 +160,5 @@ export class DayEndController {
     @Param('id', ParseIntPipe) id: number,
   ): Promise<DayEndSummaryDto> {
     return this.dayEndService.getDayEndSummary(id);
-  }
-
-  @Get('processes/:id/interest-calculations')
-  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.ACCOUNTANT)
-  @RequirePermissions(UserPermission.DAY_END_OPERATIONS)
-  @ApiOperation({ summary: 'Get interest calculation results for a day-end process' })
-  @ApiParam({ name: 'id', type: Number, description: 'Process ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Interest calculation results retrieved successfully',
-    type: [InterestCalculationResultDto],
-  })
-  @ApiResponse({
-    status: HttpStatus.NOT_FOUND,
-    description: 'Day-end process not found',
-  })
-  async getInterestCalculationResults(
-    @Param('id', ParseIntPipe) id: number,
-  ): Promise<InterestCalculationResultDto[]> {
-    return this.dayEndService.getInterestCalculationResults(id);
   }
 }

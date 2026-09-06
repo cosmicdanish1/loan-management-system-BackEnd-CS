@@ -21,12 +21,15 @@ export class ConsolidationService {
 
   async getConsolidationReport(dto: GetConsolidationDto): Promise<any> {
     try {
-      // All voucher entries for the date — deduped, with accountbalance names + member names
+      // All voucher entries for the date — deduped, with accountbalance/headmaster
+      // names + member names. code='A1001' (Cash-In-Hand) is excluded: it's the
+      // balance this report tracks (see openingBalance/closingBalance below), not
+      // an analysis head to list — same convention as the sibling Day-Book report.
       const rows = await this.transactionsRepository.query(`
         SELECT DISTINCT ON (l.ledgerid)
           l.ledgerid,
           l.code                                                  AS head_code,
-          COALESCE(ab.acname, l.code)                             AS head_name,
+          COALESCE(ab.acname, h.head_name, l.code)                AS head_name,
           l.trans_type,
           CAST(l.trans_amt AS numeric)                            AS amount,
           CAST(l.mbno AS text)                                    AS mb_no,
@@ -37,45 +40,55 @@ export class ConsolidationService {
           )                                                       AS member_name
         FROM ledger l
         LEFT JOIN accountbalance  ab ON ab.acno  = l.code
+        LEFT JOIN headmaster      h  ON h.code   = l.code
         LEFT JOIN member_master   m  ON CAST(m.mbno AS text) = CAST(l.mbno AS text)
         WHERE l.trans_date::date = $1::date
           AND l.code IS NOT NULL AND TRIM(l.code) != ''
+          AND l.code != 'A1001'
           AND l.receipt_vchr_no IS NOT NULL AND TRIM(l.receipt_vchr_no) != ''
         ORDER BY l.ledgerid, l.code, l.trans_type
       `, [dto.date]);
 
-      // Opening balance (A1001 cash in hand) from daily_gl_history + ledger delta
+      // Opening balance: the real Cash-In-Hand (A1001) position, built from
+      // ledger history directly. This used to read a "last known balance" from
+      // daily_gl_history — zero rows, nothing has ever written to it — then
+      // bridge forward using tblcashbook, a table already proven unreliable
+      // elsewhere in this app (most rows carry no trans_date, and rows that do
+      // can double-count transactions already in `ledger`). Confirmed live:
+      // this produced ₹1,03,331.33 for a date whose real cash position
+      // (cross-checked against Cash Book/Day-Book, both already fixed this
+      // session) is -₹4,96,595.09. Same root cause and same fix as Day-Book.
+      //
+      // Filtering by code alone (not acc_type='CINH') matters: cash-mode loan
+      // disbursements post code='A1001' with acc_type='ALN', not 'CINH'.
       const openingResult = await this.transactionsRepository.query(`
-        WITH last_gl AS (
-          SELECT CAST(balance AS numeric) AS bal, trans_date::date AS gl_date
-          FROM daily_gl_history
-          WHERE code = 'A1001' AND trans_date::date < $1::date
-          ORDER BY trans_date DESC LIMIT 1
-        )
         SELECT
-          COALESCE((SELECT bal FROM last_gl), 0)
-          + COALESCE((
-            SELECT SUM(CASE WHEN t.trans_type='DR' THEN t.amt ELSE -t.amt END)
-            FROM (
-              SELECT DISTINCT ON (ledgerid)
-                ledgerid, trans_type, CAST(trans_amt AS numeric) AS amt, trans_date
-              FROM ledger WHERE code='A1001' AND acc_type='CINH'
-              ORDER BY ledgerid
-            ) t
-            WHERE t.trans_date::date > COALESCE((SELECT gl_date FROM last_gl),'2000-01-01')
-              AND t.trans_date::date < $1::date
-          ), 0)
-          + COALESCE((
-            SELECT SUM(COALESCE(rcash,0)+COALESCE(rtransfer,0))
-                   - SUM(COALESCE(pcash,0)+COALESCE(ptransfer,0))
-            FROM tblcashbook
-            WHERE trans_date IS NOT NULL
-              AND trans_date::date > COALESCE((SELECT gl_date FROM last_gl),'2000-01-01')
-              AND trans_date::date < $1::date
-          ), 0) AS opening_balance
+          SUM(CASE WHEN trans_type = 'DR' THEN CAST(trans_amt AS numeric) ELSE 0 END) -
+          SUM(CASE WHEN trans_type = 'CR' THEN CAST(trans_amt AS numeric) ELSE 0 END) AS balance
+        FROM ledger
+        WHERE trans_date::date < $1::date AND code = 'A1001'
       `, [dto.date]);
 
-      const openingBalance = parseFloat(openingResult[0]?.opening_balance) || 0;
+      const openingBalance = parseFloat(openingResult[0]?.balance) || 0;
+
+      // Same-day movement on the A1001 head itself. This used to be netted
+      // from the receipt/payment group totals below — but those groups (with
+      // the fix above) list every OTHER head, and even before that fix summed
+      // literally every head including A1001, which by basic double-entry
+      // bookkeeping guarantees Total Receipts == Total Payments for ANY date
+      // (total debits always equal total credits system-wide) — Closing
+      // Balance could never move regardless of real activity. Confirmed live:
+      // 2026-09-02 showed both totals at the identical ₹5,10,000.00. Cash
+      // movement needs its own query, same fix as Day-Book.
+      const cashMoveResult = await this.transactionsRepository.query(`
+        SELECT
+          SUM(CASE WHEN trans_type = 'DR' THEN CAST(trans_amt AS numeric) ELSE 0 END) AS cash_in,
+          SUM(CASE WHEN trans_type = 'CR' THEN CAST(trans_amt AS numeric) ELSE 0 END) AS cash_out
+        FROM ledger
+        WHERE trans_date::date = $1::date AND code = 'A1001'
+      `, [dto.date]);
+      const totalCashReceipts = parseFloat(cashMoveResult[0]?.cash_in) || 0;
+      const totalCashPayments = parseFloat(cashMoveResult[0]?.cash_out) || 0;
 
       // Group rows into receiptGroups (CR) and paymentGroups (DR) by head_code
       // Within each head, sub-group by mb_no (member) or 'Miscellineous' for no member
@@ -121,16 +134,14 @@ export class ConsolidationService {
       const receiptGroups = toGroups(receiptMap);
       const paymentGroups = toGroups(paymentMap);
 
-      const totalReceipts = receiptGroups.reduce((s, g) => s + g.total, 0);
-      const totalPayments = paymentGroups.reduce((s, g) => s + g.total, 0);
-      const totalCash = openingBalance + totalReceipts;
-      const closingBalance = totalCash - totalPayments;
+      const totalCash = openingBalance + totalCashReceipts;
+      const closingBalance = totalCash - totalCashPayments;
 
       return {
         date: dto.date,
         openingBalance,
-        totalReceipts,
-        totalPayments,
+        totalReceipts: totalCashReceipts,
+        totalPayments: totalCashPayments,
         totalCash,
         closingBalance,
         receiptGroups,

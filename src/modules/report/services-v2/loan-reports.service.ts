@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { parseSafeDate } from '../../shared/utils/date-utils';
 import { LoanRepaymentService } from '../../loan/services-v2/loan-repayment.service';
@@ -91,7 +91,13 @@ export class LoanReportsService {
         return {
           key: ((offset || 0) + idx).toString(),
           memberNo: d.member_no,
-          memberName: d.member_name?.trim() || '',
+          // BUG FIX: a loan with no matching member_master row (an orphan
+          // mbno reference) rendered a completely blank name, confirmed
+          // live (member 610000036). Falls back to the member number
+          // itself, same pattern already applied to Day-Book [SB] and
+          // Journal/Transfer Voucher this session — a row is never
+          // silently blank.
+          memberName: d.member_name?.trim() || `Member ${d.member_no}`,
           officeName: d.office_name,
           loanType: d.loan_type,
           loanCaseNo: d.loan_case_no,
@@ -146,6 +152,7 @@ export class LoanReportsService {
         CAST(loan.loan_amt AS numeric) as loan_amount,
         loan.payment_date as disbursement_date,
         loan.no_of_instal as installments,
+        CAST(loan.instal_amt AS numeric) as installment_amount,
         loan.rate as interest_rate
       ${baseQuery} ${whereClause}
       ORDER BY loan.payment_date DESC
@@ -180,6 +187,7 @@ export class LoanReportsService {
         loanAmount: parseFloat(l.loan_amount) || 0,
         disbursementDate: l.disbursement_date,
         installments: l.installments,
+        installmentAmount: parseFloat(l.installment_amount) || 0,
         interestRate: l.interest_rate
       }))
     };
@@ -272,6 +280,11 @@ export class LoanReportsService {
       `, obParams);
       runningBalance = parseFloat(obResult[0]?.balance || '0');
     }
+    // Captured before the loop mutates runningBalance — was computed
+    // correctly already, but never returned as its own field, so the
+    // frontend (unlike the sibling Detail/Bank Detail Ledger reports) never
+    // had a real Opening Balance value to display at all.
+    const openingBalance = runningBalance;
     const ledgerData = transactions.map((t: any, idx: number) => {
       const amount = parseFloat(t.amount) || 0;
       const isDebit = t.type === 'DR' || t.type === 'D';
@@ -302,6 +315,7 @@ export class LoanReportsService {
       memberNo,
       memberName,
       loanCaseNo: loanCaseNo || 'All',
+      openingBalance,
       transactions: ledgerData
     };
   }
@@ -514,20 +528,23 @@ export class LoanReportsService {
    * Get loan types list
    */
   async getLoanTypes() {
-    const result = await this.dataSource.query(`
-      SELECT DISTINCT loantype as code, 
-        CASE 
-          WHEN loantype = 'RLN' THEN 'Regular Loan'
-          WHEN loantype = 'ELN' THEN 'Emergency Loan'
-          WHEN loantype = 'ALN' THEN 'Against Deposit Loan'
-          ELSE loantype
-        END as name
-      FROM loan_master
-      WHERE loantype IS NOT NULL
-      ORDER BY loantype
-    `);
-
-    return result;
+    // BUG FIX: this used to be `SELECT DISTINCT loantype FROM loan_master` —
+    // data-driven, so a real type with zero loans on record yet (confirmed
+    // live: ELN has 0 rows, only RLN/ALN currently have any) never appeared
+    // in the dropdown at all, unlike the legacy system which always offered
+    // every valid type. Also the labels themselves were wrong: cross-checked
+    // against the actual Loan Application screen — the one place these codes
+    // are assigned, and the real source of truth — which defines
+    // ALN='EMERGENCY LOAN', ELN='LOAN AGAINST RECOVERY', RLN='REGULAR LOAN'.
+    // This endpoint had ALN and ELN's labels swapped/wrong ('Against Deposit
+    // Loan' / 'Emergency Loan'), the exact ambiguity flagged and left open in
+    // an earlier session. Now a fixed list matching that authoritative source
+    // exactly, not derived from whatever data happens to exist today.
+    return [
+      { code: 'ALN', name: 'EMERGENCY LOAN' },
+      { code: 'ELN', name: 'LOAN AGAINST RECOVERY' },
+      { code: 'RLN', name: 'REGULAR LOAN' },
+    ];
   }
 
   /**
@@ -741,7 +758,8 @@ export class LoanReportsService {
     `, [memberNo]);
 
     if (memberRes.length === 0) {
-      throw new Error('Member not found');
+      // 5.1 fix: was reaching callers as 500 instead of 404.
+      throw new NotFoundException('Member not found');
     }
 
     const member = memberRes[0];

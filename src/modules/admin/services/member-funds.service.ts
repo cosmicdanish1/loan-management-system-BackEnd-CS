@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, QueryRunner, Repository } from 'typeorm';
 import { FundsMaster } from '../entities/funds-master.entity';
 import { UpdateMemberFundsDto } from '../dto/member-funds.dto';
 
@@ -11,6 +11,7 @@ export class MemberFundsService {
     constructor(
         @InjectRepository(FundsMaster)
         private fundsRepository: Repository<FundsMaster>,
+        private readonly dataSource: DataSource,
     ) { }
 
     async getMemberList(wing?: string): Promise<string[]> {
@@ -49,6 +50,9 @@ export class MemberFundsService {
     }
 
     async findByMember(memberNo: number): Promise<FundsMaster> {
+        if (!Number.isFinite(memberNo) || memberNo <= 0) {
+            throw new Error(`Invalid member number: ${memberNo}`);
+        }
         this.logger.log(`[MemberFunds] Looking up fundsmaster for mbno=${memberNo}`);
         const funds = await this.fundsRepository.findOne({ where: { memberNo } });
         if (!funds) {
@@ -74,8 +78,8 @@ export class MemberFundsService {
     }
 
     // Idempotent audit table — records every balance edit (who / when / before / after).
-    private async ensureAuditTable(): Promise<void> {
-        await this.fundsRepository.query(`
+    private async ensureAuditTable(runner: QueryRunner): Promise<void> {
+        await runner.query(`
             CREATE TABLE IF NOT EXISTS member_funds_audit (
                 id          SERIAL PRIMARY KEY,
                 mbno        NUMERIC NOT NULL,
@@ -87,55 +91,74 @@ export class MemberFundsService {
         `);
     }
 
+    // Balance save, loan_master sync, and the audit row must all land together or not at all —
+    // previously these were 4 independent queries, so a failure partway left fundsmaster updated
+    // with loan_master/audit silently out of sync and no way to detect it.
     async updateBalances(memberNo: number, updateDto: UpdateMemberFundsDto, changedBy = 'system'): Promise<FundsMaster> {
+        if (!Number.isFinite(memberNo) || memberNo <= 0) {
+            throw new Error(`Invalid member number: ${memberNo}`);
+        }
+
         this.logger.log(`[MemberFunds] Updating fundsmaster for mbno=${memberNo} by ${changedBy}`);
-        let funds = await this.fundsRepository.findOne({ where: { memberNo } });
 
-        // Snapshot the pre-change state for the audit trail (null = brand-new record).
-        const oldValues = funds ? { ...funds } : null;
-
-        if (!funds) {
-            this.logger.log(`[MemberFunds] No existing record, creating new for mbno=${memberNo}`);
-            funds = this.fundsRepository.create({ memberNo, ...updateDto });
-        } else {
-            Object.assign(funds, updateDto);
-        }
-
-        const saved = await this.fundsRepository.save(funds);
-
-        // Sync loan_master if loan opening balances or installment amounts changed
-        // Legacy stores these in loan_master.openbalance / instal_amt, not fundsmaster
-        if (updateDto.rlnOpBal !== undefined || updateDto.rlnAmt !== undefined) {
-            await this.fundsRepository.query(
-                `UPDATE loan_master SET
-                    openbalance = COALESCE($2, openbalance),
-                    instal_amt = COALESCE($3, instal_amt)
-                 WHERE mbno = $1 AND loantype = 'RLN' AND balance > 0`,
-                [memberNo, updateDto.rlnOpBal ?? null, updateDto.rlnAmt ?? null]
-            );
-        }
-        if (updateDto.elnOpBal !== undefined || updateDto.elnAmt !== undefined) {
-            await this.fundsRepository.query(
-                `UPDATE loan_master SET
-                    openbalance = COALESCE($2, openbalance),
-                    instal_amt = COALESCE($3, instal_amt)
-                 WHERE mbno = $1 AND loantype IN ('ALN','ELN') AND balance > 0`,
-                [memberNo, updateDto.elnOpBal ?? null, updateDto.elnAmt ?? null]
-            );
-        }
-
-        // Write the audit row. Never let an audit failure roll back a successful balance save.
+        const runner = this.dataSource.createQueryRunner();
+        await runner.connect();
+        await runner.startTransaction();
         try {
-            await this.ensureAuditTable();
-            await this.fundsRepository.query(
+            const fundsRepo = runner.manager.getRepository(FundsMaster);
+            let funds = await fundsRepo.findOne({ where: { memberNo } });
+
+            // Snapshot the pre-change state for the audit trail (null = brand-new record).
+            const oldValues = funds ? { ...funds } : null;
+
+            if (!funds) {
+                this.logger.log(`[MemberFunds] No existing record, creating new for mbno=${memberNo}`);
+                funds = fundsRepo.create({ memberNo, ...updateDto });
+            } else {
+                Object.assign(funds, updateDto);
+            }
+
+            const saved = await fundsRepo.save(funds);
+
+            // Sync loan_master if loan opening balances or installment amounts changed.
+            // Legacy stores these in loan_master.openbalance / instal_amt, not fundsmaster.
+            // Note: every real loan in this system is recorded with loantype='ALN' (see
+            // loan-sanction.service.ts) — 'RLN' never appears in loan_master, so this branch
+            // is currently a no-op by design of the existing data, kept for forward-compat.
+            if (updateDto.rlnOpBal !== undefined || updateDto.rlnAmt !== undefined) {
+                await runner.query(
+                    `UPDATE loan_master SET
+                        openbalance = COALESCE($2, openbalance),
+                        instal_amt = COALESCE($3, instal_amt)
+                     WHERE mbno = $1 AND loantype = 'RLN' AND balance > 0`,
+                    [memberNo, updateDto.rlnOpBal ?? null, updateDto.rlnAmt ?? null]
+                );
+            }
+            if (updateDto.elnOpBal !== undefined || updateDto.elnAmt !== undefined) {
+                await runner.query(
+                    `UPDATE loan_master SET
+                        openbalance = COALESCE($2, openbalance),
+                        instal_amt = COALESCE($3, instal_amt)
+                     WHERE mbno = $1 AND loantype IN ('ALN','ELN') AND balance > 0`,
+                    [memberNo, updateDto.elnOpBal ?? null, updateDto.elnAmt ?? null]
+                );
+            }
+
+            await this.ensureAuditTable(runner);
+            await runner.query(
                 `INSERT INTO member_funds_audit (mbno, changed_by, old_values, new_values) VALUES ($1, $2, $3, $4)`,
                 [memberNo, changedBy, oldValues ? JSON.stringify(oldValues) : null, JSON.stringify(saved)]
             );
-        } catch (auditErr) {
-            this.logger.error(`[MemberFunds] Audit write failed for mbno=${memberNo}:`, auditErr as any);
-        }
 
-        this.logger.log(`[MemberFunds] Saved fundsmaster for mbno=${memberNo}`);
-        return saved;
+            await runner.commitTransaction();
+            this.logger.log(`[MemberFunds] Saved fundsmaster for mbno=${memberNo}`);
+            return saved;
+        } catch (err) {
+            await runner.rollbackTransaction();
+            this.logger.error(`[MemberFunds] Update failed for mbno=${memberNo}, rolled back:`, err as any);
+            throw err;
+        } finally {
+            await runner.release();
+        }
     }
 }

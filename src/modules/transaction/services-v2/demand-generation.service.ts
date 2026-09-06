@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { DemandMaster } from '../entities/demand-master.entity';
@@ -55,7 +55,8 @@ export class DemandGenerationService {
         this.logger.log(`Parsing demand file for ${month} ${year} branch=${branch}`);
 
         if (!file || !file.buffer) {
-            throw new Error('No file uploaded. Please select an Excel (.xls/.xlsx) or CSV file.');
+            // 5.1 fix: was reaching callers as 500 instead of 400.
+            throw new BadRequestException('No file uploaded. Please select an Excel (.xls/.xlsx) or CSV file.');
         }
 
         let workbook: XLSX.WorkBook;
@@ -425,7 +426,8 @@ export class DemandGenerationService {
 
         const monthNum = MONTH_MAP[dto.month] || 0;
         const yearNum = parseInt(dto.year);
-        if (!monthNum || !yearNum) throw new Error('Invalid date parameters');
+        // 5.1 fix: was reaching callers as 500 instead of 400.
+        if (!monthNum || !yearNum) throw new BadRequestException('Invalid date parameters');
 
         const queryRunner = this.dataSource.createQueryRunner();
         await queryRunner.connect();

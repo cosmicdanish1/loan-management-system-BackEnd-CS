@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -305,8 +305,10 @@ export class BackupService implements OnApplicationBootstrap {
     }
 
     // Confirmation guard — refuse unless the caller names the exact database.
+    // 5.1 fix: this rejection is a valid client error, not a server failure —
+    // was reaching callers as a 500.
     if (!options.confirm || options.confirm !== dbConfig.database) {
-      throw new Error(
+      throw new BadRequestException(
         `Restore not confirmed. Set "confirm" to the exact target database name "${dbConfig.database}" to proceed. This overwrites all current data.`,
       );
     }

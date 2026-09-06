@@ -23,6 +23,13 @@ export class CastCategoryService {
         if (existing) {
             throw new ConflictException(`Cast Category ${createCastCategoryDto.id} already exists`);
         }
+        // Members are linked to a category by NAME (see update/remove below), so two
+        // rows sharing a name — even under different ids — would make that link
+        // ambiguous. Case/whitespace-insensitive to match the rename/delete matching.
+        const duplicateName = await this.findByNameCI(createCastCategoryDto.name);
+        if (duplicateName) {
+            throw new ConflictException(`A category named "${createCastCategoryDto.name}" already exists (ID ${duplicateName.id})`);
+        }
         const castCategory = this.castCategoryRepository.create(createCastCategoryDto);
         return this.castCategoryRepository.save(castCategory);
     }
@@ -46,6 +53,14 @@ export class CastCategoryService {
     async update(id: number, updateCastCategoryDto: UpdateCastCategoryDto): Promise<CastCategory> {
         const castCategory = await this.findOne(id);
         const oldName = castCategory.name;
+
+        if (updateCastCategoryDto.name) {
+            const duplicateName = await this.findByNameCI(updateCastCategoryDto.name);
+            if (duplicateName && duplicateName.id !== id) {
+                throw new ConflictException(`A category named "${updateCastCategoryDto.name}" already exists (ID ${duplicateName.id})`);
+            }
+        }
+
         Object.assign(castCategory, updateCastCategoryDto);
         const saved = await this.castCategoryRepository.save(castCategory);
 
@@ -85,5 +100,13 @@ export class CastCategoryService {
         if (result.affected === 0) {
             throw new NotFoundException(`Cast Category with ID ${id} not found`);
         }
+    }
+
+    private async findByNameCI(name: string): Promise<CastCategory | undefined> {
+        const rows = await this.castCategoryRepository.query(
+            `SELECT id, castcategory AS name FROM castcategorymaster WHERE LOWER(TRIM(castcategory)) = LOWER(TRIM($1)) LIMIT 1`,
+            [name]
+        );
+        return rows?.[0];
     }
 }

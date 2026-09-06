@@ -59,7 +59,21 @@ export class CompulsoryDepositService {
         // mismatched value would post an unbalanced journal entry with no error.
         // Journal Transfer Entry already validates this server-side; this endpoint
         // didn't.
-        const distributionSum = dto.distributions.reduce((sum, d) => sum + Number(d.postAmount || 0), 0);
+        //
+        // BUG FIX: this originally summed postAmount as sent, including <= 0 values,
+        // then validated totalAmount against that raw sum — but the posting loop below
+        // silently `continue`s past any dist.postAmount <= 0. So a distribution list
+        // like [+10, -5] summed to 5 and passed the balance check, while the loop only
+        // ever posted the +10 credit — a real ledger imbalance and an over-credited
+        // member balance. Confirmed live. Reject non-positive amounts and empty
+        // distribution lists up front, before the sum is trusted for anything.
+        if (!dto.distributions.length) {
+            throw new BadRequestException('At least one distribution is required');
+        }
+        if (dto.distributions.some(d => Number(d.postAmount) <= 0)) {
+            throw new BadRequestException('Every distribution postAmount must be greater than zero');
+        }
+        const distributionSum = dto.distributions.reduce((sum, d) => sum + Number(d.postAmount), 0);
         if (Math.abs(distributionSum - Number(dto.totalAmount)) > 0.01) {
             throw new BadRequestException(
                 `Unbalanced: totalAmount (${dto.totalAmount}) does not match the sum of distributions (${distributionSum})`,
@@ -100,6 +114,21 @@ export class CompulsoryDepositService {
                     modeofpay, pass_flag, cashier_flag, code, narration, username, cheq_amt
                 ) VALUES ($1, 'DR', NOW(), $2, $3, 'CD', 'J', 'Y', 'Y', $4, $5, $6, 0)
             `, [nextTransId, dto.totalAmount, voucherNo, dto.incomeHeadCode.substring(0, 5), 'Bulk CD Post (Debit Head)', username]);
+
+            // BUG FIX: the debit leg above only ever reached `transactions`, never `ledger` —
+            // every GL/income/trial-balance report reads exclusively from `ledger` (confirmed
+            // against deposit-reports.service.ts and pass-transaction.service.ts's own posting
+            // loop, which always writes one ledger row per leg). Without this, every CD posting
+            // silently left `ledger` holding only the member credits with no offsetting debit —
+            // confirmed live: posted a real voucher, `ledger` had the CR row but zero DR rows.
+            const debitLedgerId = await this.getNextId(queryRunner, 'ledger', 'ledgerid');
+            const debitLedgerTransNo = await this.getNextId(queryRunner, 'ledger', 'trans_no');
+            await queryRunner.query(`
+                INSERT INTO ledger (
+                    trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt,
+                    receipt_vchr_no, vchr_type, pl_balance, narration, username, ledgerid
+                ) VALUES ($1, NOW(), 'DR', $2, NULL, 0, 'CD', $3, $4, 'J', 0, $5, $6, $7)
+            `, [debitLedgerTransNo, dto.incomeHeadCode.substring(0, 5), dto.totalAmount, voucherNo, dto.narration || 'Bulk CD Post (Debit Head)', username, debitLedgerId]);
 
             // 4. Post CREDIT entries per member and update balances
             let currentTransNo = nextTransId + 1;

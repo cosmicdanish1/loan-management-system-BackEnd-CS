@@ -53,10 +53,25 @@ export class UserResponseDto {
   permissions: UserPermission[];
 
   @ApiProperty({
+    description: 'Navbar action codes this user is allowed to see (menu-level rights from Configure UserLevel Default Rights). Null means unrestricted (SYSTEM/ADMINISTRATOR).',
+    type: [String],
+    nullable: true,
+    required: false,
+  })
+  allowedActions?: string[] | null;
+
+  @ApiProperty({
     description: 'User active status',
     example: true,
   })
   isActive: boolean;
+
+  @ApiProperty({
+    description: 'Whether the user is authorized to pass (verify) transactions',
+    example: false,
+    required: false,
+  })
+  allowPassTransactions?: boolean;
 
   @ApiProperty({
     description: 'User avatar/profile photo URL',

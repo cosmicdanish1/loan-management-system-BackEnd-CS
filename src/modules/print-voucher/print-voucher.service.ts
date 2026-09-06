@@ -63,10 +63,30 @@ export class PrintVoucherService {
             dto.member_name = member ? member.fullName : 'Unknown Member';
         }
 
+        // BUG FIX: entries/total_amount used to include every row, including the
+        // balancing cash/bank leg — for a real ₹6,000 loan disbursement
+        // (voucher P25888: one A1047 DR leg + one A1008 CR/cash leg, both
+        // ₹6,000) this reported total_amount: 12000, double the real amount,
+        // and rendered both legs under the same Payment/Receipt column.
+        // Previously flagged as blocked on "no reliable way to identify the
+        // cash leg" — acc_type is null on every row in this table (confirmed
+        // live), so it can't be used. Since fixed, using the same rule
+        // established for the Cash-Book reports this session: the literal
+        // Cash-In-Hand head (A1001), or any real bank current account
+        // (grouped under parent A1007) — both identifiable by head code
+        // alone, which this table does populate.
+        const bankCodesResult = await this.transactionsRepository.query(
+            `SELECT code FROM headmaster WHERE parent_code = 'A1007'`
+        );
+        const bankCodes = new Set<string>(bankCodesResult.map((r: any) => r.code));
+        const isCashLeg = (code: string) => code === 'A1001' || code === 'A1007' || bankCodes.has(code);
+
         dto.entries = [];
         let total = 0;
 
         for (const trans of transactions) {
+            if (isCashLeg(trans.code)) continue;
+
             const entryDto = new VoucherPrintEntryDto();
             entryDto.trans_no = trans.trans_no;
             entryDto.head_code = trans.code;

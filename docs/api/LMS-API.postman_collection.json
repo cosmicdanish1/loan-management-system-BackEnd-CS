@@ -807,7 +807,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"memberNo\": 0,\n  \"prefix\": \"\",\n  \"firstName\": \"\",\n  \"middleName\": \"\",\n  \"lastName\": \"\",\n  \"certificateNo\": \"\",\n  \"depositUnit\": 0,\n  \"depositPeriod\": 0,\n  \"rate\": 0,\n  \"depositDate\": \"2026-08-21T17:23:35.549Z\",\n  \"maturityDate\": \"2026-08-21T17:23:35.549Z\",\n  \"fdAmount\": 0,\n  \"maturityAmount\": 0,\n  \"interestBalance\": 0,\n  \"interestAmount\": 0,\n  \"lastIntPaymentDate\": \"2026-08-21T17:23:35.549Z\",\n  \"interestPaid\": 0,\n  \"status\": \"\",\n  \"nominee\": \"\",\n  \"nomineeAge\": \"\",\n  \"nomineeAddress\": \"\",\n  \"nomineeRelation\": \"\",\n  \"modeOfPayment\": 0\n}",
+              "raw": "{\n  \"memberNo\": 0,\n  \"prefix\": \"\",\n  \"firstName\": \"\",\n  \"middleName\": \"\",\n  \"lastName\": \"\",\n  \"certificateNo\": \"\",\n  \"depositUnit\": 0,\n  \"depositPeriod\": 0,\n  \"rate\": 0,\n  \"depositDate\": \"2026-08-22T07:34:59.316Z\",\n  \"maturityDate\": \"2026-08-22T07:34:59.317Z\",\n  \"fdAmount\": 0,\n  \"maturityAmount\": 0,\n  \"interestBalance\": 0,\n  \"interestAmount\": 0,\n  \"lastIntPaymentDate\": \"2026-08-22T07:34:59.317Z\",\n  \"interestPaid\": 0,\n  \"status\": \"\",\n  \"nominee\": \"\",\n  \"nomineeAge\": \"\",\n  \"nomineeAddress\": \"\",\n  \"nomineeRelation\": \"\",\n  \"modeOfPayment\": 0\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1691,7 +1691,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"accountNumber\": 0,\n  \"memberNo\": 0,\n  \"prefix\": \"\",\n  \"firstName\": \"\",\n  \"middleName\": \"\",\n  \"lastName\": \"\",\n  \"depositDate\": \"2026-08-21T17:23:35.550Z\",\n  \"amount\": 0,\n  \"rate\": 0,\n  \"depositPeriod\": 0,\n  \"depositUnit\": 0,\n  \"maturityDate\": \"2026-08-21T17:23:35.550Z\",\n  \"maturityAmount\": 0,\n  \"openingBalance\": 0,\n  \"nominee\": \"\",\n  \"nomineeAge\": \"\",\n  \"nomineeAddress\": \"\",\n  \"nomineeRelation\": \"\",\n  \"specialInstructions\": \"\",\n  \"recoveryThroughDemand\": false,\n  \"headCode\": \"\"\n}",
+              "raw": "{\n  \"accountNumber\": 0,\n  \"memberNo\": 0,\n  \"prefix\": \"\",\n  \"firstName\": \"\",\n  \"middleName\": \"\",\n  \"lastName\": \"\",\n  \"depositDate\": \"2026-08-22T07:34:59.317Z\",\n  \"amount\": 0,\n  \"rate\": 0,\n  \"depositPeriod\": 0,\n  \"depositUnit\": 0,\n  \"maturityDate\": \"2026-08-22T07:34:59.317Z\",\n  \"maturityAmount\": 0,\n  \"openingBalance\": 0,\n  \"nominee\": \"\",\n  \"nomineeAge\": \"\",\n  \"nomineeAddress\": \"\",\n  \"nomineeRelation\": \"\",\n  \"specialInstructions\": \"\",\n  \"recoveryThroughDemand\": false,\n  \"headCode\": \"\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1813,7 +1813,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"accountNumber\": 0,\n  \"memberNo\": 0,\n  \"prefix\": \"\",\n  \"firstName\": \"\",\n  \"middleName\": \"\",\n  \"lastName\": \"\",\n  \"depositDate\": \"2026-08-21T17:23:35.550Z\",\n  \"amount\": 0,\n  \"rate\": 0,\n  \"depositPeriod\": 0,\n  \"depositUnit\": 0,\n  \"maturityDate\": \"2026-08-21T17:23:35.550Z\",\n  \"maturityAmount\": 0,\n  \"openingBalance\": 0,\n  \"nominee\": \"\",\n  \"nomineeAge\": \"\",\n  \"nomineeAddress\": \"\",\n  \"nomineeRelation\": \"\",\n  \"specialInstructions\": \"\",\n  \"recoveryThroughDemand\": false,\n  \"headCode\": \"\"\n}",
+              "raw": "{\n  \"accountNumber\": 0,\n  \"memberNo\": 0,\n  \"prefix\": \"\",\n  \"firstName\": \"\",\n  \"middleName\": \"\",\n  \"lastName\": \"\",\n  \"depositDate\": \"2026-08-22T07:34:59.317Z\",\n  \"amount\": 0,\n  \"rate\": 0,\n  \"depositPeriod\": 0,\n  \"depositUnit\": 0,\n  \"maturityDate\": \"2026-08-22T07:34:59.317Z\",\n  \"maturityAmount\": 0,\n  \"openingBalance\": 0,\n  \"nominee\": \"\",\n  \"nomineeAge\": \"\",\n  \"nomineeAddress\": \"\",\n  \"nomineeRelation\": \"\",\n  \"specialInstructions\": \"\",\n  \"recoveryThroughDemand\": false,\n  \"headCode\": \"\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1932,7 +1932,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"accountNo\": \"\",\n  \"memberNo\": \"\",\n  \"openingDate\": \"2026-08-21T17:23:35.550Z\",\n  \"openingBalance\": 0,\n  \"ledgerGroup\": \"\",\n  \"specialInstructions\": \"\",\n  \"nomineeName\": \"\",\n  \"nomineeAge\": \"\",\n  \"nomineeAddress\": \"\",\n  \"nomineeRelation\": \"\"\n}",
+              "raw": "{\n  \"accountNo\": \"\",\n  \"memberNo\": \"\",\n  \"openingDate\": \"2026-08-22T07:34:59.317Z\",\n  \"openingBalance\": 0,\n  \"ledgerGroup\": \"\",\n  \"specialInstructions\": \"\",\n  \"nomineeName\": \"\",\n  \"nomineeAge\": \"\",\n  \"nomineeAddress\": \"\",\n  \"nomineeRelation\": \"\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2054,7 +2054,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"accountNo\": \"\",\n  \"memberNo\": \"\",\n  \"openingDate\": \"2026-08-21T17:23:35.550Z\",\n  \"openingBalance\": 0,\n  \"ledgerGroup\": \"\",\n  \"specialInstructions\": \"\",\n  \"nomineeName\": \"\",\n  \"nomineeAge\": \"\",\n  \"nomineeAddress\": \"\",\n  \"nomineeRelation\": \"\"\n}",
+              "raw": "{\n  \"accountNo\": \"\",\n  \"memberNo\": \"\",\n  \"openingDate\": \"2026-08-22T07:34:59.317Z\",\n  \"openingBalance\": 0,\n  \"ledgerGroup\": \"\",\n  \"specialInstructions\": \"\",\n  \"nomineeName\": \"\",\n  \"nomineeAge\": \"\",\n  \"nomineeAddress\": \"\",\n  \"nomineeRelation\": \"\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2925,7 +2925,12 @@
           "name": "POST /auth/change-password — Change user password",
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/api/v1/auth/change-password",
               "host": [
@@ -2948,6 +2953,15 @@
                   "type": "string"
                 }
               ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"currentPassword123\",\n  \"newPassword\": \"newSecurePassword123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             }
           },
           "response": []

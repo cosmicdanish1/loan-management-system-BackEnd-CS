@@ -80,6 +80,39 @@ export class MemberBalanceService {
                 this.logger.warn('loan_master table query failed, using member_balances data only');
             }
 
+            // Get real Savings Bank balance from sbmaster (member_balances has no SB column at all)
+            let sbBalance = 0;
+            try {
+                const sbResult = await this.dataSource.query(
+                    `SELECT COALESCE(SUM(balance::numeric), 0) as sb_balance FROM sbmaster WHERE mbno = $1 AND status = 'Active'`,
+                    [memberNo],
+                );
+                sbBalance = parseFloat(sbResult[0]?.sb_balance) || 0;
+            } catch (error) {
+                this.logger.warn('sbmaster query failed, savings bank balance defaulting to 0');
+            }
+
+            // Get real FD/RD balances from fdmaster. member_balances.rd_amt is a stale
+            // admission-time placeholder (always inserted as 0, never updated by real
+            // RD activity) — fdmaster is the live source, same as FD/RD reporting elsewhere.
+            // NOTE: status = '0' is the real "active" status in this table, not 'A' (BUG FIX 45).
+            let fdBalance = 0;
+            let rdBalance = 0;
+            try {
+                const depositResult = await this.dataSource.query(
+                    `SELECT fdrdflag, COALESCE(SUM(fdamount::numeric), 0) as amt
+                     FROM fdmaster WHERE mbno = $1 AND status = '0' AND fdrdflag IN ('F', 'R')
+                     GROUP BY fdrdflag`,
+                    [memberNo],
+                );
+                for (const row of depositResult) {
+                    if (row.fdrdflag === 'F') fdBalance = parseFloat(row.amt) || 0;
+                    if (row.fdrdflag === 'R') rdBalance = parseFloat(row.amt) || 0;
+                }
+            } catch (error) {
+                this.logger.warn('fdmaster query failed, FD/RD balances defaulting to 0');
+            }
+
             // Create comprehensive balance items
             const balanceItems: Array<{ code: string; headName: string; balance: number; type: string }> = [];
 
@@ -104,12 +137,29 @@ export class MemberBalanceService {
                 });
             }
 
-            const rdAmount = parseFloat(member.rd_amount) || 0;
-            if (rdAmount > 0) {
+            if (rdBalance > 0) {
                 balanceItems.push({
                     code: 'RD',
                     headName: 'Recurring Deposit',
-                    balance: rdAmount,
+                    balance: rdBalance,
+                    type: 'asset'
+                });
+            }
+
+            if (sbBalance > 0) {
+                balanceItems.push({
+                    code: 'SB',
+                    headName: 'Savings Bank',
+                    balance: sbBalance,
+                    type: 'asset'
+                });
+            }
+
+            if (fdBalance > 0) {
+                balanceItems.push({
+                    code: 'FD',
+                    headName: 'Fixed Deposit',
+                    balance: fdBalance,
                     type: 'asset'
                 });
             }

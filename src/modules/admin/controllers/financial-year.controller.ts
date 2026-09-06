@@ -67,6 +67,13 @@ export class FinancialYearController {
         return this.financialYearService.performBalanceTransfer(transferData, username);
     }
 
+    @Get('closing-entries/:yearCode')
+    @Roles(UserRole.ADMIN, UserRole.MANAGER)
+    @ApiOperation({ summary: 'Preview the closing entries archived for a year (from Transfer Entries), before posting P&L Year End' })
+    async getClosingEntries(@Param('yearCode', ParseIntPipe) yearCode: number) {
+        return this.financialYearService.getClosingEntriesPreview(yearCode);
+    }
+
     @Post('pl-year-end-process')
     @Roles(UserRole.ADMIN)
     @RequirePermissions(UserPermission.MANAGE_SYSTEM_CONFIG)

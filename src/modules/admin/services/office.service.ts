@@ -49,6 +49,21 @@ export class OfficeService {
 
     async remove(id: number): Promise<void> {
         this.logger.log(`Removing office: ${id}`);
+        // Guard: members are assigned to an office by number in member_master.officeno.
+        // Deleting an office still in use would orphan those members, so block it —
+        // same pattern as CastCategoryService.remove().
+        await this.findOne(id); // throws NotFound if missing
+        const inUse = await this.officeRepository.query(
+            `SELECT COUNT(*)::int AS count FROM member_master WHERE officeno = $1`,
+            [id]
+        );
+        const count = inUse?.[0]?.count ?? 0;
+        if (count > 0) {
+            throw new ConflictException(
+                `Cannot delete office ${id} — ${count} member(s) are assigned to this office. Reassign them first.`
+            );
+        }
+
         const result = await this.officeRepository.delete(id);
         if (result.affected === 0) {
             throw new NotFoundException(`Office with ID ${id} not found`);

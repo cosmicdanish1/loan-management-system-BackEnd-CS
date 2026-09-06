@@ -8,6 +8,7 @@ import {
     Delete,
     Query,
     ParseIntPipe,
+    UseGuards,
     UseInterceptors,
     UploadedFile,
     StreamableFile,
@@ -18,7 +19,8 @@ import {
     Req,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBody } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { MemberCrudService, MemberLookupService, MemberBalanceService, SignatureService } from './services-v2';
 import { signatureUploadConfig, photoUploadConfig, documentUploadConfig } from './config/multer.config';
 import { createReadStream, existsSync } from 'fs';
@@ -41,6 +43,8 @@ import {
  * After migration is complete, these will replace the original routes.
  */
 @ApiTags('Members')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
 @Controller('members')
 export class MemberV2Controller {
     constructor(
@@ -342,10 +346,11 @@ export class MemberV2Controller {
     @Get('master/:mbno/document/:id')
     @ApiOperation({ summary: 'Stream/download a KYC document file' })
     async getDocument(
+        @Param('mbno') mbno: string,
         @Param('id') id: string,
         @Res({ passthrough: true }) res: Response,
     ): Promise<StreamableFile> {
-        const filePath = await this.signatureService.getDocumentPath(parseInt(id, 10));
+        const filePath = await this.signatureService.getDocumentPath(parseInt(id, 10), mbno);
         if (!filePath) throw new NotFoundException('Document not found');
         const fullPath = join(process.cwd(), filePath);
         if (!existsSync(fullPath)) throw new NotFoundException('Document file missing on disk');
@@ -357,8 +362,8 @@ export class MemberV2Controller {
 
     @Delete('master/:mbno/document/:id')
     @ApiOperation({ summary: 'Delete a KYC document' })
-    async deleteDocument(@Param('id') id: string) {
-        await this.signatureService.deleteDocument(parseInt(id, 10));
+    async deleteDocument(@Param('mbno') mbno: string, @Param('id') id: string) {
+        await this.signatureService.deleteDocument(parseInt(id, 10), mbno);
         return { message: 'Document deleted', id };
     }
 

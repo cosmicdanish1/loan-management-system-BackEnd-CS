@@ -90,4 +90,13 @@ export class CreateUserDto {
   @IsString()
   @IsOptional()
   avatar?: string;
+
+  @ApiProperty({
+    description: 'Whether the user is authorized to pass (verify) transactions',
+    example: false,
+    required: false,
+  })
+  @IsBoolean()
+  @IsOptional()
+  allowPassTransactions?: boolean;
 }

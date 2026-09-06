@@ -4,27 +4,16 @@ import { Repository, DataSource } from 'typeorm';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { DayEndService } from './day-end.service';
 import { BackupService } from './backup.service';
+import { LogRetentionService } from '../../../common/logging/log-retention.service';
 import {
   DayEndProcess,
   DayEndStatus,
   DayEndProcessType,
 } from '../entities/day-end-process.entity';
-import {
-  InterestPosting,
-  InterestPostingType,
-  InterestPostingStatus,
-} from '../entities/interest-posting.entity';
-import { LoanAccount } from '../../loan/entities/loan-account.entity';
-import { FixedDeposit } from '../../deposit/entities/fixed-deposit.entity';
-import { Member } from '../../member/entities/member.entity';
 
 describe('DayEndService', () => {
   let service: DayEndService;
   let dayEndProcessRepository: Repository<DayEndProcess>;
-  let interestPostingRepository: Repository<InterestPosting>;
-  let loanAccountRepository: Repository<LoanAccount>;
-  let fixedDepositRepository: Repository<FixedDeposit>;
-  let memberRepository: Repository<Member>;
   let dataSource: DataSource;
   let backupService: BackupService;
 
@@ -58,28 +47,16 @@ describe('DayEndService', () => {
     createDatabaseBackup: jest.fn(),
   };
 
+  const mockLogRetentionService = {
+    enforceRetention: jest.fn().mockResolvedValue({ movedCount: 0, deletedCount: 0, freedBytes: 0 }),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         DayEndService,
         {
           provide: getRepositoryToken(DayEndProcess),
-          useValue: mockRepository,
-        },
-        {
-          provide: getRepositoryToken(InterestPosting),
-          useValue: mockRepository,
-        },
-        {
-          provide: getRepositoryToken(LoanAccount),
-          useValue: mockRepository,
-        },
-        {
-          provide: getRepositoryToken(FixedDeposit),
-          useValue: mockRepository,
-        },
-        {
-          provide: getRepositoryToken(Member),
           useValue: mockRepository,
         },
         {
@@ -90,24 +67,16 @@ describe('DayEndService', () => {
           provide: BackupService,
           useValue: mockBackupService,
         },
+        {
+          provide: LogRetentionService,
+          useValue: mockLogRetentionService,
+        },
       ],
     }).compile();
 
     service = module.get<DayEndService>(DayEndService);
     dayEndProcessRepository = module.get<Repository<DayEndProcess>>(
       getRepositoryToken(DayEndProcess),
-    );
-    interestPostingRepository = module.get<Repository<InterestPosting>>(
-      getRepositoryToken(InterestPosting),
-    );
-    loanAccountRepository = module.get<Repository<LoanAccount>>(
-      getRepositoryToken(LoanAccount),
-    );
-    fixedDepositRepository = module.get<Repository<FixedDeposit>>(
-      getRepositoryToken(FixedDeposit),
-    );
-    memberRepository = module.get<Repository<Member>>(
-      getRepositoryToken(Member),
     );
     dataSource = module.get<DataSource>(DataSource);
     backupService = module.get<BackupService>(BackupService);
@@ -289,10 +258,6 @@ describe('DayEndService', () => {
         status: DayEndStatus.COMPLETED,
         processSteps: [
           {
-            type: DayEndProcessType.INTEREST_CALCULATION,
-            status: DayEndStatus.COMPLETED,
-          },
-          {
             type: DayEndProcessType.BACKUP_CREATION,
             status: DayEndStatus.COMPLETED,
           },
@@ -301,13 +266,7 @@ describe('DayEndService', () => {
             status: DayEndStatus.FAILED,
           },
         ],
-        processResults: {
-          interestCalculations: {
-            loansProcessed: 10,
-            depositsProcessed: 5,
-            totalInterestPosted: 1500.50,
-          },
-        },
+        processResults: {},
         getDuration: () => 5000,
       };
 
@@ -315,104 +274,15 @@ describe('DayEndService', () => {
 
       const result = await service.getDayEndSummary(1);
 
-      expect(result.totalSteps).toBe(3);
-      expect(result.completedSteps).toBe(2);
+      expect(result.totalSteps).toBe(2);
+      expect(result.completedSteps).toBe(1);
       expect(result.failedSteps).toBe(1);
       expect(result.overallStatus).toBe(DayEndStatus.COMPLETED);
       expect(result.duration).toBe(5000);
-      expect(result.interestCalculations).toEqual({
-        loansProcessed: 10,
-        depositsProcessed: 5,
-        totalInterestPosted: 1500.50,
-      });
-    });
-  });
-
-  describe('getInterestCalculationResults', () => {
-    it('should return interest calculation results', async () => {
-      const mockProcess = {
-        id: 1,
-        processDate: new Date('2024-01-15'),
-      };
-
-      const mockInterestPostings = [
-        {
-          id: 1,
-          accountId: 1,
-          accountNumber: 'LOAN001',
-          principalAmount: 100000,
-          interestRate: 12.5,
-          interestAmount: 34.25,
-          calculationDate: new Date('2024-01-15'),
-          status: InterestPostingStatus.POSTED,
-          member: {
-            firstName: 'John',
-            lastName: 'Doe',
-          },
-        },
-      ];
-
-      mockRepository.findOne.mockResolvedValue(mockProcess);
-      mockRepository.find.mockResolvedValue(mockInterestPostings);
-
-      const result = await service.getInterestCalculationResults(1);
-
-      expect(mockRepository.find).toHaveBeenCalledWith({
-        where: {
-          calculationDate: mockProcess.processDate,
-        },
-        relations: ['member'],
-      });
-      expect(result).toHaveLength(1);
-      expect(result[0].accountNumber).toBe('LOAN001');
-      expect(result[0].memberName).toBe('John Doe');
-      expect(result[0].interestAmount).toBe(34.25);
     });
   });
 
   describe('private methods', () => {
-    describe('calculateInterest', () => {
-      it('should calculate interest for loans and deposits', async () => {
-        const processDate = new Date('2024-01-15');
-        
-        const mockLoans = [
-          {
-            id: 1,
-            accountNumber: 'LOAN001',
-            outstandingBalance: 100000,
-            interestRate: 12.0,
-            member: { id: 1 },
-          },
-        ];
-
-        const mockDeposits = [
-          {
-            id: 1,
-            accountNumber: 'FD001',
-            principalAmount: 50000,
-            interestRate: 8.0,
-            member: { id: 2 },
-          },
-        ];
-
-        mockRepository.find
-          .mockResolvedValueOnce(mockLoans) // Active loans
-          .mockResolvedValueOnce(mockDeposits); // Active deposits
-
-        mockRepository.create.mockReturnValue({});
-        mockQueryRunner.manager.save.mockResolvedValue({});
-
-        const result = await (service as any).calculateInterest(
-          processDate,
-          mockQueryRunner,
-        );
-
-        expect(result.loansProcessed).toBe(1);
-        expect(result.depositsProcessed).toBe(1);
-        expect(result.totalInterestPosted).toBeGreaterThan(0);
-      });
-    });
-
     describe('createBackup', () => {
       it('should create database backup', async () => {
         const processDate = new Date('2024-01-15');

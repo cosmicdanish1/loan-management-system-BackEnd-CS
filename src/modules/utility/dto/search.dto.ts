@@ -73,6 +73,7 @@ export enum SearchEntityType {
   MEMBER = 'member',
   LOAN = 'loan',
   DEPOSIT = 'deposit',
+  ACCOUNT = 'account',
   TRANSACTION = 'transaction',
   ALL = 'all'
 }

@@ -1,4 +1,5 @@
 import {
+    BadRequestException,
     Controller,
     Get,
     Post,
@@ -57,9 +58,14 @@ export class ReportV2Controller {
         return this.cashBookReports.getCashBook2Daily(dto.date);
     }
 
+    // 4.4 fix: missing month/year crashed with 500 "Cannot read properties of
+    // undefined (reading 'substring')" inside the service — confirmed live.
     @Post('cashbook/monthly')
     @ApiOperation({ summary: 'Get monthly cash book summary' })
     async getCashBookMonthly(@Body() dto: { month: string; year: number; limit?: number; offset?: number }) {
+        if (!dto?.month || !dto?.year) {
+            throw new BadRequestException('month and year are required');
+        }
         return this.cashBookReports.getCashBookMonthly(dto);
     }
 
@@ -346,15 +352,23 @@ export class ReportV2Controller {
         return this.depositReports.getPassBookPrinting(dto);
     }
 
+    // 4.4 fix: missing memberNo crashed with 500 "Cannot read properties of
+    // undefined (reading 'trim')" inside the service — confirmed live.
     @Post('passbook-reset')
     @ApiOperation({ summary: 'Reset passbook print tracking for a member' })
     async resetPassbookPrinting(@Body() body: { memberNo: string; accountType?: string }) {
+        if (!body?.memberNo) {
+            throw new BadRequestException('memberNo is required');
+        }
         return this.depositReports.resetPassbookPrinting(body.memberNo, body.accountType);
     }
 
     @Post('passbook-update-tracking')
     @ApiOperation({ summary: 'Update passbook tracking after print' })
     async updatePassbookTracking(@Body() body: { memberNo: string; accountType: string; lastLedgerId: number; lastLineNo: number }) {
+        if (!body?.memberNo || !body?.accountType) {
+            throw new BadRequestException('memberNo and accountType are required');
+        }
         return this.depositReports.updatePassbookTracking(body.memberNo, body.accountType, body.lastLedgerId, body.lastLineNo);
     }
 
@@ -427,9 +441,14 @@ export class ReportV2Controller {
         return this.utilityReports.getFinancialSummary(dto);
     }
 
+    // 4.4 fix: missing month/year crashed with 500 "Cannot read properties of
+    // undefined (reading 'toString')" inside the service — confirmed live.
     @Get('account-closing')
     @ApiOperation({ summary: 'Get account closing register' })
     async getAccountClosingRegister(@Query() dto: { month: number; year: number; accountType?: string }) {
+        if (!dto?.month || !dto?.year) {
+            throw new BadRequestException('month and year query params are required');
+        }
         return this.utilityReports.getAccountClosingRegister(dto);
     }
 

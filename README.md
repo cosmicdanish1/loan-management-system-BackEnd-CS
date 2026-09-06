@@ -137,7 +137,7 @@ truth and lives in [`docs/api/`](docs/api/):
 | [`docs/api/API_REFERENCE.md`](docs/api/API_REFERENCE.md) | Every endpoint (method, path, purpose), grouped by module. Start here. |
 | `docs/api/openapi.json` | Full OpenAPI 3.0 spec — import into Postman or any Swagger viewer. |
 | `docs/api/LMS-API.postman_collection.json` | Ready-to-import Postman collection with `{{baseUrl}}` / `{{token}}` set up. |
-| `docs/api/API_DOCUMENTATION.pdf` / `.docx` | Printable ~251-page manual: curl example and sample response per endpoint. |
+| `docs/api/API_DOCUMENTATION.pdf` / `.docx` | Printable ~252-page manual: curl example and sample response per endpoint. |
 
 See [`docs/api/README.md`](docs/api/README.md) for the Postman quick start.
 

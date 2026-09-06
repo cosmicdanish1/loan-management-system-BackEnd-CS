@@ -86,35 +86,48 @@ export class LoanSuretyService {
 
             this.logger.log(`Updated loan_pending for member: ${memberNo}, case: ${caseNo}`);
 
-            // 3. Update suretymaster table if record exists
-            // Note: suretymaster table has no 'id' column, only mbno as identifier
-            const updateSmQuery = `
-                UPDATE suretymaster 
-                SET g1mbno = $1, g2mbno = $2 
-                WHERE mbno = $3
-                RETURNING mbno
-            `;
+            // 3. Update suretymaster, scoped to THIS loan case.
+            // Note: suretymaster has no 'id' column — mbno (+ now loancaseno) is the identifier.
+            //
+            // BUG FIX 33: suretymaster was keyed only by mbno, with no loancaseno column.
+            // A member with 2+ loan cases (confirmed live: member 900000003 has 3) shared one
+            // suretymaster row, so changing surety on any one case silently overwrote the
+            // guarantor record for that member's OTHER cases too. Migration
+            // 1755200000000-AddSuretymasterLoanCaseNo added a nullable loancaseno column;
+            // existing untagged rows (loancaseno IS NULL) are legacy — claim one for this case
+            // on first edit rather than leaving it permanently ambiguous.
+            const suretyParams = [suretyData.surety1, suretyData.surety2 || 0, memberNo, caseNo];
 
-            // BUG FIX 32: `smResult.length > 0` reported `true` for updatedTables.suretymaster
-            // even when zero rows matched — confirmed live by comparing a member with no
-            // suretymaster row against one that genuinely had one; both returned `true`. TypeORM's
-            // raw query() doesn't reliably surface affected-row-count via .length here. A plain
-            // existence check beforehand is unambiguous regardless of what the driver returns.
-            const smExists = await queryRunner.query(
-                `SELECT 1 FROM suretymaster WHERE mbno = $1`, [memberNo]
+            let smResult = await queryRunner.query(
+                `UPDATE suretymaster SET g1mbno = $1, g2mbno = $2
+                 WHERE mbno = $3 AND loancaseno = $4
+                 RETURNING mbno`,
+                suretyParams
             );
-            const suretymasterHadRow = smExists.length > 0;
 
-            await queryRunner.query(updateSmQuery, [
-                suretyData.surety1,
-                suretyData.surety2 || 0,
-                memberNo
-            ]);
+            if (smResult.length === 0) {
+                // No row tagged to this case yet — claim a single untagged legacy row if exactly
+                // one exists for this member (ambiguous if there's more than one, so don't guess).
+                const untagged = await queryRunner.query(
+                    `SELECT 1 FROM suretymaster WHERE mbno = $1 AND loancaseno IS NULL`,
+                    [memberNo]
+                );
+                if (untagged.length === 1) {
+                    smResult = await queryRunner.query(
+                        `UPDATE suretymaster SET g1mbno = $1, g2mbno = $2, loancaseno = $4
+                         WHERE mbno = $3 AND loancaseno IS NULL
+                         RETURNING mbno`,
+                        suretyParams
+                    );
+                }
+            }
+
+            const suretymasterHadRow = smResult.length > 0;
 
             if (suretymasterHadRow) {
-                this.logger.log(`Updated suretymaster for member: ${memberNo}`);
+                this.logger.log(`Updated suretymaster for member: ${memberNo}, case: ${caseNo}`);
             } else {
-                this.logger.warn(`No suretymaster record found for member: ${memberNo} (this is okay - not all loans have suretymaster entries)`);
+                this.logger.warn(`No suretymaster record found for member: ${memberNo}, case: ${caseNo} (this is okay - not all loans have suretymaster entries)`);
             }
 
             await queryRunner.commitTransaction();

@@ -1,4 +1,5 @@
 import {
+    BadRequestException,
     Controller,
     Get,
     Post,
@@ -84,8 +85,9 @@ export class TransactionV2Controller {
         @Param('voucherNo') voucherNo: string,
         @Body() body?: { reversedBy?: string; confirmReverse?: boolean }
     ) {
+        // 5.1 fix: was reaching callers as 500 instead of 400.
         if (!body?.confirmReverse) {
-            throw new Error('Reversal requires confirmReverse: true. This is a destructive operation that deletes ledger entries.');
+            throw new BadRequestException('Reversal requires confirmReverse: true. This is a destructive operation that deletes ledger entries.');
         }
         this.logger.warn(`Transaction reversal requested for ${voucherNo} by ${body?.reversedBy || 'unknown'}`);
         return this.passTransactionService.reverseTransaction(voucherNo, body?.reversedBy || 'admin');
@@ -117,9 +119,14 @@ export class TransactionV2Controller {
         );
     }
 
+    // 4.4 fix: a missing entries array crashed with 500 "Cannot read properties
+    // of undefined" inside the service — confirmed live.
     @Post('member-balance-transfer/post')
     @ApiOperation({ summary: 'Post member balance transfer to ledger' })
     async postMemberBalanceTransfer(@Body() body: any) {
+        if (!Array.isArray(body?.entries) || body.entries.length === 0 || !body?.debitHead || !body?.creditHead) {
+            throw new BadRequestException('entries (non-empty array), debitHead, and creditHead are required');
+        }
         return this.memberBalanceTransferService.post(
             body.entries, body.debitHead, body.creditHead,
             body.excessHead, body.postedBy || 'admin',
@@ -146,7 +153,8 @@ export class TransactionV2Controller {
     @ApiOperation({ summary: 'Update loan pass flag (Y=Approve, N=Pending, D=Decline)' })
     async updateLoanPassFlag(@Body() body: { loanCaseNo: string; passFlag: string }) {
         if (!['Y', 'N', 'D'].includes(body.passFlag)) {
-            throw new Error('Invalid pass flag. Use Y, N, or D.');
+            // 5.1 fix: was reaching callers as 500 instead of 400.
+            throw new BadRequestException('Invalid pass flag. Use Y, N, or D.');
         }
         await this.voucherService['dataSource'].query(
             `UPDATE loan_pending SET pass_flag = $1 WHERE loancaseno::text = $2`,

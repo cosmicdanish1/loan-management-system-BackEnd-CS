@@ -18,8 +18,16 @@ export async function autoQueueNotification(
         const phone = memberInfo[0]?.phone || '';
         const email = memberInfo[0]?.email || '';
 
-        const channel = phone ? 'SMS' : email ? 'EMAIL' : 'SMS';
-        const recipient = phone || email || 'NO_CONTACT';
+        if (!phone && !email) {
+            // Nothing to deliver to — queuing this would just sit as permanently
+            // undeliverable "PENDING" clutter (confirmed live: it previously did,
+            // as literal recipient 'NO_CONTACT'). Skip instead of queuing junk.
+            logger.debug(`Skipped queue for ${memberNo}: no phone or email on file`);
+            return;
+        }
+
+        const channel = phone ? 'SMS' : 'EMAIL';
+        const recipient = phone || email;
 
         // Use correct column names: mbno (not memberNo), enums for channel/type/status
         await dataSource.query(`

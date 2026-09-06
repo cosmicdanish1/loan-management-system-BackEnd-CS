@@ -835,6 +835,17 @@ export class InterestService {
       const fundIntRate = Number(rules['RULE_FUND_INT_RATE'] || 0);
       const dividendPct = Number(rules['RULE_DIVIDEND_PCT'] || 0);
       const insuranceAmt = Number(rules['RULE_GRP_INSURANCE_AMT'] || 0);
+      const dividendYear = new Date(dto.toDate).getFullYear();
+
+      if (!isPreview && dividendPct > 0) {
+        const existingDividends = await queryRunner.manager.query(
+          `SELECT 1 FROM dividend_master WHERE year = $1 LIMIT 1`,
+          [dividendYear],
+        );
+        if (existingDividends.length > 0) {
+          throw new Error(`Dividend for year ${dividendYear} has already been declared`);
+        }
+      }
 
       let interestChart = [];
       try {
@@ -893,14 +904,18 @@ export class InterestService {
         const deductionInsurance = insuranceAmt;
 
         // E. Total Calculation
+        // Dividend is declared (recorded pending in dividend_master) here but not credited to the
+        // member's ledger balance until actually disbursed via the Dividend Payment screen — so it
+        // is shown in totalCredit for informational purposes but excluded from the ledger adjustment.
         const totalCredit = interestOnBalance + interestOnContrib + dividendAmount;
         const totalDebit = deductionInsurance; // + Loan Deductions if any
         const netAdjustment = totalCredit - totalDebit;
+        const ledgerAdjustment = interestOnBalance + interestOnContrib - deductionInsurance;
 
-        const closingBalance = openingBalance + netAdjustment; // This effectively updates the detailed balance logic
+        const closingBalance = openingBalance + ledgerAdjustment;
 
         // 4. Create Records if Not Preview
-        if (!isPreview && netAdjustment !== 0) {
+        if (!isPreview && ledgerAdjustment !== 0) {
           // A. Create Transaction Record (Maybe one consolidated journal or separate?)
           // Usually we post individual components to Ledger
 
@@ -919,23 +934,6 @@ export class InterestService {
               `Yearly Fund Interest`,
               queryRunner.manager,
               'A1001' // Savings Head
-            );
-          }
-
-          // 2. Dividend Posting (Credit)
-          if (dividendAmount > 0) {
-            await this.createInterestLedgerEntry(
-              member,
-              {
-                accountNumber: member.mbno,
-                interestAmount: dividendAmount,
-                // ...
-                closingBalance: 0, memberNumber: member.mbno, memberName: member.fullName, openingBalance, totalDebit: 0, totalCredit: 0, averageBalance: 0, days: 365
-              },
-              voucherNumber,
-              `Yearly Dividend`,
-              queryRunner.manager,
-              'A2001' // Share Head? Need to check Chart of Accounts. Using placeholder.
             );
           }
 
@@ -969,6 +967,17 @@ export class InterestService {
           // We might need to update `mdopbal` for NEXT year? 
           // Or `mdbal` (current balance).
           // Let's assume Ledger is primary.
+        }
+
+        // Declare dividend as a pending liability (dividend_master) rather than crediting it
+        // straight to the ledger — actual disbursement (DR L1024 / CR cash-or-bank) happens
+        // separately via the Dividend Payment screen when the member is paid.
+        if (!isPreview && dividendAmount > 0) {
+          await queryRunner.manager.query(
+            `INSERT INTO dividend_master (mbno, year, share_amount, dividend_rate, dividend_amount, is_paid)
+             VALUES ($1, $2, $3, $4, $5, 'N')`,
+            [member.mbno, dividendYear, shareCapital, dividendPct, dividendAmount],
+          );
         }
 
         // Add to result list

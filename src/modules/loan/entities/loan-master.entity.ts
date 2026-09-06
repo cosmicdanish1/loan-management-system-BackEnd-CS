@@ -40,4 +40,15 @@ export class LoanMaster {
 
   @Column({ type: 'numeric', precision: 10, scale: 2, default: 0 })
   penalrate: number;
+
+  /** Day of the month (in the installment's own due month) through which no penal accrues. Frozen at disbursement, like rate/penalrate. */
+  @Column({ type: 'smallint', default: 0 })
+  gracedays: number;
+
+  /** Same-month-late flat fee: (smpenalpct% × unpaid principal) / smpenaldiv. Frozen at disbursement. */
+  @Column({ type: 'numeric', precision: 5, scale: 2, default: 1 })
+  smpenalpct: number;
+
+  @Column({ type: 'numeric', precision: 5, scale: 2, default: 4 })
+  smpenaldiv: number;
 }

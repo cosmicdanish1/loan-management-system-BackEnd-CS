@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { UserLevelMaster, MenuMaster, UserLevelDefaultRights } from '../../auth/entities';
 import { UpdateDefaultRightsDto } from '../dto/role-management.dto';
+import { MENU_ACTION_MAP } from '../../auth/menu-action-map';
 
 @Injectable()
 export class RoleManagementService {
@@ -110,6 +111,21 @@ export class RoleManagementService {
                         menuname: menu.name,
                         menudesc: menu.desc,
                         visibleflag: 'Y'
+                    });
+                    await this.menuRepository.save(newMenu);
+                }
+            }
+
+            // 3. Seed any modern-app windows that have no legacy menu row yet
+            // (see MENU_ACTION_MAP) so default rights can be configured for them.
+            for (const entry of MENU_ACTION_MAP) {
+                const existing = await this.menuRepository.findOne({ where: { menuid: entry.menuid } });
+                if (!existing) {
+                    const newMenu = this.menuRepository.create({
+                        menuid: entry.menuid,
+                        menuname: entry.action,
+                        menudesc: entry.title,
+                        visibleflag: 'Y',
                     });
                     await this.menuRepository.save(newMenu);
                 }

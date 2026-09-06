@@ -1,4 +1,4 @@
-import { IsString, IsNumber, IsArray, ValidateNested, IsOptional, IsEnum } from 'class-validator';
+import { IsString, IsNumber, IsArray, ValidateNested, IsOptional, IsEnum, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class JournalRowDto {
@@ -11,9 +11,11 @@ export class JournalRowDto {
     code?: string;
 
     @IsNumber()
+    @Min(0)
     debit: number;
 
     @IsNumber()
+    @Min(0)
     credit: number;
 
     @IsOptional()

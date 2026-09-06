@@ -44,6 +44,21 @@ export class WingService {
     }
 
     async remove(id: string): Promise<void> {
+        // Guard: members are assigned to a wing by code in member_master.wingno.
+        // Deleting a wing still in use would orphan those members, so block it —
+        // same pattern as CastCategoryService.remove().
+        await this.findOne(id); // throws NotFound if missing
+        const inUse = await this.wingRepository.query(
+            `SELECT COUNT(*)::int AS count FROM member_master WHERE wingno = $1`,
+            [id]
+        );
+        const count = inUse?.[0]?.count ?? 0;
+        if (count > 0) {
+            throw new ConflictException(
+                `Cannot delete wing ${id} — ${count} member(s) are assigned to this wing. Reassign them first.`
+            );
+        }
+
         const result = await this.wingRepository.delete(id);
         if (result.affected === 0) {
             throw new NotFoundException(`Wing with ID ${id} not found`);

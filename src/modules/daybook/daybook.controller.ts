@@ -39,20 +39,9 @@ export class DayBookController {
 
   @ApiOperation({ summary: 'List active members holding savings accounts' })
   @Get('active-members')
-  async getActiveMembersWithSavings(): Promise<{
-    success: boolean;
-    data: any[];
-    message: string;
-  }> {
+  async getActiveMembersWithSavings(): Promise<any[]> {
     this.logger.log('Fetching active members with savings accounts');
-    
-    const members = await this.dayBookService.getActiveMembersWithSavings();
-    
-    return {
-      success: true,
-      data: members,
-      message: 'Active members retrieved successfully'
-    };
+    return this.dayBookService.getActiveMembersWithSavings();
   }
 
   @ApiOperation({ summary: 'Calculate accrued savings interest for a member over a period (preview, no posting)' })

@@ -1,9 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, ConflictException, HttpException } from '@nestjs/common';
 import { DataSource, QueryRunner } from 'typeorm';
 import { SequenceGeneratorService } from '../../shared/services';
 import { generateVoucherNo } from '../../shared/utils/voucher-utils';
 import { NotificationService } from '../../notification/services/notification.service';
 import { NotificationChannel } from '../../notification/entities/notification-log.entity';
+import { LoanEligibilityService } from '../../loan/services-v2/loan-eligibility.service';
 
 /**
  * Voucher Service - Handles voucher generation and staging.
@@ -19,6 +20,7 @@ export class VoucherService {
         private readonly dataSource: DataSource,
         private readonly sequenceGenerator: SequenceGeneratorService,
         private readonly notificationService: NotificationService,
+        private readonly loanEligibilityService: LoanEligibilityService,
     ) { }
 
     /**
@@ -42,7 +44,7 @@ export class VoucherService {
                     : [];
 
             if (transactions.length === 0) {
-                throw new Error('No transaction entries provided. At least one entry is required.');
+                throw new BadRequestException('No transaction entries provided. At least one entry is required.');
             }
 
             // 1. Canonical voucher number from voucher_master — P for payments, R for receipts.
@@ -130,6 +132,7 @@ export class VoucherService {
         } catch (error: any) {
             await queryRunner.rollbackTransaction();
             this.logger.error('Error creating generic voucher:', error);
+            if (error instanceof HttpException) throw error;
             throw new Error('Failed to create voucher: ' + error.message);
         } finally {
             await queryRunner.release();
@@ -166,7 +169,7 @@ export class VoucherService {
 
             const loanResult = await queryRunner.query(loanQuery, [voucherData.loanCaseNo]);
             if (loanResult.length === 0) {
-                throw new Error('Loan case not found or not sanctioned or already disbursed');
+                throw new BadRequestException('Loan case not found or not sanctioned or already disbursed');
             }
             const loan = loanResult[0];
 
@@ -209,52 +212,38 @@ export class VoucherService {
                 new Date()
             ]);
 
-            // 4. Auto-calculate 5% Share & FD deductions
+            // 4. Withhold any RD / Share Value shortfall from the disbursement.
+            //
+            // The rule itself (which % of what base, against which balances,
+            // for which loan types) lives in LoanEligibilityService — the one
+            // place it is defined. This used to recompute it inline and had
+            // drifted badly from that service: it read Fixed Deposit instead of
+            // RD, based the % on the sanctioned amount instead of the member's
+            // total regular-loan exposure, and skipped the deduction entirely
+            // whenever the member already had any active loan — which meant a
+            // top-up (the exact case the rule exists for) was never deducted.
             const sanctionedAmt = parseFloat(loan.sanctioned_amt.toString().replace(/[^0-9.-]+/g, ""));
-            const requiredShare = sanctionedAmt * 0.05;
-            const requiredFd = sanctionedAmt * 0.05;
-
-            const shareResult = await queryRunner.query(
-                `SELECT COALESCE(shares::numeric, 0) as shares FROM member_balances WHERE mbno = $1`, [loan.mbno]
+            const autoDeductions = await this.loanEligibilityService.getDisbursementDeductions(
+                loan.mbno,
+                sanctionedAmt,
+                loan.loantype,
             );
-            const currentShare = Number(shareResult[0]?.shares || 0);
-
-            const fdResult = await queryRunner.query(
-                `SELECT COALESCE(SUM(fdamount::numeric), 0) as fd_total FROM fdmaster WHERE mbno = $1 AND status = '0' AND fdrdflag = 'F'`, [loan.mbno]
-            );
-            const currentFd = Number(fdResult[0]?.fd_total || 0);
-
-            // For top-up loans: check if member has an existing active loan where share/FD was already covered
-            const existingLoanResult = await queryRunner.query(
-                `SELECT COUNT(*) as cnt FROM loan_master WHERE mbno = $1 AND balance > 0`, [loan.mbno]
-            );
-            const hasExistingActiveLoan = Number(existingLoanResult[0]?.cnt || 0) > 0;
-
-            // BUG FIX 36: this recomputes the 5% rule inline instead of reusing
-            // LoanEligibilityService, and skipped that service's threshold — the rule only
-            // applies to loans ABOVE ₹5,00,000 ("Loan amount is 5,00,000 or below. 5%
-            // eligibility rules do not apply."). Confirmed live: a ₹15,000 disbursement had a
-            // ₹750 "5% Auto" FD deduction taken off it, so the member received ₹14,250 instead
-            // of the full ₹15,000 they were sanctioned. Same threshold as the eligibility
-            // service, so the two halves of the rule now agree.
-            const FIVE_PCT_RULE_MIN_LOAN = 500000;
-            let shareTopUp = 0;
-            let fdTopUp = 0;
-            if (!hasExistingActiveLoan && sanctionedAmt > FIVE_PCT_RULE_MIN_LOAN) {
-                shareTopUp = Math.max(0, requiredShare - currentShare);
-                fdTopUp = Math.max(0, requiredFd - currentFd);
-            }
 
             // Merge auto-deductions into breakdown (avoid duplicates if frontend already added them)
             const breakdown: any[] = Array.isArray(voucherData.breakdown) ? [...voucherData.breakdown] : [];
-            const hasShareEntry = breakdown.some((e: any) => e.code === 'L1001' && e.rp === 'Receipt');
-            const hasFdEntry = breakdown.some((e: any) => e.code === 'A003' && e.rp === 'Receipt');
-
-            if (shareTopUp > 0 && !hasShareEntry) {
-                breakdown.push({ key: 'auto-share', srNo: 'auto', code: 'L1001', name: 'SHARE VALUE (5% Auto)', rp: 'Receipt', amount: shareTopUp });
-            }
-            if (fdTopUp > 0 && !hasFdEntry) {
-                breakdown.push({ key: 'auto-fd', srNo: 'auto', code: 'A003', name: 'FIXED DEPOSIT (5% Auto)', rp: 'Receipt', amount: fdTopUp });
+            for (const deduction of autoDeductions) {
+                const alreadyPresent = breakdown.some(
+                    (e: any) => e.code === deduction.code && e.rp === 'Receipt',
+                );
+                if (alreadyPresent) continue;
+                breakdown.push({
+                    key: `auto-${deduction.code}`,
+                    srNo: 'auto',
+                    code: deduction.code,
+                    name: deduction.name,
+                    rp: 'Receipt',
+                    amount: deduction.amount,
+                });
             }
 
             // 5. Insert breakdown entries into 'transactions' table
@@ -304,7 +293,10 @@ export class VoucherService {
             // column (ELN/ALN never had their own penalrate columns at all).
             const busrules = await queryRunner.query(
                 `SELECT COALESCE(rlnrate, 12) as rln_rate, COALESCE(elnrate, 12) as eln_rate, COALESCE(alnrate, 12) as aln_rate,
-                        COALESCE(rlnpenalrate, 2) as rln_penal, COALESCE(elnpenalrate, 2) as eln_penal, COALESCE(alnpenalrate, 2) as aln_penal
+                        COALESCE(rlnpenalrate, 2) as rln_penal, COALESCE(elnpenalrate, 2) as eln_penal, COALESCE(alnpenalrate, 2) as aln_penal,
+                        COALESCE(rlngracedays, 0) as rln_grace, COALESCE(elngracedays, 0) as eln_grace, COALESCE(alngracedays, 0) as aln_grace,
+                        COALESCE(rlnsmpct, 1) as rln_smpct, COALESCE(elnsmpct, 1) as eln_smpct, COALESCE(alnsmpct, 1) as aln_smpct,
+                        COALESCE(rlnsmdiv, 4) as rln_smdiv, COALESCE(elnsmdiv, 4) as eln_smdiv, COALESCE(alnsmdiv, 4) as aln_smdiv
                  FROM busrules ORDER BY appdate DESC LIMIT 1`
             );
             const rules = busrules[0] || {};
@@ -313,6 +305,12 @@ export class VoucherService {
             const isALN = ['A', 'ADD', 'ALN'].includes(loanTypeUpper);
             const defaultRate = isRLN ? rules.rln_rate : isALN ? rules.aln_rate : rules.eln_rate;
             const defaultPenalRate = isRLN ? rules.rln_penal : isALN ? rules.aln_penal : rules.eln_penal;
+            // No sanction-time override for grace/same-month fee — unlike
+            // rate/penalrate, these are set once per loan type on the Modify
+            // Business Rules screen only.
+            const defaultGraceDays = isRLN ? rules.rln_grace : isALN ? rules.aln_grace : rules.eln_grace;
+            const defaultSmPct = isRLN ? rules.rln_smpct : isALN ? rules.aln_smpct : rules.eln_smpct;
+            const defaultSmDiv = isRLN ? rules.rln_smdiv : isALN ? rules.aln_smdiv : rules.eln_smdiv;
 
             // A per-case override entered at sanction time (Loan Sanction screen's
             // Rate / Penalty Rate fields) takes priority over the rule master default.
@@ -320,6 +318,9 @@ export class VoucherService {
             const casePenalRateOverride = parseFloat(loan.penalrate);
             const loanRate = !isNaN(caseRateOverride) && caseRateOverride > 0 ? caseRateOverride : (parseFloat(defaultRate) || 12);
             const penalRate = !isNaN(casePenalRateOverride) && casePenalRateOverride >= 0 ? casePenalRateOverride : (parseFloat(defaultPenalRate) || 2);
+            const graceDays = parseInt(defaultGraceDays, 10) || 0;
+            const smPenalPct = parseFloat(defaultSmPct) || 1;
+            const smPenalDiv = parseFloat(defaultSmDiv) || 4;
             const noOfInstal = parseInt(loan.no_of_instal) || 60;
             // Standard reducing-balance EMI (was a flat loan_amt/instalments split with
             // no interest markup, so every disbursed loan computed to 0 total interest
@@ -332,15 +333,15 @@ export class VoucherService {
 
             await queryRunner.query(`
                 INSERT INTO loan_master (mbno, loantype, loancaseno, loan_amt, balance, openbalance,
-                    rate, no_of_instal, instal_amt, payment_date, purpose, intt_amount, penalrate)
-                VALUES ($1, $2, $3, $4, $5, 0, $6, $7, $8, $9, $10, $11, $12)
+                    rate, no_of_instal, instal_amt, payment_date, purpose, intt_amount, penalrate, gracedays, smpenalpct, smpenaldiv)
+                VALUES ($1, $2, $3, $4, $5, 0, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
                 ON CONFLICT DO NOTHING
             `, [
                 loan.mbno, loan.loantype, voucherData.loanCaseNo,
                 sanctionedAmt, sanctionedAmt,
                 loanRate, noOfInstal, instalAmt,
                 new Date(), loan.purpose || '',
-                inttAmount, penalRate
+                inttAmount, penalRate, graceDays, smPenalPct, smPenalDiv
             ]);
 
             // 7. Mark loan_pending as paid
@@ -371,6 +372,7 @@ export class VoucherService {
         } catch (error: any) {
             await queryRunner.rollbackTransaction();
             this.logger.error('Error generating voucher:', error);
+            if (error instanceof HttpException) throw error;
             throw new Error('Failed to generate voucher: ' + error.message);
         } finally {
             await queryRunner.release();
@@ -425,7 +427,7 @@ export class VoucherService {
             }
 
             if (voucherResult[0].status !== 'PENDING') {
-                throw new Error(`Cannot delete voucher ${voucherNo} — status is ${voucherResult[0].status}. Only PENDING vouchers can be deleted.`);
+                throw new ConflictException(`Cannot delete voucher ${voucherNo} — status is ${voucherResult[0].status}. Only PENDING vouchers can be deleted.`);
             }
 
             // Extract loan case no to reset loan_pending
@@ -458,6 +460,7 @@ export class VoucherService {
         } catch (error: any) {
             await queryRunner.rollbackTransaction();
             this.logger.error('Error deleting voucher:', error);
+            if (error instanceof HttpException) throw error;
             throw new Error('Failed to delete voucher: ' + error.message);
         } finally {
             await queryRunner.release();

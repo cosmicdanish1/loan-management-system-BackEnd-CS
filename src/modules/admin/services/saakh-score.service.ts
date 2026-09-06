@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { formatDateForDB } from '../../shared/utils/date-utils';
 
 export interface LoanDetail {
   loancaseno: number;
@@ -70,10 +71,18 @@ export class SaakhScoreService {
     const m = memberRows[0];
 
     const fullName = [m.f_name, m.m_name, m.l_name].filter(Boolean).join(' ').trim();
-    const membershipDate: string | null = m.memb_date ? new Date(m.memb_date).toISOString().split('T')[0] : null;
-    const tenureYears = membershipDate
-      ? Math.floor((Date.now() - new Date(membershipDate).getTime()) / (1000 * 60 * 60 * 24 * 365))
+    // memb_date is `timestamp without time zone`; the pg driver resolves it against the
+    // session timezone into a real instant, so UTC getters (toISOString) shift it back a
+    // day. Use local getters (formatDateForDB) like the rest of the app does for this column type.
+    const membershipDate: string | null = m.memb_date ? formatDateForDB(new Date(m.memb_date)) : null;
+    // A future memb_date (bad data entry) would otherwise produce a negative
+    // tenure ("-4 yrs") in the UI. Clamp the displayed/scored value at 0 and
+    // call it out separately so it reads as "not yet active" instead of nonsense.
+    const rawTenureYears = membershipDate
+      ? (Date.now() - new Date(membershipDate).getTime()) / (1000 * 60 * 60 * 24 * 365)
       : 0;
+    const isFutureMembership = rawTenureYears < 0;
+    const tenureYears = Math.max(0, Math.floor(rawTenureYears));
 
     // ── 2. All loans ────────────────────────────────────────────────────────
     const loanRows = await this.dataSource.query(
@@ -99,7 +108,7 @@ export class SaakhScoreService {
         noOfInstal: parseInt(r.no_of_instal) || 0,
         rate: parseFloat(r.rate) || 0,
         penalrate: parseFloat(r.penalrate) || 0,
-        paymentDate: r.payment_date ? new Date(r.payment_date).toISOString().split('T')[0] : '',
+        paymentDate: r.payment_date ? formatDateForDB(new Date(r.payment_date)) : '',
         purpose: r.purpose || '',
         repaidPct,
       };
@@ -122,20 +131,35 @@ export class SaakhScoreService {
     const suspBal = parseFloat(funds.suspbal) || 0;
 
     // ── 4. Guarantor info ───────────────────────────────────────────────────
-    const guarantorRows = await this.dataSource.query(
-      `SELECT sm.mbno as borrower_mbno,
-              COALESCE(SUM(lm.balance::numeric), 0) as total_outstanding_for_borrower
-       FROM suretymaster sm
-       LEFT JOIN loan_master lm ON CAST(lm.mbno AS TEXT) = CAST(sm.mbno AS TEXT)
-         AND lm.balance::numeric > 0
-       WHERE CAST(sm.g1mbno AS TEXT) = $1 OR CAST(sm.g2mbno AS TEXT) = $1
-       GROUP BY sm.mbno`,
+    // Each suretymaster row ties this member to one specific borrower loan
+    // (loancaseno). Match the health check to that exact loan rather than the
+    // borrower's whole loan book, so an unrelated loan of the same borrower
+    // can't wrongly flag (or clear) this member's guarantor record. Legacy
+    // rows with no loancaseno recorded fall back to "any of that borrower's
+    // active loans", since we don't know which one was actually guaranteed.
+    const suretyRows = await this.dataSource.query(
+      `SELECT mbno as borrower_mbno, loancaseno
+       FROM suretymaster
+       WHERE CAST(g1mbno AS TEXT) = $1 OR CAST(g2mbno AS TEXT) = $1`,
       [mbno],
     );
-    const isGuarantorForCount = guarantorRows.length;
-    const guarantorLoansHealthy = guarantorRows.every(
-      (g: any) => parseFloat(g.total_outstanding_for_borrower) === 0,
-    );
+    const borrowerMbnos = [...new Set(suretyRows.map((r: any) => String(r.borrower_mbno)))];
+    let guarantorLoansHealthy = true;
+    if (borrowerMbnos.length) {
+      const borrowerLoanRows = await this.dataSource.query(
+        `SELECT mbno, loancaseno, balance FROM loan_master WHERE CAST(mbno AS TEXT) = ANY($1)`,
+        [borrowerMbnos],
+      );
+      guarantorLoansHealthy = suretyRows.every((s: any) => {
+        const relevantLoans = borrowerLoanRows.filter(
+          (l: any) =>
+            String(l.mbno) === String(s.borrower_mbno) &&
+            (s.loancaseno == null || Number(l.loancaseno) === Number(s.loancaseno)),
+        );
+        return relevantLoans.every((l: any) => (parseFloat(l.balance) || 0) <= 0);
+      });
+    }
+    const isGuarantorForCount = borrowerMbnos.length;
 
     // ── 5. Score calculation ────────────────────────────────────────────────
 
@@ -245,7 +269,9 @@ export class SaakhScoreService {
         name: 'Membership Tenure',
         score: tenureScore,
         maxScore: 1.0,
-        description: `${tenureYears} year${tenureYears !== 1 ? 's' : ''} as member${membershipDate ? ` since ${membershipDate}` : ''}`,
+        description: isFutureMembership
+          ? `Membership date (${membershipDate}) is in the future — check member record`
+          : `${tenureYears} year${tenureYears !== 1 ? 's' : ''} as member${membershipDate ? ` since ${membershipDate}` : ''}`,
         status: tenureScore >= 0.8 ? 'good' : tenureScore >= 0.5 ? 'average' : 'poor',
       },
       {

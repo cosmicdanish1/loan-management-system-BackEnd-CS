@@ -211,26 +211,42 @@ export class LoanQueryService {
 
             // Search in loan_master (active loans)
             if (!query.status || query.status === 'active' || query.status === 'all') {
+                const masterParams: any[] = [];
+                const masterConditions: string[] = [];
+                if (query.memberNumber) {
+                    masterParams.push(query.memberNumber);
+                    masterConditions.push(`AND lm.mbno = $${masterParams.length}`);
+                }
+                if (query.loanCaseNo) {
+                    masterParams.push(`%${query.loanCaseNo}%`);
+                    masterConditions.push(`AND lm.loancaseno::text LIKE $${masterParams.length}`);
+                }
+                if (query.loanType) {
+                    masterParams.push(query.loanType);
+                    masterConditions.push(`AND lm.loantype = $${masterParams.length}`);
+                }
+
                 const masterQuery = `
-          SELECT 
+          SELECT
             lm.loancaseno,
             lm.mbno,
             lm.loantype,
             lm.loan_amt::numeric as loan_amt,
             lm.balance::numeric as balance,
+            lm.instal_amt::numeric as instal_amt,
+            lm.no_of_instal,
+            lm.rate::numeric as rate,
             'ACTIVE' as status,
             TRIM(COALESCE(mm.f_name, '') || ' ' || COALESCE(mm.l_name, '')) as member_name
           FROM loan_master lm
           JOIN member_master mm ON lm.mbno = mm.mbno
           WHERE 1=1
-          ${query.memberNumber ? `AND lm.mbno = '${query.memberNumber}'` : ''}
-          ${query.loanCaseNo ? `AND lm.loancaseno::text LIKE '%${query.loanCaseNo}%'` : ''}
-          ${query.loanType ? `AND lm.loantype = '${query.loanType}'` : ''}
+          ${masterConditions.join('\n          ')}
           ORDER BY lm.loancaseno DESC
           LIMIT 100
         `;
 
-                const masterResults = await this.dataSource.query(masterQuery);
+                const masterResults = await this.dataSource.query(masterQuery, masterParams);
                 results.push(...masterResults.map((r: any) => ({
                     ...r,
                     source: 'loan_master'
@@ -239,14 +255,31 @@ export class LoanQueryService {
 
             // Search in loan_pending (pending loans)
             if (!query.status || query.status === 'pending' || query.status === 'all') {
+                const pendingParams: any[] = [];
+                const pendingConditions: string[] = [];
+                if (query.memberNumber) {
+                    pendingParams.push(query.memberNumber);
+                    pendingConditions.push(`AND lp.mbno = $${pendingParams.length}`);
+                }
+                if (query.loanCaseNo) {
+                    pendingParams.push(`%${query.loanCaseNo}%`);
+                    pendingConditions.push(`AND lp.loancaseno::text LIKE $${pendingParams.length}`);
+                }
+                if (query.loanType) {
+                    pendingParams.push(query.loanType);
+                    pendingConditions.push(`AND lp.loantype = $${pendingParams.length}`);
+                }
+
                 const pendingQuery = `
-          SELECT 
+          SELECT
             lp.loancaseno,
             lp.mbno,
             lp.loantype,
             lp.applied_amt as loan_amt,
             lp.sanctioned_amt as balance,
-            CASE 
+            lp.no_of_instal,
+            lp.rate::numeric as rate,
+            CASE
               WHEN lp.flg_paid = 'Y' THEN 'DISBURSED'
               WHEN lp.flg_sanctioned = 'Y' THEN 'SANCTIONED'
               ELSE 'PENDING'
@@ -255,14 +288,12 @@ export class LoanQueryService {
           FROM loan_pending lp
           JOIN member_master mm ON lp.mbno = mm.mbno
           WHERE 1=1
-          ${query.memberNumber ? `AND lp.mbno = '${query.memberNumber}'` : ''}
-          ${query.loanCaseNo ? `AND lp.loancaseno::text LIKE '%${query.loanCaseNo}%'` : ''}
-          ${query.loanType ? `AND lp.loantype = '${query.loanType}'` : ''}
+          ${pendingConditions.join('\n          ')}
           ORDER BY lp.loancaseno DESC
           LIMIT 100
         `;
 
-                const pendingResults = await this.dataSource.query(pendingQuery);
+                const pendingResults = await this.dataSource.query(pendingQuery, pendingParams);
                 results.push(...pendingResults.map((r: any) => ({
                     ...r,
                     source: 'loan_pending'
@@ -337,18 +368,40 @@ export class LoanQueryService {
             // Clearance: 0.0%" — none of it reflected the real ₹4,264 already paid
             // (which does exactly reconcile: loan_amt 24000 - 4264 = loanMaster's
             // real balance 19736). Fetching real repayments here and using their
-            // actual principal/interest split for the corresponding installments,
-            // oldest-due-first, so "Paid" rows reflect what actually happened
-            // instead of a theoretical projection that never looked at payment
-            // history. Rows beyond the real repayment count keep the existing
-            // equalised-interest projection and demand_master/date-based status.
+            // actual principal/interest split for the corresponding installments so
+            // "Paid" rows reflect what actually happened instead of a theoretical
+            // projection that never looked at payment history.
             const repaymentRows = await this.dataSource.query(
-                `SELECT principal_amount, interest_amount, payment_date
+                `SELECT principal_amount, interest_amount, payment_date, payment_month, payment_year
                  FROM loan_repayment_ledger
                  WHERE loancaseno = $1
                  ORDER BY payment_date ASC, id ASC`,
                 [loanCaseNo]
             );
+
+            // BUG FIX 51: the above rows used to be paired to schedule months by
+            // array position (repaymentRows[month - 1]), assuming exactly one row
+            // per installment posted in due-date order. Confirmed live on loan
+            // 888987: it has 13 real ledger rows for a 12-installment loan (one
+            // installment was posted as two separate rows), and several rows share
+            // the same payment_date so id order — not the row's own
+            // payment_month/payment_year — decided the pairing. The loop only ever
+            // read indices 0-11, so the 13th row (the only one with nonzero
+            // interest, ₹15.78) was silently dropped from both the table and the
+            // summary totals, and the remaining rows were shown against due dates
+            // one calendar month off from what they actually paid. Grouping by each
+            // row's own payment_year/payment_month instead — summing rows that
+            // share a month — fixes both: nothing is dropped, and a schedule row is
+            // only marked Paid using the repayment(s) actually recorded for that
+            // calendar month.
+            const realPaymentsByMonth = new Map<string, { principal: number; interest: number }>();
+            repaymentRows.forEach((row: any) => {
+                const key = `${row.payment_year}-${row.payment_month}`;
+                const existing = realPaymentsByMonth.get(key) || { principal: 0, interest: 0 };
+                existing.principal += parseFloat(row.principal_amount) || 0;
+                existing.interest += parseFloat(row.interest_amount) || 0;
+                realPaymentsByMonth.set(key, existing);
+            });
 
             // Calculate EMI schedule using equalised interest: constant principal
             // (loan amount / months) + constant interest (total interest / months)
@@ -375,18 +428,18 @@ export class LoanQueryService {
 
             let balance = loanAmt;
             for (let month = 1; month <= installments; month++) {
-                const realPayment = repaymentRows[month - 1];
-                const principalAmount = realPayment
-                    ? Math.min(parseFloat(realPayment.principal_amount) || 0, balance)
-                    : Math.min(monthlyPrincipal, balance);
-                const interestAmount = realPayment
-                    ? parseFloat(realPayment.interest_amount) || 0
-                    : monthlyInterest;
-                balance = Math.max(0, balance - principalAmount);
-
                 // Calculate due date
                 const dueDate = new Date(startDate);
                 dueDate.setMonth(dueDate.getMonth() + month - 1);
+
+                const realPayment = realPaymentsByMonth.get(`${dueDate.getFullYear()}-${dueDate.getMonth() + 1}`);
+                const principalAmount = realPayment
+                    ? Math.min(realPayment.principal, balance)
+                    : Math.min(monthlyPrincipal, balance);
+                const interestAmount = realPayment
+                    ? realPayment.interest
+                    : monthlyInterest;
+                balance = Math.max(0, balance - principalAmount);
 
                 // Determine payment status — a real recorded repayment always wins
                 let status = realPayment ? 'Paid' : (paymentStatusMap.get(`${dueDate.getFullYear()}-${dueDate.getMonth() + 1}`) || 'Pending');
@@ -425,7 +478,15 @@ export class LoanQueryService {
                 .reduce((sum, item) => sum + item.principalAmount, 0);
 
             const totalLoanAmount = parseFloat(loanMaster.loan_amt);
-            const remainingBalance = totalLoanAmount - totalPrincipalPaid;
+            // Use loan_master's own balance rather than totalLoanAmount - totalPrincipalPaid:
+            // the schedule only covers `installments` calendar months from the loan's start
+            // date, so a real repayment recorded outside that window (e.g. postings that
+            // started a month late, pushing the last one past the theoretical final due date)
+            // is real principal loan_master already accounts for but that this fixed-length
+            // schedule has nowhere to display — recomputing from the schedule alone would then
+            // show a nonzero "remaining balance" on a loan that is, per its ledger of record,
+            // actually fully paid.
+            const remainingBalance = parseFloat(loanMaster.balance);
             const completionPercentage = (paidInstallments / installments) * 100;
 
             return {

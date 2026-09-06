@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Query, Param, Logger, UseGuards, Req } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Post, Patch, Delete, Body, Query, Param, Logger, UseGuards, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { UtilitiesService } from './utilities.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -209,6 +209,11 @@ export class UtilitiesController {
     },
     @Req() req: any,
   ) {
+    // 4.4 fix: missing fields crashed with 500 "null value in column ..." —
+    // confirmed live.
+    if (!body?.fromAccount || !body?.toAccount || typeof body?.amount !== 'number' || !body?.transferDate) {
+      throw new BadRequestException('fromAccount, toAccount, amount, and transferDate are required');
+    }
     const username = req.user?.susername || req.user?.username || 'system';
     const result = await this.utilitiesService.processBalanceTransfer(body, username);
     return result;
@@ -316,6 +321,11 @@ export class UtilitiesController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Process dividend payment — DR L1024, update dividend_master' })
   async processDividendPayment(@Body() body: any, @Req() req: any) {
+    // 4.4 fix: missing fields crashed with 500 "null value in column ..." —
+    // confirmed live.
+    if (!body?.memberNo || typeof body?.totalAmount !== 'number') {
+      throw new BadRequestException('memberNo and a numeric totalAmount are required');
+    }
     const username = req.user?.susername || req.user?.username || 'system';
     this.logger.log(`[Dividend] POST pay member=${body.memberNo} amount=${body.totalAmount} by ${username}`);
     const result = await this.utilitiesService.processDividendPayment(body, username);
@@ -327,6 +337,11 @@ export class UtilitiesController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Save receipt: CR rows (vchr_type=R) + DR bank (vchr_type=P), same R_VCHR_NO' })
   async saveReceipt(@Body() body: any, @Req() req: any) {
+    // 4.4 fix: a missing rows array crashed with 500 "Cannot read properties
+    // of undefined (reading 'length')" — confirmed live.
+    if (!body?.memberNo || !Array.isArray(body?.rows) || body.rows.length === 0) {
+      throw new BadRequestException('memberNo and a non-empty rows array are required');
+    }
     const username = req.user?.susername || req.user?.username || 'system';
     this.logger.log(`[Receipt] POST member=${body.memberNo} rows=${body.rows?.length} by ${username}`);
     const result = await this.utilitiesService.saveReceipt(body, username);
@@ -338,6 +353,11 @@ export class UtilitiesController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Save receipt voucher to ledger (vchr_type=R, DR CINH + CR rows)' })
   async saveReceiptVoucher(@Body() body: any, @Req() req: any) {
+    // 4.4 fix: a missing rows array crashed with 500 "Cannot read properties
+    // of undefined (reading 'length')" — confirmed live.
+    if (!body?.memberNo || !Array.isArray(body?.rows) || body.rows.length === 0) {
+      throw new BadRequestException('memberNo and a non-empty rows array are required');
+    }
     const username = req.user?.susername || req.user?.username || 'system';
     this.logger.log(`[VoucherPayment] POST member=${body.memberNo} rows=${body.rows?.length} by ${username}`);
     const result = await this.utilitiesService.saveReceiptVoucher(body, username);
@@ -349,6 +369,13 @@ export class UtilitiesController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Save payment voucher to ledger (vchr_type=P, acc_type=BANK)' })
   async savePaymentVoucher(@Body() body: any, @Req() req: any) {
+    // BUG FIX: missing memberNo/rows previously succeeded silently, writing an
+    // orphaned voucher+transactions pair with memberId/mbno = null into the
+    // PENDING queue — confirmed live. Same guard pattern as the sibling
+    // receipt/receipt-voucher/dividend-pay endpoints just above.
+    if (!body?.memberNo || !Array.isArray(body?.rows) || body.rows.length === 0) {
+      throw new BadRequestException('memberNo and a non-empty rows array are required');
+    }
     const username = req.user?.susername || req.user?.username || 'system';
     this.logger.log(`[PaymentVoucher] POST member=${body.memberNo} rows=${body.rows?.length} by ${username}`);
     const result = await this.utilitiesService.savePaymentVoucher(body, username);
@@ -360,6 +387,11 @@ export class UtilitiesController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Save loan entry to loan_master and suretymaster' })
   async saveLoanEntry(@Body() body: any, @Req() req: any) {
+    // 4.4 fix: missing fields crashed with 500 "Cannot read properties of
+    // undefined (reading 'toString')" — confirmed live.
+    if (!body?.loanType || !body?.memberNo) {
+      throw new BadRequestException('loanType and memberNo are required');
+    }
     const username = req.user?.susername || req.user?.username || 'system';
     this.logger.log(`[LoanEntry] POST loan type=${body.loanType} member=${body.memberNo} by ${username}`);
     const result = await this.utilitiesService.saveLoanEntry(body, username);
@@ -387,6 +419,11 @@ export class UtilitiesController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Save FD/RD/SB ledger entry' })
   async saveFdRdSbEntry(@Body() body: any, @Req() req: any) {
+    // 4.4 fix: missing fields crashed with 500 "null value in column ..." —
+    // confirmed live.
+    if (!body?.entryType || !body?.memberNo) {
+      throw new BadRequestException('entryType and memberNo are required');
+    }
     const username = req.user?.susername || req.user?.username || 'system';
     this.logger.log(`[FdRdSbEntry] POST entry type=${body.entryType} member=${body.memberNo} by ${username}`);
     const result = await this.utilitiesService.saveFdRdSbEntry(body, username);
@@ -448,6 +485,11 @@ export class UtilitiesController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Save head opening balances for a financial year' })
   async saveHeadOpeningBalances(@Body() body: { yearcode: number; balances: Array<{ headCode: string; closingBal: number }> }) {
+    // 4.4 fix: a missing balances array crashed with 500 "balances is not
+    // iterable" — confirmed live.
+    if (!body?.yearcode || !Array.isArray(body?.balances)) {
+      throw new BadRequestException('yearcode and a balances array are required');
+    }
     return await this.utilitiesService.saveHeadOpeningBalances(body.yearcode, body.balances);
   }
 
@@ -467,6 +509,11 @@ export class UtilitiesController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Save deposit/loan interest slabs to fdrd_slab_details' })
   async saveDepositLoanSlabs(@Body() body: { rows: any[]; type: string }) {
+    // 4.4 fix: a missing type crashed with 500 "Cannot read properties of
+    // undefined (reading 'toUpperCase')" — confirmed live.
+    if (!Array.isArray(body?.rows) || !body?.type) {
+      throw new BadRequestException('rows (array) and type are required');
+    }
     const result = await this.utilitiesService.saveDepositLoanSlabs(body.rows, body.type);
     return result;
   }
@@ -487,6 +534,11 @@ export class UtilitiesController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Save demand print order configuration' })
   async saveDemandPrintOrder(@Body() body: { rows: any[] }) {
+    // 4.4 fix: a missing rows array crashed with 500 "rows is not iterable" —
+    // confirmed live.
+    if (!Array.isArray(body?.rows)) {
+      throw new BadRequestException('rows must be an array');
+    }
     const result = await this.utilitiesService.saveDemandPrintOrder(body.rows);
     return result;
   }
@@ -519,13 +571,16 @@ export class UtilitiesController {
 
   // ─── Financial Year ───────────────────────────────────────────────────────
 
+  // BUG FIX: same double-wrap pattern already fixed elsewhere in this
+  // controller (deposit-loan-slabs, demand-print-order, business-rules) — the
+  // global TransformInterceptor already wraps every response in {success,
+  // data}, so this manual wrapper wrapped it twice.
   @Get('financial-year/current')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Get the current (latest) financial year' })
   async getCurrentFinancialYear() {
-    const data = await this.utilitiesService.getCurrentFinancialYear();
-    return { success: true, data };
+    return await this.utilitiesService.getCurrentFinancialYear();
   }
 
   @Post('financial-year/transfer-entries')

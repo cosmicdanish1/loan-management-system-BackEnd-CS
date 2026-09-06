@@ -2,6 +2,9 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AdminModule } from '../admin/admin.module';
 import { NotificationModule } from '../notification/notification.module';
+// Loan disbursement withholds any RD/Share shortfall — the rule itself is
+// owned by LoanEligibilityService, exported from LoanV2Module.
+import { LoanV2Module } from '../loan/loan-v2.module';
 import { Transaction } from './entities/transaction.entity';
 import { Voucher } from './entities/voucher.entity';
 import { DemandMaster } from './entities/demand-master.entity';
@@ -32,6 +35,7 @@ import { FixedDepositController } from './fixed-deposit.controller';
     imports: [
         AdminModule,
         NotificationModule,
+        LoanV2Module,
         TypeOrmModule.forFeature([
             Transaction,
             Voucher,

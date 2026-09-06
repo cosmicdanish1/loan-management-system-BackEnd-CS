@@ -202,6 +202,16 @@
         "operationId": "AuthController_changePassword",
         "summary": "Change user password",
         "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordDto"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Password changed successfully"
@@ -12514,6 +12524,26 @@
           "refreshToken"
         ]
       },
+      "ChangePasswordDto": {
+        "type": "object",
+        "properties": {
+          "currentPassword": {
+            "type": "string",
+            "description": "Current password",
+            "example": "currentPassword123"
+          },
+          "newPassword": {
+            "type": "string",
+            "description": "New password",
+            "example": "newSecurePassword123",
+            "minLength": 6
+          }
+        },
+        "required": [
+          "currentPassword",
+          "newPassword"
+        ]
+      },
       "CreateMemberDto": {
         "type": "object",
         "properties": {
@@ -13300,26 +13330,6 @@
           "userAgent",
           "createdAt",
           "user"
-        ]
-      },
-      "ChangePasswordDto": {
-        "type": "object",
-        "properties": {
-          "currentPassword": {
-            "type": "string",
-            "description": "Current password",
-            "example": "currentPassword123"
-          },
-          "newPassword": {
-            "type": "string",
-            "description": "New password",
-            "example": "newSecurePassword123",
-            "minLength": 6
-          }
-        },
-        "required": [
-          "currentPassword",
-          "newPassword"
         ]
       },
       "CreateSystemConfigDto": {

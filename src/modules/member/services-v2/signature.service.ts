@@ -102,15 +102,38 @@ export class SignatureService {
 
     // ── member_master (legacy) signature methods ──────────────────────────────
 
-    /** BUG FIX 1+2: Signatures for legacy members stored in member_master.signature_image_path */
-    async uploadSignatureMaster(mbno: string, filePath: string): Promise<void> {
-        const rows = await this.dataSource.query(
-            `SELECT mbno, signature_image_path FROM member_master WHERE mbno = $1`, [mbno]
-        );
+    /**
+     * BUG FIX (orphan file leak): multer's diskStorage always writes the file
+     * before the controller/service runs, so every uploader must guarantee
+     * cleanup on failure. The existence-check SELECT used to be trusted to
+     * just return zero rows for an unknown member — but a malformed mbno
+     * (e.g. one that doesn't parse as the column's numeric type) makes it
+     * *throw* instead, which skipped the "not found" cleanup branch entirely
+     * and left the uploaded file on disk forever. Confirmed live: a sanitized
+     * non-numeric mbno left a permanent orphan in uploads/signatures/.
+     * Every uploader now routes its existence check through this helper so a
+     * thrown query also deletes the file before surfacing a clean 400.
+     */
+    private async requireMemberOrCleanup(mbno: string, filePath: string, selectSql: string): Promise<any[]> {
+        let rows: any[];
+        try {
+            rows = await this.dataSource.query(selectSql, [mbno]);
+        } catch (error) {
+            if (fs.existsSync(filePath)) { try { fs.unlinkSync(filePath); } catch (_) { /* ignore */ } }
+            throw new BadRequestException(`Invalid member number: ${mbno}`);
+        }
         if (!rows || rows.length === 0) {
-            if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+            if (fs.existsSync(filePath)) { try { fs.unlinkSync(filePath); } catch (_) { /* ignore */ } }
             throw new NotFoundException(`Member ${mbno} not found in member_master`);
         }
+        return rows;
+    }
+
+    /** BUG FIX 1+2: Signatures for legacy members stored in member_master.signature_image_path */
+    async uploadSignatureMaster(mbno: string, filePath: string): Promise<void> {
+        const rows = await this.requireMemberOrCleanup(
+            mbno, filePath, `SELECT mbno, signature_image_path FROM member_master WHERE mbno = $1`,
+        );
         const existing = rows[0].signature_image_path;
         if (existing) {
             const oldFull = path.join(process.cwd(), existing);
@@ -174,13 +197,9 @@ export class SignatureService {
 
     async uploadPhotoMaster(mbno: string, filePath: string, type: string): Promise<void> {
         const col = this.photoColumn(type);
-        const rows = await this.dataSource.query(
-            `SELECT mbno, ${col} FROM member_master WHERE mbno = $1`, [mbno]
+        const rows = await this.requireMemberOrCleanup(
+            mbno, filePath, `SELECT mbno, ${col} FROM member_master WHERE mbno = $1`,
         );
-        if (!rows || rows.length === 0) {
-            if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-            throw new NotFoundException(`Member ${mbno} not found`);
-        }
         const existing = rows[0][col];
         if (existing) {
             const oldFull = path.join(process.cwd(), existing);
@@ -231,11 +250,7 @@ export class SignatureService {
 
     async addDocument(mbno: string, docType: string, filePath: string, originalName: string): Promise<any> {
         // Verify the member exists; otherwise clean up the orphaned file
-        const member = await this.dataSource.query(`SELECT mbno FROM member_master WHERE mbno = $1`, [mbno]);
-        if (!member || member.length === 0) {
-            if (fs.existsSync(filePath)) { try { fs.unlinkSync(filePath); } catch (_) { /* ignore */ } }
-            throw new NotFoundException(`Member ${mbno} not found`);
-        }
+        await this.requireMemberOrCleanup(mbno, filePath, `SELECT mbno FROM member_master WHERE mbno = $1`);
         await this.ensureDocumentsTable();
         const relativePath = filePath.replace(process.cwd(), '').replace(/\\/g, '/').replace(/^\//, '');
         const rows = await this.dataSource.query(
@@ -255,21 +270,30 @@ export class SignatureService {
         );
     }
 
-    async getDocumentPath(id: number): Promise<string | null> {
+    // BUG FIX (IDOR): these previously looked up member_documents by `id` alone,
+    // never checking the row's `mbno` matched the `:mbno` in the URL — confirmed
+    // live that a document uploaded for member A could be fetched and deleted
+    // through member B's URL (id is a plain SERIAL, trivially enumerable). Both
+    // methods now require the caller-supplied mbno to match the document's owner.
+    async getDocumentPath(id: number, mbno: string): Promise<string | null> {
         await this.ensureDocumentsTable();
-        const rows = await this.dataSource.query(`SELECT file_path FROM member_documents WHERE id = $1`, [id]);
+        const rows = await this.dataSource.query(
+            `SELECT file_path FROM member_documents WHERE id = $1 AND mbno = $2`, [id, mbno]
+        );
         return rows && rows.length > 0 ? rows[0].file_path : null;
     }
 
-    async deleteDocument(id: number): Promise<void> {
+    async deleteDocument(id: number, mbno: string): Promise<void> {
         await this.ensureDocumentsTable();
-        const rows = await this.dataSource.query(`SELECT file_path FROM member_documents WHERE id = $1`, [id]);
-        if (!rows || rows.length === 0) throw new NotFoundException(`Document ${id} not found`);
+        const rows = await this.dataSource.query(
+            `SELECT file_path FROM member_documents WHERE id = $1 AND mbno = $2`, [id, mbno]
+        );
+        if (!rows || rows.length === 0) throw new NotFoundException(`Document ${id} not found for member ${mbno}`);
         const filePath = rows[0].file_path;
         if (filePath) {
             const fullPath = path.join(process.cwd(), filePath);
             if (fs.existsSync(fullPath)) { try { fs.unlinkSync(fullPath); } catch (_) { /* ignore */ } }
         }
-        await this.dataSource.query(`DELETE FROM member_documents WHERE id = $1`, [id]);
+        await this.dataSource.query(`DELETE FROM member_documents WHERE id = $1 AND mbno = $2`, [id, mbno]);
     }
 }

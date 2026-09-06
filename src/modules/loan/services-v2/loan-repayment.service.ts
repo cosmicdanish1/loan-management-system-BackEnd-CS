@@ -20,6 +20,9 @@ export interface RepaymentDto {
     asOfDate?: Date;
 }
 
+/** Which of the three penal tiers an installment currently sits in. */
+type PenalTier = 0 | 1 | 2;
+
 interface InstallmentStatus {
     installmentNo: number;
     dueDate: Date;
@@ -29,9 +32,76 @@ interface InstallmentStatus {
     interestPaid: number;
     principalDue: number;
     interestDue: number;
+    /** Complete calendar months elapsed since the due month ended. 0 during tiers 0/1. */
     monthsOverdue: number;
+    tier: PenalTier;
     penalDue: number;
     isFullyPaid: boolean;
+}
+
+/** Real number of days in a given month (year, 0-indexed month). */
+function daysInMonth(year: number, month0: number): number {
+    return new Date(year, month0 + 1, 0).getDate();
+}
+
+/**
+ * The three-tier grace/penal rule, evaluated once per installment. Both
+ * getInstallmentStatus() below and executeEarlyClosure()'s separate
+ * duplicated loop call this exact function, so the two code paths (the quote
+ * calculateEarlyClosure shows an operator, and what executeEarlyClosure
+ * actually commits) can never disagree.
+ *
+ * Interest is NEVER prorated by day anywhere in this system — it's a flat
+ * monthly charge the instant an installment's month begins, same as the
+ * equalised-interest design used everywhere else in this codebase. Grace
+ * only ever decides whether/how much PENAL gets added on top of that flat
+ * interest — never whether the interest itself is charged:
+ *
+ *   Tier 0 (day 1..graceDay of the due month):       no penal
+ *   Tier 1 (graceDay+1..month end, same due month):   flat one-time fee =
+ *                                                      (smPct% × principalDue) ÷ smDivisor
+ *   Tier 2 (any day in a later month):                principalDue × (penalRate/100/12) × monthsOverdue —
+ *                                                      a whole-month step, flat all month, jumps only on the 1st
+ *
+ * graceDay is clamped to the due month's actual last day, so a grace value
+ * of (say) 31 configured on a loan type doesn't spill into the next month
+ * just because the due month only has 28, 29 or 30 days.
+ */
+function computeTier(
+    principalDue: number,
+    isFullyPaid: boolean,
+    dueDate: Date,
+    asOfDate: Date,
+    graceDayOfMonth: number,
+    penalRateAnnual: number,
+    sameMonthPenalPct: number,
+    sameMonthPenalDivisor: number,
+): { tier: PenalTier; monthsOverdue: number; penalDue: number } {
+    if (isFullyPaid) return { tier: 0, monthsOverdue: 0, penalDue: 0 };
+
+    const dueYear = dueDate.getFullYear();
+    const dueMonth0 = dueDate.getMonth();
+    const monthsOverdue = Math.max(
+        0,
+        (asOfDate.getFullYear() - dueYear) * 12 + (asOfDate.getMonth() - dueMonth0)
+    );
+
+    if (monthsOverdue > 0) {
+        const penalDue = penalRateAnnual > 0
+            ? Math.round(principalDue * (penalRateAnnual / 100 / 12) * monthsOverdue * 100) / 100
+            : 0;
+        return { tier: 2, monthsOverdue, penalDue };
+    }
+
+    const cutoff = Math.min(graceDayOfMonth, daysInMonth(dueYear, dueMonth0));
+    if (asOfDate.getDate() <= cutoff) {
+        return { tier: 0, monthsOverdue: 0, penalDue: 0 };
+    }
+
+    const penalDue = sameMonthPenalPct > 0 && sameMonthPenalDivisor > 0
+        ? Math.round(((sameMonthPenalPct / 100) * principalDue / sameMonthPenalDivisor) * 100) / 100
+        : 0;
+    return { tier: 1, monthsOverdue: 0, penalDue };
 }
 
 @Injectable()
@@ -42,8 +112,8 @@ export class LoanRepaymentService {
      * Builds the month-by-month installment schedule for a loan using the
      * equalised-interest method (constant principal + constant interest),
      * and reconciles it against what's already been recorded in
-     * loan_repayment_ledger. Only installments due on or before `asOfDate`
-     * are included, oldest first.
+     * loan_repayment_ledger. Only installments whose due month has started
+     * on or before `asOfDate` are included, oldest first.
      *
      * This is the single source of truth for both oldest-first recovery
      * order and early-closure interest calculation — both need the same
@@ -59,6 +129,9 @@ export class LoanRepaymentService {
         const noOfInstal = parseInt(loan.no_of_instal, 10) || 0;
         const instalAmt = parseFloat(loan.instal_amt) || 0;
         const penalRateAnnual = parseFloat(loan.penalrate) || 0;
+        const graceDayOfMonth = parseInt(loan.gracedays, 10) || 0;
+        const sameMonthPenalPct = parseFloat(loan.smpenalpct) || 0;
+        const sameMonthPenalDivisor = parseFloat(loan.smpenaldiv) || 0;
         const disbursementDate = new Date(loan.payment_date);
 
         if (noOfInstal <= 0 || isNaN(disbursementDate.getTime())) return [];
@@ -98,15 +171,24 @@ export class LoanRepaymentService {
         const SETTLEMENT_TOLERANCE = 1; // rupee — absorbs per-installment rounding
         const isSettled = loanAmt > 0 && principalPool >= loanAmt - SETTLEMENT_TOLERANCE;
 
-        const asOfMonthStart = new Date(asOfDate.getFullYear(), asOfDate.getMonth(), 1);
+        const asOfYear = asOfDate.getFullYear();
+        const asOfMonth0 = asOfDate.getMonth();
         const result: InstallmentStatus[] = [];
 
         for (let n = 1; n <= noOfInstal; n++) {
             const dueDate = new Date(disbursementDate);
             dueDate.setMonth(dueDate.getMonth() + n);
-            const dueMonthStart = new Date(dueDate.getFullYear(), dueDate.getMonth(), 1);
 
-            if (dueMonthStart > asOfMonthStart) break; // not due yet as of asOfDate
+            // Month-granular "has this installment's month started" check —
+            // a deliberate business rule, not a day-count. Interest in this
+            // system is a flat monthly charge, never day-prorated, so an
+            // installment becomes due for the whole of its month starting
+            // day 1, regardless of the exact disbursement-anniversary day the
+            // schedule happens to assign it. (This supersedes an exact-date
+            // check made earlier in this same session for a different,
+            // narrower problem — that fix predates this business rule.)
+            const monthsAhead = (dueDate.getFullYear() - asOfYear) * 12 + (dueDate.getMonth() - asOfMonth0);
+            if (monthsAhead > 0) break; // due month hasn't started yet
 
             const principalApplied = Math.min(monthlyPrincipal, principalPool);
             principalPool -= principalApplied;
@@ -125,15 +207,10 @@ export class LoanRepaymentService {
                 : Math.max(0, Math.round((monthlyInterest - interestApplied) * 100) / 100);
             const isFullyPaid = principalDue <= 0 && interestDue <= 0;
 
-            const monthsOverdue = Math.max(
-                0,
-                (asOfDate.getFullYear() - dueDate.getFullYear()) * 12 + (asOfDate.getMonth() - dueDate.getMonth())
+            const { tier, monthsOverdue, penalDue } = computeTier(
+                principalDue, isFullyPaid, dueDate, asOfDate,
+                graceDayOfMonth, penalRateAnnual, sameMonthPenalPct, sameMonthPenalDivisor,
             );
-            // Non-compounding: penal interest applies only to what's still unpaid
-            // of THIS installment's own principal, per overdue month.
-            const penalDue = !isFullyPaid && monthsOverdue > 0 && penalRateAnnual > 0
-                ? Math.round(principalDue * (penalRateAnnual / 100 / 12) * monthsOverdue * 100) / 100
-                : 0;
 
             result.push({
                 installmentNo: n,
@@ -145,6 +222,7 @@ export class LoanRepaymentService {
                 principalDue,
                 interestDue,
                 monthsOverdue,
+                tier,
                 penalDue,
                 isFullyPaid,
             });
@@ -168,7 +246,7 @@ export class LoanRepaymentService {
 
         try {
             const loanRows = await queryRunner.query(
-                `SELECT mbno, loantype, loan_amt, balance, instal_amt, no_of_instal, penalrate, payment_date
+                `SELECT mbno, loantype, loan_amt, balance, instal_amt, no_of_instal, penalrate, gracedays, smpenalpct, smpenaldiv, payment_date
                  FROM loan_master WHERE loancaseno::text = $1`,
                 [dto.loancaseno]
             );
@@ -333,10 +411,14 @@ export class LoanRepaymentService {
     /**
      * Early closure quote for a loan: outstanding principal (already accurate
      * since recordLoanRepayment only reduces it by actual principal paid) +
-     * reducing-balance daily interest from the last resolved installment date
-     * to the closure date + any previous overdue interest and penal interest
-     * still sitting on unpaid installments. Future scheduled interest beyond
-     * the closure date is never charged, per the spec.
+     * the flat interest and tiered penal on every unpaid installment,
+     * including the one covering the closure date's own current month —
+     * folded in via getInstallmentStatus's month-granular due check exactly
+     * like any other unpaid month. There is deliberately no separate
+     * day-prorated "stub" interest calculation: interest is never day-
+     * prorated in this system (see computeTier's doc comment), so once the
+     * current month has started, its installment is already due in full.
+     * Installments in months that haven't started yet are never charged.
      */
     async calculateEarlyClosure(
         loancaseno: string,
@@ -344,7 +426,7 @@ export class LoanRepaymentService {
         adjustment: number = 0,
     ): Promise<any> {
         const loanRows = await this.dataSource.query(
-            `SELECT mbno, loantype, loan_amt, balance, instal_amt, no_of_instal, penalrate, payment_date, rate
+            `SELECT mbno, loantype, loan_amt, balance, instal_amt, no_of_instal, penalrate, gracedays, smpenalpct, smpenaldiv, payment_date
              FROM loan_master WHERE loancaseno::text = $1`,
             [loancaseno]
         );
@@ -362,34 +444,16 @@ export class LoanRepaymentService {
 
             const previousOverdueInterest = Math.round(unpaid.reduce((sum, i) => sum + i.interestDue, 0) * 100) / 100;
             const penalInterest = Math.round(unpaid.reduce((sum, i) => sum + i.penalDue, 0) * 100) / 100;
-
-            const outstandingPrincipal = parseFloat(loan.balance) || 0;
-
-            const disbursementDate = new Date(loan.payment_date);
-            const lastResolvedDate = unpaid.length > 0
-                ? unpaid[0].dueDate
-                : (installments.length > 0 ? installments[installments.length - 1].dueDate : disbursementDate);
-            const daysSinceLastDue = Math.max(
-                0,
-                Math.round((asOf.getTime() - lastResolvedDate.getTime()) / (1000 * 60 * 60 * 24))
-            );
-            const rate = parseFloat(loan.rate) || 0;
-            const actualInterestToDate = Math.round(outstandingPrincipal * (rate / 100) * (daysSinceLastDue / 365) * 100) / 100;
+            const outstandingPrincipal = Math.round((parseFloat(loan.balance) || 0) * 100) / 100;
 
             const finalClosureAmount = Math.round((
-                outstandingPrincipal +
-                actualInterestToDate +
-                previousOverdueInterest +
-                penalInterest +
-                adjustment
+                outstandingPrincipal + previousOverdueInterest + penalInterest + adjustment
             ) * 100) / 100;
 
             return {
                 loanCaseNo: loancaseno,
                 closureDate: asOf.toISOString().split('T')[0],
-                outstandingPrincipal: Math.round(outstandingPrincipal * 100) / 100,
-                actualInterestToDate,
-                daysSinceLastDue,
+                outstandingPrincipal,
                 previousOverdueInterest,
                 penalInterest,
                 adjustment,
@@ -401,6 +465,7 @@ export class LoanRepaymentService {
                     interestDue: i.interestDue,
                     penalDue: i.penalDue,
                     monthsOverdue: i.monthsOverdue,
+                    tier: i.tier,
                 })),
             };
         } finally {
@@ -413,14 +478,14 @@ export class LoanRepaymentService {
      * quote), this actually settles the loan. Paying the quoted amount
      * through the regular recordLoanRepayment() waterfall does NOT fully
      * close a loan out: that waterfall only reconciles installments already
-     * due, so any future (not-yet-due) installments' principal gets dumped
-     * as an undifferentiated "prepayment" with no per-installment ledger
-     * entry — loan_master.balance reaches zero, but due-status/EMI-schedule
-     * still show those future installments as unpaid. This writes a proper
-     * ledger entry for every remaining installment, due or not — future
-     * ones principal-only, since future scheduled interest is never charged
-     * on an early closure — plus the reducing-balance stub-period interest
-     * and any manual adjustment, before zeroing the balance.
+     * due, so any genuinely future (not-yet-started-month) installments'
+     * principal gets dumped as an undifferentiated "prepayment" with no
+     * per-installment ledger entry — loan_master.balance reaches zero, but
+     * due-status/EMI-schedule still show those future installments as
+     * unpaid. This writes a proper ledger entry for every remaining
+     * installment, due or not — future ones principal-only, since interest
+     * on a month that hasn't started is never charged — plus any manual
+     * adjustment, before zeroing the balance.
      */
     async executeEarlyClosure(
         loancaseno: string,
@@ -435,7 +500,7 @@ export class LoanRepaymentService {
 
         try {
             const loanRows = await queryRunner.query(
-                `SELECT mbno, loantype, loan_amt, balance, instal_amt, no_of_instal, penalrate, payment_date, rate
+                `SELECT mbno, loantype, loan_amt, balance, instal_amt, no_of_instal, penalrate, gracedays, smpenalpct, smpenaldiv, payment_date
                  FROM loan_master WHERE loancaseno::text = $1`,
                 [loancaseno]
             );
@@ -453,11 +518,15 @@ export class LoanRepaymentService {
             const loanAmt = parseFloat(loan.loan_amt) || 0;
             const instalAmt = parseFloat(loan.instal_amt) || 0;
             const penalRateAnnual = parseFloat(loan.penalrate) || 0;
+            const graceDayOfMonth = parseInt(loan.gracedays, 10) || 0;
+            const sameMonthPenalPct = parseFloat(loan.smpenalpct) || 0;
+            const sameMonthPenalDivisor = parseFloat(loan.smpenaldiv) || 0;
             const disbursementDate = new Date(loan.payment_date);
             const monthlyPrincipal = noOfInstal > 0 ? loanAmt / noOfInstal : 0;
             const totalInterest = Math.max(0, instalAmt * noOfInstal - loanAmt);
             const monthlyInterest = noOfInstal > 0 ? totalInterest / noOfInstal : 0;
-            const asOfMonthStart = new Date(asOf.getFullYear(), asOf.getMonth(), 1);
+            const asOfYear = asOf.getFullYear();
+            const asOfMonth0 = asOf.getMonth();
 
             const paidRows = await queryRunner.query(
                 `SELECT payment_month, payment_year,
@@ -476,35 +545,40 @@ export class LoanRepaymentService {
 
             let previousOverdueInterest = 0;
             let penalInterest = 0;
-            let lastResolvedDate = disbursementDate;
 
             for (let n = 1; n <= noOfInstal; n++) {
                 const dueDate = new Date(disbursementDate);
                 dueDate.setMonth(dueDate.getMonth() + n);
-                const dueMonthStart = new Date(dueDate.getFullYear(), dueDate.getMonth(), 1);
-                const isDue = dueMonthStart <= asOfMonthStart;
+                // Same month-granular check as getInstallmentStatus() — this loop
+                // is a separate, duplicated implementation (doesn't call that
+                // shared function), so it needs the identical rule or the actual
+                // executed closure would disagree with the quote
+                // calculateEarlyClosure just showed the operator.
+                const monthsAhead = (dueDate.getFullYear() - asOfYear) * 12 + (dueDate.getMonth() - asOfMonth0);
+                const isDue = monthsAhead <= 0;
 
                 const key = `${dueDate.getFullYear()}-${dueDate.getMonth() + 1}`;
                 const paid = paidMap.get(key) || { principal: 0, interest: 0 };
                 const principalDue = Math.max(0, Math.round((monthlyPrincipal - paid.principal) * 100) / 100);
-                // Future scheduled interest is never charged on an early closure.
+                // Interest on a month that hasn't started yet is never charged
+                // — but "hasn't started" now means a genuinely later month, not
+                // merely a later day-of-month within the closure date's own month.
                 const interestDue = isDue ? Math.max(0, Math.round((monthlyInterest - paid.interest) * 100) / 100) : 0;
 
-                if (principalDue <= 0 && interestDue <= 0) {
-                    if (isDue) lastResolvedDate = dueDate;
-                    continue;
-                }
+                if (principalDue <= 0 && interestDue <= 0) continue;
 
                 let penalDue = 0;
                 let monthsOverdue = 0;
                 if (isDue) {
-                    monthsOverdue = Math.max(0, (asOf.getFullYear() - dueDate.getFullYear()) * 12 + (asOf.getMonth() - dueDate.getMonth()));
-                    if (monthsOverdue > 0 && penalRateAnnual > 0) {
-                        penalDue = Math.round(principalDue * (penalRateAnnual / 100 / 12) * monthsOverdue * 100) / 100;
-                    }
+                    const isFullyPaid = principalDue <= 0 && interestDue <= 0;
+                    const tierResult = computeTier(
+                        principalDue, isFullyPaid, dueDate, asOf,
+                        graceDayOfMonth, penalRateAnnual, sameMonthPenalPct, sameMonthPenalDivisor,
+                    );
+                    penalDue = tierResult.penalDue;
+                    monthsOverdue = tierResult.monthsOverdue;
                     previousOverdueInterest += interestDue;
                     penalInterest += penalDue;
-                    lastResolvedDate = dueDate;
                 }
 
                 await queryRunner.query(
@@ -525,19 +599,11 @@ export class LoanRepaymentService {
                 );
             }
 
-            // Reducing-balance interest for the stub period since the last resolved installment.
-            const days = Math.max(0, Math.round((asOf.getTime() - lastResolvedDate.getTime()) / (1000 * 60 * 60 * 24)));
-            const rate = parseFloat(loan.rate) || 0;
-            const actualInterestToDate = Math.round(currentBalance * (rate / 100) * (days / 365) * 100) / 100;
-            if (actualInterestToDate > 0) {
-                await queryRunner.query(
-                    `INSERT INTO loan_repayment_ledger
-                        (mbno, loancaseno, loantype, payment_date, payment_month, payment_year, payment_amount,
-                         principal_amount, interest_amount, penal_amount, months_overdue, receipt_no, narration, posted_by)
-                     VALUES ($1,$2,$3,$4,$5,$6,$7,0,$7,0,0,$8,'Early Closure - Reducing Balance Interest to Closure Date',$9)`,
-                    [loan.mbno, loancaseno, loan.loantype, asOf, asOf.getMonth() + 1, asOf.getFullYear(), actualInterestToDate, receiptNo || null, postedBy]
-                );
-            }
+            // No separate reducing-balance "stub" interest charge any more —
+            // interest is never day-prorated in this system, so the closure
+            // date's own current-month installment already carries its full
+            // flat interest via the loop above (see calculateEarlyClosure's
+            // matching doc comment).
             if (adjustment !== 0) {
                 await queryRunner.query(
                     `INSERT INTO loan_repayment_ledger
@@ -573,7 +639,7 @@ export class LoanRepaymentService {
             }
 
             const finalClosureAmount = Math.round((
-                currentBalance + actualInterestToDate + previousOverdueInterest + penalInterest + adjustment
+                currentBalance + previousOverdueInterest + penalInterest + adjustment
             ) * 100) / 100;
 
             await queryRunner.commitTransaction();
@@ -599,7 +665,7 @@ export class LoanRepaymentService {
      */
     async getDueStatus(loancaseno: string, asOfDate?: Date): Promise<any> {
         const loanRows = await this.dataSource.query(
-            `SELECT mbno, loantype, loan_amt, balance, instal_amt, no_of_instal, penalrate, payment_date
+            `SELECT mbno, loantype, loan_amt, balance, instal_amt, no_of_instal, penalrate, gracedays, smpenalpct, smpenaldiv, payment_date
              FROM loan_master WHERE loancaseno::text = $1`,
             [loancaseno]
         );
@@ -629,6 +695,7 @@ export class LoanRepaymentService {
                     interestDue: i.interestDue,
                     penalDue: i.penalDue,
                     monthsOverdue: i.monthsOverdue,
+                    tier: i.tier,
                 })),
                 totalPrincipalDue,
                 totalInterestDue,

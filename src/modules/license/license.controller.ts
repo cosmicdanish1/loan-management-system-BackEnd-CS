@@ -10,6 +10,7 @@ import {
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { LicenseService } from './license.service';
 import { ActivateLicenseDto } from './dto/license.dto';
+import { Public } from '../auth/decorators/public.decorator';
 
 @ApiTags('License')
 @Controller('license')
@@ -24,6 +25,7 @@ export class LicenseController {
    * safe to call on every app launch without hammering the DB.
    */
   @ApiOperation({ summary: 'Public: current software license status (valid/grace/expired)' })
+  @Public()
   @Get('status')
   @HttpCode(HttpStatus.OK)
   async getStatus() {
@@ -37,6 +39,7 @@ export class LicenseController {
    * Replaces any previously active license on this machine.
    */
   @ApiOperation({ summary: 'Public: activate a license key (self-validating; replaces active license on this machine)' })
+  @Public()
   @Post('activate')
   @HttpCode(HttpStatus.OK)
   async activate(@Body() dto: ActivateLicenseDto) {

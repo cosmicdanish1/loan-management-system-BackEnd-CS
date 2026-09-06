@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Query, Param, ParseIntPipe } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Post, Body, Query, Param, ParseIntPipe } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { NotificationService } from '../services/notification.service';
 import { NotificationChannel } from '../entities/notification-log.entity';
@@ -50,19 +50,27 @@ export class NotificationController {
 
     @ApiOperation({ summary: 'Send a single queued notification by its log id' })
     @Post('send-one/:id')
-    async sendOne(@Param('id', ParseIntPipe) id: number) {
-        return this.notificationService.sendNotification(id);
+    async sendOne(@Param('id', ParseIntPipe) id: number, @Body() data?: { channel?: NotificationChannel }) {
+        return this.notificationService.sendNotification(id, data?.channel);
     }
 
     @ApiOperation({ summary: 'Send a batch of queued notifications by their ids' })
+    // 4.4 fix: a missing/malformed body crashed with 500 "ids is not iterable" /
+    // "parameterValue.value is not iterable" — confirmed live with {} body.
     @Post('send-batch')
-    async sendBatch(@Body() data: { ids: number[] }) {
-        return this.notificationService.sendBatch(data.ids);
+    async sendBatch(@Body() data: { ids: number[]; channel?: NotificationChannel }) {
+        if (!Array.isArray(data?.ids) || data.ids.length === 0) {
+            throw new BadRequestException('ids must be a non-empty array of notification ids');
+        }
+        return this.notificationService.sendBatch(data.ids, data.channel);
     }
 
     @ApiOperation({ summary: 'Cancel a batch of queued notifications by their ids' })
     @Post('cancel-batch')
     async cancelBatch(@Body() data: { ids: number[] }) {
+        if (!Array.isArray(data?.ids) || data.ids.length === 0) {
+            throw new BadRequestException('ids must be a non-empty array of notification ids');
+        }
         return this.notificationService.cancelNotifications(data.ids);
     }
 
@@ -81,6 +89,9 @@ export class NotificationController {
     }
 
     @ApiOperation({ summary: 'Queue a transaction alert notification for a member' })
+    // 4.4 fix: a missing amount crashed with 500 "Cannot read properties of
+    // undefined (reading 'toLocaleString')" inside the service — confirmed live
+    // with {} body.
     @Post('queue-transaction-alert')
     async queueTransactionAlert(@Body() data: {
         memberNo: string;
@@ -89,6 +100,9 @@ export class NotificationController {
         recipient?: string;
         channel?: NotificationChannel;
     }) {
+        if (!data?.memberNo || !data?.transactionType || typeof data?.amount !== 'number') {
+            throw new BadRequestException('memberNo, transactionType, and a numeric amount are required');
+        }
         return this.notificationService.queueTransactionAlert(data);
     }
 }

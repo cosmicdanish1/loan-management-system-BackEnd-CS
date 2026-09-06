@@ -1,9 +1,18 @@
 import * as winston from 'winston';
 import * as DailyRotateFile from 'winston-daily-rotate-file';
 import * as path from 'path';
+import { EventEmitter } from 'events';
 import { ConfigService } from '@nestjs/config';
 import { ClsServiceManager } from 'nestjs-cls';
 import { REDACT_PATTERNS } from './redact';
+
+// We deliberately pipe ~20 transports (6 shared + one DailyRotateFile per
+// DOMAIN_FILES entry) into a single winston Logger. winston.createLogger()
+// pipes each transport into the Logger stream, and stream.pipe() adds a
+// 'data'/'end' listener on the source per destination — past Node's default
+// cap of 10 that trips a spurious MaxListenersExceededWarning on boot, even
+// though the transport count is fixed and never grows at runtime.
+EventEmitter.defaultMaxListeners = Math.max(EventEmitter.defaultMaxListeners, 30);
 
 // Service context → domain log file mapping
 const SERVICE_DOMAIN_MAP: Record<string, string> = {

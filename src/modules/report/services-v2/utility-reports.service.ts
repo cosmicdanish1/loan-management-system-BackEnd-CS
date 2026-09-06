@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { FinancialSummaryDto } from '../dto/financial-summary.dto';
 import { parseSafeDate } from '../../shared/utils/date-utils';
@@ -463,7 +463,8 @@ export class UtilityReportsService {
         break;
 
       default:
-        throw new Error('Unsupported report type');
+        // 5.1 fix: was reaching callers as 500 instead of 400.
+        throw new BadRequestException('Unsupported report type');
     }
 
     const results = await this.dataSource.query(query, params);

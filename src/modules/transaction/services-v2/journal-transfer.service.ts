@@ -29,11 +29,43 @@ export class JournalTransferService {
             throw new BadRequestException('At least two rows with amounts required');
         }
 
+        const normalizedCodes = postingRows.map(row => (row.code || '').toString().trim().toUpperCase());
+        if (normalizedCodes.some(code => !code)) {
+            throw new BadRequestException('Every posting row requires a head code');
+        }
+
         const queryRunner = this.dataSource.createQueryRunner();
         await queryRunner.connect();
         await queryRunner.startTransaction();
 
         try {
+            // Reject any head code that doesn't exist in headmaster — an unvalidated code
+            // silently truncated to 5 chars and posted straight to the ledger, where it can
+            // never join back to a real head in Trial Balance / General Ledger / Balance Sheet.
+            const uniqueCodes = [...new Set(normalizedCodes)];
+            const validHeads = await queryRunner.query(
+                `SELECT code FROM headmaster WHERE UPPER(TRIM(code)) = ANY($1)`, [uniqueCodes]
+            );
+            const validCodeSet = new Set(validHeads.map((h: any) => h.code.toString().trim().toUpperCase()));
+            const invalidCodes = uniqueCodes.filter(code => !validCodeSet.has(code));
+            if (invalidCodes.length > 0) {
+                throw new BadRequestException(`Unknown head code(s): ${invalidCodes.join(', ')}`);
+            }
+
+            // Reject any member number that doesn't exist — an unvalidated mbno posts a
+            // phantom member into the ledger with no way to ever look it up again.
+            const uniqueMbnos = [...new Set(postingRows.filter(r => r.mbno).map(r => r.mbno))];
+            if (uniqueMbnos.length > 0) {
+                const validMembers = await queryRunner.query(
+                    `SELECT mbno FROM member_master WHERE mbno = ANY($1)`, [uniqueMbnos]
+                );
+                const validMbnoSet = new Set(validMembers.map((m: any) => Number(m.mbno)));
+                const invalidMbnos = uniqueMbnos.filter(mbno => !validMbnoSet.has(Number(mbno)));
+                if (invalidMbnos.length > 0) {
+                    throw new BadRequestException(`Unknown member number(s): ${invalidMbnos.join(', ')}`);
+                }
+            }
+
             const voucherNo = await generateVoucherNo(queryRunner, 'J');
 
             // 1. Create Voucher Header — PENDING (not POSTED)
@@ -65,7 +97,7 @@ export class JournalTransferService {
                 const credit = Number(row.credit || 0);
                 const amount = debit > 0 ? debit : credit;
                 const type = debit > 0 ? 'DR' : 'CR';
-                const headCode = (row.code || '').toString().trim().toUpperCase().substring(0, 5);
+                const headCode = (row.code || '').toString().trim().toUpperCase();
 
                 await queryRunner.query(`
                     INSERT INTO transactions (

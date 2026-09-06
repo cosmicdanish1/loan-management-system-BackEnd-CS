@@ -1,11 +1,16 @@
-import { Injectable, Logger, BadRequestException, ConflictException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, ConflictException, NotFoundException, HttpException } from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { UserPreference } from './entities/user-preference.entity';
 import { SystemSetting } from './entities/system-setting.entity';
 import { UpdateUserPreferenceDto } from './dto/update-user-preference.dto';
 import { generateVoucherNo } from '../shared/utils/voucher-utils';
-import { LoanEligibilityService } from '../loan/services-v2/loan-eligibility.service';
+import {
+  LoanEligibilityService,
+  REGULAR_LOAN_RULE_DEFAULTS,
+  REGULAR_LOAN_RULE_KEYS,
+  REGULAR_LOAN_NUMERIC_RULE_KEYS,
+} from '../loan/services-v2/loan-eligibility.service';
 
 @Injectable()
 export class UtilitiesService {
@@ -251,177 +256,170 @@ export class UtilitiesService {
   }
 
   async getLoanRates(): Promise<any[]> {
-    try {
-      this.logger.log('Getting current loan rates from business rules');
+    this.logger.log('Getting current loan rates from business rules');
 
-      const query = `
-        SELECT 
-          'Regular Loan' as name,
-          'RLN' as code,
-          rlnrate as rate,
-          rlnmaxloanamt as max_amount,
-          rlnmaxnoinst as max_tenure,
-          'Standard personal loan with competitive rates' as description
-        FROM busrules 
-        WHERE appdate = (SELECT MAX(appdate) FROM busrules)
-        UNION ALL
-        SELECT 
-          'Emergency Loan' as name,
-          'ELN' as code,
-          elnrate as rate,
-          elnmaxloanamt as max_amount,
-          elnmaxnoinst as max_tenure,
-          'Quick approval for urgent financial needs' as description
-        FROM busrules 
-        WHERE appdate = (SELECT MAX(appdate) FROM busrules)
-        UNION ALL
-        SELECT 
-          'Advance Loan' as name,
-          'ALN' as code,
-          alnrate as rate,
-          alnmaxloanamt as max_amount,
-          alnmaxnoinst as max_tenure,
-          'Salary advance with lower interest rates' as description
-        FROM busrules 
-        WHERE appdate = (SELECT MAX(appdate) FROM busrules)
-        UNION ALL
-        SELECT 
-          'Education Loan' as name,
-          'EDL' as code,
-          edlrate as rate,
-          edlmaxloanamt as max_amount,
-          84 as max_tenure,
-          'Special rates for educational expenses' as description
-        FROM busrules 
-        WHERE appdate = (SELECT MAX(appdate) FROM busrules)
-        UNION ALL
-        SELECT 
-          'Festival Loan' as name,
-          'FLN' as code,
-          flnrate as rate,
-          flnmaxloanamt as max_amount,
-          flnmaxnoinst as max_tenure,
-          'Special loan for festival celebrations' as description
-        FROM busrules 
-        WHERE appdate = (SELECT MAX(appdate) FROM busrules)
-        UNION ALL
-        SELECT 
-          'Special Loan' as name,
-          'SLN' as code,
-          slnrate as rate,
-          slnmaxloanamt as max_amount,
-          slnmaxnoinst as max_tenure,
-          'Special purpose loan with flexible terms' as description
-        FROM busrules 
-        WHERE appdate = (SELECT MAX(appdate) FROM busrules)
-      `;
+    const query = `
+      SELECT
+        'Regular Loan' as name,
+        'RLN' as code,
+        rlnrate as rate,
+        rlnmaxloanamt as max_amount,
+        rlnmaxnoinst as max_tenure,
+        'Standard personal loan with competitive rates' as description
+      FROM busrules
+      WHERE appdate = (SELECT MAX(appdate) FROM busrules)
+      UNION ALL
+      SELECT
+        'Emergency Loan' as name,
+        'ELN' as code,
+        elnrate as rate,
+        elnmaxloanamt as max_amount,
+        elnmaxnoinst as max_tenure,
+        'Quick approval for urgent financial needs' as description
+      FROM busrules
+      WHERE appdate = (SELECT MAX(appdate) FROM busrules)
+      UNION ALL
+      SELECT
+        'Advance Loan' as name,
+        'ALN' as code,
+        alnrate as rate,
+        alnmaxloanamt as max_amount,
+        alnmaxnoinst as max_tenure,
+        'Salary advance with lower interest rates' as description
+      FROM busrules
+      WHERE appdate = (SELECT MAX(appdate) FROM busrules)
+      UNION ALL
+      SELECT
+        'Education Loan' as name,
+        'EDL' as code,
+        edlrate as rate,
+        edlmaxloanamt as max_amount,
+        84 as max_tenure,
+        'Special rates for educational expenses' as description
+      FROM busrules
+      WHERE appdate = (SELECT MAX(appdate) FROM busrules)
+      UNION ALL
+      SELECT
+        'Festival Loan' as name,
+        'FLN' as code,
+        flnrate as rate,
+        flnmaxloanamt as max_amount,
+        flnmaxnoinst as max_tenure,
+        'Special loan for festival celebrations' as description
+      FROM busrules
+      WHERE appdate = (SELECT MAX(appdate) FROM busrules)
+      UNION ALL
+      SELECT
+        'Special Loan' as name,
+        'SLN' as code,
+        slnrate as rate,
+        slnmaxloanamt as max_amount,
+        slnmaxnoinst as max_tenure,
+        'Special purpose loan with flexible terms' as description
+      FROM busrules
+      WHERE appdate = (SELECT MAX(appdate) FROM busrules)
+    `;
 
-      const result = await this.dataSource.query(query);
+    const result = await this.dataSource.query(query);
 
-      // Convert numeric values and filter out null rates
-      const loanTypes = result
-        .filter(loan => loan.rate && parseFloat(loan.rate) > 0)
-        .map(loan => ({
-          name: loan.name,
-          code: loan.code,
-          rate: parseFloat(loan.rate),
-          maxAmount: parseFloat(loan.max_amount || 0),
-          maxTenure: parseInt(loan.max_tenure || 60),
-          description: loan.description
-        }));
+    // Convert numeric values and filter out null/unconfigured rates
+    const loanTypes = result
+      .filter(loan => loan.rate && parseFloat(loan.rate) > 0)
+      .map(loan => ({
+        name: loan.name,
+        code: loan.code,
+        rate: parseFloat(loan.rate),
+        maxAmount: parseFloat(loan.max_amount || 0),
+        maxTenure: parseInt(loan.max_tenure || 60),
+        description: loan.description
+      }));
 
-      this.logger.log(`Found ${loanTypes.length} loan types with rates`);
-      return loanTypes;
-
-    } catch (error) {
-      this.logger.error('Error getting loan rates:', error);
-      return [];
-    }
+    this.logger.log(`Found ${loanTypes.length} loan types with configured rates`);
+    return loanTypes;
   }
 
   async getMemberEligibility(memberNo: string): Promise<any> {
-    try {
-      this.logger.log(`Getting loan eligibility for member: ${memberNo}`);
+    this.logger.log(`Getting loan eligibility for member: ${memberNo}`);
 
-      // Get member basic info
-      const memberQuery = `
-        SELECT 
-          mm.mbno,
-          CONCAT(mm.f_name, ' ', COALESCE(mm.m_name, ''), ' ', mm.l_name) as name,
-          mm.basic_pay,
-          mm.dept_name
-        FROM member_master mm
-        WHERE mm.mbno = $1
-      `;
+    // Get member basic info
+    const memberQuery = `
+      SELECT
+        mm.mbno,
+        CONCAT(mm.f_name, ' ', COALESCE(mm.m_name, ''), ' ', mm.l_name) as name,
+        mm.basic_pay,
+        mm.dept_name
+      FROM member_master mm
+      WHERE mm.mbno = $1
+    `;
 
-      const memberResult = await this.dataSource.query(memberQuery, [parseInt(memberNo)]);
+    const memberResult = await this.dataSource.query(memberQuery, [parseInt(memberNo)]);
 
-      if (memberResult.length === 0) {
-        return null;
-      }
-
-      const member = memberResult[0];
-
-      // Get active loans
-      const loanQuery = `
-        SELECT 
-          COUNT(*) as active_loans,
-          COALESCE(SUM(balance::numeric), 0) as total_outstanding,
-          COALESCE(SUM(instal_amt::numeric), 0) as total_emi
-        FROM loan_master 
-        WHERE mbno = $1 
-        AND balance::numeric > 0
-      `;
-
-      const loanResult = await this.dataSource.query(loanQuery, [parseInt(memberNo)]);
-      const loanSummary = loanResult[0] || { active_loans: 0, total_outstanding: 0, total_emi: 0 };
-
-      // Get business rules for eligibility calculation
-      const businessRulesQuery = `
-        SELECT 
-          COALESCE(loanmaxlimit, 500000) as loanmaxlimit,
-          COALESCE(loanagainstbasic, 10) as loanagainstbasic,
-          COALESCE(loanagainstdeppercent, 80) as loanagainstdeppercent
-        FROM busrules 
-        WHERE appdate = (SELECT MAX(appdate) FROM busrules)
-        LIMIT 1
-      `;
-
-      const businessRules = await this.dataSource.query(businessRulesQuery);
-      const rules = businessRules[0] || {
-        loanmaxlimit: 500000,
-        loanagainstbasic: 10,
-        loanagainstdeppercent: 80
-      };
-
-      // Calculate eligibility
-      const basicPay = parseFloat(member.basic_pay || 0);
-      const maxLoanLimit = parseFloat(rules.loanmaxlimit || 500000);
-      const loanAgainstBasic = parseFloat(rules.loanagainstbasic || 10);
-
-      // If basic pay is 0, use a default eligibility of 50,000
-      const eligibleBasedOnSalary = basicPay > 0 ? basicPay * loanAgainstBasic : 50000;
-      const maxEligible = Math.min(eligibleBasedOnSalary, maxLoanLimit);
-      const currentOutstanding = parseFloat(loanSummary.total_outstanding);
-      const availableEligibility = Math.max(0, maxEligible - currentOutstanding);
-
-      return {
-        memberNo: member.mbno,
-        name: member.name,
-        basicPay: basicPay,
-        department: member.dept_name,
-        activeLoans: parseInt(loanSummary.active_loans),
-        totalOutstanding: currentOutstanding,
-        totalEMI: parseFloat(loanSummary.total_emi),
-        maxEligibleAmount: maxEligible,
-        availableEligibility: availableEligibility,
-        eligibilityPercentage: maxEligible > 0 ? ((availableEligibility / maxEligible) * 100).toFixed(1) : 0
-      };
-
-    } catch (error) {
-      this.logger.error(`Error getting member eligibility for ${memberNo}:`, error);
+    if (memberResult.length === 0) {
       return null;
     }
+
+    const member = memberResult[0];
+
+    // Get active loans
+    const loanQuery = `
+      SELECT
+        COUNT(*) as active_loans,
+        COALESCE(SUM(balance::numeric), 0) as total_outstanding,
+        COALESCE(SUM(instal_amt::numeric), 0) as total_emi
+      FROM loan_master
+      WHERE mbno = $1
+      AND balance::numeric > 0
+    `;
+
+    const loanResult = await this.dataSource.query(loanQuery, [parseInt(memberNo)]);
+    const loanSummary = loanResult[0] || { active_loans: 0, total_outstanding: 0, total_emi: 0 };
+
+    // Get business rules for eligibility calculation. NULLIF guards a
+    // *configured* 0 (busrules row exists but nobody has set a real value
+    // yet) the same way COALESCE alone only guards an actually-NULL column —
+    // without it, a real live busrules row of all zeros silently overrides
+    // these fallback defaults with 0, capping every member's eligibility at
+    // ₹0 regardless of salary.
+    const businessRulesQuery = `
+      SELECT
+        COALESCE(NULLIF(loanmaxlimit, 0), 500000) as loanmaxlimit,
+        COALESCE(NULLIF(loanagainstbasic, 0), 10) as loanagainstbasic,
+        COALESCE(NULLIF(loanagainstdeppercent, 0), 80) as loanagainstdeppercent
+      FROM busrules
+      WHERE appdate = (SELECT MAX(appdate) FROM busrules)
+      LIMIT 1
+    `;
+
+    const businessRules = await this.dataSource.query(businessRulesQuery);
+    const rules = businessRules[0] || {
+      loanmaxlimit: 500000,
+      loanagainstbasic: 10,
+      loanagainstdeppercent: 80
+    };
+
+    // Calculate eligibility
+    const basicPay = parseFloat(member.basic_pay || 0);
+    const maxLoanLimit = parseFloat(rules.loanmaxlimit || 500000);
+    const loanAgainstBasic = parseFloat(rules.loanagainstbasic || 10);
+
+    // If basic pay is 0, use a default eligibility of 50,000
+    const eligibleBasedOnSalary = basicPay > 0 ? basicPay * loanAgainstBasic : 50000;
+    const maxEligible = Math.min(eligibleBasedOnSalary, maxLoanLimit);
+    const currentOutstanding = parseFloat(loanSummary.total_outstanding);
+    const availableEligibility = Math.max(0, maxEligible - currentOutstanding);
+
+    return {
+      memberNo: member.mbno,
+      name: member.name,
+      basicPay: basicPay,
+      department: member.dept_name,
+      activeLoans: parseInt(loanSummary.active_loans),
+      totalOutstanding: currentOutstanding,
+      totalEMI: parseFloat(loanSummary.total_emi),
+      maxEligibleAmount: maxEligible,
+      availableEligibility: availableEligibility,
+      eligibilityPercentage: maxEligible > 0 ? ((availableEligibility / maxEligible) * 100).toFixed(1) : 0
+    };
   }
 
   /**
@@ -555,7 +553,8 @@ export class UtilitiesService {
       );
 
       if (!accountResult || accountResult.length === 0) {
-        throw new Error(`Account ${data.accountNo} not found`);
+        // 5.1 fix: was reaching callers as 500 instead of 404.
+        throw new NotFoundException(`Account ${data.accountNo} not found`);
       }
 
       const account = accountResult[0];
@@ -705,6 +704,9 @@ export class UtilitiesService {
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error(`[SavingTxn] Failed:`, error);
+      // 5.1 fix: don't downgrade an already-typed rejection (e.g. the 404 above)
+      // to a generic Error, which the exception filter always maps to 500.
+      if (error instanceof HttpException) throw error;
       throw new Error(`Failed to save transaction: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       await queryRunner.release();
@@ -819,6 +821,33 @@ export class UtilitiesService {
     try {
       this.logger.log(`[FDInterest] Posting interest for FD ${data.accountNumber} amount=${data.interestAmount}`);
 
+      // BUG FIX: no existence/ownership/status/amount-sanity check existed — confirmed
+      // live that a completely nonexistent accountNumber still posted a fully balanced
+      // real ledger voucher (fdmaster silently untouched), that a closed FD (status<>'0')
+      // still accepted a payout, and that an absurd interestAmount (e.g. 999999999 against
+      // a ₹50 FD) was accepted outright with no bound. Same phantom-posting bug class
+      // already fixed for closeFixedDeposit; never applied to this sibling function.
+      const fd = await queryRunner.query(
+        `SELECT account_number, mbno, status, fdamount FROM fdmaster WHERE account_number = $1 AND fdrdflag = 'F'`,
+        [data.accountNumber]
+      );
+      if (fd.length === 0) {
+        throw new NotFoundException(`FD account ${data.accountNumber} not found`);
+      }
+      if (Number(fd[0].mbno) !== Number(data.memberNo)) {
+        throw new BadRequestException(`FD account ${data.accountNumber} does not belong to member ${data.memberNo}`);
+      }
+      if (fd[0].status !== '0') {
+        throw new BadRequestException(`FD account ${data.accountNumber} is not active (status: ${fd[0].status}) — cannot post interest`);
+      }
+      // Sanity ceiling, not a full accrual recompute (that engine is a separate, already
+      // flagged subsystem) — generously covers realistic long-tenor compound growth while
+      // still rejecting orders-of-magnitude overpayment like the one confirmed live above.
+      const maxSaneInterest = Number(fd[0].fdamount) * 50;
+      if (interestAmount > maxSaneInterest) {
+        throw new BadRequestException(`Interest amount ${interestAmount} is implausibly large for FD principal ${fd[0].fdamount} — rejected`);
+      }
+
       // BUG FIX 46: unguarded MAX()+1 — same systemic concurrency gap fixed
       // elsewhere this session.
       await queryRunner.query(`SELECT pg_advisory_xact_lock(hashtext('ledger'))`);
@@ -872,6 +901,10 @@ export class UtilitiesService {
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error(`[FDInterest] Failed:`, error);
+      // BUG FIX: this used to wrap everything (including the validation exceptions
+      // above) in a generic Error, which NestJS reports as a 500 — losing the intended
+      // 400/404 status. Rethrow HttpException as-is, same as payFdInterest's catch below.
+      if (error instanceof HttpException) throw error;
       throw new Error(`Failed to post FD interest: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       await queryRunner.release();
@@ -904,7 +937,28 @@ export class UtilitiesService {
 
     try {
       const amount = Number(data.interestAmount) || 0;
-      if (amount <= 0) throw new Error('Interest amount must be greater than zero');
+      if (amount <= 0) throw new BadRequestException('Interest amount must be greater than zero');
+
+      // BUG FIX: same phantom-payout gap as postFdInterestVoucher above — confirmed live
+      // that a nonexistent accountNumber, a closed FD, and an absurd amount (999999999
+      // against a ₹50 FD) were all accepted and posted a real balanced voucher.
+      const fd = await queryRunner.query(
+        `SELECT account_number, mbno, status, fdamount FROM fdmaster WHERE account_number = $1 AND fdrdflag = 'F'`,
+        [data.accountNumber]
+      );
+      if (fd.length === 0) {
+        throw new NotFoundException(`FD account ${data.accountNumber} not found`);
+      }
+      if (Number(fd[0].mbno) !== Number(data.memberNo)) {
+        throw new BadRequestException(`FD account ${data.accountNumber} does not belong to member ${data.memberNo}`);
+      }
+      if (fd[0].status !== '0') {
+        throw new BadRequestException(`FD account ${data.accountNumber} is not active (status: ${fd[0].status}) — cannot pay interest`);
+      }
+      const maxSaneInterest = Number(fd[0].fdamount) * 50;
+      if (amount > maxSaneInterest) {
+        throw new BadRequestException(`Interest amount ${amount} is implausibly large for FD principal ${fd[0].fdamount} — rejected`);
+      }
 
       // BUG FIX: missing the same advisory lock its sibling postFdInterestVoucher
       // (just above) already has — inconsistent gap in the same fix batch.
@@ -950,6 +1004,7 @@ export class UtilitiesService {
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error(`[FDInterest] Payout failed:`, error);
+      if (error instanceof HttpException) throw error;
       throw new Error(`Failed to pay FD interest: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       await queryRunner.release();
@@ -1003,6 +1058,12 @@ export class UtilitiesService {
       errors.push('Rate must be a valid non-negative number');
     }
     if (!data.depositDate) errors.push('Deposit Date is required');
+    // BUG FIX: certno is varchar(10) in fdmaster — an over-length certificate number
+    // used to reach the INSERT and crash with a raw Postgres "value too long" 500
+    // instead of a clean validation error. Confirmed live.
+    if (data.certificateNo && data.certificateNo.length > 10) {
+      errors.push('Certificate No must be 10 characters or fewer');
+    }
     if (errors.length > 0) {
       throw new BadRequestException(errors);
     }
@@ -1926,7 +1987,7 @@ export class UtilitiesService {
         `SELECT COUNT(*)::int AS cnt FROM headmaster WHERE parent_code = $1`, [code]
       );
       if (children[0].cnt > 0) {
-        throw new Error(`${code} has ${children[0].cnt} child heads — remove children first.`);
+        throw new ConflictException(`${code} has ${children[0].cnt} child heads — remove children first.`);
       }
       // BUG FIX: deleting a head with real ledger postings would silently drop
       // those transactions from every future rebuildBalancesheet() run — it
@@ -1937,7 +1998,7 @@ export class UtilitiesService {
         `SELECT COUNT(*)::int AS cnt FROM ledger WHERE code = $1`, [code]
       );
       if (postings[0].cnt > 0) {
-        throw new Error(`${code} has ${postings[0].cnt} ledger transaction(s) posted against it — cannot delete.`);
+        throw new ConflictException(`${code} has ${postings[0].cnt} ledger transaction(s) posted against it — cannot delete.`);
       }
       await queryRunner.query(`DELETE FROM headmaster   WHERE code      = $1`, [code]);
       await queryRunner.query(`DELETE FROM balancesheet WHERE head_code = $1`, [code]);
@@ -1946,6 +2007,7 @@ export class UtilitiesService {
       return { success: true, message: `${code} deleted successfully.` };
     } catch (error) {
       await queryRunner.rollbackTransaction();
+      if (error instanceof HttpException) throw error;
       throw new Error(error instanceof Error ? error.message : 'Delete failed');
     } finally {
       await queryRunner.release();
@@ -1954,7 +2016,7 @@ export class UtilitiesService {
 
   async saveHeadMaster(data: any): Promise<{ success: boolean; message: string }> {
     if (!data.pflag || !String(data.pflag).trim()) {
-      throw new Error('pflag is required (A=Asset, L=Liability, I=Income, E=Expenditure, R=Root)');
+      throw new BadRequestException('pflag is required (A=Asset, L=Liability, I=Income, E=Expenditure, R=Root)');
     }
 
     const queryRunner = this.dataSource.createQueryRunner();
@@ -2109,34 +2171,58 @@ export class UtilitiesService {
     if (!result || result.length === 0) return {};
     const d = result[0];
 
+    // BUG FIX: every numeric column here was handed to the frontend exactly as
+    // the pg driver produced it — a *string* ("7.00", and critically "0.00").
+    // useBusinessRules.ts picks its hardcoded default with `d.X || default`,
+    // and a non-empty string is truthy in JS, so a stored 0 pinned the field at
+    // 0 and the default could never take over. Combined with the append-only
+    // save (which re-inserts whatever the screen is showing), one all-zero row
+    // made the zeros permanent and self-reinforcing — which is exactly what
+    // happened across sixteen consecutive saves on 2026-08-21/22.
+    // Returning real numbers lets the frontend distinguish "configured 0" from
+    // "not configured" with a nullish check instead of a truthiness one.
+    const n = (v: any): number | undefined =>
+      v === null || v === undefined || v === '' ? undefined : Number(v);
+
     // Map real DB columns → frontend field names
     return {
-      RULE_LOAN_R_MAX_AMT: d.rlnmaxloanamt,
-      RULE_LOAN_R_RATE: d.rlnrate,
-      RULE_LOAN_R_INSTALLMENTS: d.rlnmaxnoinst,
-      RULE_LOAN_R_GUARANTORS: d.rlnnogr,
+      RULE_LOAN_R_MAX_AMT: n(d.rlnmaxloanamt),
+      RULE_LOAN_R_RATE: n(d.rlnrate),
+      RULE_LOAN_R_INSTALLMENTS: n(d.rlnmaxnoinst),
+      RULE_LOAN_R_GUARANTORS: n(d.rlnnogr),
 
-      RULE_LOAN_LT_MAX_AMT: d.alnmaxloanamt,
-      RULE_LOAN_LT_RATE: d.alnrate,
-      RULE_LOAN_LT_INSTALLMENTS: d.alnmaxnoinst,
-      RULE_LOAN_LT_GUARANTORS: d.alnnogr,
-      RULE_LOAN_LT_PENAL_RATE: d.alnpenalrate,
+      // aln* is the ADDITIONAL loan (that is how voucher.service.ts prices an
+      // 'A'/'ADD'/'ALN' loan), so these are exposed under RULE_LOAN_ADD_*. They
+      // used to be served as RULE_LOAN_LT_* ("long term") and rendered on a card
+      // labelled "Regular Loan", while the separate RULE_LOAN_ADD_* keys the
+      // frontend already asked for were answered by nothing at all.
+      RULE_LOAN_ADD_MAX_AMT: n(d.alnmaxloanamt),
+      RULE_LOAN_ADD_RATE: n(d.alnrate),
+      RULE_LOAN_ADD_INSTALLMENTS: n(d.alnmaxnoinst),
+      RULE_LOAN_ADD_GUARANTORS: n(d.alnnogr),
+      RULE_LOAN_ADD_PENAL_RATE: n(d.alnpenalrate),
+      RULE_LOAN_ADD_GRACE_DAYS: n(d.alngracedays),
+      RULE_LOAN_ADD_SM_PCT: n(d.alnsmpct),
+      RULE_LOAN_ADD_SM_DIV: n(d.alnsmdiv),
 
-      RULE_LOAN_MT_MAX_AMT: d.mlnmaxloanamt,
-      RULE_LOAN_MT_RATE: d.mlnrate,
-      RULE_LOAN_MT_INSTALLMENTS: d.mlnmaxnoinst,
-      RULE_LOAN_MT_GUARANTORS: d.mlnnogr,
+      RULE_LOAN_MT_MAX_AMT: n(d.mlnmaxloanamt),
+      RULE_LOAN_MT_RATE: n(d.mlnrate),
+      RULE_LOAN_MT_INSTALLMENTS: n(d.mlnmaxnoinst),
+      RULE_LOAN_MT_GUARANTORS: n(d.mlnnogr),
 
-      RULE_LOAN_EMG_MAX_AMT: d.elnmaxloanamt,
-      RULE_LOAN_EMG_RATE: d.elnrate,
-      RULE_LOAN_EMG_INSTALLMENTS: d.elnmaxnoinst,
-      RULE_LOAN_EMG_GUARANTORS: d.elnnogr,
-      RULE_LOAN_EMG_PENAL_RATE: d.elnpenalrate,
+      RULE_LOAN_EMG_MAX_AMT: n(d.elnmaxloanamt),
+      RULE_LOAN_EMG_RATE: n(d.elnrate),
+      RULE_LOAN_EMG_INSTALLMENTS: n(d.elnmaxnoinst),
+      RULE_LOAN_EMG_GUARANTORS: n(d.elnnogr),
+      RULE_LOAN_EMG_PENAL_RATE: n(d.elnpenalrate),
+      RULE_LOAN_EMG_GRACE_DAYS: n(d.elngracedays),
+      RULE_LOAN_EMG_SM_PCT: n(d.elnsmpct),
+      RULE_LOAN_EMG_SM_DIV: n(d.elnsmdiv),
 
-      RULE_LOAN_DEP_MAX_AMT: d.edlmaxloanamt,
-      RULE_LOAN_DEP_RATE: d.edlrate,
-      RULE_LOAN_DEP_INSTALLMENTS: d.edlmaxnoinst,
-      RULE_LOAN_DEP_GUARANTORS: d.edlnogr,
+      RULE_LOAN_DEP_MAX_AMT: n(d.edlmaxloanamt),
+      RULE_LOAN_DEP_RATE: n(d.edlrate),
+      RULE_LOAN_DEP_INSTALLMENTS: n(d.edlmaxnoinst),
+      RULE_LOAN_DEP_GUARANTORS: n(d.edlnogr),
 
       // BUG FIX: "Share Value %" and "Basic Pay" both read the same column
       // (loanagainstbasic) — but that column name matches its sibling
@@ -2147,27 +2233,30 @@ export class UtilitiesService {
       // this legacy schema — it stays unbacked (frontend default 0) until a
       // real head/column is identified.
       RULE_LOAN_DEP_SHARE_VAL_PCT: undefined,
-      RULE_LOAN_DEP_FD_PCT: d.loanagainstdeppercent,
-      RULE_LOAN_DEP_OVERALL_LIMIT: d.loanmaxlimit,
-      RULE_LOAN_DEP_BASIC_PAY: d.loanagainstbasic,
+      RULE_LOAN_DEP_FD_PCT: n(d.loanagainstdeppercent),
+      RULE_LOAN_DEP_OVERALL_LIMIT: n(d.loanmaxlimit),
+      RULE_LOAN_DEP_BASIC_PAY: n(d.loanagainstbasic),
 
-      RULE_MEMBER_MIN_TENURE_MONTHS: d.minmembship,
-      RULE_SHARE_MIN_AMT: d.minshareamt,
-      RULE_SHARE_MAX_AMT: d.maxshareamt,
-      RULE_CD_MIN_AMT: d.mincdamt,
-      RULE_CD_MAX_AMT: d.maxcdamt,
+      RULE_MEMBER_MIN_TENURE_MONTHS: n(d.minmembship),
+      RULE_SHARE_MIN_AMT: n(d.minshareamt),
+      RULE_SHARE_MAX_AMT: n(d.maxshareamt),
+      RULE_CD_MIN_AMT: n(d.mincdamt),
+      RULE_CD_MAX_AMT: n(d.maxcdamt),
       RULE_SECURITY_DEP_AMT: 0,
-      RULE_PENAL_RATE: d.rlnpenalrate,
+      RULE_PENAL_RATE: n(d.rlnpenalrate),
+      RULE_LOAN_R_GRACE_DAYS: n(d.rlngracedays),
+      RULE_LOAN_R_SM_PCT: n(d.rlnsmpct),
+      RULE_LOAN_R_SM_DIV: n(d.rlnsmdiv),
 
       SYS_DATA_ENTRY_MODE: d.dataentryflag === 'Y',
       SYS_PRINT_DEMAND_HORIZONTAL: d.print_demand_horizontal === 'Y',
       SYS_CONSIDER_INT_BEFORE_10TH: d.considerintt === 'Y',
       SYS_USE_REDUCING_BALANCE: d.reducingbal_intt_calc === 'Y' || Number(d.reducingbal_intt_calc) === 1,
-      SYS_MIN_SAVINGS_BALANCE: d.minsavingbalance,
+      SYS_MIN_SAVINGS_BALANCE: n(d.minsavingbalance),
       SYS_SHOW_CONSOLIDATED_INT_IN_DEMAND: d.consolidateinttamountindemand === 'Y' || Number(d.consolidateinttamountindemand) === 1,
       SYS_GET_WORKING_CHARGES: false,
       SYS_WORKING_CHARGES_AMT: 0,
-      SYS_AVG_INT_CALC_SLOT: d.intt_slot,
+      SYS_AVG_INT_CALC_SLOT: n(d.intt_slot),
       SYS_PROFIT_HEAD: d.profit_head_code || '',
 
       ...await this.fetchSystemConfigRules(),
@@ -2175,7 +2264,15 @@ export class UtilitiesService {
   }
 
   private async fetchSystemConfigRules(): Promise<Record<string, any>> {
-    const keys = ['RULE_FUND_INT_RATE', 'RULE_DIVIDEND_PCT', 'RULE_GRP_INSURANCE_AMT', 'RULE_CD_INTEREST_CHART'];
+    const keys = [
+      'RULE_FUND_INT_RATE', 'RULE_DIVIDEND_PCT', 'RULE_GRP_INSURANCE_AMT', 'RULE_CD_INTEREST_CHART',
+      // Regular Loan eligibility rules — these live in system_configs (not the
+      // legacy busrules table) because that is where the loan services read
+      // them from. Surfacing them here is what makes them editable from the
+      // Modify Business Rules screen at all; previously the screen only ever
+      // wrote busrules, so edits to loan limits had no effect on enforcement.
+      ...REGULAR_LOAN_RULE_KEYS,
+    ];
     const rows = await this.dataSource.query(
       `SELECT key, value, "dataType" FROM system_configs WHERE key = ANY($1) AND "isActive" = true`,
       [keys]
@@ -2185,6 +2282,7 @@ export class UtilitiesService {
       RULE_DIVIDEND_PCT: 0,
       RULE_GRP_INSURANCE_AMT: 0,
       RULE_CD_INTEREST_CHART: '[]',
+      ...REGULAR_LOAN_RULE_DEFAULTS,
     };
     for (const row of rows) {
       if (row.dataType === 'number' || row.dataType === 'percentage') {
@@ -2204,6 +2302,45 @@ export class UtilitiesService {
     await queryRunner.startTransaction();
 
     try {
+      // BUG FIX: every value below was `data.KEY || 0`, which cannot tell a
+      // deliberate 0 from a key the payload never carried — and because this
+      // table is append-only (each save writes a WHOLE new row that then
+      // becomes the one every reader takes), one request missing its keys
+      // silently replaced the entire policy with zeros. That is how sixteen
+      // consecutive all-zero rows landed on 2026-08-21/22, wiping rates,
+      // limits, tenure and deposit rules in one go.
+      // Now an absent key carries the previous row's value forward and only an
+      // explicitly supplied value overwrites it, so a partial payload can
+      // degrade to "no change" instead of "everything zeroed". An explicit 0
+      // still saves as 0 — that distinction is the whole point.
+      const prevRows = await queryRunner.query(
+        `SELECT * FROM busrules ORDER BY appdate DESC LIMIT 1`
+      );
+      const prev = prevRows[0] || {};
+
+      /** Supplied value wins; otherwise keep what the current policy row holds; otherwise 0. */
+      const num = (key: string, column: string): number => {
+        const v = data[key];
+        if (v !== undefined && v !== null && v !== '' && !isNaN(Number(v))) return Number(v);
+        const p = prev[column];
+        return p === undefined || p === null || p === '' ? 0 : Number(p);
+      };
+      /** Same rule for the 'Y'/'N' and 1/0 flag columns. */
+      const flag = (key: string, column: string, truthy: any, falsy: any): any => {
+        const v = data[key];
+        if (v !== undefined && v !== null) return v ? truthy : falsy;
+        const p = prev[column];
+        return p === undefined || p === null ? falsy : p;
+      };
+      // Text is the one case where '' must NOT mean "absent" — clearing the
+      // Profit Head box is a deliberate edit, so an empty string saves as NULL
+      // rather than silently restoring the previous head.
+      const text = (key: string, column: string): string | null => {
+        const v = data[key];
+        if (v !== undefined && v !== null) return v === '' ? null : String(v);
+        return prev[column] ?? null;
+      };
+
       // Insert a new busrules row with updated values (legacy pattern — each save creates new row)
       await queryRunner.query(
         `INSERT INTO busrules (
@@ -2217,7 +2354,9 @@ export class UtilitiesService {
           loanmaxlimit, loanagainstbasic, loanagainstdeppercent,
           dataentryflag, print_demand_horizontal, reducingbal_intt_calc,
           minsavingbalance, consolidateinttamountindemand, considerintt,
-          intt_slot, profit_head_code, defaultduration
+          intt_slot, profit_head_code, defaultduration,
+          rlngracedays, elngracedays, alngracedays,
+          rlnsmpct, elnsmpct, alnsmpct, rlnsmdiv, elnsmdiv, alnsmdiv
         ) VALUES (
           NOW(),
           $1, $2, $3, $4, $5,
@@ -2229,30 +2368,67 @@ export class UtilitiesService {
           $29, $30, $31,
           $32, $33, $34,
           $35, $36, $37,
-          $38, $39, $40
+          $38, $39, $40,
+          $41, $42, $43,
+          $44, $45, $46, $47, $48, $49
         )`,
         [
-          data.RULE_LOAN_R_MAX_AMT || 0, data.RULE_LOAN_R_RATE || 0, data.RULE_PENAL_RATE || 0, data.RULE_LOAN_R_INSTALLMENTS || 0, data.RULE_LOAN_R_GUARANTORS || 0,
-          data.RULE_LOAN_EMG_MAX_AMT || 0, data.RULE_LOAN_EMG_RATE || 0, data.RULE_LOAN_EMG_PENAL_RATE || 0, data.RULE_LOAN_EMG_INSTALLMENTS || 0, data.RULE_LOAN_EMG_GUARANTORS || 0,
-          data.RULE_LOAN_LT_MAX_AMT || 0, data.RULE_LOAN_LT_RATE || 0, data.RULE_LOAN_LT_PENAL_RATE || 0, data.RULE_LOAN_LT_INSTALLMENTS || 0, data.RULE_LOAN_LT_GUARANTORS || 0,
-          data.RULE_LOAN_MT_MAX_AMT || 0, data.RULE_LOAN_MT_RATE || 0, data.RULE_LOAN_MT_INSTALLMENTS || 0, data.RULE_LOAN_MT_GUARANTORS || 0,
-          data.RULE_LOAN_DEP_MAX_AMT || 0, data.RULE_LOAN_DEP_RATE || 0, data.RULE_LOAN_DEP_INSTALLMENTS || 0, data.RULE_LOAN_DEP_GUARANTORS || 0,
-          data.RULE_MEMBER_MIN_TENURE_MONTHS || 0, data.RULE_SHARE_MIN_AMT || 0, data.RULE_SHARE_MAX_AMT || 0, data.RULE_CD_MIN_AMT || 0, data.RULE_CD_MAX_AMT || 0,
+          num('RULE_LOAN_R_MAX_AMT', 'rlnmaxloanamt'), num('RULE_LOAN_R_RATE', 'rlnrate'), num('RULE_PENAL_RATE', 'rlnpenalrate'), num('RULE_LOAN_R_INSTALLMENTS', 'rlnmaxnoinst'), num('RULE_LOAN_R_GUARANTORS', 'rlnnogr'),
+          num('RULE_LOAN_EMG_MAX_AMT', 'elnmaxloanamt'), num('RULE_LOAN_EMG_RATE', 'elnrate'), num('RULE_LOAN_EMG_PENAL_RATE', 'elnpenalrate'), num('RULE_LOAN_EMG_INSTALLMENTS', 'elnmaxnoinst'), num('RULE_LOAN_EMG_GUARANTORS', 'elnnogr'),
+          num('RULE_LOAN_ADD_MAX_AMT', 'alnmaxloanamt'), num('RULE_LOAN_ADD_RATE', 'alnrate'), num('RULE_LOAN_ADD_PENAL_RATE', 'alnpenalrate'), num('RULE_LOAN_ADD_INSTALLMENTS', 'alnmaxnoinst'), num('RULE_LOAN_ADD_GUARANTORS', 'alnnogr'),
+          num('RULE_LOAN_MT_MAX_AMT', 'mlnmaxloanamt'), num('RULE_LOAN_MT_RATE', 'mlnrate'), num('RULE_LOAN_MT_INSTALLMENTS', 'mlnmaxnoinst'), num('RULE_LOAN_MT_GUARANTORS', 'mlnnogr'),
+          num('RULE_LOAN_DEP_MAX_AMT', 'edlmaxloanamt'), num('RULE_LOAN_DEP_RATE', 'edlrate'), num('RULE_LOAN_DEP_INSTALLMENTS', 'edlmaxnoinst'), num('RULE_LOAN_DEP_GUARANTORS', 'edlnogr'),
+          num('RULE_MEMBER_MIN_TENURE_MONTHS', 'minmembship'), num('RULE_SHARE_MIN_AMT', 'minshareamt'), num('RULE_SHARE_MAX_AMT', 'maxshareamt'), num('RULE_CD_MIN_AMT', 'mincdamt'), num('RULE_CD_MAX_AMT', 'maxcdamt'),
           // BUG FIX: this column (loanagainstbasic) is "Basic Pay", not "Share
           // Value %" — see the read-side comment above for the naming evidence.
           // "Basic Pay" edits were previously never saved at all.
-          data.RULE_LOAN_DEP_OVERALL_LIMIT || 0, data.RULE_LOAN_DEP_BASIC_PAY || 0, data.RULE_LOAN_DEP_FD_PCT || 0,
-          data.SYS_DATA_ENTRY_MODE ? 'Y' : 'N',
-          data.SYS_PRINT_DEMAND_HORIZONTAL ? 'Y' : 'N',
-          data.SYS_USE_REDUCING_BALANCE ? 1 : 0,
-          data.SYS_MIN_SAVINGS_BALANCE || 0,
-          data.SYS_SHOW_CONSOLIDATED_INT_IN_DEMAND ? 1 : 0,
-          data.SYS_CONSIDER_INT_BEFORE_10TH ? 'Y' : 'N',
-          data.SYS_AVG_INT_CALC_SLOT || 0,
-          data.SYS_PROFIT_HEAD || null,
+          num('RULE_LOAN_DEP_OVERALL_LIMIT', 'loanmaxlimit'), num('RULE_LOAN_DEP_BASIC_PAY', 'loanagainstbasic'), num('RULE_LOAN_DEP_FD_PCT', 'loanagainstdeppercent'),
+          flag('SYS_DATA_ENTRY_MODE', 'dataentryflag', 'Y', 'N'),
+          flag('SYS_PRINT_DEMAND_HORIZONTAL', 'print_demand_horizontal', 'Y', 'N'),
+          flag('SYS_USE_REDUCING_BALANCE', 'reducingbal_intt_calc', 1, 0),
+          num('SYS_MIN_SAVINGS_BALANCE', 'minsavingbalance'),
+          flag('SYS_SHOW_CONSOLIDATED_INT_IN_DEMAND', 'consolidateinttamountindemand', 1, 0),
+          flag('SYS_CONSIDER_INT_BEFORE_10TH', 'considerintt', 'Y', 'N'),
+          num('SYS_AVG_INT_CALC_SLOT', 'intt_slot'),
+          text('SYS_PROFIT_HEAD', 'profit_head_code'),
           0, // defaultduration — NOT NULL, default 0
+          num('RULE_LOAN_R_GRACE_DAYS', 'rlngracedays'), num('RULE_LOAN_EMG_GRACE_DAYS', 'elngracedays'), num('RULE_LOAN_ADD_GRACE_DAYS', 'alngracedays'),
+          num('RULE_LOAN_R_SM_PCT', 'rlnsmpct'), num('RULE_LOAN_EMG_SM_PCT', 'elnsmpct'), num('RULE_LOAN_ADD_SM_PCT', 'alnsmpct'),
+          num('RULE_LOAN_R_SM_DIV', 'rlnsmdiv'), num('RULE_LOAN_EMG_SM_DIV', 'elnsmdiv'), num('RULE_LOAN_ADD_SM_DIV', 'alnsmdiv'),
         ]
       );
+
+      // Regular Loan eligibility rules are read by the loan services from
+      // system_configs, not from busrules — persist them there so an edit on
+      // this screen actually changes what gets enforced. Without this the
+      // screen and the enforcement path read two different stores and a saved
+      // limit silently had no effect.
+      // system_configs.key has NO unique constraint (verified against
+      // pg_constraint), so ON CONFLICT (key) is not available here — update
+      // first, insert only when the key has never been stored. The advisory
+      // lock serialises concurrent saves so two admins can't both miss the
+      // UPDATE and each insert a duplicate row.
+      await queryRunner.query(`SELECT pg_advisory_xact_lock(hashtext('system_configs'))`);
+      for (const key of REGULAR_LOAN_RULE_KEYS) {
+        if (data[key] === undefined || data[key] === null || data[key] === '') continue;
+        const isNumeric = REGULAR_LOAN_NUMERIC_RULE_KEYS.includes(key);
+        const value = isNumeric ? String(Number(data[key]) || 0) : String(data[key]).toUpperCase();
+        // RETURNING, not the driver's affected-row count: TypeORM's
+        // queryRunner.query() does not reliably surface a row count for a plain
+        // UPDATE on this driver, so an existing key would look like a miss and
+        // get a duplicate row inserted on every save.
+        const updated = await queryRunner.query(
+          `UPDATE system_configs SET value = $2, "isActive" = true, "updatedAt" = NOW() WHERE key = $1 RETURNING key`,
+          [key, value],
+        );
+        if (!Array.isArray(updated) || updated.length === 0) {
+          await queryRunner.query(
+            `INSERT INTO system_configs (key, name, value, "dataType", category, "isActive", "isReadonly", "createdAt", "updatedAt")
+             VALUES ($1, $1, $2, $3, 'LOAN', true, false, NOW(), NOW())`,
+            [key, value, isNumeric ? 'number' : 'string'],
+          );
+        }
+      }
 
       await queryRunner.commitTransaction();
       return { success: true, message: 'Business rules saved successfully.' };
@@ -2274,7 +2450,7 @@ export class UtilitiesService {
        ORDER BY yearcode DESC LIMIT 1`,
     );
     if (!result || result.length === 0) {
-      throw new Error('No financial year found in the system.');
+      throw new NotFoundException('No financial year found in the system.');
     }
     const row = result[0];
     return {
@@ -2294,7 +2470,7 @@ export class UtilitiesService {
       [yearCode],
     );
     if (!yearCheck || yearCheck.length === 0) {
-      throw new Error(
+      throw new NotFoundException(
         `Financial Year Code ${yearCode} not found. Please verify the code and try again.`,
       );
     }
@@ -2425,6 +2601,11 @@ export class UtilitiesService {
     await queryRunner.connect();
     await queryRunner.startTransaction();
     try {
+      // Same class of bug as [BuildTree]'s leafCount: queryRunner.query() only
+      // returns raw.rows by default, which is empty for an UPDATE with no
+      // RETURNING clause — result[1] was always undefined, so this reported
+      // "0 accounts updated" even when the UPDATE actually applied. Pass
+      // useStructuredResult:true to read raw.rowCount via .affected instead.
       const result = await queryRunner.query(`
         UPDATE headmaster hm
         SET op_bal = yh.closing_bal
@@ -2435,9 +2616,9 @@ export class UtilitiesService {
           ORDER BY head_code
         ) yh
         WHERE hm.code = yh.head_code
-      `, [yearcode]);
+      `, [yearcode], true);
       await queryRunner.commitTransaction();
-      const updated = result[1] ?? 0;
+      const updated = result.affected ?? 0;
       this.logger.log(`[HeadOpenBal] Applied year ${yearcode} → ${updated} accounts updated`);
       return { success: true, message: `Applied year ${yearcode} balances to ${updated} account heads.`, updated };
     } catch (error) {

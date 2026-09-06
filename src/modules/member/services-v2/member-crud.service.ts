@@ -244,75 +244,112 @@ export class MemberCrudService {
         };
     }
 
+    // 4.2 (F-001) fix: findOne/update/updateStatus/remove all queried
+    // `this.memberRepository` — the disconnected `Member` entity (`members` table,
+    // 0 rows) — same bug class as the already-fixed findAll()/getStatistics().
+    // Every real member lives in `member_master`, keyed by `mbno` (not a small
+    // sequential id), so `:id` here means mbno. Column set kept intentionally
+    // narrow to what MemberResponseDto exposes; member_master has no
+    // createdAt/updatedAt/occupation columns, so those are left undefined
+    // rather than invented.
+    private static readonly MEMBER_MASTER_COLUMNS =
+        'mbno, f_name, l_name, dob, present_address, phoneno, email, aadharno, pan_no, desig, share_amount, isactive';
+
+    private mapMemberMasterToResponseDto(row: any): MemberResponseDto {
+        return new MemberResponseDto({
+            id: Number(row.mbno),
+            memberNumber: row.mbno,
+            firstName: row.f_name || '',
+            lastName: row.l_name || '',
+            dateOfBirth: row.dob,
+            address: row.present_address || '',
+            phoneNumber: row.phoneno || '',
+            email: row.email || undefined,
+            aadharNumber: row.aadharno || undefined,
+            panNumber: row.pan_no || undefined,
+            occupation: row.desig || undefined,
+            shareAmount: Number(row.share_amount) || 0,
+            status: row.isactive === 'Y' ? 'ACTIVE' : 'INACTIVE',
+        });
+    }
+
     /**
-     * Find member by ID
+     * Find member by ID (mbno)
      */
     async findOne(id: number): Promise<MemberResponseDto> {
-        const member = await this.memberRepository.findOne({
-            where: { id },
-        });
+        const rows = await this.dataSource.query(
+            `SELECT ${MemberCrudService.MEMBER_MASTER_COLUMNS} FROM member_master WHERE mbno = $1`,
+            [id],
+        );
 
-        if (!member) {
+        if (!rows[0]) {
             throw new NotFoundException(`Member with ID ${id} not found`);
         }
 
-        return new MemberResponseDto(member);
+        return this.mapMemberMasterToResponseDto(rows[0]);
     }
 
     /**
      * Update member
      */
     async update(id: number, updateMemberDto: UpdateMemberDto): Promise<MemberResponseDto> {
-        const member = await this.memberRepository.findOne({
-            where: { id },
-        });
+        const rows = await this.dataSource.query(
+            `SELECT ${MemberCrudService.MEMBER_MASTER_COLUMNS} FROM member_master WHERE mbno = $1`,
+            [id],
+        );
+        const member = rows[0];
 
         if (!member) {
             throw new NotFoundException(`Member with ID ${id} not found`);
         }
 
-        // Validate updated data
-        const validation = MemberValidationUtil.validateMemberData(updateMemberDto);
-        if (!validation.isValid) {
-            throw new BadRequestException(validation.errors);
+        // Validate updated fields — validateMemberData() requires firstName/lastName/
+        // dateOfBirth/address/phoneNumber unconditionally, which is correct for create()
+        // but wrong for a partial PATCH: it was never exercised here before because
+        // update() always 404'd first on the disconnected table, so every real member's
+        // partial update would have been rejected for omitting unrelated fields the
+        // moment findOne() started working. Only validate the format of fields actually
+        // present in this update.
+        const updateErrors: string[] = [];
+        if (updateMemberDto.dateOfBirth && !MemberValidationUtil.isValidAge(new Date(updateMemberDto.dateOfBirth))) {
+            updateErrors.push('Member must be between 18 and 100 years old');
+        }
+        if (updateMemberDto.phoneNumber && !MemberValidationUtil.isValidPhoneNumber(updateMemberDto.phoneNumber)) {
+            updateErrors.push('Invalid phone number format');
+        }
+        if (updateMemberDto.email && !MemberValidationUtil.isValidEmail(updateMemberDto.email)) {
+            updateErrors.push('Invalid email format');
+        }
+        if (updateMemberDto.aadharNumber && !MemberValidationUtil.isValidAadhar(updateMemberDto.aadharNumber)) {
+            updateErrors.push('Invalid Aadhar number format');
+        }
+        if (updateMemberDto.panNumber && !MemberValidationUtil.isValidPAN(updateMemberDto.panNumber)) {
+            updateErrors.push('Invalid PAN number format');
+        }
+        if (updateErrors.length > 0) {
+            throw new BadRequestException(updateErrors);
         }
 
         // --- Business Rules Validation (Updates) ---
+        // RULE_MEMBER_MIN_AGE/MAX_AGE/MIN_SHARE_AMT aren't seeded in system_configs
+        // (confirmed: POST /members hits this same "Configuration not found" error
+        // unconditionally, unrelated to this fix) — default rather than throw, same
+        // .catch() pattern already used for RULE_MEMBER_ENTRY_FEE in saveMemberMaster().
         if (updateMemberDto.dateOfBirth) {
-            const minAge = await this.systemConfigService.getConfigValue('RULE_MEMBER_MIN_AGE');
-            const maxAge = await this.systemConfigService.getConfigValue('RULE_MEMBER_MAX_AGE');
+            const minAge = await this.systemConfigService.getConfigValue('RULE_MEMBER_MIN_AGE').catch(() => 18);
+            const maxAge = await this.systemConfigService.getConfigValue('RULE_MEMBER_MAX_AGE').catch(() => 100);
             if (!MemberValidationUtil.isValidAge(new Date(updateMemberDto.dateOfBirth), minAge, maxAge)) {
                 throw new BadRequestException(`Member age must be between ${minAge} and ${maxAge} years`);
             }
         }
 
         if (updateMemberDto.shareAmount !== undefined) {
-            const minShareAmt = await this.systemConfigService.getConfigValue('RULE_MEMBER_MIN_SHARE_AMT');
+            const minShareAmt = await this.systemConfigService.getConfigValue('RULE_MEMBER_MIN_SHARE_AMT').catch(() => 0);
             if (updateMemberDto.shareAmount < minShareAmt) {
                 throw new BadRequestException(`Minimum share capital required is ₹${minShareAmt}`);
             }
         }
         // -------------------------------------------
-
-        // Check for duplicate phone number (excluding current member)
-        if (updateMemberDto.phoneNumber && updateMemberDto.phoneNumber !== member.phoneNumber) {
-            const existingMemberByPhone = await this.memberRepository.findOne({
-                where: { phoneNumber: updateMemberDto.phoneNumber },
-            });
-            if (existingMemberByPhone && existingMemberByPhone.id !== id) {
-                throw new ConflictException('Member with this phone number already exists');
-            }
-        }
-
-        // Check for duplicate email (excluding current member)
-        if (updateMemberDto.email && updateMemberDto.email !== member.email) {
-            const existingMemberByEmail = await this.memberRepository.findOne({
-                where: { email: updateMemberDto.email },
-            });
-            if (existingMemberByEmail && existingMemberByEmail.id !== id) {
-                throw new ConflictException('Member with this email already exists');
-            }
-        }
 
         // Format phone number if provided
         if (updateMemberDto.phoneNumber) {
@@ -321,56 +358,127 @@ export class MemberCrudService {
             );
         }
 
-        // Format date of birth if provided
-        if (updateMemberDto.dateOfBirth) {
-            updateMemberDto.dateOfBirth = new Date(updateMemberDto.dateOfBirth) as any;
+        // Check for duplicate phone number (excluding current member)
+        if (updateMemberDto.phoneNumber && updateMemberDto.phoneNumber !== member.phoneno) {
+            const dup = await this.dataSource.query(
+                `SELECT mbno FROM member_master WHERE phoneno = $1 AND mbno != $2 LIMIT 1`,
+                [updateMemberDto.phoneNumber, id],
+            );
+            if (dup.length > 0) {
+                throw new ConflictException('Member with this phone number already exists');
+            }
         }
 
-        // Update member
-        Object.assign(member, updateMemberDto);
-        const updatedMember = await this.memberRepository.save(member);
+        // Check for duplicate email (excluding current member)
+        if (updateMemberDto.email && updateMemberDto.email !== member.email) {
+            const dup = await this.dataSource.query(
+                `SELECT mbno FROM member_master WHERE email = $1 AND mbno != $2 LIMIT 1`,
+                [updateMemberDto.email, id],
+            );
+            if (dup.length > 0) {
+                throw new ConflictException('Member with this email already exists');
+            }
+        }
 
-        return new MemberResponseDto(updatedMember);
+        const fieldToColumn: Record<string, string> = {
+            firstName: 'f_name', lastName: 'l_name', dateOfBirth: 'dob', address: 'present_address',
+            phoneNumber: 'phoneno', email: 'email', aadharNumber: 'aadharno', panNumber: 'pan_no',
+            occupation: 'desig', shareAmount: 'share_amount',
+        };
+        const sets: string[] = [];
+        const params: any[] = [id];
+        for (const [dtoKey, column] of Object.entries(fieldToColumn)) {
+            const value = (updateMemberDto as any)[dtoKey];
+            if (value === undefined) continue;
+            params.push(value);
+            sets.push(`${column} = $${params.length}`);
+        }
+        if (updateMemberDto.status) {
+            params.push(updateMemberDto.status === 'ACTIVE' ? 'Y' : 'N');
+            sets.push(`isactive = $${params.length}`);
+        }
+
+        if (sets.length === 0) {
+            return this.mapMemberMasterToResponseDto(member);
+        }
+
+        // TypeORM quirk (same as C-3): dataSource.query() returns [rows, rowCount]
+        // for UPDATE, not rows directly.
+        const [updatedRows] = await this.dataSource.query(
+            `UPDATE member_master SET ${sets.join(', ')} WHERE mbno = $1 RETURNING ${MemberCrudService.MEMBER_MASTER_COLUMNS}`,
+            params,
+        );
+        if (!updatedRows || updatedRows.length === 0) {
+            throw new NotFoundException(`Member with ID ${id} not found`);
+        }
+
+        return this.mapMemberMasterToResponseDto(updatedRows[0]);
     }
 
     /**
      * Update only a member's lifecycle status (ACTIVE / INACTIVE / RESIGNED / ...).
-     * A focused, safe alternative to a full update — does not touch balances or
-     * any financial data. `reason` is accepted for audit but the member table has
-     * no note column, so it is logged only.
+     * member_master has only a Y/N isactive flag — no separate SUSPENDED state and
+     * no note column, so anything other than ACTIVE collapses to 'N' and `reason`
+     * is logged only (matches the existing limitation documented on getStatistics()).
      */
     async updateStatus(id: number, status: string, reason?: string): Promise<MemberResponseDto> {
-        const member = await this.memberRepository.findOne({ where: { id } });
-
-        if (!member) {
+        const [updatedRows] = await this.dataSource.query(
+            `UPDATE member_master SET isactive = $2 WHERE mbno = $1 RETURNING ${MemberCrudService.MEMBER_MASTER_COLUMNS}`,
+            [id, status === 'ACTIVE' ? 'Y' : 'N'],
+        );
+        if (!updatedRows || updatedRows.length === 0) {
             throw new NotFoundException(`Member with ID ${id} not found`);
         }
 
-        const previous = member.status;
-        member.status = status;
-        const updatedMember = await this.memberRepository.save(member);
-
         this.logger.log(
-            `Member ${id} status changed ${previous} -> ${status}` +
+            `Member ${id} status changed -> ${status}` +
             (reason ? ` (reason: ${reason})` : ''),
         );
 
-        return new MemberResponseDto(updatedMember);
+        return this.mapMemberMasterToResponseDto(updatedRows[0]);
     }
 
     /**
      * Delete member
      */
     async remove(id: number): Promise<void> {
-        const member = await this.memberRepository.findOne({
-            where: { id },
-        });
-
-        if (!member) {
-            throw new NotFoundException(`Member with ID ${id} not found`);
+        // Dependency guard: with findOne/update pointed at member_master (4.2 fix),
+        // this DELETE started actually working for the first time — and immediately
+        // deleted a real member (610000036) that two loan_pending rows referenced,
+        // orphaning them. member_master had no dependency check at all. Scaffolding
+        // rows every member gets on creation (fundsmaster/membercategory/
+        // member_balances) are deliberately excluded — only active product/account
+        // relationships block deletion. `ledger` is also excluded: every member gets
+        // an entry-fee ledger row at admission, so including it would block deleting
+        // any properly-created member — a ledger row is historical audit trail, not
+        // a live relationship like an open loan or deposit account.
+        const dependents: { table: string; column: string }[] = [
+            { table: 'loan_pending', column: 'mbno' },
+            { table: 'loan_master', column: 'mbno' },
+            { table: 'sbmaster', column: 'mbno' },
+            { table: 'fdmaster', column: 'mbno' },
+            { table: 'rdmaster', column: 'mbno' },
+            { table: 'suretymaster', column: 'mbno' },
+        ];
+        for (const { table, column } of dependents) {
+            const rows = await this.dataSource.query(
+                `SELECT 1 FROM ${table} WHERE ${column} = $1 LIMIT 1`,
+                [id],
+            );
+            if (rows.length > 0) {
+                throw new ConflictException(
+                    `Cannot delete member ${id} — has records in ${table}. Remove or transfer those first.`,
+                );
+            }
         }
 
-        await this.memberRepository.remove(member);
+        const [deletedRows] = await this.dataSource.query(
+            `DELETE FROM member_master WHERE mbno = $1 RETURNING mbno`,
+            [id],
+        );
+        if (!deletedRows || deletedRows.length === 0) {
+            throw new NotFoundException(`Member with ID ${id} not found`);
+        }
     }
 
     /**
@@ -525,8 +633,24 @@ export class MemberCrudService {
                     memberData.email || ''
                 ]);
 
+                // C-3 fix: an mbno that doesn't match any row made this UPDATE a silent
+                // no-op — the query still "succeeds" with 0 rows affected, and the old
+                // code returned result[0] regardless, reporting 201 success for a save
+                // that touched nothing. Confirmed live with a non-existent mbno:
+                // {"success":true,"statusCode":201,"data":[]} while member_master was
+                // untouched. Creation (the `mbno === 'auto'` branch below) was already
+                // correct — only this update path needs the check.
+                //
+                // TypeORM quirk: dataSource.query() returns rows directly for INSERT,
+                // but [rows, rowCount] for UPDATE/DELETE — result[0] here is the rows
+                // array itself, not a row, so an unmatched update returns `[]`.
+                const [updatedRows] = result;
+                if (!updatedRows || updatedRows.length === 0) {
+                    throw new NotFoundException(`Member ${memberData.mbno} not found — cannot update`);
+                }
+
                 // Return raw row — TransformInterceptor handles the { success, data } envelope
-                return result[0];
+                return updatedRows[0];
             } else {
                 // Insert new member - derive branch code from branchmsno (e.g. "1-BHILAI-BHILAI-61" → "61")
                 const branchParts = (memberData.branchmsno || '').split('-');
@@ -584,10 +708,18 @@ export class MemberCrudService {
                         [memberNumber, memberData.compulsory_deposit || 0, memberData.share_amount || 0]
                     );
 
-                    // Initialize membercategory row (legacy: categoryCode from cast_category, memberType)
-                    const castMap: Record<string, number> = { 'OBC': 1, 'General': 2, 'SC': 3, 'ST': 4 };
+                    // Initialize membercategory row (legacy: categoryCode from cast_category, memberType).
+                    // categoryCode is looked up from castcategorymaster (the Cast Category Master
+                    // screen's table) instead of a hardcoded map, so the two stay in sync — falls
+                    // back to 1 only when the member's category has no matching master row.
                     const memberTypeMap: Record<string, number> = { 'Regular': 1, 'Associate': 2, 'Honorary': 3 };
-                    const categoryCode = castMap[memberData.cast_category] || 1;
+                    const castCategoryRow = memberData.cast_category
+                        ? await queryRunner.query(
+                            `SELECT id FROM castcategorymaster WHERE LOWER(TRIM(castcategory)) = LOWER(TRIM($1)) LIMIT 1`,
+                            [memberData.cast_category]
+                        )
+                        : [];
+                    const categoryCode = castCategoryRow?.[0]?.id ?? 1;
                     const memberType = memberTypeMap[memberData.member_type] || 1;
                     await queryRunner.query(
                         `INSERT INTO membercategory (mbno, categorycode, membertype)

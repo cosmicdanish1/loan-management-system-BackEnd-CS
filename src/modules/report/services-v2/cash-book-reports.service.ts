@@ -20,11 +20,24 @@ import { parseSafeDate } from '../../shared/utils/date-utils';
  */
 const CASH_ACC_TYPES = new Set(['CINH', 'BANK']);
 const CASH_HEAD_CODE = 'A1001';
-const CASH_LEG_SQL = `(UPPER(COALESCE(acc_type, '')) IN ('CINH', 'BANK') OR code = '${CASH_HEAD_CODE}')`;
+// Real operational bank current accounts (A1008..A1013, A1051, A1053, ...) are
+// grouped under this parent — same rule getBankList() already uses for the
+// Bank dropdown. acc_type only gets stamped CINH/BANK by the savings posting
+// path; loan disbursement/repayment vouchers leave acc_type as the loan type
+// (RLN/ALN/...) on every leg, including the bank leg, so those vouchers need
+// this parent-code fallback too or they report zero cash movement.
+// Some vouchers (e.g. FRS/emergency-loan transfers) post the bank leg
+// directly to A1007 itself rather than one of its named children — the
+// parent-code check alone misses those, so A1007 must also be matched as
+// a head_code directly.
+const BANK_PARENT_CODE = 'A1007';
+const CASH_LEG_SQL = `(UPPER(COALESCE(acc_type, '')) IN ('CINH', 'BANK') OR code = '${CASH_HEAD_CODE}' OR code = '${BANK_PARENT_CODE}' OR code IN (SELECT code FROM headmaster WHERE parent_code = '${BANK_PARENT_CODE}'))`;
 
-function isCashLeg(row: { acc_type?: string | null; head_code?: string | null }): boolean {
+function isCashLeg(row: { acc_type?: string | null; head_code?: string | null; parent_code?: string | null }): boolean {
     return CASH_ACC_TYPES.has((row.acc_type || '').trim().toUpperCase())
-        || (row.head_code || '').trim() === CASH_HEAD_CODE;
+        || (row.head_code || '').trim() === CASH_HEAD_CODE
+        || (row.head_code || '').trim() === BANK_PARENT_CODE
+        || (row.parent_code || '').trim() === BANK_PARENT_CODE;
 }
 
 /**
@@ -82,6 +95,7 @@ export class CashBookReportsService {
                     l.trans_no,
                     l.code                                                              AS head_code,
                     COALESCE(h.head_name, l.code, '')                                  AS head_name,
+                    h.parent_code                                                       AS parent_code,
                     CAST(l.trans_amt AS numeric)                                        AS amount,
                     l.trans_type,
                     l.acc_type,
@@ -201,7 +215,7 @@ export class CashBookReportsService {
         const entries = await this.dataSource.query(`
             WITH ledger_src AS (
                 SELECT DISTINCT ON (ledgerid)
-                    ledgerid, code, trans_type, modeofpay,
+                    ledgerid, code, trans_type, modeofpay, receipt_vchr_no,
                     CAST(trans_amt AS numeric) AS amt
                 FROM ledger
                 WHERE trans_date::date = $1::date
@@ -219,6 +233,17 @@ export class CashBookReportsService {
             FROM ledger_src ls
             LEFT JOIN accountbalance ab ON ab.acno = ls.code
             LEFT JOIN headmaster     h  ON h.code  = ls.code
+            -- Only list analysis legs from vouchers that actually moved cash/bank
+            -- that day. A pure journal voucher (e.g. an audit-fee reallocation
+            -- between two non-cash heads) has no cash leg at all — showing its
+            -- legs here made it look like real cash was received/paid for it,
+            -- inflating Total Receipts/Payments even though no money moved.
+            WHERE EXISTS (
+                SELECT 1 FROM ledger cash
+                WHERE cash.trans_date::date = $1::date
+                  AND cash.receipt_vchr_no = ls.receipt_vchr_no
+                  AND ${CASH_LEG_SQL}
+            )
             GROUP BY ls.code, ab.acname, h.head_name
             HAVING SUM(CASE WHEN ls.trans_type = 'CR' THEN ls.amt ELSE 0 END) > 0
                 OR SUM(CASE WHEN ls.trans_type = 'DR' THEN ls.amt ELSE 0 END) > 0
@@ -283,64 +308,58 @@ export class CashBookReportsService {
         const lastDay = new Date(year, monthNum, 0).getDate();
         const endStr = `${year}-${mm}-${String(lastDay).padStart(2, '0')}`;
 
-        // Count distinct head codes in range (::date cast for safe timestamp comparison)
-        const countRes = await this.dataSource.query(`
-            SELECT COUNT(DISTINCT headcode) AS count
-            FROM tblcashbook
-            WHERE trans_date::date >= $1::date
-              AND trans_date::date <= $2::date
+        // BUG FIX: this used to read tblcashbook, summing every row's
+        // rcash/rtransfer/pcash/ptransfer per head with no cash-leg exclusion.
+        // tblcashbook mirrors each ledger leg as its own row — a voucher's real
+        // analysis leg (e.g. A1002 REGULAR LOAN) AND its cash/bank leg (e.g.
+        // A1053, tagged with the voucher's own narration as if it were a real
+        // head) both landed here as separate line items, so the totals summed
+        // both sides of every voucher together. Confirmed live: for August 2026
+        // this reported Receipt/Payment of ₹5,58,675/₹5,58,500 — nothing like
+        // the real cash movement for that month (₹1,36,860 in / ₹6,33,455 out,
+        // computed directly from `ledger` with the same cash-leg rule already
+        // proven correct in getCashBook2Daily, the daily equivalent of this
+        // report). Rebuilt to read `ledger` directly with that identical
+        // cash-leg-exclusion logic, just widened from one day to a date range.
+        const rows = await this.dataSource.query(`
+            WITH ledger_src AS (
+                SELECT DISTINCT ON (ledgerid)
+                    ledgerid, code, trans_type, receipt_vchr_no,
+                    CAST(trans_amt AS numeric) AS amt
+                FROM ledger
+                WHERE trans_date::date >= $1::date AND trans_date::date <= $2::date
+                  AND code IS NOT NULL AND TRIM(code) != ''
+                  AND NOT ${CASH_LEG_SQL}
+                ORDER BY ledgerid
+            )
+            SELECT
+                ls.code                                    AS code,
+                COALESCE(ab.acname, hm.head_name, ls.code) AS "headName",
+                SUM(CASE WHEN ls.trans_type = 'CR' THEN ls.amt ELSE 0 END) AS receipt,
+                SUM(CASE WHEN ls.trans_type = 'DR' THEN ls.amt ELSE 0 END) AS payment
+            FROM ledger_src ls
+            LEFT JOIN accountbalance ab ON ab.acno = ls.code
+            LEFT JOIN headmaster     hm ON hm.code = ls.code
+            -- Only list analysis legs from vouchers that actually moved cash/bank
+            -- in this range — same reasoning as getCashBook2Daily's identical guard.
+            WHERE EXISTS (
+                SELECT 1 FROM ledger cash
+                WHERE cash.trans_date::date >= $1::date AND cash.trans_date::date <= $2::date
+                  AND cash.receipt_vchr_no = ls.receipt_vchr_no
+                  AND ${CASH_LEG_SQL}
+            )
+            GROUP BY ls.code, ab.acname, hm.head_name
+            HAVING SUM(CASE WHEN ls.trans_type = 'CR' THEN ls.amt ELSE 0 END) > 0
+                OR SUM(CASE WHEN ls.trans_type = 'DR' THEN ls.amt ELSE 0 END) > 0
+            ORDER BY ls.code
         `, [startStr, endStr]);
-        const totalCount = parseInt(countRes[0].count) || 0;
 
-        // BUG FIX: accountbalance is empty in this database (0 rows, confirmed
-        // live) — ab.acname was always NULL, so this fell through to
-        // MAX(t.headname), but tblcashbook.headname stores each transaction's own
-        // narration text (e.g. "EMERGENCY LOAN [Code: A1047]"), not a real head
-        // name, so the report displayed narration instead of a head name.
-        // headmaster has 151 real rows (confirmed live) and is the fallback
-        // already established for this exact gap elsewhere this session — added
-        // ahead of the narration fallback so it's tried first.
-        let query = `
-            SELECT
-                t.headcode                                                         AS code,
-                COALESCE(ab.acname, hm.head_name, MAX(t.headname), t.headcode)    AS "headName",
-                SUM(COALESCE(t.rcash, 0) + COALESCE(t.rtransfer, 0))             AS receipt,
-                SUM(COALESCE(t.pcash, 0) + COALESCE(t.ptransfer, 0))             AS payment
-            FROM tblcashbook t
-            LEFT JOIN accountbalance ab ON ab.acno = t.headcode
-            LEFT JOIN headmaster     hm ON hm.code = t.headcode
-            WHERE t.trans_date IS NOT NULL
-              AND t.trans_date::date >= $1::date
-              AND t.trans_date::date <= $2::date
-              AND t.headcode IS NOT NULL AND TRIM(t.headcode) != ''
-            GROUP BY t.headcode, ab.acname, hm.head_name
-            ORDER BY t.headcode
-        `;
+        const totalCount = rows.length;
+        const paged = (limit !== undefined || offset !== undefined)
+            ? rows.slice(offset || 0, (offset || 0) + (limit ?? rows.length))
+            : rows;
 
-        const params: any[] = [startStr, endStr];
-        if (limit !== undefined) {
-            query += ` LIMIT $${params.length + 1}`;
-            params.push(limit);
-        }
-        if (offset !== undefined) {
-            query += ` OFFSET $${params.length + 1}`;
-            params.push(offset);
-        }
-
-        const result = await this.dataSource.query(query, params);
-
-        // Opening balance: sum of all tblcashbook before the month
-        const obRes = await this.dataSource.query(`
-            SELECT
-                COALESCE(SUM(COALESCE(rcash,0) + COALESCE(rtransfer,0)), 0) -
-                COALESCE(SUM(COALESCE(pcash,0) + COALESCE(ptransfer,0)), 0) AS opening_balance
-            FROM tblcashbook
-            WHERE trans_date IS NOT NULL
-              AND trans_date::date < $1::date
-        `, [startStr]);
-        const openingBalance = parseFloat(obRes[0]?.opening_balance) || 0;
-
-        const data = result.map((item: any, index: number) => ({
+        const data = paged.map((item: any, index: number) => ({
             key: ((offset || 0) + index).toString(),
             code: item.code || '',
             headName: item.headName || item.code || 'Unknown Head',
@@ -348,8 +367,19 @@ export class CashBookReportsService {
             payment: parseFloat(item.payment) || 0,
         }));
 
-        const totalReceipt = data.reduce((s: number, r: any) => s + r.receipt, 0);
-        const totalPayment = data.reduce((s: number, r: any) => s + r.payment, 0);
+        // Opening/closing balance: the real Cash-In-Hand + bank position, same
+        // rule and same shared helper as the daily Cash Book windows (1.1/1.2).
+        const openingBalance = await cashOpeningBalance(this.dataSource, parseSafeDate(startStr));
+        const cashMoveResult = await this.dataSource.query(`
+            SELECT
+                SUM(CASE WHEN trans_type = 'DR' THEN CAST(trans_amt AS numeric) ELSE 0 END) AS cash_in,
+                SUM(CASE WHEN trans_type = 'CR' THEN CAST(trans_amt AS numeric) ELSE 0 END) AS cash_out
+            FROM ledger
+            WHERE trans_date::date >= $1::date AND trans_date::date <= $2::date
+              AND ${CASH_LEG_SQL}
+        `, [startStr, endStr]);
+        const totalReceipt = parseFloat(cashMoveResult[0]?.cash_in) || 0;
+        const totalPayment = parseFloat(cashMoveResult[0]?.cash_out) || 0;
 
         return {
             metadata: { totalCount, limit: limit || totalCount, offset: offset || 0 },

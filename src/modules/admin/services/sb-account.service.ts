@@ -156,9 +156,23 @@ export class SbAccountService {
     }
 
     async remove(id: string): Promise<void> {
-        const result = await this.sbAccountRepository.delete(id);
-        if (result.affected === 0) {
-            throw new NotFoundException(`SB Account with ID ${id} not found`);
+        await this.findOne(id);
+
+        // Deleting sbmaster alone leaves any posted ledger legs (opening balance, deposits,
+        // withdrawals) orphaned — pointing at an account number that no longer exists, while
+        // the money still shows as received/paid in every report that reads the ledger.
+        // Confirmed live: deleting an account with a posted opening balance left its CR/DR
+        // legs behind with no owning account. Block deletion once any history exists.
+        const hasLedgerHistory = await this.sbAccountRepository.query(
+            `SELECT 1 FROM ledger WHERE acc_no::text = $1::text AND acc_type = 'SB' LIMIT 1`,
+            [id]
+        );
+        if (hasLedgerHistory && hasLedgerHistory.length > 0) {
+            throw new ConflictException(
+                `SB Account ${id} has ledger transactions and cannot be deleted`
+            );
         }
+
+        await this.sbAccountRepository.delete(id);
     }
 }

@@ -4,6 +4,17 @@ import { Repository, DataSource } from 'typeorm';
 import { FinancialYear } from '../entities/financial-year.entity';
 import { isDebitNormal } from '../../shared/utils/balance-direction';
 
+// Heads with an Income/Expense pflag that must never participate in the P&L
+// Year End profit calculation or the Income/Expense zero-out. Confirmed with
+// the user (2026-08-23) after live testing surfaced E1030 "NET PROFIT": a
+// pflag='E' head with zero ledger activity ever, whose stale ₹1.40 crore
+// balance exactly duplicates the properly-recorded L1044 "NET PROFIT
+// F.Y.2018-2019" liability head — a legacy P&L-report formatting artifact,
+// not a real transactional expense. Without this exclusion it silently
+// swallowed most of the real profit and would have been zeroed with no
+// way to recover it.
+const PL_YEAR_END_EXCLUDED_HEAD_CODES = ['E1030'];
+
 @Injectable()
 export class FinancialYearService {
     private readonly logger = new Logger(FinancialYearService.name);
@@ -170,6 +181,8 @@ export class FinancialYearService {
                 );
             }
 
+            let memberEntriesWritten = 0;
+
             // Archive member balances from loan_master (grouped by loantype)
             const loanBalances = await queryRunner.query(`
                 SELECT loantype as acc_type, mbno::text as mbno, SUM(balance) as balance
@@ -183,6 +196,7 @@ export class FinancialYearService {
                      VALUES ($1, $2, $3, ROUND($4::numeric, 2))`,
                     [yearCode, row.acc_type, row.mbno, parseFloat(row.balance) || 0]
                 );
+                memberEntriesWritten++;
             }
 
             // Archive member fund balances (CD, MD, Share)
@@ -204,19 +218,41 @@ export class FinancialYearService {
                         `INSERT INTO yearend_member (yearcode, acc_type, mbno, balance) VALUES ($1, 'CD', $2, ROUND($3::numeric, 2))`,
                         [yearCode, row.mbno, cd]
                     );
+                    memberEntriesWritten++;
                 }
                 if (md !== 0) {
                     await queryRunner.query(
                         `INSERT INTO yearend_member (yearcode, acc_type, mbno, balance) VALUES ($1, 'MD', $2, ROUND($3::numeric, 2))`,
                         [yearCode, row.mbno, md]
                     );
+                    memberEntriesWritten++;
                 }
                 if (shr !== 0) {
                     await queryRunner.query(
                         `INSERT INTO yearend_member (yearcode, acc_type, mbno, balance) VALUES ($1, 'SHR', $2, ROUND($3::numeric, 2))`,
                         [yearCode, row.mbno, shr]
                     );
+                    memberEntriesWritten++;
                 }
+            }
+
+            // Archive member savings (SB) balances — one member can hold several
+            // sbmaster accounts, so aggregate to a single per-member balance like
+            // the loan/fund archives above. Was previously omitted entirely: the
+            // year-end snapshot silently excluded a whole account category.
+            const sbBalances = await queryRunner.query(`
+                SELECT mbno::text, SUM(balance) as sb_bal
+                FROM sbmaster
+                GROUP BY mbno
+                HAVING SUM(balance) <> 0
+            `);
+
+            for (const row of sbBalances) {
+                await queryRunner.query(
+                    `INSERT INTO yearend_member (yearcode, acc_type, mbno, balance) VALUES ($1, 'SB', $2, ROUND($3::numeric, 2))`,
+                    [yearCode, row.mbno, parseFloat(row.sb_bal) || 0]
+                );
+                memberEntriesWritten++;
             }
 
             // Also populate bankopbal for backward compatibility
@@ -227,20 +263,29 @@ export class FinancialYearService {
             // used both ways, so this always failed ("inconsistent types deduced
             // for parameter $1"). Confirmed live — this was never reachable
             // before now since yearend had zero rows until this session.
+            //
+            // BUG FIX: trfid has no uniqueness constraint and ROW_NUMBER() always
+            // restarted at 1, so a second year's transfer would mint trfid values
+            // that collide with the first year's rows already sitting in the same
+            // table. Offset by the current MAX(trfid) (advisory-locked against a
+            // concurrent transfer, same pattern as the other MAX()+1 sites) so
+            // every row gets a table-wide-unique id.
+            await queryRunner.query(`SELECT pg_advisory_xact_lock(hashtext('bankopbal.trfid'))`);
+            const trfidBase = await queryRunner.query(`SELECT COALESCE(MAX(trfid), 0) as max FROM bankopbal`);
+            const baseTrfid = parseInt(trfidBase[0]?.max || '0');
             await queryRunner.query(`
                 INSERT INTO bankopbal (trfid, fycode, headcode, parentcode, closingbalance)
-                SELECT ROW_NUMBER() OVER (ORDER BY head_code), $1, head_code, parent_code, closing_bal
-                FROM yearend_head WHERE yearcode = $2
-            `, [yearCode, yearCode]);
+                SELECT ROW_NUMBER() OVER (ORDER BY head_code) + $1, $2, head_code, parent_code, closing_bal
+                FROM yearend_head WHERE yearcode = $3
+            `, [baseTrfid, yearCode, yearCode]);
 
             await queryRunner.commitTransaction();
 
             const headCount = headBalances.length;
-            const memberCount = loanBalances.length + fundBalances.length;
-            this.logger.log(`Year-end transfer complete: ${headCount} heads, ${memberCount} member entries archived`);
+            this.logger.log(`Year-end transfer complete: ${headCount} heads, ${memberEntriesWritten} member balance entries archived`);
 
             return {
-                message: `Year-end transfer for FY ${yearCode} completed. Archived ${headCount} head balances and ${memberCount} member balances.`
+                message: `Year-end transfer for FY ${yearCode} completed. Archived ${headCount} head balances and ${memberEntriesWritten} member balances.`
             };
         } catch (error: any) {
             await queryRunner.rollbackTransaction();
@@ -320,6 +365,60 @@ export class FinancialYearService {
     }
 
     /**
+     * Preview of the closing entries F7 would post for a year, sourced from the
+     * F6 archive (yearend_head) — read-only, no writes. Powers the P&L Year End
+     * Process screen's review table before the user commits to Post.
+     */
+    async getClosingEntriesPreview(yearCode: number): Promise<{
+        rows: { code: string; name: string; pflag: string; closingBal: number }[];
+        totalIncome: number;
+        totalExpense: number;
+        netProfit: number;
+        reserveHead: { code: string; name: string } | null;
+    }> {
+        const rows = await this.dataSource.query(`
+            SELECT hm.code, hm.head_name, hm.pflag, yh.closing_bal
+            FROM yearend_head yh
+            JOIN headmaster hm ON hm.code = yh.head_code
+            WHERE yh.yearcode = $1 AND hm.pflag IN ('I', 'E') AND yh.closing_bal <> 0
+              AND hm.code <> ALL($2::text[])
+            ORDER BY hm.pflag, hm.code
+        `, [yearCode, PL_YEAR_END_EXCLUDED_HEAD_CODES]);
+
+        const totals = await this.dataSource.query(`
+            SELECT
+                COALESCE(SUM(CASE WHEN hm.pflag = 'I' THEN yh.closing_bal ELSE 0 END), 0) as total_income,
+                COALESCE(SUM(CASE WHEN hm.pflag = 'E' THEN yh.closing_bal ELSE 0 END), 0) as total_expense
+            FROM yearend_head yh
+            JOIN headmaster hm ON hm.code = yh.head_code
+            WHERE yh.yearcode = $1 AND hm.code <> ALL($2::text[])
+        `, [yearCode, PL_YEAR_END_EXCLUDED_HEAD_CODES]);
+
+        // Same reserve head performPLYearEndProcess posts profit to — kept in sync
+        // so the preview here never disagrees with what Post actually does.
+        const RESERVE_FUND_HEAD_CODE = 'L1006';
+        const reserveHead = await this.dataSource.query(
+            `SELECT code, head_name FROM headmaster WHERE code = $1`, [RESERVE_FUND_HEAD_CODE]
+        );
+
+        const totalIncome = parseFloat(totals[0]?.total_income) || 0;
+        const totalExpense = parseFloat(totals[0]?.total_expense) || 0;
+
+        return {
+            rows: rows.map((r: any) => ({
+                code: r.code,
+                name: r.head_name,
+                pflag: r.pflag,
+                closingBal: parseFloat(r.closing_bal) || 0,
+            })),
+            totalIncome,
+            totalExpense,
+            netProfit: Math.round((totalIncome - totalExpense) * 100) / 100,
+            reserveHead: reserveHead[0] ? { code: reserveHead[0].code, name: reserveHead[0].head_name } : null,
+        };
+    }
+
+    /**
      * F7: P&L Year-End — carry forward balances, calculate profit, zero out I/E
      * Prerequisite: initiateTransfer (F6) must have populated yearend_head
      */
@@ -348,14 +447,17 @@ export class FinancialYearService {
 
         try {
             // Step 1: Calculate Profit = SUM(Income closing) - SUM(Expense closing)
+            // Excludes PL_YEAR_END_EXCLUDED_HEAD_CODES (see constant doc) — legacy
+            // report-formatting heads with no real transactional activity that must
+            // not be mistaken for this year's income/expense.
             const profitResult = await queryRunner.query(`
                 SELECT
                     COALESCE(SUM(CASE WHEN hm.pflag = 'I' THEN yh.closing_bal ELSE 0 END), 0) as total_income,
                     COALESCE(SUM(CASE WHEN hm.pflag = 'E' THEN yh.closing_bal ELSE 0 END), 0) as total_expense
                 FROM yearend_head yh
                 JOIN headmaster hm ON hm.code = yh.head_code
-                WHERE yh.yearcode = $1
-            `, [yearCode]);
+                WHERE yh.yearcode = $1 AND hm.code <> ALL($2::text[])
+            `, [yearCode, PL_YEAR_END_EXCLUDED_HEAD_CODES]);
 
             const totalIncome = parseFloat(profitResult[0]?.total_income) || 0;
             const totalExpense = parseFloat(profitResult[0]?.total_expense) || 0;
@@ -363,11 +465,24 @@ export class FinancialYearService {
 
             this.logger.log(`FY ${yearCode}: Income=${totalIncome}, Expense=${totalExpense}, Profit=${profit}`);
 
-            // Step 2: Identify Reserve/P&L head (pflag='R', take first)
+            // Step 2: Identify the Reserve Fund head that receives the year's profit.
+            // BUG FIX: was `WHERE pflag = 'R' ORDER BY code LIMIT 1` — pflag='R' means
+            // "root/group header" in this schema (matches A1000/E1000/I1000/L1000/M1000,
+            // the five top-level group nodes), not "Reserve". That picked A1000 (ASSET
+            // root) alphabetically and would have posted the whole year's profit onto
+            // the asset-side group header. Legacy's own PL2BSAc config table (meant to
+            // designate this head) is empty/unconfigured in production, so there's no
+            // legacy value to inherit — using the real Reserve Fund head instead.
+            const RESERVE_FUND_HEAD_CODE = 'L1006'; // RESERVE FUND
             const reserveHead = await queryRunner.query(
-                `SELECT code FROM headmaster WHERE pflag = 'R' ORDER BY code LIMIT 1`
+                `SELECT code FROM headmaster WHERE code = $1`, [RESERVE_FUND_HEAD_CODE]
             );
-            const reserveCode = reserveHead[0]?.code;
+            if (reserveHead.length === 0) {
+                throw new BadRequestException(
+                    `Reserve Fund head (${RESERVE_FUND_HEAD_CODE}) not found in headmaster. Cannot post year-end profit.`
+                );
+            }
+            const reserveCode = reserveHead[0].code;
 
             // Step 3: Carry forward A/L/R heads — set op_bal = closing_bal from yearend_head
             await queryRunner.query(`
@@ -388,9 +503,11 @@ export class FinancialYearService {
                 this.logger.log(`Added profit ${profit} to reserve head ${reserveCode}`);
             }
 
-            // Step 5: Zero out Income and Expense heads for new year
+            // Step 5: Zero out Income and Expense heads for new year — excluded heads
+            // are left untouched, same reasoning as Step 1.
             await queryRunner.query(
-                `UPDATE headmaster SET op_bal = 0 WHERE pflag IN ('I', 'E')`
+                `UPDATE headmaster SET op_bal = 0 WHERE pflag IN ('I', 'E') AND code <> ALL($1::text[])`,
+                [PL_YEAR_END_EXCLUDED_HEAD_CODES]
             );
 
             // Step 6: Create new financial year row (dates +1 year)
@@ -400,8 +517,13 @@ export class FinancialYearService {
             );
 
             if (existingNewFY.length === 0) {
-                const newStart = new Date(currentFY.startDate);
-                newStart.setFullYear(newStart.getFullYear() + 1);
+                // BUG FIX: was shifting the *current* year's own start/end forward by
+                // a year, which only stays gap-free if every FY happens to be exactly
+                // 12 months. Legacy's Pr_YearEnd instead derives the new year from the
+                // old year's END date (start = end+1 day, end = end+1 year), guaranteeing
+                // the new year is always contiguous with no gap or overlap.
+                const newStart = new Date(currentFY.endDate);
+                newStart.setDate(newStart.getDate() + 1);
                 const newEnd = new Date(currentFY.endDate);
                 newEnd.setFullYear(newEnd.getFullYear() + 1);
 

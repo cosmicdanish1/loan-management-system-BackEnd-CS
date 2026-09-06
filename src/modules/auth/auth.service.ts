@@ -9,8 +9,9 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import * as crypto from 'crypto';
 import { User, UserRole, UserPermission } from './entities/user.entity';
-import { UserMaster, UserLevelMaster, LoginTime, UserInfo } from './entities';
+import { UserMaster, UserLevelMaster, LoginTime, UserInfo, UserRights, UserLevelDefaultRights } from './entities';
 import {
   LoginDto,
   RegisterDto,
@@ -20,6 +21,7 @@ import {
 } from './dto';
 import { PasswordUtil, mapUserMasterToUser } from './utils';
 import { JwtPayload } from './strategies/jwt.strategy';
+import { MENUID_TO_ACTION, BYPASS_USER_LEVEL_IDS } from './menu-action-map';
 
 @Injectable()
 export class AuthService {
@@ -34,9 +36,45 @@ export class AuthService {
     private loginTimeRepository: Repository<LoginTime>,
     @InjectRepository(UserInfo)
     private userInfoRepository: Repository<UserInfo>,
+    @InjectRepository(UserRights)
+    private userRightsRepository: Repository<UserRights>,
+    @InjectRepository(UserLevelDefaultRights)
+    private defaultRightsRepository: Repository<UserLevelDefaultRights>,
     private jwtService: JwtService,
     private configService: ConfigService,
   ) { }
+
+  /**
+   * Which Navbar `action` codes this user level is allowed to see, driven by
+   * Configure UserLevel Default Rights (userleveldefaultrights) plus any
+   * per-user overrides (userrights). Returns null for SYSTEM/ADMINISTRATOR,
+   * meaning "no restriction" — matches the existing master-bypass pattern in
+   * RoleGuard/PermissionsGuard for those roles. This is what makes the Role
+   * Management screen's saved rights actually take effect: previously nothing
+   * in the app ever read menuid -> action, so they had no observable effect.
+   */
+  async getAllowedActions(userid: number, userlevelid: number): Promise<string[] | null> {
+    if (BYPASS_USER_LEVEL_IDS.has(userlevelid)) {
+      return null;
+    }
+
+    const [userRights, defaultRights] = await Promise.all([
+      this.userRightsRepository.find({ where: { userid } }),
+      this.defaultRightsRepository.find({ where: { userlevelid } }),
+    ]);
+
+    const menuIds = new Set<number>([
+      ...userRights.map((r) => r.menuid),
+      ...defaultRights.map((r) => r.menuid),
+    ]);
+
+    const actions = new Set<string>();
+    for (const menuid of menuIds) {
+      const action = MENUID_TO_ACTION.get(menuid);
+      if (action) actions.add(action);
+    }
+    return Array.from(actions);
+  }
 
   async validateUser(username: string, password: string): Promise<User | null> {
     // BUG FIX 2: Never log credentials — removed all plaintext/hash console.log calls
@@ -106,6 +144,7 @@ export class AuthService {
 
         // Map to the User shape used app-wide by guards/strategies
         const user = mapUserMasterToUser(userMaster);
+        user.allowedActions = await this.getAllowedActions(userMaster.userid, userMaster.userlevelid);
         return user;
       }
     }
@@ -127,7 +166,7 @@ export class AuthService {
 
     return {
       ...tokens,
-      user: this.mapUserToResponseDto(user),
+      user: { ...this.mapUserToResponseDto(user), allowedActions: user.allowedActions ?? null },
     };
   }
 
@@ -215,6 +254,16 @@ export class AuthService {
         if (userMaster.enableDisable !== 'E') {
           throw new UnauthorizedException('User account is disabled');
         }
+        // Same forceLogoutAt check as JwtStrategy — without this, a session
+        // an admin just force-logged-out could silently mint itself a brand
+        // new access token via its still-valid refresh token, undoing the
+        // force logout entirely.
+        if (userMaster.forceLogoutAt && payload.iat) {
+          const issuedAtMs = payload.iat * 1000;
+          if (issuedAtMs < userMaster.forceLogoutAt.getTime()) {
+            throw new UnauthorizedException('Session was terminated by an administrator');
+          }
+        }
         user = mapUserMasterToUser(userMaster);
       }
 
@@ -234,7 +283,33 @@ export class AuthService {
     }
   }
 
-  async logout(userId: number): Promise<{ message: string }> {
+  // C-1 fix: logout used to only flip audit rows (below) — the JWT itself kept
+  // working until its natural 24h expiry, so "logging out" on a shared machine
+  // did nothing. Sessions are genuinely concurrent (logintime has multiple open
+  // rows per user), so revocation must be per-token, not a single account-wide
+  // flag — a denylist keyed by the token's own hash, scoped to just the token
+  // that called /auth/logout, leaves other devices/tabs logged in.
+  private hashToken(token: string): string {
+    return crypto.createHash('sha256').update(token).digest('hex');
+  }
+
+  private async ensureRevokedTokensTable(): Promise<void> {
+    await this.userMasterRepository.query(`
+      CREATE TABLE IF NOT EXISTS revoked_tokens (
+        token_hash  VARCHAR(64) PRIMARY KEY,
+        user_id     INTEGER NOT NULL,
+        revoked_at  TIMESTAMP DEFAULT NOW(),
+        expires_at  TIMESTAMP NOT NULL
+      )
+    `);
+    // Opportunistic cleanup — a revoked token is only worth keeping until it
+    // would have expired naturally anyway.
+    await this.userMasterRepository.query(
+      `DELETE FROM revoked_tokens WHERE expires_at < NOW()`,
+    );
+  }
+
+  async logout(userId: number, rawToken?: string): Promise<{ message: string }> {
     // BUG FIX 5: Actually close the logintime session and reset loginStatus
     // for UserMaster (new auth system) users.
 
@@ -257,6 +332,19 @@ export class AuthService {
     if (userMaster) {
       userMaster.loginStatus = 'N';
       await this.userMasterRepository.save(userMaster);
+    }
+
+    // 3. Revoke the actual token so it stops working immediately instead of
+    // riding out its natural expiry.
+    if (rawToken) {
+      const decoded = this.jwtService.decode(rawToken) as JwtPayload | null;
+      const expiresAt = decoded?.exp ? new Date(decoded.exp * 1000) : new Date(Date.now() + 24 * 60 * 60 * 1000);
+      await this.ensureRevokedTokensTable();
+      await this.userMasterRepository.query(
+        `INSERT INTO revoked_tokens (token_hash, user_id, expires_at) VALUES ($1, $2, $3)
+         ON CONFLICT (token_hash) DO NOTHING`,
+        [this.hashToken(rawToken), userId, expiresAt],
+      );
     }
 
     return { message: 'Logout successful' };

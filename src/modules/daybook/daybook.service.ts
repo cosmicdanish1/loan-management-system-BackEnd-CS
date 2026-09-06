@@ -31,14 +31,18 @@ export class DayBookService {
 
   async getDayBookReport(dto: GetDayBookDto): Promise<any> {
     try {
-      // Single JOIN query — member names + accountbalance names in one shot, no N+1
+      // Single JOIN query — member names + accountbalance/headmaster names in one shot, no N+1.
+      // accountbalance is empty for most real heads (same gap already fixed
+      // 7+ times elsewhere this session) — confirmed live it left every row
+      // here showing its raw code ("A1002 A1002") instead of a real name.
+      // headmaster is the fallback that actually has the data.
       const rows = await this.ledgerRepository.query(`
         SELECT DISTINCT ON (l.ledgerid)
           l.ledgerid,
           l.trans_type,
           CAST(l.mbno AS text)                              AS mb_no,
           l.code                                            AS head_code,
-          COALESCE(ab.acname, l.code)                       AS head_name,
+          COALESCE(ab.acname, h.head_name, l.code)          AS head_name,
           CAST(l.trans_amt AS numeric)                      AS amount,
           COALESCE(l.receipt_vchr_no, '')                   AS voucher_no,
           COALESCE(l.username, '')                          AS username,
@@ -49,6 +53,7 @@ export class DayBookService {
           )                                                 AS member_name
         FROM ledger l
         LEFT JOIN accountbalance  ab ON ab.acno  = l.code
+        LEFT JOIN headmaster      h  ON h.code   = l.code
         LEFT JOIN member_master   m  ON CAST(m.mbno AS text) = CAST(l.mbno AS text)
         WHERE l.trans_date::date = $1::date
           AND l.code IS NOT NULL AND TRIM(l.code) != ''
@@ -57,38 +62,48 @@ export class DayBookService {
         ORDER BY l.ledgerid, l.code, l.trans_type
       `, [dto.date]);
 
-      // Opening balance from daily_gl_history + subsequent ledger/tblcashbook deltas
+      // Opening balance: the real Cash-In-Hand (A1001) position, built from
+      // ledger history directly. This used to read a "last known balance"
+      // from daily_gl_history — which has zero rows, nothing has ever
+      // written to it — then bridge forward using tblcashbook, a table
+      // already proven unreliable elsewhere in this app (most rows carry no
+      // trans_date, and rows that do can double-count transactions that
+      // also exist in `ledger`). Confirmed live: this produced ₹1,03,331.33
+      // for a date whose real cash position (cross-checked against the
+      // fixed Cash Book reports) is -₹4,96,595.09.
+      //
+      // Filtering by code alone (not acc_type='CINH') matters: cash-mode
+      // loan disbursements post code='A1001' with acc_type='ALN', not
+      // 'CINH' — the same acc_type-trust bug already fixed in Cash Book.
       const openingResult = await this.ledgerRepository.query(`
-        WITH last_gl AS (
-          SELECT CAST(balance AS numeric) AS bal, trans_date::date AS gl_date
-          FROM daily_gl_history
-          WHERE code = 'A1001' AND trans_date::date < $1::date
-          ORDER BY trans_date DESC LIMIT 1
-        )
         SELECT
-          COALESCE((SELECT bal FROM last_gl), 0)
-          + COALESCE((
-            SELECT SUM(CASE WHEN t.trans_type='DR' THEN t.amt ELSE -t.amt END)
-            FROM (
-              SELECT DISTINCT ON (ledgerid)
-                ledgerid, trans_type, CAST(trans_amt AS numeric) AS amt, trans_date
-              FROM ledger WHERE code='A1001' AND acc_type='CINH'
-              ORDER BY ledgerid
-            ) t
-            WHERE t.trans_date::date > COALESCE((SELECT gl_date FROM last_gl),'2000-01-01')
-              AND t.trans_date::date < $1::date
-          ), 0)
-          + COALESCE((
-            SELECT SUM(COALESCE(rcash,0)+COALESCE(rtransfer,0))
-                   - SUM(COALESCE(pcash,0)+COALESCE(ptransfer,0))
-            FROM tblcashbook
-            WHERE trans_date IS NOT NULL
-              AND trans_date::date > COALESCE((SELECT gl_date FROM last_gl),'2000-01-01')
-              AND trans_date::date < $1::date
-          ), 0) AS opening_balance
+          SUM(CASE WHEN trans_type = 'DR' THEN CAST(trans_amt AS numeric) ELSE 0 END) -
+          SUM(CASE WHEN trans_type = 'CR' THEN CAST(trans_amt AS numeric) ELSE 0 END) AS balance
+        FROM ledger
+        WHERE trans_date::date < $1::date AND code = 'A1001'
       `, [dto.date]);
 
-      const openingBalance = parseFloat(openingResult[0]?.opening_balance) || 0;
+      const openingBalance = parseFloat(openingResult[0]?.balance) || 0;
+
+      // Same-day movement on the A1001 head itself. This used to be netted
+      // from the payment/receipt group totals below — but those groups list
+      // every OTHER head (A1001 rows are excluded from `rows` on purpose,
+      // since A1001 is the balance being tracked, not an analysis head), and
+      // in a balanced ledger the non-cash legs of a voucher net to the exact
+      // opposite of its cash leg. So Closing Balance never actually moved
+      // regardless of real activity — confirmed live: 2026-09-02's Total
+      // Receipt and Total Payment both landed on the identical ₹5,10,000
+      // even though real money moved. Cash movement needs its own query.
+      const cashMoveResult = await this.ledgerRepository.query(`
+        SELECT
+          SUM(CASE WHEN trans_type = 'DR' THEN CAST(trans_amt AS numeric) ELSE 0 END) AS cash_in,
+          SUM(CASE WHEN trans_type = 'CR' THEN CAST(trans_amt AS numeric) ELSE 0 END) AS cash_out
+        FROM ledger
+        WHERE trans_date::date = $1::date AND code = 'A1001'
+      `, [dto.date]);
+      const totalCashReceipts = parseFloat(cashMoveResult[0]?.cash_in) || 0;
+      const totalCashPayments = parseFloat(cashMoveResult[0]?.cash_out) || 0;
+      const closingBalance = openingBalance + totalCashReceipts - totalCashPayments;
 
       // Group into Payment (DR) and Receipt (CR) by head code
       const paymentMap = new Map<string, { headCode: string; headName: string; entries: any[] }>();
@@ -119,16 +134,13 @@ export class DayBookService {
 
       const paymentGroups = toGroups(paymentMap);
       const receiptGroups = toGroups(receiptMap);
-      const totalPayments = paymentGroups.reduce((s, g) => s + g.total, 0);
-      const totalReceipts = receiptGroups.reduce((s, g) => s + g.total, 0);
-      const closingBalance = openingBalance + totalReceipts - totalPayments;
 
       return {
         date: dto.date,
         openingBalance,
-        totalReceipts,
-        totalPayments,
-        netBalance: totalReceipts - totalPayments,
+        totalReceipts: totalCashReceipts,
+        totalPayments: totalCashPayments,
+        netBalance: totalCashReceipts - totalCashPayments,
         closingBalance,
         paymentGroups,
         receiptGroups,
@@ -148,10 +160,18 @@ export class DayBookService {
         SELECT DISTINCT ON (l.ledgerid)
           l.ledgerid                                             AS tr_no,
           COALESCE(CAST(l.acc_no AS text), '')                  AS acc_no,
-          TRIM(
-            COALESCE(m.f_name,'') || ' ' ||
-            COALESCE(m.m_name,'') || ' ' ||
-            COALESCE(m.l_name,'')
+          -- No fallback previously: an mbno with no member_master match
+          -- (confirmed live — an orphan test account, "SB PROBE" in
+          -- sbmaster.instructions) rendered as a blank name with no
+          -- indication why. Falls back to the member number itself so the
+          -- row is never silently blank, on real orphan data too.
+          COALESCE(
+            NULLIF(TRIM(
+              COALESCE(m.f_name,'') || ' ' ||
+              COALESCE(m.m_name,'') || ' ' ||
+              COALESCE(m.l_name,'')
+            ), ''),
+            'Member ' || CAST(l.mbno AS text)
           )                                                      AS ac_name,
           l.trans_type,
           UPPER(COALESCE(l.modeofpay, 'C'))                     AS modeofpay,
@@ -160,10 +180,24 @@ export class DayBookService {
         LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(l.mbno AS text)
         WHERE l.trans_date::date = $1::date
           AND l.acc_type = 'SB'
+          AND l.code = 'A001'
         ORDER BY l.ledgerid
       `, [date]);
 
-      // Opening balance: cumulative SB balance before date (dedup ledgerid)
+      // Opening balance: cumulative SB balance before date (dedup ledgerid).
+      // Was filtering on acc_type='SB' alone — but SB interest crediting
+      // (interest.service.ts createInterestLedgerEntry) writes BOTH its
+      // legs with acc_type='SB' too: the real credit AND its GL-balancing
+      // "interest expense" counter-leg, both under the same acc_no/mbno.
+      // Confirmed live (voucher J33502): a single real ₹1.42 interest
+      // credit showed as a phantom ₹1.42 deposit + ₹1.42 withdrawal pair
+      // for the member. 'A001' is the one code real deposits/withdrawals
+      // (saveSavingTransaction) consistently use for the member's own SB
+      // leg — restricting to it excludes the phantom counter-leg. Interest
+      // credits themselves are excluded too for now, since they currently
+      // write to a placeholder GL head (A1001) rather than a real one —
+      // same already-flagged gap as SB's missing A001... this is that same
+      // deferred decision, not a new one.
       const openingResult = await this.ledgerRepository.query(`
         SELECT COALESCE(
           SUM(CASE WHEN trans_type='CR' THEN amt ELSE -amt END), 0
@@ -172,7 +206,7 @@ export class DayBookService {
           SELECT DISTINCT ON (ledgerid)
             ledgerid, trans_type, CAST(trans_amt AS numeric) AS amt
           FROM ledger
-          WHERE acc_type = 'SB' AND trans_date::date < $1::date
+          WHERE acc_type = 'SB' AND code = 'A001' AND trans_date::date < $1::date
           ORDER BY ledgerid
         ) t
       `, [date]);

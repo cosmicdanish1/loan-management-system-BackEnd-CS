@@ -54,8 +54,12 @@ export class AdminController {
     description: 'Deposit/loan slabs retrieved successfully',
     type: [DepositSlabResponseDto],
   })
+  // 5.3 fix: passed the whole query object as the `type` positional param
+  // instead of destructuring it — findAllDepositSlabs() then filtered for
+  // `type = {}`, which never matches any row, so this always returned empty
+  // regardless of real data. Confirmed live after seeding a sample slab.
   async getDepositLoanSlabs(@Query() query: any) {
-    return this.systemConfigService.findAllDepositSlabs(query);
+    return this.systemConfigService.findAllDepositSlabs(query?.type, query?.isActive);
   }
 
   @Get('deposit-loan-slabs/:id')

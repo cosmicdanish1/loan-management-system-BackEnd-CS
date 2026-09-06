@@ -120,10 +120,14 @@ export class NotificationService {
 
     // ── Send one notification ────────────────────────────────
 
-    async sendNotification(id: number) {
+    async sendNotification(id: number, overrideChannel?: NotificationChannel) {
         const log = await this.notificationRepository.findOne({ where: { id } });
         if (!log) return { success: false, error: 'Not found' };
         if (log.status === NotificationStatus.SENT) return { success: true, logId: id };
+
+        if (overrideChannel && overrideChannel !== log.channel) {
+            log.channel = overrideChannel;
+        }
 
         try {
             switch (log.channel) {
@@ -150,10 +154,10 @@ export class NotificationService {
 
     // ── Batch operations ─────────────────────────────────────
 
-    async sendBatch(ids: number[]) {
+    async sendBatch(ids: number[], overrideChannel?: NotificationChannel) {
         let sent = 0, failed = 0;
         for (const id of ids) {
-            const r = await this.sendNotification(id);
+            const r = await this.sendNotification(id, overrideChannel);
             if (r.success) sent++; else failed++;
         }
         return { sent, failed, total: ids.length };

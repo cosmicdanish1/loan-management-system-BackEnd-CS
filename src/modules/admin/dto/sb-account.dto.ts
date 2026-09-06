@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsNumber, IsOptional, IsString, IsDecimal } from 'class-validator';
+import { IsNotEmpty, IsNumber, IsOptional, IsString, IsDecimal, Matches, Min } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { PartialType } from '@nestjs/swagger';
 
@@ -6,6 +6,9 @@ export class CreateSbAccountDto {
     @ApiProperty({ description: 'Account Number' })
     @IsNotEmpty()
     @IsString()
+    // ledger.acc_no is a NUMERIC column — a non-numeric account number crashes the
+    // opening-balance posting with a raw DB error. Reject it up front instead.
+    @Matches(/^\d+$/, { message: 'Account number must contain digits only' })
     accountNo: string;
 
     @ApiProperty({ description: 'Member Number' })
@@ -20,6 +23,7 @@ export class CreateSbAccountDto {
     @ApiProperty({ description: 'Opening Balance' })
     @IsOptional()
     @IsNumber()
+    @Min(0, { message: 'Opening balance cannot be negative' })
     openingBalance: number;
 
     @ApiProperty({ description: 'Ledger Group' })

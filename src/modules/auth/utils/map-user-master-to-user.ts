@@ -37,9 +37,15 @@ export function mapUserMasterToUser(userMaster: UserMaster): User {
   user.role = roleFromLegacyLevel(userMaster.userLevel?.userlevel || '') as any;
 
   // usermaster.permissions is set explicitly by CreateModifyUsers/Role
-  // Management; fall back to the hardcoded role-based derivation below for
-  // rows that predate that column (or never had permissions assigned).
-  if (userMaster.permissions.length > 0) {
+  // Management; fall back to the hardcoded role-based derivation below only
+  // for rows that predate that column (or never had permissions assigned) —
+  // `hasExplicitPermissions` (permissionsRaw !== null) distinguishes that
+  // from a deliberate "revoke all" ('' is still explicit). Using
+  // `.length > 0` here used to mean an admin emptying a user's rights via
+  // the Access Privilege Matrix had zero effect on actual authorization —
+  // every request re-derived a hardcoded default (including MANAGE_USERS
+  // for data_operator) regardless of what was actually saved.
+  if (userMaster.hasExplicitPermissions) {
     user.permissions = userMaster.permissions as UserPermission[];
   } else {
     const permissions = [UserPermission.READ_MEMBER];
@@ -58,6 +64,7 @@ export function mapUserMasterToUser(userMaster: UserMaster): User {
     user.permissions = permissions;
   }
   user.isActive = userMaster.isEnabled;
+  user.canPassTransactions = userMaster.canPassTransactions;
 
   return user;
 }
