@@ -10,7 +10,6 @@ import {
     ProfitDistributionService,
 } from './services-v2';
 import { AdminModule } from '../admin/admin.module';
-import { LoanV2Module } from '../loan/loan-v2.module';
 import { ReportV2Controller } from './report-v2.controller';
 
 /**
@@ -25,7 +24,7 @@ import { ReportV2Controller } from './report-v2.controller';
  * Routes are prefixed with /v2/ to avoid conflicts.
  */
 @Module({
-    imports: [AdminModule, LoanV2Module],
+    imports: [AdminModule],
     controllers: [ReportV2Controller],
     providers: [
         CashBookReportsService,

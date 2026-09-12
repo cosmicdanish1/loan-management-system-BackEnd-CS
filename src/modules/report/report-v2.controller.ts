@@ -1,5 +1,4 @@
 import {
-    BadRequestException,
     Controller,
     Get,
     Post,
@@ -28,11 +27,7 @@ import { FinancialSummaryDto } from './dto/financial-summary.dto';
  * After migration is complete, these will replace the original routes.
  */
 @ApiTags('Reports')
-// Accept BOTH '/reports' (REST-plural convention, matches loans/members/transactions)
-// and '/report' (singular) because the frontend's API_ROUTES + api.ts call the
-// singular path. Without the singular alias every report call 404s and silently
-// falls back to [] (e.g. empty Bank/Code dropdowns in Loan Payment).
-@Controller(['reports', 'report'])
+@Controller('reports')
 export class ReportV2Controller {
     constructor(
         private readonly cashBookReports: CashBookReportsService,
@@ -58,14 +53,9 @@ export class ReportV2Controller {
         return this.cashBookReports.getCashBook2Daily(dto.date);
     }
 
-    // 4.4 fix: missing month/year crashed with 500 "Cannot read properties of
-    // undefined (reading 'substring')" inside the service — confirmed live.
     @Post('cashbook/monthly')
     @ApiOperation({ summary: 'Get monthly cash book summary' })
     async getCashBookMonthly(@Body() dto: { month: string; year: number; limit?: number; offset?: number }) {
-        if (!dto?.month || !dto?.year) {
-            throw new BadRequestException('month and year are required');
-        }
         return this.cashBookReports.getCashBookMonthly(dto);
     }
 
@@ -167,7 +157,7 @@ export class ReportV2Controller {
 
     @Post('loans/new-disbursed')
     @ApiOperation({ summary: 'Get newly disbursed loans' })
-    async getNewLoanDisbursed(@Body() dto: { fromDate: string; toDate: string; loanType?: string; memberNo?: string; limit?: number; offset?: number }) {
+    async getNewLoanDisbursed(@Body() dto: { fromDate: string; toDate: string; loanType?: string; limit?: number; offset?: number }) {
         return this.loanReports.getNewLoanDisbursed(dto);
     }
 
@@ -298,12 +288,6 @@ export class ReportV2Controller {
 
     // ==================== Deposit Reports ====================
 
-    @Post('fd/statement')
-    @ApiOperation({ summary: 'Get FD statement' })
-    async getFDStatement(@Body() dto: { memberNo?: string; fromDate?: string; toDate?: string }) {
-        return this.depositReports.getFDStatement(dto);
-    }
-
     @Post('rd/statement')
     @ApiOperation({ summary: 'Get RD statement' })
     async getRDStatement(@Body() dto: { memberNo?: string; fromDate?: string; toDate?: string }) {
@@ -320,12 +304,6 @@ export class ReportV2Controller {
     @ApiOperation({ summary: 'Get deposit maturity report' })
     async getDepositMaturity(@Body() dto: { fromDate: string; toDate: string; depositType?: string }) {
         return this.depositReports.getDepositMaturity(dto);
-    }
-
-    @Get('fd-certificate')
-    @ApiOperation({ summary: 'Get FD certificate' })
-    async getFDCertificate(@Query() dto: { memberNo: string; accountNo?: string; certificateNo?: string }) {
-        return this.depositReports.getFixedDepositCertificate(dto);
     }
 
     @Get('share-certificate')
@@ -350,26 +328,6 @@ export class ReportV2Controller {
     @ApiOperation({ summary: 'Get passbook printing data' })
     async getPassBookPrinting(@Query() dto: any) {
         return this.depositReports.getPassBookPrinting(dto);
-    }
-
-    // 4.4 fix: missing memberNo crashed with 500 "Cannot read properties of
-    // undefined (reading 'trim')" inside the service — confirmed live.
-    @Post('passbook-reset')
-    @ApiOperation({ summary: 'Reset passbook print tracking for a member' })
-    async resetPassbookPrinting(@Body() body: { memberNo: string; accountType?: string }) {
-        if (!body?.memberNo) {
-            throw new BadRequestException('memberNo is required');
-        }
-        return this.depositReports.resetPassbookPrinting(body.memberNo, body.accountType);
-    }
-
-    @Post('passbook-update-tracking')
-    @ApiOperation({ summary: 'Update passbook tracking after print' })
-    async updatePassbookTracking(@Body() body: { memberNo: string; accountType: string; lastLedgerId: number; lastLineNo: number }) {
-        if (!body?.memberNo || !body?.accountType) {
-            throw new BadRequestException('memberNo and accountType are required');
-        }
-        return this.depositReports.updatePassbookTracking(body.memberNo, body.accountType, body.lastLedgerId, body.lastLineNo);
     }
 
     // ==================== Financial Statements (Trial/BS/PL) ====================
@@ -441,14 +399,9 @@ export class ReportV2Controller {
         return this.utilityReports.getFinancialSummary(dto);
     }
 
-    // 4.4 fix: missing month/year crashed with 500 "Cannot read properties of
-    // undefined (reading 'toString')" inside the service — confirmed live.
     @Get('account-closing')
     @ApiOperation({ summary: 'Get account closing register' })
     async getAccountClosingRegister(@Query() dto: { month: number; year: number; accountType?: string }) {
-        if (!dto?.month || !dto?.year) {
-            throw new BadRequestException('month and year query params are required');
-        }
         return this.utilityReports.getAccountClosingRegister(dto);
     }
 

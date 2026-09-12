@@ -12,7 +12,6 @@ import { DataConsistencyService } from './data-consistency.service';
 import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as v8 from 'v8';
 import { LessThan } from 'typeorm';
 
 export interface SystemHealthMetrics {
@@ -375,16 +374,12 @@ export class SystemHealthMonitoringService {
       ? allMetrics.reduce((sum, m) => sum + m.averageResponseTime, 0) / allMetrics.length
       : 0;
 
-    // Use v8 heap size limit as the denominator — heapTotal is just the
-    // currently-allocated slab and is always near heapUsed, making the
-    // ratio useless (always looks "critical"). heap_size_limit is the real cap.
-    const heapLimit = v8.getHeapStatistics().heap_size_limit;
     return {
       uptime,
       memoryUsage: {
         used: memUsage.heapUsed,
-        total: heapLimit,
-        percentage: (memUsage.heapUsed / heapLimit) * 100,
+        total: memUsage.heapTotal,
+        percentage: (memUsage.heapUsed / memUsage.heapTotal) * 100,
       },
       cpuUsage: process.cpuUsage().user / 1000000, // Convert to seconds
       activeUsers: 0, // Would need session tracking

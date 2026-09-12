@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
 /**
@@ -9,8 +9,6 @@ import { DataSource } from 'typeorm';
  */
 @Injectable()
 export class MemberBalanceService {
-    private readonly logger = new Logger(MemberBalanceService.name);
-
     constructor(private readonly dataSource: DataSource) { }
 
     /**
@@ -18,7 +16,7 @@ export class MemberBalanceService {
      */
     async getMemberBalance(memberNo: string) {
         try {
-            this.logger.debug(`Getting comprehensive balance for member: ${memberNo}`);
+            console.log(`[MemberBalance] Getting comprehensive balance for member: ${memberNo}`);
 
             // Get comprehensive member and balance info in a single query
             const comprehensiveQuery = `
@@ -77,40 +75,7 @@ export class MemberBalanceService {
                     }
                 });
             } catch (error) {
-                this.logger.warn('loan_master table query failed, using member_balances data only');
-            }
-
-            // Get real Savings Bank balance from sbmaster (member_balances has no SB column at all)
-            let sbBalance = 0;
-            try {
-                const sbResult = await this.dataSource.query(
-                    `SELECT COALESCE(SUM(balance::numeric), 0) as sb_balance FROM sbmaster WHERE mbno = $1 AND status = 'Active'`,
-                    [memberNo],
-                );
-                sbBalance = parseFloat(sbResult[0]?.sb_balance) || 0;
-            } catch (error) {
-                this.logger.warn('sbmaster query failed, savings bank balance defaulting to 0');
-            }
-
-            // Get real FD/RD balances from fdmaster. member_balances.rd_amt is a stale
-            // admission-time placeholder (always inserted as 0, never updated by real
-            // RD activity) — fdmaster is the live source, same as FD/RD reporting elsewhere.
-            // NOTE: status = '0' is the real "active" status in this table, not 'A' (BUG FIX 45).
-            let fdBalance = 0;
-            let rdBalance = 0;
-            try {
-                const depositResult = await this.dataSource.query(
-                    `SELECT fdrdflag, COALESCE(SUM(fdamount::numeric), 0) as amt
-                     FROM fdmaster WHERE mbno = $1 AND status = '0' AND fdrdflag IN ('F', 'R')
-                     GROUP BY fdrdflag`,
-                    [memberNo],
-                );
-                for (const row of depositResult) {
-                    if (row.fdrdflag === 'F') fdBalance = parseFloat(row.amt) || 0;
-                    if (row.fdrdflag === 'R') rdBalance = parseFloat(row.amt) || 0;
-                }
-            } catch (error) {
-                this.logger.warn('fdmaster query failed, FD/RD balances defaulting to 0');
+                console.log('[MemberBalance] loan_master table query failed, using member_balances data only');
             }
 
             // Create comprehensive balance items
@@ -137,29 +102,12 @@ export class MemberBalanceService {
                 });
             }
 
-            if (rdBalance > 0) {
+            const rdAmount = parseFloat(member.rd_amount) || 0;
+            if (rdAmount > 0) {
                 balanceItems.push({
                     code: 'RD',
                     headName: 'Recurring Deposit',
-                    balance: rdBalance,
-                    type: 'asset'
-                });
-            }
-
-            if (sbBalance > 0) {
-                balanceItems.push({
-                    code: 'SB',
-                    headName: 'Savings Bank',
-                    balance: sbBalance,
-                    type: 'asset'
-                });
-            }
-
-            if (fdBalance > 0) {
-                balanceItems.push({
-                    code: 'FD',
-                    headName: 'Fixed Deposit',
-                    balance: fdBalance,
+                    balance: rdAmount,
                     type: 'asset'
                 });
             }
@@ -244,11 +192,17 @@ export class MemberBalanceService {
                 }
             };
 
-            this.logger.debug(`Comprehensive balance calculated for member ${memberNo}: assets=${totalAssets}, liabilities=${totalLiabilities}, net=${netBalance}, items=${balanceItems.length}`);
+            console.log(`[MemberBalance] Comprehensive balance calculated for member ${memberNo}:`, {
+                memberName: member.member_name,
+                totalAssets: totalAssets,
+                totalLiabilities: totalLiabilities,
+                netBalance: netBalance,
+                balanceItemsCount: balanceItems.length
+            });
 
             return balanceData;
         } catch (error) {
-            this.logger.error(`Error getting member balance: ${error.message}`);
+            console.error('[MemberBalance] Error getting member balance:', error);
             throw error;
         }
     }
@@ -290,7 +244,7 @@ export class MemberBalanceService {
                 netBalance: assets - loans
             };
         } catch (error) {
-            this.logger.error(`Error getting quick balance: ${error.message}`);
+            console.error('[MemberBalance] Error getting quick balance:', error);
             return {
                 shares: 0,
                 compulsoryDeposit: 0,

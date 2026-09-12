@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
@@ -10,24 +10,15 @@ export interface SearchResult {
   details: string;
   date?: string;
   relevance?: number;
-  // Structured fields consumed by the Find grid (MB No / Name / Wing / Division / A/C No / SR No)
-  memberNo?: string;
-  name?: string;
-  wing?: string;
-  division?: string;
-  accountNo?: string;
-  srNo?: string;
 }
 
 @Injectable()
 export class SearchService {
-  private readonly logger = new Logger(SearchService.name);
-
   constructor(
     @InjectDataSource()
     private dataSource: DataSource,
   ) {
-    this.logger.log('SearchService initialized with DataSource');
+    console.log('🔧 [SEARCH] SearchService initialized with DataSource');
   }
 
   /**
@@ -35,10 +26,14 @@ export class SearchService {
    */
   async globalSearch(query: string, type: string = 'all', limit: number = 50): Promise<SearchResult[]> {
     try {
-      this.logger.debug(`Global search: query="${query}", type=${type}, limit=${limit}`);
-
+      console.log(`🔍 [SEARCH] Starting global search`);
+      console.log(`🔍 [SEARCH] Query: "${query}"`);
+      console.log(`🔍 [SEARCH] Type: ${type}`);
+      console.log(`🔍 [SEARCH] Limit: ${limit}`);
+      
       const results: SearchResult[] = [];
       const searchTerm = `%${query.toLowerCase()}%`;
+      console.log(`🔍 [SEARCH] Search term: ${searchTerm}`);
 
       if (type === 'all' || type === 'member') {
         const memberResults = await this.searchMembers(searchTerm, limit);
@@ -62,12 +57,20 @@ export class SearchService {
         .sort((a, b) => (b.relevance || 0) - (a.relevance || 0))
         .slice(0, limit);
 
-      this.logger.debug(`Found ${sortedResults.length} total results`);
+      console.log(`✅ [SEARCH] Found ${sortedResults.length} total results`);
+      console.log(`✅ [SEARCH] Results preview:`, sortedResults.slice(0, 3).map(r => ({ id: r.id, title: r.title, type: r.type })));
       
       return sortedResults;
 
     } catch (error) {
-      this.logger.error(`Error in global search: ${error.message}`, error.stack);
+      console.error('❌ [SEARCH] Error in global search:', error);
+      console.error('❌ [SEARCH] Error stack:', error.stack);
+      console.error('❌ [SEARCH] Error details:', {
+        message: error.message,
+        query,
+        type,
+        limit
+      });
       return [];
     }
   }
@@ -77,7 +80,7 @@ export class SearchService {
    */
   private async searchMembersOnly(searchTerm: string, type: string, limit: number): Promise<SearchResult[]> {
     try {
-      this.logger.debug(`searchMembersOnly called with type: ${type}`);
+      console.log(`🔍 [SEARCH] searchMembersOnly called with type: ${type}`);
       
       const query = `
         SELECT 
@@ -113,11 +116,19 @@ export class SearchService {
         LIMIT $2
       `;
 
-      this.logger.debug(`Executing query with searchTerm=${searchTerm}, limit=${limit}`);
+      console.log(`🔍 [SEARCH] Executing query with params:`, [searchTerm, limit]);
       
       const members = await this.dataSource.query(query, [searchTerm, limit]);
       
-      this.logger.debug(`Raw query returned ${members.length} members`);
+      console.log(`🔍 [SEARCH] Raw query returned ${members.length} members`);
+      
+      if (members.length > 0) {
+        console.log(`🔍 [SEARCH] Sample member data:`, {
+          mbno: members[0].mbno,
+          name: `${members[0].f_name} ${members[0].l_name}`,
+          office: members[0].office_name
+        });
+      }
 
       const results: SearchResult[] = [];
 
@@ -185,12 +196,23 @@ export class SearchService {
         }
       });
 
-      this.logger.debug(`Generated ${results.length} results from ${members.length} members`);
+      console.log(`✅ [SEARCH] Generated ${results.length} results from ${members.length} members`);
+      console.log(`✅ [SEARCH] Result types:`, results.reduce((acc, r) => {
+        acc[r.type] = (acc[r.type] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>));
 
       return results;
 
     } catch (error) {
-      this.logger.error(`Error in searchMembersOnly: ${error.message}`, error.stack);
+      console.error('❌ [SEARCH] Error in searchMembersOnly:', error);
+      console.error('❌ [SEARCH] Error details:', {
+        message: error.message,
+        searchTerm,
+        type,
+        limit,
+        stack: error.stack
+      });
       return [];
     }
   }
@@ -201,15 +223,13 @@ export class SearchService {
   private async searchMembers(searchTerm: string, limit: number): Promise<SearchResult[]> {
     try {
       const query = `
-        SELECT
+        SELECT 
           m.mbno,
           m.f_name,
           m.m_name,
           m.l_name,
           m.basic_pay,
           m.memb_date,
-          m.wingno,
-          m.officeno,
           d.name as office_name,
           m.isactive
         FROM member_master m
@@ -220,8 +240,8 @@ export class SearchService {
           OR LOWER(d.name) LIKE $1
         )
         AND m.mbno IS NOT NULL
-        ORDER BY
-          CASE
+        ORDER BY 
+          CASE 
             WHEN m.mbno::text = TRIM($1, '%') THEN 1
             WHEN LOWER(m.f_name) LIKE $1 THEN 2
             ELSE 3
@@ -232,27 +252,18 @@ export class SearchService {
 
       const members = await this.dataSource.query(query, [searchTerm, limit]);
 
-      return members.map((member: any) => {
-        const fullName = `${member.f_name} ${member.m_name || ''} ${member.l_name}`.trim();
-        const memberNo = member.mbno?.toString() || '';
-        return {
-          id: `member-${member.mbno}`,
-          type: 'member' as const,
-          title: fullName,
-          subtitle: `Member No: ${memberNo}`,
-          details: `${member.office_name || 'Unknown Office'} - Basic Pay: ₹${member.basic_pay || 0}`,
-          date: member.memb_date ? new Date(member.memb_date).toLocaleDateString('en-GB') : undefined,
-          relevance: this.calculateRelevance(searchTerm, member.f_name + ' ' + member.l_name + ' ' + member.mbno),
-          // Structured fields for the Find grid
-          memberNo,
-          name: fullName,
-          wing: member.wingno != null ? member.wingno.toString() : undefined,
-          division: member.officeno != null ? member.officeno.toString() : undefined,
-        };
-      });
+      return members.map((member: any) => ({
+        id: `member-${member.mbno}`,
+        type: 'member' as const,
+        title: `${member.f_name} ${member.m_name || ''} ${member.l_name}`.trim(),
+        subtitle: `Member No: ${member.mbno}`,
+        details: `${member.office_name || 'Unknown Office'} - Basic Pay: ₹${member.basic_pay || 0}`,
+        date: member.memb_date ? new Date(member.memb_date).toLocaleDateString('en-GB') : undefined,
+        relevance: this.calculateRelevance(searchTerm, member.f_name + ' ' + member.l_name + ' ' + member.mbno)
+      }));
 
     } catch (error) {
-      this.logger.error(`Error searching members: ${error.message}`);
+      console.error('❌ Error searching members:', error);
       return [];
     }
   }
@@ -267,28 +278,23 @@ export class SearchService {
       // Search SB accounts
       try {
         const sbRows = await this.dataSource.query(`
-          SELECT sb.acc_no, sb.mbno, sb.balance, m.f_name, m.l_name, m.wingno, m.officeno
+          SELECT sb.accno, sb.mbno, sb.balance, m.f_name, m.l_name
           FROM sbmaster sb
           LEFT JOIN member_master m ON sb.mbno = m.mbno
-          WHERE sb.acc_no::text LIKE $1 OR sb.mbno::text LIKE $1
+          WHERE sb.accno::text LIKE $1 OR sb.mbno::text LIKE $1
              OR LOWER(COALESCE(m.f_name,'') || ' ' || COALESCE(m.l_name,'')) LIKE $1
-          ORDER BY sb.acc_no DESC LIMIT $2
+          ORDER BY sb.accno DESC LIMIT $2
         `, [searchTerm, limit]);
 
         sbRows.forEach((row: any) => {
           const name = `${row.f_name || ''} ${row.l_name || ''}`.trim();
           results.push({
-            id: `account-sb-${row.acc_no}`,
+            id: `account-sb-${row.accno}`,
             type: 'account',
-            title: `SB Account - ${row.acc_no}`,
+            title: `SB Account - ${row.accno}`,
             subtitle: `Balance: ₹${parseFloat(row.balance || 0).toLocaleString()}`,
             details: name || `Member ${row.mbno}`,
-            relevance: this.calculateRelevance(searchTerm, row.acc_no + ' ' + name),
-            memberNo: row.mbno?.toString(),
-            name: name || undefined,
-            accountNo: row.acc_no?.toString(),
-            wing: row.wingno != null ? row.wingno.toString() : undefined,
-            division: row.officeno != null ? row.officeno.toString() : undefined,
+            relevance: this.calculateRelevance(searchTerm, row.accno + ' ' + name),
           });
         });
       } catch { /* sbmaster may not exist */ }
@@ -296,7 +302,7 @@ export class SearchService {
       // Search FD accounts
       try {
         const fdRows = await this.dataSource.query(`
-          SELECT fd.fdno, fd.mbno, fd.fdamt, fd.matdate, m.f_name, m.l_name, m.wingno, m.officeno
+          SELECT fd.fdno, fd.mbno, fd.fdamt, fd.matdate, m.f_name, m.l_name
           FROM fdmaster fd
           LEFT JOIN member_master m ON fd.mbno = m.mbno
           WHERE fd.fdno::text LIKE $1 OR fd.mbno::text LIKE $1
@@ -313,18 +319,13 @@ export class SearchService {
             subtitle: `Amount: ₹${parseFloat(row.fdamt || 0).toLocaleString()}`,
             details: `${name} | Maturity: ${row.matdate ? new Date(row.matdate).toLocaleDateString('en-GB') : 'N/A'}`,
             relevance: this.calculateRelevance(searchTerm, row.fdno + ' ' + name),
-            memberNo: row.mbno?.toString(),
-            name: name || undefined,
-            accountNo: row.fdno?.toString(),
-            wing: row.wingno != null ? row.wingno.toString() : undefined,
-            division: row.officeno != null ? row.officeno.toString() : undefined,
           });
         });
       } catch { /* fdmaster may not exist */ }
 
       return results;
     } catch (error) {
-      this.logger.error(`Error searching accounts: ${error.message}`);
+      console.error('❌ Error searching accounts:', error);
       return [];
     }
   }
@@ -370,7 +371,7 @@ export class SearchService {
       }));
 
     } catch (error) {
-      this.logger.error(`Error searching transactions: ${error.message}`);
+      console.error('❌ Error searching transactions:', error);
       return [];
     }
   }
@@ -417,7 +418,7 @@ export class SearchService {
       }));
 
     } catch (error) {
-      this.logger.error(`Error searching loans: ${error.message}`);
+      console.error('❌ Error searching loans:', error);
       return [];
     }
   }
@@ -453,13 +454,15 @@ export class SearchService {
    */
   async getSearchSuggestions(query: string, limit: number = 5): Promise<string[]> {
     try {
-      this.logger.debug(`Getting suggestions for: "${query}"`);
-
+      console.log(`🔍 [SUGGESTIONS] Getting suggestions for: "${query}"`);
+      
       if (query.length < 2) {
+        console.log(`🔍 [SUGGESTIONS] Query too short, returning empty`);
         return [];
       }
 
       const searchTerm = `%${query.toLowerCase()}%`;
+      console.log(`🔍 [SUGGESTIONS] Search term: ${searchTerm}`);
       
       // Get member name and member number suggestions (fixed PostgreSQL DISTINCT issue)
       const suggestionQuery = `
@@ -482,22 +485,28 @@ export class SearchService {
         LIMIT $2
       `;
 
-      this.logger.debug(`Executing suggestions query with limit: ${limit}`);
+      console.log(`🔍 [SUGGESTIONS] Executing query with limit: ${limit}`);
       
       const memberSuggestions = await this.dataSource.query(suggestionQuery, [searchTerm, limit]);
       
-      this.logger.debug(`Raw query returned ${memberSuggestions.length} suggestions`);
+      console.log(`🔍 [SUGGESTIONS] Raw query returned ${memberSuggestions.length} suggestions`);
       
       const suggestions = memberSuggestions
         .map((s: any) => s.suggestion?.trim())
         .filter((s: string) => s && s.length > 0);
 
-      this.logger.debug(`Returning ${suggestions.length} filtered suggestions`);
+      console.log(`✅ [SUGGESTIONS] Returning ${suggestions.length} filtered suggestions:`, suggestions);
       
       return suggestions;
 
     } catch (error) {
-      this.logger.error(`Error getting search suggestions: ${error.message}`, error.stack);
+      console.error('❌ [SUGGESTIONS] Error getting search suggestions:', error);
+      console.error('❌ [SUGGESTIONS] Error details:', {
+        message: error.message,
+        query,
+        limit,
+        stack: error.stack
+      });
       return [];
     }
   }

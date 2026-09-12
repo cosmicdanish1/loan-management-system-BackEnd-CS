@@ -1,27 +1,22 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { SequenceGeneratorService } from '../../shared/services';
 import { SystemConfigService } from '../../admin/services/system-config.service';
 import { LoanEligibilityService } from './loan-eligibility.service';
-import { LoanSuretyService } from './loan-surety.service';
-import { autoQueueNotification } from '../../shared/utils/auto-notify';
 
 /**
  * Loan Application Service - Handles loan applications and case management.
- * 
+ *
  * @version 2.0 - Part of backend restructuring
  * Extracted from member.service.ts for single responsibility
  */
 @Injectable()
 export class LoanApplicationService {
-    private readonly logger = new Logger(LoanApplicationService.name);
-
     constructor(
         private readonly dataSource: DataSource,
         private readonly sequenceGenerator: SequenceGeneratorService,
         private readonly systemConfigService: SystemConfigService,
         private readonly loanEligibilityService: LoanEligibilityService,
-        private readonly loanSuretyService: LoanSuretyService,
     ) { }
 
     /**
@@ -55,7 +50,7 @@ export class LoanApplicationService {
 
             const loanCases = await this.dataSource.query(query, [memberNo]);
 
-            this.logger.log(`Found ${loanCases.length} editable pending cases for member ${memberNo}`);
+            console.log(`[LoanApplication] Found ${loanCases.length} editable pending cases for member ${memberNo}`);
 
             return loanCases.map((loan: any) => ({
                 memberNo,
@@ -67,7 +62,7 @@ export class LoanApplicationService {
                 sanctioned: loan.flg_sanctioned === 'Y',
             }));
         } catch (error) {
-            this.logger.error(`Error getting member loan cases: ${error.message}`);
+            console.error('[LoanApplication] Error getting member loan cases:', error);
             return [];
         }
     }
@@ -78,31 +73,31 @@ export class LoanApplicationService {
      * are committed atomically or rolled back together.
      */
     async saveLoanApplication(loanData: any) {
-        this.logger.log(`Saving loan application for member: ${loanData.memberNo}`);
+        console.log('[LoanApplication] Saving loan application:', loanData);
 
-        // --- 1. Eligibility check (outside transaction — read-only) ---
-        const amount = parseFloat(loanData.loanAmount || loanData.appliedAmount || 0);
-        // BUG FIX 27: nothing rejected a zero or negative loan amount — it would pass every
-        // downstream check (trivially under any max limit) and create a real loan_pending row.
-        if (!amount || amount <= 0) {
-            throw new BadRequestException('Loan amount must be greater than zero.');
-        }
-        const installments = loanData.noOfInstallments || 60;
-        await this.validateLoanEligibility(loanData.memberNo, amount, installments, loanData.loanType);
-
-        // --- 1b. Share Value & FD Eligibility rule check (Regular Loan only) ---
-        await this.loanEligibilityService.enforceEligibility(loanData.memberNo, amount, loanData.loanType);
-
-        // --- 2. Loan type normalisation ---
+        // --- 1. Loan type normalisation (moved ahead of the eligibility
+        // checks below — both need the normalised RLN/ALN/ELN code, not
+        // whatever free-text label the form happened to send) ---
         const loanTypeMapping: Record<string, string> = {
-            'EMERGENCY': 'ELN', 'EMERGENCY LOAN': 'ELN', 'Emergency': 'ELN', 'ELN': 'ELN',
+            'EMERGENCY': 'ALN', 'EMERGENCY LOAN': 'ALN', 'Emergency': 'ALN', 'ALN': 'ALN',
             'REGULAR': 'RLN', 'REGULAR LOAN': 'RLN', 'Regular': 'RLN', 'RLN': 'RLN',
-            'ADDITIONAL': 'ALN', 'ADDITIONAL LOAN': 'ALN', 'Additional': 'ALN', 'ALN': 'ALN',
+            'AGAINST': 'ELN', 'LOAN AGAINST RECOVERY': 'ELN', 'Against': 'ELN', 'ELN': 'ELN',
         };
         const lookupKey = (loanData.loanType || '').toString();
         const mappedLoanType = loanTypeMapping[lookupKey]
             || loanTypeMapping[lookupKey.toUpperCase()]
             || lookupKey.substring(0, 3).toUpperCase();
+
+        // --- 2. Eligibility checks (outside transaction — read-only) ---
+        const amount = parseFloat(loanData.loanAmount || loanData.appliedAmount || 0);
+        const installments = loanData.noOfInstallments || 60;
+        await this.validateLoanEligibility(loanData.memberNo, amount, installments, mappedLoanType);
+        // RD/Share Value requirement — per loan type, configurable and
+        // defaulting to on for RLN/ALN/ELN alike (see loan-eligibility.service.ts).
+        // A shortfall doesn't block the application by default (it's withheld
+        // at disbursement instead) — this only throws for a genuine breach of
+        // the max-exposure limit, or an explicit BLOCK shortfall policy.
+        await this.loanEligibilityService.enforceEligibility(loanData.memberNo, amount, mappedLoanType);
 
         // --- 3. Sanitise fields ---
         // purpose is VARCHAR(50); form_number is VARCHAR(10)
@@ -113,40 +108,6 @@ export class LoanApplicationService {
         // g1/g2 must be numeric — use 0 instead of NULL (column default is 0, not nullable)
         const g1mbno = loanData.surety1 || 0;
         const g2mbno = loanData.surety2 || 0;
-
-        // Regular loan (RLN) requires at least 1 surety
-        // BUG FIX: was a plain Error (surfaced to the frontend as a 500), even though this
-        // is a routine validation failure — same class as the other rejections below.
-        if (mappedLoanType === 'RLN' && !g1mbno) {
-            throw new BadRequestException('Regular Loan requires at least 1 surety/security member');
-        }
-
-        // BUG FIX 28: surety members were never checked to exist or be active — the exact
-        // validation for this already exists and is proven working in LoanSuretyService
-        // (used by Change Loan Surety), just never called from here.
-        if (g1mbno) {
-            const s1Check = await this.loanSuretyService.validateSurety(String(g1mbno));
-            if (!s1Check.valid) throw new BadRequestException(`Surety 1: ${s1Check.message}`);
-        }
-        if (g2mbno) {
-            const s2Check = await this.loanSuretyService.validateSurety(String(g2mbno));
-            if (!s2Check.valid) throw new BadRequestException(`Surety 2: ${s2Check.message}`);
-        }
-
-        // BUG FIX: validateSurety() only checks the member exists/is active — it never checked
-        // whether the surety IS the applicant. That check exists in LoanSuretyService.updateLoanSurety
-        // (the Change Loan Surety screen) but was never applied here, so a brand new loan application
-        // could name the applicant as their own guarantor. Confirmed live: case 889011 went through
-        // with g1mbno === mbno. Mirrors the same three checks already proven in updateLoanSurety.
-        if (g1mbno && String(g1mbno) === String(loanData.memberNo)) {
-            throw new BadRequestException('Surety 1 cannot be the loan applicant themselves.');
-        }
-        if (g2mbno && String(g2mbno) === String(loanData.memberNo)) {
-            throw new BadRequestException('Surety 2 cannot be the loan applicant themselves.');
-        }
-        if (g1mbno && g2mbno && String(g1mbno) === String(g2mbno)) {
-            throw new BadRequestException('Surety 1 and Surety 2 cannot be the same member.');
-        }
 
         // --- 4. Sequence generation (before transaction so gaps are predictable) ---
         let loanCaseNo = loanData.loanCaseNo;
@@ -169,7 +130,7 @@ export class LoanApplicationService {
 
             let result: any[];
             if (isUpdate) {
-                this.logger.log(`Updating existing loan_pending case: ${loanCaseNo}`);
+                console.log(`[LoanApplication] Updating existing loan_pending case: ${loanCaseNo}`);
                 result = await queryRunner.query(`
                     UPDATE loan_pending SET
                         loantype    = $1,
@@ -185,7 +146,7 @@ export class LoanApplicationService {
                 `, [mappedLoanType, amount, appDate, installments, purpose, formNumber,
                     g1mbno, g2mbno, String(loanCaseNo)]);
             } else {
-                this.logger.log(`Inserting new loan_pending case: ${loanCaseNo}`);
+                console.log(`[LoanApplication] Inserting new loan_pending case: ${loanCaseNo}`);
                 result = await queryRunner.query(`
                     INSERT INTO loan_pending (
                         mbno, loantype, loancaseno, applied_amt, sanctioned_amt, app_date,
@@ -206,14 +167,14 @@ export class LoanApplicationService {
                         `UPDATE suretymaster SET g1mbno = $1, g2mbno = $2 WHERE mbno = $3`,
                         [g1mbno, g2mbno, loanData.memberNo]
                     );
-                    this.logger.log(`Updated suretymaster for member: ${loanData.memberNo}`);
+                    console.log(`[LoanApplication] ✅ Updated suretymaster for member: ${loanData.memberNo}`);
                 } else {
                     await queryRunner.query(
                         `INSERT INTO suretymaster (mbno, amount, g1mbno, g2mbno, g1amt, g2amt, addflag)
                          VALUES ($1, 0, $2, $3, 0, 0, 'N')`,
                         [loanData.memberNo, g1mbno, g2mbno]
                     );
-                    this.logger.log(`Inserted suretymaster for member: ${loanData.memberNo}`);
+                    console.log(`[LoanApplication] ✅ Inserted suretymaster for member: ${loanData.memberNo}`);
                 }
             }
 
@@ -236,7 +197,7 @@ export class LoanApplicationService {
                          (n.relation || '').slice(0, 25)]
                     );
                 }
-                this.logger.log(`Saved ${validNominees.length} nominee(s) for case: ${loanCaseNo}`);
+                console.log(`[LoanApplication] ✅ Saved ${validNominees.length} nominee(s) for case: ${loanCaseNo}`);
             }
 
             // Save FDR/Loan-Against-Deposit rows — replace existing
@@ -269,19 +230,11 @@ export class LoanApplicationService {
                          parseFloat(f.inttPaid) || 0]
                     );
                 }
-                this.logger.log(`Saved ${validFdr.length} FDR row(s) for case: ${loanCaseNo}`);
+                console.log(`[LoanApplication] ✅ Saved ${validFdr.length} FDR row(s) for case: ${loanCaseNo}`);
             }
 
             await queryRunner.commitTransaction();
-            this.logger.log(`Loan application ${isUpdate ? 'updated' : 'saved'}. Case No: ${loanCaseNo}`);
-
-            // Auto-queue notification
-            if (!isUpdate) {
-                autoQueueNotification(this.dataSource, String(loanData.memberNo),
-                    `Your loan application #${loanCaseNo} for ₹${amount.toLocaleString('en-IN')} (${mappedLoanType}) has been submitted. Pending sanction. — FIBE Credit Society`,
-                    'LOAN_APPLICATION'
-                ).catch(() => {});
-            }
+            console.log(`[LoanApplication] ✅ Loan application ${isUpdate ? 'updated' : 'saved'}. Case No: ${loanCaseNo}`);
 
             return {
                 success: true,
@@ -293,7 +246,7 @@ export class LoanApplicationService {
             };
         } catch (error: any) {
             await queryRunner.rollbackTransaction();
-            this.logger.error(`Transaction rolled back: ${error.message}`);
+            console.error('[LoanApplication] ❌ Transaction rolled back:', error.message);
             throw new Error('Failed to save loan application: ' + error.message);
         } finally {
             await queryRunner.release();
@@ -335,7 +288,7 @@ export class LoanApplicationService {
                 sanctioned: loan.flg_sanctioned === 'Y'
             }));
         } catch (error) {
-            this.logger.error(`Error getting loan cases: ${error.message}`);
+            console.error('[LoanApplication] Error getting loan cases:', error);
             return [];
         }
     }
@@ -369,7 +322,7 @@ export class LoanApplicationService {
                 applicationDate: loan.app_date
             }));
         } catch (error) {
-            this.logger.error(`Error getting member pending loans: ${error.message}`);
+            console.error('[LoanApplication] Error getting member pending loans:', error);
             return [];
         }
     }
@@ -378,18 +331,20 @@ export class LoanApplicationService {
      * Validate loan eligibility (Dynamic Business Rules)
      */
     private async validateLoanEligibility(memberNo: string, amount: number, installments: number, loanType: string): Promise<void> {
-        this.logger.log(`Validating eligibility for ${loanType} loan...`);
+        console.log(`[LoanApplication] Validating eligibility for ${loanType} loan...`);
 
         // 1. Determine which rules to use based on loan type
-        // ALN = Emergency Loan, RLN = Regular Loan, ELN = Loan Against Recovery
-        const isEmergency = (loanType === 'ALN' || loanType === 'ELN');
-        const typePrefix  = isEmergency ? 'EL' : 'LT';
-        const maxAmtKey    = `RULE_LOAN_${typePrefix}_MAX_AMT`;
-        const maxTenureKey = `RULE_LOAN_${typePrefix}_MAX_TENURE`;
+        // Legacy codes: ALN = Emergency Loan, RLN = Regular Loan, ELN = Loan Against Recovery
+        const isEmergency = (loanType === 'ALN' || loanType?.toUpperCase().includes('EMERGENCY'));
+        const isRecovery  = (loanType === 'ELN' || loanType?.toUpperCase().includes('RECOVERY'));
+        // ELN uses its own config keys; ALN → EL prefix; RLN → LT prefix
+        const typePrefix = isEmergency ? 'EL' : isRecovery ? 'EL' : 'LT';
+        const maxAmtKey = isRecovery ? 'RULE_LOAN_ELN_MAX_AMT' : `RULE_LOAN_${typePrefix}_MAX_AMT`;
+        const maxTenureKey = isRecovery ? 'RULE_LOAN_ELN_MAX_TENURE' : `RULE_LOAN_${typePrefix}_MAX_TENURE`;
 
         // 2. Fetch configured limits (generous defaults so a missing key never hard-blocks)
-        const maxLoanLimit = await this.systemConfigService.getConfigValue(maxAmtKey).catch(() => isEmergency ? 500000 : 1000000);
-        const maxTenure = await this.systemConfigService.getConfigValue(maxTenureKey).catch(() => isEmergency ? 60 : 120);
+        const maxLoanLimit = await this.systemConfigService.getConfigValue(maxAmtKey).catch(() => isRecovery ? 1000000 : 500000);
+        const maxTenure = await this.systemConfigService.getConfigValue(maxTenureKey).catch(() => isRecovery ? 120 : 60);
 
         // 3. Check outstanding balance from member_balances (kept current by repayment processing)
         //    Do NOT use loan_master.balance — it is set once at disbursement and never reduced.
@@ -403,24 +358,11 @@ export class LoanApplicationService {
         const result = await this.dataSource.query(query, [memberNo]);
         const totalOutstanding = Number(result[0]?.total || 0);
 
-        this.logger.debug(`Loan type: ${loanType}, Balance column: ${balanceCol}`);
-        this.logger.debug(`Current outstanding: ${totalOutstanding}, Applied: ${amount}, Total: ${totalOutstanding + amount}, Max: ${maxLoanLimit}`);
-
-        // Regular Loan's maximum-limit rule now lives in LoanEligibilityService
-        // (configurable via RULE_LOAN_R_MAX_LIMIT on the Modify Business Rules
-        // screen, and applied there against the same existing-outstanding + new
-        // exposure). Skipping it here avoids two limits enforcing different
-        // configured values for the same loan. Tenure below still applies to
-        // every type.
-        if (!isEmergency) {
-            if (installments > maxTenure) {
-                throw new BadRequestException(
-                    `Requested tenure (${installments} months) exceeds maximum allowed tenure of ${maxTenure} months for Regular loans.`
-                );
-            }
-            this.logger.log(`Tenure check passed for member ${memberNo}; limit/RD/Share handled by LoanEligibilityService`);
-            return;
-        }
+        console.log(`[LoanApplication] Loan type: ${loanType}, Balance column: ${balanceCol}`);
+        console.log(`[LoanApplication] Current outstanding (from member_balances): ₹${totalOutstanding.toLocaleString()}`);
+        console.log(`[LoanApplication] Applied amount: ₹${amount.toLocaleString()}`);
+        console.log(`[LoanApplication] Total would be: ₹${(totalOutstanding + amount).toLocaleString()}`);
+        console.log(`[LoanApplication] Maximum limit: ₹${maxLoanLimit.toLocaleString()}`);
 
         if (totalOutstanding + amount > maxLoanLimit) {
             throw new BadRequestException(
@@ -436,32 +378,6 @@ export class LoanApplicationService {
             );
         }
 
-        this.logger.log(`Eligibility check passed for member ${memberNo}`);
-    }
-
-    async getMemberBalances(memberNo: string): Promise<{
-        regularLoanBal: number;
-        emergencyLoanBal: number;
-        shareBalance: number;
-    }> {
-        try {
-            const rows = await this.dataSource.query(
-                `SELECT
-                   COALESCE(regularloan::numeric, 0)            AS regular_loan_bal,
-                   COALESCE(emergency_loan_balance::numeric, 0)  AS emergency_loan_bal
-                 FROM member_balances
-                 WHERE mbno = $1`,
-                [memberNo]
-            );
-            const row = rows[0] || {};
-            return {
-                regularLoanBal: Number(row.regular_loan_bal || 0),
-                emergencyLoanBal: Number(row.emergency_loan_bal || 0),
-                shareBalance: 0,
-            };
-        } catch (error) {
-            this.logger.error(`getMemberBalances error: ${error.message}`);
-            return { regularLoanBal: 0, emergencyLoanBal: 0, shareBalance: 0 };
-        }
+        console.log(`[LoanApplication] Eligibility check passed for member ${memberNo}`);
     }
 }

@@ -13,11 +13,9 @@ export * from './designation.entity';
 export * from './cast-category.entity';
 export * from './member.entity';
 export * from './member-balance.entity';
-export * from './fd-account.entity';
 export * from './office.entity';
 export * from './wing.entity';
 export * from './sb-account.entity';
-export * from './rd-account.entity';
 export * from './funds-master.entity';
 export * from './financial-year.entity';
 

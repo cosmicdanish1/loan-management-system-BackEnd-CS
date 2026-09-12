@@ -85,18 +85,7 @@ export class PassbookTemplateService {
             }));
             await manager.save(fields);
 
-            // 5.3 fix: this.findOne() uses a fresh repository connection that
-            // can't see this transaction's uncommitted insert — confirmed live,
-            // every create() 404'd on its own just-created row. Read back
-            // through the transactional manager instead.
-            const created = await manager.findOne(PassbookTemplate, {
-                where: { id: savedTemplate.id },
-                relations: ['fields', 'pageSettings'],
-            });
-            if (!created) {
-                throw new NotFoundException(`Passbook template with ID ${savedTemplate.id} not found`);
-            }
-            return created;
+            return this.findOne(savedTemplate.id);
         });
     }
 
@@ -134,15 +123,7 @@ export class PassbookTemplateService {
             }));
             await manager.save(newFields);
 
-            // 5.3 fix: same wrong-connection read-after-write bug as create().
-            const updated = await manager.findOne(PassbookTemplate, {
-                where: { id },
-                relations: ['fields', 'pageSettings'],
-            });
-            if (!updated) {
-                throw new NotFoundException(`Passbook template with ID ${id} not found`);
-            }
-            return updated;
+            return this.findOne(id);
         });
     }
 

@@ -81,22 +81,4 @@ export class CreateUserDto {
   @IsBoolean()
   @IsOptional()
   isActive?: boolean = true;
-
-  @ApiProperty({
-    description: 'User avatar/profile photo URL',
-    example: '/uploads/avatars/user-1.jpg',
-    required: false,
-  })
-  @IsString()
-  @IsOptional()
-  avatar?: string;
-
-  @ApiProperty({
-    description: 'Whether the user is authorized to pass (verify) transactions',
-    example: false,
-    required: false,
-  })
-  @IsBoolean()
-  @IsOptional()
-  allowPassTransactions?: boolean;
 }

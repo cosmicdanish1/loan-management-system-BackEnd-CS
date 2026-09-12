@@ -36,7 +36,6 @@ import {
   CreateDepositSlabDto,
   UpdateDepositSlabDto,
   DepositSlabResponseDto,
-  BulkSaveDepositSlabsDto,
 } from '../dto';
 import { BulkUpdateBusinessRulesDto } from '../dto/bulk-update-rules.dto';
 import {
@@ -273,20 +272,6 @@ export class SystemConfigController {
     @Body() createDto: CreateDepositSlabDto,
   ): Promise<DepositSlabResponseDto> {
     return this.systemConfigService.createDepositSlab(createDto);
-  }
-
-  @Post('deposit-slabs/bulk')
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  @RequirePermissions(UserPermission.MANAGE_SYSTEM_CONFIG)
-  @ApiOperation({ summary: 'Bulk replace all deposit slabs for a given type' })
-  @ApiResponse({ status: HttpStatus.OK, description: 'Slabs saved successfully' })
-  async bulkSaveDepositSlabs(
-    @Body() body: BulkSaveDepositSlabsDto,
-  ): Promise<{ saved: number; type: string }> {
-    return this.systemConfigService.bulkSaveDepositSlabs(
-      body.type,
-      body.rows,
-    );
   }
 
   @Get('deposit-slabs')

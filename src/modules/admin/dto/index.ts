@@ -13,8 +13,6 @@ export * from './passbook-template.dto';
 export * from './designation.dto';
 export * from './cast-category.dto';
 export * from './member-balance.dto';
-export * from './fd-account.dto';
 export * from './office.dto';
 export * from './wing.dto';
 export * from './sb-account.dto';
-export * from './rd-account.dto';

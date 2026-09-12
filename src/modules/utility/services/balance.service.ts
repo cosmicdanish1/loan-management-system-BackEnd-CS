@@ -1,9 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Member } from '../../member/entities/member.entity';
 import { LoanAccount } from '../../loan/entities/loan-account.entity';
-import { FixedDeposit } from '../../deposit/entities/fixed-deposit.entity';
 import { Transaction } from '../../transaction/entities/transaction.entity';
 import { 
   MemberBalanceInquiryDto, 
@@ -21,8 +20,6 @@ export class BalanceService {
     private memberRepository: Repository<Member>,
     @InjectRepository(LoanAccount)
     private loanRepository: Repository<LoanAccount>,
-    @InjectRepository(FixedDeposit)
-    private depositRepository: Repository<FixedDeposit>,
     @InjectRepository(Transaction)
     private transactionRepository: Repository<Transaction>,
   ) {}
@@ -37,8 +34,7 @@ export class BalanceService {
     });
 
     if (!member) {
-      // 5.1 fix: was reaching callers as 500 instead of 404.
-      throw new NotFoundException('Member not found');
+      throw new Error('Member not found');
     }
 
     // Calculate share balance
@@ -55,16 +51,7 @@ export class BalanceService {
 
     const totalLoanBalance = Number(loanBalances?.totalBalance) || 0;
 
-    // Calculate total deposit balance
-    const depositBalances = await this.depositRepository
-      .createQueryBuilder('deposit')
-      .select('SUM(deposit.principalAmount + deposit.interestAccrued)', 'totalBalance')
-      .where('deposit.memberId = :memberId', { memberId })
-      .andWhere('deposit.status = :status', { status: 'ACTIVE' })
-      .andWhere('deposit.depositDate <= :cutoffDate', { cutoffDate })
-      .getRawOne();
-
-    const totalDepositBalance = Number(depositBalances?.totalBalance) || 0;
+    const totalDepositBalance = 0;
 
     // Get last transaction date
     const lastTransaction = await this.transactionRepository
@@ -107,17 +94,6 @@ export class BalanceService {
         }
         break;
 
-      case 'deposit':
-        account = await this.depositRepository.findOne({
-          where: { id: accountId },
-          relations: ['member'],
-        });
-        if (account) {
-          currentBalance = account.currentValue;
-          availableBalance = account.status === 'ACTIVE' ? currentBalance : 0;
-        }
-        break;
-
       default:
         throw new Error('Invalid account type');
     }
@@ -156,8 +132,7 @@ export class BalanceService {
     });
 
     if (!member) {
-      // 5.1 fix: was reaching callers as 500 instead of 404.
-      throw new NotFoundException('Member not found');
+      throw new Error('Member not found');
     }
 
     let account: any;
@@ -169,11 +144,6 @@ export class BalanceService {
       switch (accountType.toLowerCase()) {
         case 'loan':
           account = await this.loanRepository.findOne({
-            where: { id: accountId, memberId },
-          });
-          break;
-        case 'deposit':
-          account = await this.depositRepository.findOne({
             where: { id: accountId, memberId },
           });
           break;
@@ -300,8 +270,7 @@ export class BalanceService {
     });
 
     if (!member) {
-      // 5.1 fix: was reaching callers as 500 instead of 404.
-      throw new NotFoundException('Member not found');
+      throw new Error('Member not found');
     }
 
     const shareBalance = Number(member.shareAmount) || 0;
@@ -328,27 +297,8 @@ export class BalanceService {
       totalLoanBalance += balance.currentBalance;
     }
 
-    // Get all deposit accounts
-    const depositAccounts = await this.depositRepository.find({
-      where: { memberId, status: 'ACTIVE' },
-    });
-
     const depositBalances: AccountBalance[] = [];
-    let totalDepositBalance = 0;
-
-    for (const deposit of depositAccounts) {
-      const balance: AccountBalance = {
-        accountId: deposit.id,
-        accountNumber: deposit.accountNumber,
-        accountType: 'deposit',
-        currentBalance: deposit.currentValue,
-        availableBalance: deposit.currentValue,
-        lastTransactionDate: deposit.updatedAt,
-        status: deposit.status,
-      };
-      depositBalances.push(balance);
-      totalDepositBalance += balance.currentBalance;
-    }
+    const totalDepositBalance = 0;
 
     const netWorth = shareBalance + totalDepositBalance - totalLoanBalance;
 

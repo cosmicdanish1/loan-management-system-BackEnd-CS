@@ -86,21 +86,4 @@ export class UpdateUserDto {
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
-
-  @ApiProperty({
-    description: 'User avatar/profile photo (URL or data URI)',
-    required: false,
-  })
-  @IsString()
-  @IsOptional()
-  avatar?: string;
-
-  @ApiProperty({
-    description: 'Whether the user is authorized to pass (verify) transactions',
-    example: false,
-    required: false,
-  })
-  @IsBoolean()
-  @IsOptional()
-  allowPassTransactions?: boolean;
 }

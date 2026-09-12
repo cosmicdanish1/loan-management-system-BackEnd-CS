@@ -1,11 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
 @Injectable()
 export class JottingReportService {
-  private readonly logger = new Logger(JottingReportService.name);
-
   constructor(
     @InjectDataSource()
     private dataSource: DataSource,
@@ -26,10 +24,10 @@ export class JottingReportService {
       `;
       
       const result = await this.dataSource.query(query);
-      this.logger.debug(`getHeadMasters result: ${result.length} records`);
+      console.log('[DEBUG] getHeadMasters result:', result.length, 'records');
       return result;
     } catch (error) {
-      this.logger.error(`getHeadMasters failed: ${error.message}`);
+      console.error('[ERROR] getHeadMasters failed:', error.message);
       throw new Error(`Failed to fetch head masters: ${error.message}`);
     }
   }
@@ -47,10 +45,10 @@ export class JottingReportService {
       `;
       
       const result = await this.dataSource.query(query);
-      this.logger.debug(`getWingList result: ${result.length} records`);
+      console.log('[DEBUG] getWingList result:', result.length, 'records');
       return result.map((wing: any) => wing.wingName);
     } catch (error) {
-      this.logger.error(`getWingList failed: ${error.message}`);
+      console.error('[ERROR] getWingList failed:', error.message);
       throw new Error(`Failed to fetch wings: ${error.message}`);
     }
   }
@@ -66,10 +64,10 @@ export class JottingReportService {
       `;
       
       const result = await this.dataSource.query(query);
-      this.logger.debug(`getOfficeList result: ${result.length} records`);
+      console.log('[DEBUG] getOfficeList result:', result.length, 'records');
       return result.map((office: any) => office.officeNo.toString());
     } catch (error) {
-      this.logger.error(`getOfficeList failed: ${error.message}`);
+      console.error('[ERROR] getOfficeList failed:', error.message);
       throw new Error(`Failed to fetch offices: ${error.message}`);
     }
   }
@@ -84,7 +82,7 @@ export class JottingReportService {
     try {
       const { headCode, asOnDate, wingName, officeName, sortBy = 'MBNO' } = params;
       
-      this.logger.debug(`getJottingReport params: ${JSON.stringify(params)}`);
+      console.log('[DEBUG] getJottingReport params:', params);
       
       let whereClause = `
         WHERE mm.isactive = '1'
@@ -138,15 +136,15 @@ export class JottingReportService {
         ${orderClause}
       `;
       
-      this.logger.debug(`getJottingReport query: ${query}`);
-      this.logger.debug(`getJottingReport queryParams: ${JSON.stringify(queryParams)}`);
+      console.log('[DEBUG] getJottingReport query:', query);
+      console.log('[DEBUG] getJottingReport queryParams:', queryParams);
       
       const result = await this.dataSource.query(query, queryParams);
-      this.logger.debug(`getJottingReport result: ${result.length} records`);
+      console.log('[DEBUG] getJottingReport result:', result.length, 'records');
       
       return result;
     } catch (error) {
-      this.logger.error(`getJottingReport failed: ${error.message}`);
+      console.error('[ERROR] getJottingReport failed:', error.message);
       throw new Error(`Failed to generate jotting report: ${error.message}`);
     }
   }

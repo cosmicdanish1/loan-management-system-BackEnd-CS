@@ -7,7 +7,6 @@ import {
   Request,
   HttpCode,
   HttpStatus,
-  ForbiddenException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -23,7 +22,6 @@ import {
   TokenRefreshDto,
   AuthResponseDto,
   UserResponseDto,
-  ChangePasswordDto,
 } from './dto';
 import { 
   Public, 
@@ -94,9 +92,8 @@ export class AuthController {
   @ApiOperation({ summary: 'User logout' })
   @ApiResponse({ status: 200, description: 'Logout successful' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async logout(@CurrentUser() user: User, @Request() req): Promise<{ message: string }> {
-    const rawToken = req.headers.authorization?.replace(/^Bearer\s+/i, '');
-    return this.authService.logout(user.id, rawToken);
+  async logout(@CurrentUser() user: User): Promise<{ message: string }> {
+    return this.authService.logout(user.id);
   }
 
   @Get('me')
@@ -114,36 +111,17 @@ export class AuthController {
   }
 
   // BUG FIX 3: Added JWT guard — change-password must require a valid session.
-  // 4.4 fix: the ChangePasswordDto this comment describes existed in dto/ but was
-  // never actually wired in — the parameter was still a plain inline TS type, which
-  // class-validator can't see (types are erased at compile time; only a real class
-  // with decorators works), so an empty/malformed body reached bcrypt as undefined
-  // instead of being rejected with 400. Confirmed live: {} body -> 500 "data and
-  // hash arguments required".
-  // 2026-08-23 fix: the body's `username` was never checked against the caller's
-  // own JWT identity, and there was no role check — any authenticated user could
-  // change any OTHER user's password (including an admin's) just by knowing that
-  // user's current password. Confirmed live via a data_operator test account
-  // taking over an administrator test account. Initially patched with an
-  // ADMIN-role override for cross-account resets, but the user asked for that
-  // removed too (self-service only, no exceptions here) — a deliberate
-  // admin-reset feature belongs in its own more carefully-guarded endpoint,
-  // not one that still demands the target's current password anyway.
+  // Also added ChangePasswordDto type instead of `any` so class-validator runs.
   @Post('change-password')
   @HttpCode(HttpStatus.OK)
   @UseGuards(AuthGuard('jwt'))
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Change your own password' })
+  @ApiOperation({ summary: 'Change user password' })
   @ApiResponse({ status: 200, description: 'Password changed successfully' })
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
-  @ApiResponse({ status: 403, description: 'Cannot change another user\'s password' })
   async changePassword(
-    @CurrentUser() user: User,
-    @Body() changePasswordDto: ChangePasswordDto,
+    @Body() changePasswordDto: { username: string; currentPassword: string; newPassword: string },
   ): Promise<{ message: string }> {
-    if (changePasswordDto.username !== user.username) {
-      throw new ForbiddenException('You can only change your own password');
-    }
     return this.authService.changePassword(
       changePasswordDto.username,
       changePasswordDto.currentPassword,
@@ -160,13 +138,5 @@ export class AuthController {
   @ApiOperation({ summary: 'Get list of all users for dropdown (authenticated admins only)' })
   async getUsersList(): Promise<any> {
     return this.authService.getUsersList();
-  }
-
-  @Public()
-  @Get('usernames')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Get usernames only for password change dropdown (no sensitive data)' })
-  async getUsernames(): Promise<any> {
-    return this.authService.getUsernames();
   }
 }

@@ -11,7 +11,6 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { loadDbConfig } from '../../../config/db-config.loader';
 
 const execAsync = promisify(exec);
 
@@ -46,10 +45,13 @@ export class BackupService {
 
   constructor(private configService: ConfigService) {
     this.backupDir = this.configService.get('BACKUP_DIR', './backups');
-    // Same source as the live DB connection (db-config.json, falling back to
-    // .env) — backups always target whatever database the app is actually
-    // using, even after db-config.json is edited without touching .env.
-    this.dbConfig = loadDbConfig();
+    this.dbConfig = {
+      host: this.configService.get('DB_HOST'),
+      port: this.configService.get('DB_PORT'),
+      username: this.configService.get('DB_USERNAME'),
+      password: this.configService.get('DB_PASSWORD'),
+      database: this.configService.get('DB_DATABASE'),
+    };
 
     // Ensure backup directory exists
     this.ensureBackupDirectory();

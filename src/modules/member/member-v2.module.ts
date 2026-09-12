@@ -6,11 +6,13 @@ import { MemberCrudService, MemberLookupService, MemberBalanceService, Signature
 import { MemberV2Controller } from './member-v2.controller';
 
 import { AdminModule } from '../admin/admin.module';
+import { RdModule } from '../rd/rd.module';
 
 @Module({
     imports: [
         TypeOrmModule.forFeature([Member, MemberMaster]),
         AdminModule,
+        RdModule,
     ],
     controllers: [MemberV2Controller],
     providers: [

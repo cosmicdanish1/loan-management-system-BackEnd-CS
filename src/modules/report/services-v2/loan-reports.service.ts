@@ -1,20 +1,16 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { parseSafeDate } from '../../shared/utils/date-utils';
-import { LoanRepaymentService } from '../../loan/services-v2/loan-repayment.service';
 
 /**
  * Loan Reports Service - Handles loan-focused reports.
- *
+ * 
  * @version 2.0 - Part of backend restructuring
  * Extracted from report.service.ts for single responsibility
  */
 @Injectable()
 export class LoanReportsService {
-  constructor(
-    private readonly dataSource: DataSource,
-    private readonly loanRepaymentService: LoanRepaymentService,
-  ) { }
+  constructor(private readonly dataSource: DataSource) { }
 
   /**
    * Get defaulter list
@@ -70,53 +66,32 @@ export class LoanReportsService {
 
     const result = await this.dataSource.query(query, queryParams);
 
-    // Overdue duration + penal interest per case, from the same oldest-first
-    // due calculation the repayment screen uses — a defaulter list without
-    // this is just a balance sort, not actually showing who's overdue by how much.
-    const dueStatuses = await Promise.all(
-      result.map((d: any) => this.loanRepaymentService.getDueStatus(String(d.loan_case_no)).catch(() => null))
-    );
-
     return {
       metadata: {
         totalCount,
         limit: limit || totalCount,
         offset: offset || 0
       },
-      data: result.map((d: any, idx: number) => {
-        const due = dueStatuses[idx];
-        const monthsOverdue = due?.unpaidInstallments?.length
-          ? Math.max(...due.unpaidInstallments.map((i: any) => i.monthsOverdue))
-          : 0;
-        return {
-          key: ((offset || 0) + idx).toString(),
-          memberNo: d.member_no,
-          // BUG FIX: a loan with no matching member_master row (an orphan
-          // mbno reference) rendered a completely blank name, confirmed
-          // live (member 610000036). Falls back to the member number
-          // itself, same pattern already applied to Day-Book [SB] and
-          // Journal/Transfer Voucher this session — a row is never
-          // silently blank.
-          memberName: d.member_name?.trim() || `Member ${d.member_no}`,
-          officeName: d.office_name,
-          loanType: d.loan_type,
-          loanCaseNo: d.loan_case_no,
-          loanAmount: parseFloat(d.loan_amount) || 0,
-          balance: parseFloat(d.balance) || 0,
-          installments: d.installments,
-          lastPaymentDate: d.last_payment_date,
-          monthsOverdue,
-          penalDue: due?.totalPenalDue || 0,
-        };
-      })
+      data: result.map((d: any, idx: number) => ({
+        key: ((offset || 0) + idx).toString(),
+        memberNo: d.member_no,
+        memberName: d.member_name?.trim() || '',
+        officeName: d.office_name,
+        loanType: d.loan_type,
+        loanCaseNo: d.loan_case_no,
+        loanAmount: parseFloat(d.loan_amount) || 0,
+        balance: parseFloat(d.balance) || 0,
+        installments: d.installments,
+        lastPaymentDate: d.last_payment_date
+      }))
     };
   }
 
   /**
    * Get newly disbursed loans
    */
-  async getNewLoanDisbursed(dto: { fromDate: string; toDate: string; loanType?: string; memberNo?: string; limit?: number; offset?: number }) {
-    const { fromDate, toDate, loanType, memberNo, limit, offset } = dto;
+  async getNewLoanDisbursed(dto: { fromDate: string; toDate: string; loanType?: string; limit?: number; offset?: number }) {
+    const { fromDate, toDate, loanType, limit, offset } = dto;
 
     const baseQuery = `
       FROM loan_master loan
@@ -133,11 +108,6 @@ export class LoanReportsService {
       params.push(loanType);
     }
 
-    if (memberNo) {
-      whereClause += ` AND CAST(loan.mbno AS text) = $${params.length + 1}`;
-      params.push(memberNo);
-    }
-
     // Get total count
     const totalCountRes = await this.dataSource.query(`SELECT COUNT(*) ${baseQuery} ${whereClause}`, params);
     const totalCount = parseInt(totalCountRes[0].count);
@@ -152,7 +122,6 @@ export class LoanReportsService {
         CAST(loan.loan_amt AS numeric) as loan_amount,
         loan.payment_date as disbursement_date,
         loan.no_of_instal as installments,
-        CAST(loan.instal_amt AS numeric) as installment_amount,
         loan.rate as interest_rate
       ${baseQuery} ${whereClause}
       ORDER BY loan.payment_date DESC
@@ -187,7 +156,6 @@ export class LoanReportsService {
         loanAmount: parseFloat(l.loan_amount) || 0,
         disbursementDate: l.disbursement_date,
         installments: l.installments,
-        installmentAmount: parseFloat(l.installment_amount) || 0,
         interestRate: l.interest_rate
       }))
     };
@@ -258,33 +226,7 @@ export class LoanReportsService {
 
     const transactions = await this.dataSource.query(query, queryParams);
 
-    // BUG FIX: runningBalance always started at 0, ignoring any transactions
-    // before fromDate — same missing-opening-balance gap already found and
-    // fixed in getBankDetailLedger this session. Only meaningful when fromDate
-    // is actually set (otherwise "before fromDate" has no boundary).
     let runningBalance = 0;
-    if (fromDate) {
-      const obParams: any[] = [memberNo];
-      let obLoanCaseFilter = '';
-      if (loanCaseNo) {
-        obLoanCaseFilter = ` AND acc_no = $${obParams.length + 1}`;
-        obParams.push(loanCaseNo);
-      }
-      obParams.push(fromDate);
-      const obResult = await this.dataSource.query(`
-        SELECT
-          COALESCE(SUM(CASE WHEN trans_type IN ('DR','D') THEN CAST(trans_amt AS numeric) ELSE 0 END), 0) -
-          COALESCE(SUM(CASE WHEN trans_type IN ('CR','C') THEN CAST(trans_amt AS numeric) ELSE 0 END), 0) as balance
-        FROM ledger
-        ${criteria} ${obLoanCaseFilter} AND trans_date < $${obParams.length}
-      `, obParams);
-      runningBalance = parseFloat(obResult[0]?.balance || '0');
-    }
-    // Captured before the loop mutates runningBalance — was computed
-    // correctly already, but never returned as its own field, so the
-    // frontend (unlike the sibling Detail/Bank Detail Ledger reports) never
-    // had a real Opening Balance value to display at all.
-    const openingBalance = runningBalance;
     const ledgerData = transactions.map((t: any, idx: number) => {
       const amount = parseFloat(t.amount) || 0;
       const isDebit = t.type === 'DR' || t.type === 'D';
@@ -315,7 +257,6 @@ export class LoanReportsService {
       memberNo,
       memberName,
       loanCaseNo: loanCaseNo || 'All',
-      openingBalance,
       transactions: ledgerData
     };
   }
@@ -476,12 +417,8 @@ export class LoanReportsService {
     const totalCountRes = await this.dataSource.query(`SELECT COUNT(*) ${baseQuery} ${whereClause}`, params);
     const totalCount = parseInt(totalCountRes[0].count);
 
-    // BUG FIX: s2/g2mbno (second guarantor) was already joined but never
-    // selected — every loan with a 2nd surety silently lost that row from the
-    // register. getMemberLoanDetail (a sibling report in this same module)
-    // already correctly outputs both suretyies; mirrored that pattern here.
     let query = `
-      SELECT
+      SELECT 
         lp.mbno as member_no,
         TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
         lp.loancaseno as loan_no,
@@ -489,8 +426,6 @@ export class LoanReportsService {
         CAST(lp.sanctioned_amt AS numeric) as loan_amount,
         lp.g1mbno as surety_mbno,
         TRIM(COALESCE(s1.f_name, '') || ' ' || COALESCE(s1.l_name, '')) as surety_name,
-        lp.g2mbno as surety2_mbno,
-        TRIM(COALESCE(s2.f_name, '') || ' ' || COALESCE(s2.l_name, '')) as surety2_name,
         CAST(COALESCE(lm.balance, 0) AS numeric) as outstanding_balance
       ${baseQuery} ${whereClause}
       ORDER BY lp.loancaseno DESC
@@ -518,8 +453,6 @@ export class LoanReportsService {
       loanAmount: parseFloat(r.loan_amount) || 0,
       suretyMbno: r.surety_mbno,
       suretyName: r.surety_name,
-      surety2Mbno: r.surety2_mbno,
-      surety2Name: r.surety2_name,
       outstandingBalance: parseFloat(r.outstanding_balance) || 0
     }));
   }
@@ -528,23 +461,20 @@ export class LoanReportsService {
    * Get loan types list
    */
   async getLoanTypes() {
-    // BUG FIX: this used to be `SELECT DISTINCT loantype FROM loan_master` —
-    // data-driven, so a real type with zero loans on record yet (confirmed
-    // live: ELN has 0 rows, only RLN/ALN currently have any) never appeared
-    // in the dropdown at all, unlike the legacy system which always offered
-    // every valid type. Also the labels themselves were wrong: cross-checked
-    // against the actual Loan Application screen — the one place these codes
-    // are assigned, and the real source of truth — which defines
-    // ALN='EMERGENCY LOAN', ELN='LOAN AGAINST RECOVERY', RLN='REGULAR LOAN'.
-    // This endpoint had ALN and ELN's labels swapped/wrong ('Against Deposit
-    // Loan' / 'Emergency Loan'), the exact ambiguity flagged and left open in
-    // an earlier session. Now a fixed list matching that authoritative source
-    // exactly, not derived from whatever data happens to exist today.
-    return [
-      { code: 'ALN', name: 'EMERGENCY LOAN' },
-      { code: 'ELN', name: 'LOAN AGAINST RECOVERY' },
-      { code: 'RLN', name: 'REGULAR LOAN' },
-    ];
+    const result = await this.dataSource.query(`
+      SELECT DISTINCT loantype as code, 
+        CASE 
+          WHEN loantype = 'RLN' THEN 'Regular Loan'
+          WHEN loantype = 'ELN' THEN 'Emergency Loan'
+          WHEN loantype = 'ALN' THEN 'Against Deposit Loan'
+          ELSE loantype
+        END as name
+      FROM loan_master
+      WHERE loantype IS NOT NULL
+      ORDER BY loantype
+    `);
+
+    return result;
   }
 
   /**
@@ -606,22 +536,17 @@ export class LoanReportsService {
     const receivables = await this.dataSource.query(receivableQuery, receivableParams);
 
     let receivedQuery = `
-      SELECT
+      SELECT 
         EXTRACT(MONTH FROM trans_date) as month,
         EXTRACT(YEAR FROM trans_date) as year,
         SUM(CASE WHEN trans_type = 'CR' THEN COALESCE(trans_amt, 0) ELSE -COALESCE(trans_amt, 0) END) as received
       FROM ledger
       WHERE code IN ('I1002', 'I1008')
-        AND trans_date >= $1 AND trans_date < $2
+        AND trans_date >= $1 AND trans_date <= $2
     `;
 
-    // Upper bound is the first day of the month AFTER toMonth (exclusive), so it
-    // covers the whole end month without constructing an invalid date like
-    // "2026-06-31" (June has 30 days) — which threw a DB "out of range" error.
     const startDate = `${fromYear}-${fromMonth.toString().padStart(2, '0')}-01`;
-    const endExclusiveYear = toMonth >= 12 ? toYear + 1 : toYear;
-    const endExclusiveMonth = toMonth >= 12 ? 1 : toMonth + 1;
-    const endDate = `${endExclusiveYear}-${endExclusiveMonth.toString().padStart(2, '0')}-01`;
+    const endDate = `${toYear}-${toMonth.toString().padStart(2, '0')}-31`;
     const receivedParams: any[] = [startDate, endDate];
 
     if (dto.fromMember) {
@@ -680,63 +605,39 @@ export class LoanReportsService {
    * Get Loan Nil Certificate (NOC)
    */
   async getLoanNilCertificate(memberNo: string) {
-    // Every loan case for this member — not just ones with outstanding
-    // principal. A loan can show balance = 0 (principal fully recovered)
-    // while still owing interest or penal interest on its last installment,
-    // which a balance-only check would silently certify as "Nil" incorrectly.
-    const allLoans = await this.dataSource.query(`
-      SELECT
+    // Check for active loans (balance > 0)
+    const activeLoans = await this.dataSource.query(`
+      SELECT 
         loantype as head_name,
         loancaseno as head_code,
         CAST(balance AS numeric) as balance
-      FROM loan_master
-      WHERE mbno = $1
+      FROM loan_master 
+      WHERE mbno = $1 AND CAST(balance AS numeric) > 0
     `, [memberNo]);
 
-    const outstandingLoans: any[] = [];
-    for (const l of allLoans) {
-      const balance = parseFloat(l.balance) || 0;
-      let dueStatus: { totalDue: number; totalInterestDue: number; totalPenalDue: number } | null = null;
-      try {
-        dueStatus = await this.loanRepaymentService.getDueStatus(String(l.head_code));
-      } catch {
-        dueStatus = null; // loan case lookup failed — fall back to balance-only check
-      }
-      const outstandingDue = dueStatus?.totalDue || 0;
+    // Get member info
+    const memberRes = await this.dataSource.query(`
+      SELECT TRIM(COALESCE(f_name, '') || ' ' || COALESCE(l_name, '')) as member_name, doj
+      FROM member_master WHERE mbno = $1
+    `, [memberNo]);
 
-      if (balance > 0 || outstandingDue > 0) {
-        outstandingLoans.push({
+    const member = memberRes[0] || { member_name: `Member ${memberNo}`, doj: null };
+
+    return {
+      success: true,
+      data: {
+        memberNo,
+        memberName: member.member_name,
+        joiningDate: member.doj,
+        isNil: activeLoans.length === 0,
+        outstandingLoans: activeLoans.map((l: any) => ({
           headName: l.head_name === 'RLN' ? 'Regular Loan' :
             l.head_name === 'ELN' ? 'Emergency Loan' :
               l.head_name === 'ALN' ? 'Against Deposit Loan' : l.head_name,
           headCode: l.head_code,
-          balance,
-          interestDue: dueStatus?.totalInterestDue || 0,
-          penalDue: dueStatus?.totalPenalDue || 0,
-        });
+          balance: parseFloat(l.balance) || 0
+        }))
       }
-    }
-
-    // Get member info
-    const memberRes = await this.dataSource.query(`
-      SELECT TRIM(COALESCE(f_name, '') || ' ' || COALESCE(l_name, '')) as member_name, memb_date
-      FROM member_master WHERE mbno = $1
-    `, [memberNo]);
-
-    const member = memberRes[0] || { member_name: `Member ${memberNo}`, memb_date: null };
-
-    // BUG FIX: this manually wrapped its payload in {success, data} on top of
-    // the global TransformInterceptor's identical wrap, and unlike most other
-    // double-wrap instances this session, this one actually broke the screen —
-    // live-confirmed memberNo landing at data.data.memberNo while the frontend
-    // only unwraps one level (`response.data`), so it always hit the "member
-    // not found" branch. Removed the manual wrap.
-    return {
-      memberNo,
-      memberName: member.member_name,
-      joiningDate: member.memb_date,
-      isNil: outstandingLoans.length === 0,
-      outstandingLoans
     };
   }
 
@@ -758,8 +659,7 @@ export class LoanReportsService {
     `, [memberNo]);
 
     if (memberRes.length === 0) {
-      // 5.1 fix: was reaching callers as 500 instead of 404.
-      throw new NotFoundException('Member not found');
+      throw new Error('Member not found');
     }
 
     const member = memberRes[0];
@@ -781,9 +681,11 @@ export class LoanReportsService {
     let totalTransactions = 0;
 
     for (const loan of loans) {
-      // 3. Get transactions for each loan within date range
-      // In this system, transactions are stored in the 'ledger' table
-      // We look for entries matching the loancaseno in narration or specific head_code if applicable
+      // 3. Get transactions for each loan within date range. `ledger` has no
+      // debit/credit columns and no loancaseno column — matched the same way
+      // the already-verified Member Loan Ledger report (getMemberLoanLedger,
+      // above) does: acc_no = the loan case number, restricted to loan-coded
+      // rows, single trans_amt split into debit/credit via trans_type.
       const transactions = await this.dataSource.query(`
         SELECT
           trans_date as transaction_date,
@@ -792,22 +694,25 @@ export class LoanReportsService {
           trans_type,
           CAST(trans_amt AS numeric) as trans_amt
         FROM ledger
-        WHERE CAST(mbno AS text) = $1
-          AND (narration LIKE '%' || $2 || '%' OR code = $2)
+        WHERE mbno = $1
+          AND acc_no = $2
+          AND (code LIKE 'A10%' OR acc_type IN ('RLN', 'ELN', 'ALN'))
           AND trans_date >= $3 AND trans_date <= $4
         ORDER BY trans_date ASC
-      `, [memberNo, String(loan.loancaseno), parseSafeDate(fromDate), parseSafeDate(toDate)]);
+      `, [memberNo, loan.loancaseno, fromDate, toDate]);
 
       const mappedTransactions = transactions.map((t: any) => {
-        const amt = parseFloat(t.trans_amt) || 0;
-        const isCr = t.trans_type === 'CR' || t.trans_type === 'R';
-        if (isCr) totalCredits += amt; else totalDebits += amt;
+        const amount = parseFloat(t.trans_amt) || 0;
+        const debit = t.trans_type === 'DR' ? amount : 0;
+        const credit = t.trans_type === 'CR' ? amount : 0;
+        totalDebits += debit;
+        totalCredits += credit;
         totalTransactions++;
 
         return {
           transactionDate: t.transaction_date,
-          transactionType: isCr ? 'CR' : 'DR',
-          transactionAmount: amt,
+          transactionType: t.trans_type,
+          transactionAmount: amount,
           narration: t.narration,
           voucherNo: t.voucher_no
         };

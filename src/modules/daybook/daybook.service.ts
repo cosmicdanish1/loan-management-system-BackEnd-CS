@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { generateVoucherNo } from '../shared/utils/voucher-utils';
 import { Transactions } from '../cashbook/entities/transactions.entity';
 import { Ledger } from '../cashbook/entities/ledger.entity';
 import { MemberMaster } from '../member/entities/member-master.entity';
@@ -29,230 +28,116 @@ export class DayBookService {
     private interestMasterRepository: Repository<InterestMaster>
   ) { }
 
-  async getDayBookReport(dto: GetDayBookDto): Promise<any> {
+  async getDayBookReport(dto: GetDayBookDto): Promise<DayBookSummaryDto> {
     try {
-      // Single JOIN query — member names + accountbalance/headmaster names in one shot, no N+1.
-      // accountbalance is empty for most real heads (same gap already fixed
-      // 7+ times elsewhere this session) — confirmed live it left every row
-      // here showing its raw code ("A1002 A1002") instead of a real name.
-      // headmaster is the fallback that actually has the data.
-      const rows = await this.ledgerRepository.query(`
-        SELECT DISTINCT ON (l.ledgerid)
-          l.ledgerid,
-          l.trans_type,
-          CAST(l.mbno AS text)                              AS mb_no,
-          l.code                                            AS head_code,
-          COALESCE(ab.acname, h.head_name, l.code)          AS head_name,
-          CAST(l.trans_amt AS numeric)                      AS amount,
-          COALESCE(l.receipt_vchr_no, '')                   AS voucher_no,
-          COALESCE(l.username, '')                          AS username,
-          TRIM(
-            COALESCE(m.f_name,'') || ' ' ||
-            COALESCE(m.m_name,'') || ' ' ||
-            COALESCE(m.l_name,'')
-          )                                                 AS member_name
-        FROM ledger l
-        LEFT JOIN accountbalance  ab ON ab.acno  = l.code
-        LEFT JOIN headmaster      h  ON h.code   = l.code
-        LEFT JOIN member_master   m  ON CAST(m.mbno AS text) = CAST(l.mbno AS text)
-        WHERE l.trans_date::date = $1::date
-          AND l.code IS NOT NULL AND TRIM(l.code) != ''
-          AND l.code != 'A1001'
-          AND l.receipt_vchr_no IS NOT NULL AND TRIM(l.receipt_vchr_no) != ''
-        ORDER BY l.ledgerid, l.code, l.trans_type
-      `, [dto.date]);
+      const reportDate = new Date(dto.date);
+      const startOfDay = new Date(reportDate);
+      startOfDay.setHours(0, 0, 0, 0);
 
-      // Opening balance: the real Cash-In-Hand (A1001) position, built from
-      // ledger history directly. This used to read a "last known balance"
-      // from daily_gl_history — which has zero rows, nothing has ever
-      // written to it — then bridge forward using tblcashbook, a table
-      // already proven unreliable elsewhere in this app (most rows carry no
-      // trans_date, and rows that do can double-count transactions that
-      // also exist in `ledger`). Confirmed live: this produced ₹1,03,331.33
-      // for a date whose real cash position (cross-checked against the
-      // fixed Cash Book reports) is -₹4,96,595.09.
-      //
-      // Filtering by code alone (not acc_type='CINH') matters: cash-mode
-      // loan disbursements post code='A1001' with acc_type='ALN', not
-      // 'CINH' — the same acc_type-trust bug already fixed in Cash Book.
-      const openingResult = await this.ledgerRepository.query(`
-        SELECT
-          SUM(CASE WHEN trans_type = 'DR' THEN CAST(trans_amt AS numeric) ELSE 0 END) -
-          SUM(CASE WHEN trans_type = 'CR' THEN CAST(trans_amt AS numeric) ELSE 0 END) AS balance
-        FROM ledger
-        WHERE trans_date::date < $1::date AND code = 'A1001'
-      `, [dto.date]);
+      const endOfDay = new Date(reportDate);
+      endOfDay.setHours(23, 59, 59, 999);
 
-      const openingBalance = parseFloat(openingResult[0]?.balance) || 0;
+      // Get transactions from ledger for the selected date
+      let query = this.ledgerRepository
+        .createQueryBuilder('l')
+        .where('l.trans_date >= :startDate AND l.trans_date <= :endDate', {
+          startDate: startOfDay,
+          endDate: endOfDay
+        });
 
-      // Same-day movement on the A1001 head itself. This used to be netted
-      // from the payment/receipt group totals below — but those groups list
-      // every OTHER head (A1001 rows are excluded from `rows` on purpose,
-      // since A1001 is the balance being tracked, not an analysis head), and
-      // in a balanced ledger the non-cash legs of a voucher net to the exact
-      // opposite of its cash leg. So Closing Balance never actually moved
-      // regardless of real activity — confirmed live: 2026-09-02's Total
-      // Receipt and Total Payment both landed on the identical ₹5,10,000
-      // even though real money moved. Cash movement needs its own query.
-      const cashMoveResult = await this.ledgerRepository.query(`
-        SELECT
-          SUM(CASE WHEN trans_type = 'DR' THEN CAST(trans_amt AS numeric) ELSE 0 END) AS cash_in,
-          SUM(CASE WHEN trans_type = 'CR' THEN CAST(trans_amt AS numeric) ELSE 0 END) AS cash_out
-        FROM ledger
-        WHERE trans_date::date = $1::date AND code = 'A1001'
-      `, [dto.date]);
-      const totalCashReceipts = parseFloat(cashMoveResult[0]?.cash_in) || 0;
-      const totalCashPayments = parseFloat(cashMoveResult[0]?.cash_out) || 0;
-      const closingBalance = openingBalance + totalCashReceipts - totalCashPayments;
-
-      // Group into Payment (DR) and Receipt (CR) by head code
-      const paymentMap = new Map<string, { headCode: string; headName: string; entries: any[] }>();
-      const receiptMap = new Map<string, { headCode: string; headName: string; entries: any[] }>();
-
-      for (const row of rows) {
-        const mbNo = row.mb_no && row.mb_no !== '0' ? row.mb_no : '';
-        const entry = {
-          mbNo,
-          memberName: row.member_name?.trim() || '',
-          voucherNo: row.voucher_no,
-          amount: parseFloat(row.amount) || 0,
-          username: row.username,
-        };
-
-        const map = row.trans_type === 'DR' ? paymentMap : receiptMap;
-        if (!map.has(row.head_code)) {
-          map.set(row.head_code, { headCode: row.head_code, headName: row.head_name || row.head_code, entries: [] });
-        }
-        map.get(row.head_code)!.entries.push(entry);
+      // Add filtering for SB (Savings Bank) transactions if specified
+      if (dto.filterType === 'sb' || dto.filterType === 'savings') {
+        // Filter for Savings Bank related transactions (acc_type = 'SB' or code relates to savings)
+        query = query.andWhere('(l.acc_type = :sbType OR l.code = :sbCode)', {
+          sbType: 'SB',
+          sbCode: 'A1001'
+        });
       }
 
-      const toGroups = (m: typeof paymentMap) =>
-        Array.from(m.values()).map(g => ({
-          ...g,
-          total: g.entries.reduce((s, e) => s + e.amount, 0),
-        }));
+      const ledgerEntries = await query
+        .orderBy('l.trans_date', 'ASC')
+        .addOrderBy('l.trans_no', 'ASC')
+        .getMany();
 
-      const paymentGroups = toGroups(paymentMap);
-      const receiptGroups = toGroups(receiptMap);
+      // Get all head names for the codes found in ledger
+      const codes = [...new Set(ledgerEntries.map(l => l.code))].filter(Boolean);
+      const headNames = new Map<string, string>();
+
+      if (codes.length > 0) {
+        // We can query head_master via raw query if repository is not available, 
+        // but let's assume we can get it from our list or inject HeadMaster later.
+        // For now, I'll use the existing helper but more robustly.
+        const heads = await this.ledgerRepository.query(
+          `SELECT code, head_name FROM head_master WHERE code IN (${codes.map((_, i) => `$${i + 1}`).join(',')})`,
+          codes
+        );
+        heads.forEach((h: any) => headNames.set(h.code.trim(), h.head_name));
+      }
+
+      // Transform ledger entries to day book entries
+      const entries: DayBookEntryDto[] = await Promise.all(
+        ledgerEntries.map(async (l) => {
+          // Get member information
+          let memberName = 'Unknown';
+          const mbNoStr = l.mbno?.toString();
+
+          if (mbNoStr && mbNoStr !== '0') {
+            try {
+              const member = await this.memberRepository.findOne({
+                where: { mbno: mbNoStr }
+              });
+              if (member) {
+                memberName = `${member.f_name || ''} ${member.m_name || ''} ${member.l_name || ''}`.trim();
+              }
+            } catch (error) {
+              this.logger.warn(`Failed to fetch member ${l.mbno}:`, error.message);
+            }
+          }
+
+          return {
+            mbNo: mbNoStr || '0',
+            memberName,
+            voucherNo: l.receipt_vchr_no || '-',
+            transactionType: l.trans_type as 'CR' | 'DR',
+            amount: Number(l.trans_amt) || 0,
+            headCode: (l.code || '').trim(),
+            headName: headNames.get((l.code || '').trim()) || this.getHeadNameByCode((l.code || '').trim()),
+            narration: l.narration || '',
+            username: l.username || '',
+            transactionTime: l.trans_date
+          };
+        })
+      );
+
+      // Calculate opening balance (balance before the selected date)
+      const openingBalance = await this.calculateOpeningBalance(reportDate, dto.filterType);
+
+      // Calculate totals
+      const totalReceipts = entries
+        .filter(e => e.transactionType === 'CR')
+        .reduce((sum, e) => sum + e.amount, 0);
+
+      const totalPayments = entries
+        .filter(e => e.transactionType === 'DR')
+        .reduce((sum, e) => sum + e.amount, 0);
+
+      const netBalance = totalReceipts - totalPayments;
+      const closingBalance = openingBalance + netBalance;
 
       return {
         date: dto.date,
+        totalReceipts,
+        totalPayments,
+        netBalance,
         openingBalance,
-        totalReceipts: totalCashReceipts,
-        totalPayments: totalCashPayments,
-        netBalance: totalCashReceipts - totalCashPayments,
         closingBalance,
-        paymentGroups,
-        receiptGroups,
-        totalTransactions: rows.length,
+        entries,
+        totalTransactions: entries.length
       };
 
     } catch (error) {
       this.logger.error('Error generating day book report:', error);
       throw new Error('Failed to generate day book report');
-    }
-  }
-
-  async getDayBookSBReport(date: string): Promise<any> {
-    try {
-      // SB transactions for the date — split by modeofpay (C=Cash, others=Transfer)
-      const rows = await this.ledgerRepository.query(`
-        SELECT DISTINCT ON (l.ledgerid)
-          l.ledgerid                                             AS tr_no,
-          COALESCE(CAST(l.acc_no AS text), '')                  AS acc_no,
-          -- No fallback previously: an mbno with no member_master match
-          -- (confirmed live — an orphan test account, "SB PROBE" in
-          -- sbmaster.instructions) rendered as a blank name with no
-          -- indication why. Falls back to the member number itself so the
-          -- row is never silently blank, on real orphan data too.
-          COALESCE(
-            NULLIF(TRIM(
-              COALESCE(m.f_name,'') || ' ' ||
-              COALESCE(m.m_name,'') || ' ' ||
-              COALESCE(m.l_name,'')
-            ), ''),
-            'Member ' || CAST(l.mbno AS text)
-          )                                                      AS ac_name,
-          l.trans_type,
-          UPPER(COALESCE(l.modeofpay, 'C'))                     AS modeofpay,
-          CAST(l.trans_amt AS numeric)                           AS amount
-        FROM ledger l
-        LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(l.mbno AS text)
-        WHERE l.trans_date::date = $1::date
-          AND l.acc_type = 'SB'
-          AND l.code = 'A001'
-        ORDER BY l.ledgerid
-      `, [date]);
-
-      // Opening balance: cumulative SB balance before date (dedup ledgerid).
-      // Was filtering on acc_type='SB' alone — but SB interest crediting
-      // (interest.service.ts createInterestLedgerEntry) writes BOTH its
-      // legs with acc_type='SB' too: the real credit AND its GL-balancing
-      // "interest expense" counter-leg, both under the same acc_no/mbno.
-      // Confirmed live (voucher J33502): a single real ₹1.42 interest
-      // credit showed as a phantom ₹1.42 deposit + ₹1.42 withdrawal pair
-      // for the member. 'A001' is the one code real deposits/withdrawals
-      // (saveSavingTransaction) consistently use for the member's own SB
-      // leg — restricting to it excludes the phantom counter-leg. Interest
-      // credits themselves are excluded too for now, since they currently
-      // write to a placeholder GL head (A1001) rather than a real one —
-      // same already-flagged gap as SB's missing A001... this is that same
-      // deferred decision, not a new one.
-      const openingResult = await this.ledgerRepository.query(`
-        SELECT COALESCE(
-          SUM(CASE WHEN trans_type='CR' THEN amt ELSE -amt END), 0
-        ) AS opening_balance
-        FROM (
-          SELECT DISTINCT ON (ledgerid)
-            ledgerid, trans_type, CAST(trans_amt AS numeric) AS amt
-          FROM ledger
-          WHERE acc_type = 'SB' AND code = 'A001' AND trans_date::date < $1::date
-          ORDER BY ledgerid
-        ) t
-      `, [date]);
-
-      const openingBalance = parseFloat(openingResult[0]?.opening_balance) || 0;
-
-      const entries = rows.map((r: any, idx: number) => {
-        const amt = parseFloat(r.amount) || 0;
-        const isCash = r.modeofpay === 'C';
-        const isDeposit = r.trans_type === 'CR';
-        return {
-          srNo: idx + 1,
-          accNo: r.acc_no,
-          acName: r.ac_name?.trim() || '',
-          depositCash: isDeposit && isCash ? amt : 0,
-          depositTransfer: isDeposit && !isCash ? amt : 0,
-          withdrawalCash: !isDeposit && isCash ? amt : 0,
-          withdrawalTransfer: !isDeposit && !isCash ? amt : 0,
-        };
-      });
-
-      const totalDepositCash = entries.reduce((s: number, e: any) => s + e.depositCash, 0);
-      const totalDepositTransfer = entries.reduce((s: number, e: any) => s + e.depositTransfer, 0);
-      const totalWithdrawalCash = entries.reduce((s: number, e: any) => s + e.withdrawalCash, 0);
-      const totalWithdrawalTransfer = entries.reduce((s: number, e: any) => s + e.withdrawalTransfer, 0);
-      const totalDeposit = totalDepositCash + totalDepositTransfer;
-      const totalWithdrawal = totalWithdrawalCash + totalWithdrawalTransfer;
-      const closingBalance = openingBalance + totalDeposit - totalWithdrawal;
-
-      return {
-        date,
-        openingBalance,
-        totalDepositCash,
-        totalDepositTransfer,
-        totalDeposit,
-        totalWithdrawalCash,
-        totalWithdrawalTransfer,
-        totalWithdrawal,
-        totalCashInHand: openingBalance + totalDeposit,
-        closingBalance,
-        totalTransactions: entries.length,
-        entries,
-      };
-    } catch (error) {
-      this.logger.error('Error generating SB day book report:', error);
-      throw new Error('Failed to generate SB day book report');
     }
   }
 
@@ -272,20 +157,14 @@ export class DayBookService {
         .orderBy('m.mbno', 'ASC')
         .getMany();
 
-      // A handful of legacy/test rows have a null mbno despite it being the
-      // primary key at the entity level (schema predates synchronize:false,
-      // so the DB never actually enforced NOT NULL here). Skip them instead
-      // of letting one bad row crash the whole list.
-      return members
-        .filter(member => member.mbno != null)
-        .map(member => ({
-          memberCode: member.mbno.toString(),
-          memberName: `${member.f_name || ''} ${member.m_name || ''} ${member.l_name || ''}`.trim(),
-          status: member.isactive
-        }));
+      return members.map(member => ({
+        memberCode: member.mbno.toString(),
+        memberName: `${member.f_name || ''} ${member.m_name || ''} ${member.l_name || ''}`.trim(),
+        status: member.isactive
+      }));
 
     } catch (error) {
-      this.logger.error(`Error fetching active members: ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.error('Error fetching active members:', error);
       throw new Error('Failed to fetch active members');
     }
   }
@@ -364,8 +243,6 @@ export class DayBookService {
 
       // Get next transaction number
       const nextTransNo = await this.getNextTransactionNumber();
-      // Canonical Receipt voucher number from voucher_master (R counter)
-      const voucherNo = await generateVoucherNo(this.ledgerRepository.manager, 'R');
 
       // Create transaction record for interest payment
       const transaction = this.transactionsRepository.create({
@@ -376,7 +253,7 @@ export class DayBookService {
         acc_no: 0,
         acc_type: 'SB',
         trans_amt: dto.interestAmount.toString(),
-        receipt_vchr_no: voucherNo,
+        receipt_vchr_no: `INT${nextTransNo}`,
         vchr_type: 'R',
         modeofpay: 'C',
         cheq_no: '',
@@ -403,7 +280,7 @@ export class DayBookService {
         acc_no: 0,
         acc_type: 'SB',
         trans_amt: dto.interestAmount,
-        receipt_vchr_no: voucherNo,
+        receipt_vchr_no: `INT${nextTransNo}`,
         vchr_type: 'R',
         modeofpay: 'C',
         pl_balance: 0, // Will be calculated

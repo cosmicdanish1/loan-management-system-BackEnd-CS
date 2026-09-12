@@ -3,18 +3,16 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { WinstonModule } from 'nest-winston';
-import { ClsModule } from 'nestjs-cls';
-import * as crypto from 'crypto';
+import * as winston from 'winston';
 import * as Joi from 'joi';
-import { createWinstonConfig } from './common/logging/logging.config';
-import { TypeOrmWinstonLogger } from './common/logging/typeorm.logger';
-import { LoggingModule } from './common/logging/logging.module';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { DatabaseConfig } from './config/database.config';
 import { AuthModule } from './modules/auth/auth.module';
 import { DepositModule } from './modules/deposit/deposit.module';
+import { RdModule } from './modules/rd/rd.module';
+import { DividendModule } from './modules/dividend/dividend.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { UtilityModule } from './modules/utility/utility.module';
 import { UtilitiesModule } from './modules/utilities/utilities.module';
@@ -34,37 +32,13 @@ import { LoanV2Module } from './modules/loan/loan-v2.module';
 import { TransactionV2Module } from './modules/transaction/transaction-v2.module';
 import { ReportV2Module } from './modules/report/report-v2.module';
 import { NotificationModule } from './modules/notification/notification.module';
-import { NoticeModule } from './modules/notice/notice.module';
 import { LicenseModule } from './modules/license/license.module';
-import { AiChatModule } from './modules/ai-chat/ai-chat.module';
 import { ClientLogsModule } from './modules/client-logs/client-logs.module';
+import { NoticeModule } from './modules/notice/notice.module';
+import { LoggingModule } from './common/logging/logging.module';
 
 @Module({
   imports: [
-    // Request-scoped context (correlation id) — bound to the whole Nest
-    // pipeline so every service/DB/error log line carries the same requestId.
-    // useEnterWith: true because this Express setup loses context with the
-    // default run()-wrapping (verified empirically).
-    ClsModule.forRoot({
-      global: true,
-      middleware: {
-        mount: true,
-        debug: false,
-        generateId: true,
-        useEnterWith: true,
-        // Honor an inbound X-Request-Id (from the frontend) so the trace
-        // spans UI → API; otherwise mint one.
-        idGenerator: (req: any) =>
-          (req.headers['x-request-id'] as string) ||
-          `req-${crypto.randomBytes(6).toString('hex')}`,
-        setup: (cls, req: any, res: any) => {
-          const id = cls.getId();
-          req.requestId = id; // consumed by HttpAccess interceptor + exception filter
-          res.setHeader('X-Request-Id', id); // echoed back to the frontend
-        },
-      },
-    }),
-
     // Configuration module with validation
     ConfigModule.forRoot({
       isGlobal: true,
@@ -94,6 +68,27 @@ import { ClientLogsModule } from './modules/client-logs/client-logs.module';
       inject: [ConfigService],
     }),
 
+    // Analytics Database configuration (separate database)
+    TypeOrmModule.forRootAsync({
+      name: 'analytics',
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        type: 'postgres',
+        host: configService.get('DB_HOST', 'localhost'),
+        port: configService.get('DB_PORT', 5432),
+        username: configService.get('DB_USERNAME', 'postgres'),
+        password: configService.get('DB_PASSWORD', 'password'),
+        database: 'EMP_Analytics_DB', // Separate analytics database
+        entities: [
+          __dirname + '/modules/analytics/entities/*.entity{.ts,.js}',
+        ],
+        synchronize: configService.get('NODE_ENV') === 'development',
+        logging: configService.get('NODE_ENV') === 'development',
+        ssl: configService.get('NODE_ENV') === 'production' ? { rejectUnauthorized: false } : false,
+      }),
+    }),
+
     // Rate limiting
     ThrottlerModule.forRootAsync({
       imports: [ConfigModule],
@@ -106,22 +101,47 @@ import { ClientLogsModule } from './modules/client-logs/client-logs.module';
       ],
     }),
 
-    // Logging configuration — rotation, per-service routing, redaction
+    // Logging configuration
     WinstonModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => createWinstonConfig(configService),
+      useFactory: (configService: ConfigService) => ({
+        transports: [
+          new winston.transports.Console({
+            format: winston.format.combine(
+              winston.format.timestamp(),
+              winston.format.colorize(),
+              winston.format.simple(),
+            ),
+          }),
+          new winston.transports.File({
+            filename: `${configService.get('LOG_FILE_PATH', './logs')}/error.log`,
+            level: 'error',
+            format: winston.format.combine(
+              winston.format.timestamp(),
+              winston.format.json(),
+            ),
+          }),
+          new winston.transports.File({
+            filename: `${configService.get('LOG_FILE_PATH', './logs')}/combined.log`,
+            format: winston.format.combine(
+              winston.format.timestamp(),
+              winston.format.json(),
+            ),
+          }),
+        ],
+      }),
     }),
 
-    // Global logging (AuditLogService available everywhere)
-    LoggingModule,
-
     // Feature modules
+    LoggingModule, // Global — audit/service/http-access logging
     SharedModule, // Global shared services (sequences, utilities)
     AuthModule,
     MemberV2Module, // Restructured member services
     LoanV2Module, // Restructured loan services
     DepositModule,
+    RdModule,
+    DividendModule,
     TransactionV2Module, // Restructured transaction services
     ReportV2Module, // Restructured report services
     AdminModule,
@@ -138,12 +158,11 @@ import { ClientLogsModule } from './modules/client-logs/client-logs.module';
     PrintVoucherModule,
     JottingReportModule,
     NotificationModule,
-    NoticeModule,
     LicenseModule,
-    AiChatModule,
     ClientLogsModule,
+    NoticeModule,
   ],
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule { }

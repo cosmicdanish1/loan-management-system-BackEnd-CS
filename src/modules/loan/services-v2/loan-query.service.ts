@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { CalculationService } from '../../utility/services/calculation.service';
 
@@ -10,8 +10,6 @@ import { CalculationService } from '../../utility/services/calculation.service';
  */
 @Injectable()
 export class LoanQueryService {
-    private readonly logger = new Logger(LoanQueryService.name);
-
     constructor(
         private readonly dataSource: DataSource,
         private readonly calculationService: CalculationService,
@@ -57,7 +55,7 @@ export class LoanQueryService {
                 status: 'ACTIVE'
             };
         } catch (error) {
-            this.logger.error(`Error getting loan from master: ${error.message}`);
+            console.error('[LoanQuery] Error getting loan from master:', error);
             throw error;
         }
     }
@@ -106,7 +104,7 @@ export class LoanQueryService {
                 status: loan.flg_paid === 'Y' ? 'DISBURSED' : loan.flg_sanctioned === 'Y' ? 'SANCTIONED' : 'PENDING'
             };
         } catch (error) {
-            this.logger.error(`Error getting loan from pending: ${error.message}`);
+            console.error('[LoanQuery] Error getting loan from pending:', error);
             throw error;
         }
     }
@@ -124,28 +122,28 @@ export class LoanQueryService {
           balance::numeric as balance,
           rate,
           no_of_instal,
-          instal_amt::numeric as instal_amt,
+          instal_amt,
           payment_date
         FROM loan_master
-        WHERE CAST(mbno AS TEXT) = $1
+        WHERE mbno = $1
         ORDER BY loancaseno DESC
       `;
 
             const result = await this.dataSource.query(query, [memberNo]);
 
+            // Field names match the LoanStatement report screen's ActiveLoan
+            // interface (Frontend/.../LoanStatement/hooks/useLoanStatement.ts),
+            // which reads snake_case keys straight off the raw loan_master row.
             return result.map((loan: any) => ({
                 loancaseno: loan.loancaseno,
                 loantype: loan.loantype,
                 loan_amt: parseFloat(loan.loan_amt) || 0,
                 balance: parseFloat(loan.balance) || 0,
-                int_rate: loan.rate,
                 no_of_instal: loan.no_of_instal,
                 instal_amt: parseFloat(loan.instal_amt) || 0,
-                disburse_date: loan.payment_date,
-                status: 'ACTIVE'
             }));
         } catch (error) {
-            this.logger.error(`Error getting member loans from master: ${error.message}`);
+            console.error('[LoanQuery] Error getting member loans from master:', error);
             return [];
         }
     }
@@ -192,7 +190,7 @@ export class LoanQueryService {
                 status: loan.flg_paid === 'Y' ? 'DISBURSED' : loan.flg_sanctioned === 'Y' ? 'SANCTIONED' : 'PENDING'
             }));
         } catch (error) {
-            this.logger.error(`Error getting member loans from pending: ${error.message}`);
+            console.error('[LoanQuery] Error getting member loans from pending:', error);
             return [];
         }
     }
@@ -211,42 +209,26 @@ export class LoanQueryService {
 
             // Search in loan_master (active loans)
             if (!query.status || query.status === 'active' || query.status === 'all') {
-                const masterParams: any[] = [];
-                const masterConditions: string[] = [];
-                if (query.memberNumber) {
-                    masterParams.push(query.memberNumber);
-                    masterConditions.push(`AND lm.mbno = $${masterParams.length}`);
-                }
-                if (query.loanCaseNo) {
-                    masterParams.push(`%${query.loanCaseNo}%`);
-                    masterConditions.push(`AND lm.loancaseno::text LIKE $${masterParams.length}`);
-                }
-                if (query.loanType) {
-                    masterParams.push(query.loanType);
-                    masterConditions.push(`AND lm.loantype = $${masterParams.length}`);
-                }
-
                 const masterQuery = `
-          SELECT
+          SELECT 
             lm.loancaseno,
             lm.mbno,
             lm.loantype,
             lm.loan_amt::numeric as loan_amt,
             lm.balance::numeric as balance,
-            lm.instal_amt::numeric as instal_amt,
-            lm.no_of_instal,
-            lm.rate::numeric as rate,
             'ACTIVE' as status,
             TRIM(COALESCE(mm.f_name, '') || ' ' || COALESCE(mm.l_name, '')) as member_name
           FROM loan_master lm
           JOIN member_master mm ON lm.mbno = mm.mbno
           WHERE 1=1
-          ${masterConditions.join('\n          ')}
+          ${query.memberNumber ? `AND lm.mbno = '${query.memberNumber}'` : ''}
+          ${query.loanCaseNo ? `AND lm.loancaseno::text LIKE '%${query.loanCaseNo}%'` : ''}
+          ${query.loanType ? `AND lm.loantype = '${query.loanType}'` : ''}
           ORDER BY lm.loancaseno DESC
           LIMIT 100
         `;
 
-                const masterResults = await this.dataSource.query(masterQuery, masterParams);
+                const masterResults = await this.dataSource.query(masterQuery);
                 results.push(...masterResults.map((r: any) => ({
                     ...r,
                     source: 'loan_master'
@@ -255,31 +237,14 @@ export class LoanQueryService {
 
             // Search in loan_pending (pending loans)
             if (!query.status || query.status === 'pending' || query.status === 'all') {
-                const pendingParams: any[] = [];
-                const pendingConditions: string[] = [];
-                if (query.memberNumber) {
-                    pendingParams.push(query.memberNumber);
-                    pendingConditions.push(`AND lp.mbno = $${pendingParams.length}`);
-                }
-                if (query.loanCaseNo) {
-                    pendingParams.push(`%${query.loanCaseNo}%`);
-                    pendingConditions.push(`AND lp.loancaseno::text LIKE $${pendingParams.length}`);
-                }
-                if (query.loanType) {
-                    pendingParams.push(query.loanType);
-                    pendingConditions.push(`AND lp.loantype = $${pendingParams.length}`);
-                }
-
                 const pendingQuery = `
-          SELECT
+          SELECT 
             lp.loancaseno,
             lp.mbno,
             lp.loantype,
             lp.applied_amt as loan_amt,
             lp.sanctioned_amt as balance,
-            lp.no_of_instal,
-            lp.rate::numeric as rate,
-            CASE
+            CASE 
               WHEN lp.flg_paid = 'Y' THEN 'DISBURSED'
               WHEN lp.flg_sanctioned = 'Y' THEN 'SANCTIONED'
               ELSE 'PENDING'
@@ -288,12 +253,14 @@ export class LoanQueryService {
           FROM loan_pending lp
           JOIN member_master mm ON lp.mbno = mm.mbno
           WHERE 1=1
-          ${pendingConditions.join('\n          ')}
+          ${query.memberNumber ? `AND lp.mbno = '${query.memberNumber}'` : ''}
+          ${query.loanCaseNo ? `AND lp.loancaseno::text LIKE '%${query.loanCaseNo}%'` : ''}
+          ${query.loanType ? `AND lp.loantype = '${query.loanType}'` : ''}
           ORDER BY lp.loancaseno DESC
           LIMIT 100
         `;
 
-                const pendingResults = await this.dataSource.query(pendingQuery, pendingParams);
+                const pendingResults = await this.dataSource.query(pendingQuery);
                 results.push(...pendingResults.map((r: any) => ({
                     ...r,
                     source: 'loan_pending'
@@ -302,7 +269,7 @@ export class LoanQueryService {
 
             return results;
         } catch (error) {
-            this.logger.error(`Error searching loans: ${error.message}`);
+            console.error('[LoanQuery] Error searching loans:', error);
             return [];
         }
     }
@@ -333,16 +300,13 @@ export class LoanQueryService {
 
             const loanMaster = loanResult[0];
 
-            // Get payment status from demand_master for this member.
-            // (Real columns are demand_for_year/demand_for_month — the previous
-            // "demandforyear"/"<type>amount" names don't exist on this table and
-            // made every call to this endpoint throw.)
+            // Get payment status from demand_master for this member
             const demandQuery = `
                 SELECT
                     demand_for_year as year,
                     demand_for_month as month,
                     CASE
-                        WHEN COALESCE(balance_for_month, 0) <= 0 THEN 'Paid'
+                        WHEN ${loanMaster.loantype.toLowerCase()}_amount > 0 THEN 'Paid'
                         ELSE 'Pending'
                     END as status
                 FROM demand_master
@@ -359,90 +323,41 @@ export class LoanQueryService {
                 paymentStatusMap.set(key, record.status);
             });
 
-            // BUG FIX 50: status here only ever checked demand_master — but the
-            // individual Loan Repayment screen writes real payments to
-            // loan_repayment_ledger (and loan_master.balance) and never touches
-            // demand_master at all (only the bulk Ledger Posting/recovery path
-            // does). Confirmed live: a loan with 2 real recorded repayments showed
-            // every installment as Overdue/Pending, "Cleared Principal: ₹0", "Debt
-            // Clearance: 0.0%" — none of it reflected the real ₹4,264 already paid
-            // (which does exactly reconcile: loan_amt 24000 - 4264 = loanMaster's
-            // real balance 19736). Fetching real repayments here and using their
-            // actual principal/interest split for the corresponding installments so
-            // "Paid" rows reflect what actually happened instead of a theoretical
-            // projection that never looked at payment history.
-            const repaymentRows = await this.dataSource.query(
-                `SELECT principal_amount, interest_amount, payment_date, payment_month, payment_year
-                 FROM loan_repayment_ledger
-                 WHERE loancaseno = $1
-                 ORDER BY payment_date ASC, id ASC`,
-                [loanCaseNo]
-            );
-
-            // BUG FIX 51: the above rows used to be paired to schedule months by
-            // array position (repaymentRows[month - 1]), assuming exactly one row
-            // per installment posted in due-date order. Confirmed live on loan
-            // 888987: it has 13 real ledger rows for a 12-installment loan (one
-            // installment was posted as two separate rows), and several rows share
-            // the same payment_date so id order — not the row's own
-            // payment_month/payment_year — decided the pairing. The loop only ever
-            // read indices 0-11, so the 13th row (the only one with nonzero
-            // interest, ₹15.78) was silently dropped from both the table and the
-            // summary totals, and the remaining rows were shown against due dates
-            // one calendar month off from what they actually paid. Grouping by each
-            // row's own payment_year/payment_month instead — summing rows that
-            // share a month — fixes both: nothing is dropped, and a schedule row is
-            // only marked Paid using the repayment(s) actually recorded for that
-            // calendar month.
-            const realPaymentsByMonth = new Map<string, { principal: number; interest: number }>();
-            repaymentRows.forEach((row: any) => {
-                const key = `${row.payment_year}-${row.payment_month}`;
-                const existing = realPaymentsByMonth.get(key) || { principal: 0, interest: 0 };
-                existing.principal += parseFloat(row.principal_amount) || 0;
-                existing.interest += parseFloat(row.interest_amount) || 0;
-                realPaymentsByMonth.set(key, existing);
-            });
-
-            // Calculate EMI schedule using equalised interest: constant principal
-            // (loan amount / months) + constant interest (total interest / months)
-            // every month, per the loan calculation spec — matches how
-            // LoanRepaymentService now decomposes an actual repayment, instead of
-            // a reducing-balance split where principal/interest varied per month.
+            // Calculate EMI schedule
             const schedule = [];
-            const loanAmt = parseFloat(loanMaster.loan_amt);
+            let balance = parseFloat(loanMaster.loan_amt);
+            const monthlyRate = parseFloat(loanMaster.rate) / 100 / 12;
             const startDate = new Date(loanMaster.payment_date);
             const installments = parseInt(loanMaster.no_of_instal);
 
-            const monthlyPrincipal = installments > 0 ? loanAmt / installments : 0;
-            const storedEmi = parseFloat(loanMaster.instal_amt) || 0;
-            const monthlyRateForFallback = parseFloat(loanMaster.rate) / 100 / 12;
-            // The standard reducing-balance formula is used once here, only to size
-            // total interest when no EMI has been recorded yet — not to vary the
-            // monthly split, which stays constant per the equalised method.
-            const emiAmount = storedEmi || (installments > 0
-                ? (loanAmt * monthlyRateForFallback * Math.pow(1 + monthlyRateForFallback, installments)) /
-                  (Math.pow(1 + monthlyRateForFallback, installments) - 1)
-                : 0);
-            const totalInterest = Math.max(0, emiAmount * installments - loanAmt);
-            const monthlyInterest = installments > 0 ? totalInterest / installments : 0;
+            // Calculate EMI using the installment amount from loan_master or formula
+            const emiAmount = parseFloat(loanMaster.instal_amt) ||
+                (balance * monthlyRate * Math.pow(1 + monthlyRate, installments)) /
+                (Math.pow(1 + monthlyRate, installments) - 1);
 
-            let balance = loanAmt;
             for (let month = 1; month <= installments; month++) {
-                // Calculate due date
+                const interestAmount = balance * monthlyRate;
+                const principalAmount = emiAmount - interestAmount;
+                balance -= principalAmount;
+
+                // Calculate due date — installment #1 is due one full month after
+                // disbursement, matching the real repayment/penal system
+                // (loan-repayment.service.ts's getInstallmentStatus). This used to
+                // add (month - 1) months, so installment #1 came out due the same
+                // day as disbursement and immediately showed as "Overdue".
                 const dueDate = new Date(startDate);
-                dueDate.setMonth(dueDate.getMonth() + month - 1);
+                dueDate.setMonth(dueDate.getMonth() + month);
+                // Due date's DAY is the loan's configured grace day, not the
+                // disbursement day — due date and grace period are the same
+                // concept in this cooperative's model (see getInstallmentStatus's
+                // matching comment), clamped to that month's real length.
+                const graceDayOfMonth = parseInt(loanMaster.gracedays, 10) || 0;
+                const realDaysInDueMonth = new Date(dueDate.getFullYear(), dueDate.getMonth() + 1, 0).getDate();
+                dueDate.setDate(Math.max(1, Math.min(graceDayOfMonth, realDaysInDueMonth)));
 
-                const realPayment = realPaymentsByMonth.get(`${dueDate.getFullYear()}-${dueDate.getMonth() + 1}`);
-                const principalAmount = realPayment
-                    ? Math.min(realPayment.principal, balance)
-                    : Math.min(monthlyPrincipal, balance);
-                const interestAmount = realPayment
-                    ? realPayment.interest
-                    : monthlyInterest;
-                balance = Math.max(0, balance - principalAmount);
-
-                // Determine payment status — a real recorded repayment always wins
-                let status = realPayment ? 'Paid' : (paymentStatusMap.get(`${dueDate.getFullYear()}-${dueDate.getMonth() + 1}`) || 'Pending');
+                // Determine payment status
+                const yearMonth = `${dueDate.getFullYear()}-${dueDate.getMonth() + 1}`;
+                let status = paymentStatusMap.get(yearMonth) || 'Pending';
 
                 // If due date is past and status is pending, mark as overdue
                 if (status === 'Pending' && dueDate < new Date()) {
@@ -451,7 +366,12 @@ export class LoanQueryService {
 
                 schedule.push({
                     month,
-                    dueDate: dueDate.toISOString().split('T')[0],
+                    // Local Y-M-D, not .toISOString().split('T')[0] — that
+                    // converts to UTC first, which on a server running ahead
+                    // of UTC (IST) shifts a local midnight back a calendar
+                    // day (e.g. "the 1st" displaying as "the 30th/31st of
+                    // the previous month").
+                    dueDate: `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}-${String(dueDate.getDate()).padStart(2, '0')}`,
                     emiAmount: Math.round(emiAmount * 100) / 100,
                     principalAmount: Math.round(principalAmount * 100) / 100,
                     interestAmount: Math.round(interestAmount * 100) / 100,
@@ -478,15 +398,7 @@ export class LoanQueryService {
                 .reduce((sum, item) => sum + item.principalAmount, 0);
 
             const totalLoanAmount = parseFloat(loanMaster.loan_amt);
-            // Use loan_master's own balance rather than totalLoanAmount - totalPrincipalPaid:
-            // the schedule only covers `installments` calendar months from the loan's start
-            // date, so a real repayment recorded outside that window (e.g. postings that
-            // started a month late, pushing the last one past the theoretical final due date)
-            // is real principal loan_master already accounts for but that this fixed-length
-            // schedule has nowhere to display — recomputing from the schedule alone would then
-            // show a nonzero "remaining balance" on a loan that is, per its ledger of record,
-            // actually fully paid.
-            const remainingBalance = parseFloat(loanMaster.balance);
+            const remainingBalance = totalLoanAmount - totalPrincipalPaid;
             const completionPercentage = (paidInstallments / installments) * 100;
 
             return {
@@ -518,7 +430,7 @@ export class LoanQueryService {
                 },
             };
         } catch (error) {
-            this.logger.error(`Error generating EMI schedule from master: ${error.message}`);
+            console.error('[LoanQuery] Error generating EMI schedule from master:', error);
             throw error;
         }
     }

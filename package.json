@@ -57,6 +57,7 @@
     "typeorm": "^0.3.17",
     "winston": "^3.10.0",
     "winston-daily-rotate-file": "^5.0.0",
+    "xlsx": "^0.18.5",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

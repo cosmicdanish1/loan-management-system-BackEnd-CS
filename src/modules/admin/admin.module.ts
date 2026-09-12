@@ -6,22 +6,19 @@ import { AdminService } from './admin.service';
 import { UserManagementController } from './controllers/user-management.controller';
 import { SystemConfigController } from './controllers/system-config.controller';
 import { DayEndController } from './controllers/day-end.controller';
+import { BackupController } from './controllers/backup.controller';
 import { CertificateTemplateController } from './controllers/certificate-template.controller';
 import { PassbookTemplateController } from './controllers/passbook-template.controller';
 import { RoleManagementController } from './controllers/role-management.controller';
 import { DesignationController } from './controllers/designation.controller';
 import { CastCategoryController } from './controllers/cast-category.controller';
 import { MemberBalanceController } from './controllers/member-balance.controller';
-import { FdAccountController } from './controllers/fd-account.controller';
 import { OfficeController } from './controllers/office.controller';
 import { WingController } from './controllers/wing.controller';
 import { SbAccountController } from './controllers/sb-account.controller';
-import { RdAccountController } from './controllers/rd-account.controller';
 import { MemberAdminController } from './controllers/member-admin.controller';
 import { MemberFundsController } from './controllers/member-funds.controller';
 import { FinancialYearController } from './controllers/financial-year.controller';
-import { SaakhScoreController } from './controllers/saakh-score.controller';
-import { SaakhScoreService } from './services/saakh-score.service';
 import { UserManagementService } from './services/user-management.service';
 import { SystemConfigService } from './services/system-config.service';
 import { DayEndService } from './services/day-end.service';
@@ -32,14 +29,13 @@ import { RoleManagementService } from './services/role-management.service';
 import { DesignationService } from './services/designation.service';
 import { CastCategoryService } from './services/cast-category.service';
 import { MemberBalanceService } from './services/member-balance.service';
-import { FdAccountService } from './services/fd-account.service';
 import { OfficeService } from './services/office.service';
 import { WingService } from './services/wing.service';
 import { SbAccountService } from './services/sb-account.service';
-import { RdAccountService } from './services/rd-account.service';
 import { MemberAdminService } from './services/member-admin.service';
 import { MemberFundsService } from './services/member-funds.service';
 import { FinancialYearService } from './services/financial-year.service';
+import { User } from '../auth/entities/user.entity';
 import { UserMaster, UserLevelMaster, MenuMaster, UserLevelDefaultRights, LoginTime } from '../auth/entities';
 import { UserActivity } from './entities/user-activity.entity';
 import { SystemConfig } from './entities/system-config.entity';
@@ -49,15 +45,15 @@ import { DayEndProcess } from './entities/day-end-process.entity';
 import { InterestPosting } from './entities/interest-posting.entity';
 import { CertificateTemplate } from './entities/certificate-template.entity';
 import { CertificateField } from './entities/certificate-field.entity';
-import { PassbookTemplate, PassbookField, PassbookPagePosition, Designation, CastCategory, MemberBalance, FdAccount, BankMember, Office, Wing, SbAccount, RdAccount, FundsMaster, FinancialYear } from './entities';
+import { PassbookTemplate, PassbookField, PassbookPagePosition, Designation, CastCategory, MemberBalance, BankMember, Office, Wing, SbAccount, FundsMaster, FinancialYear } from './entities';
 import { LoanAccount } from '../loan/entities/loan-account.entity';
-import { FixedDeposit } from '../deposit/entities/fixed-deposit.entity';
 import { Member } from '../member/entities/member.entity';
 
 @Module({
   imports: [
     ScheduleModule.forRoot(),
     TypeOrmModule.forFeature([
+      User,
       UserMaster,
       UserLevelMaster,
       MenuMaster,
@@ -70,7 +66,6 @@ import { Member } from '../member/entities/member.entity';
       DayEndProcess,
       InterestPosting,
       LoanAccount,
-      FixedDeposit,
       Member,
       BankMember,
       CertificateTemplate,
@@ -81,11 +76,9 @@ import { Member } from '../member/entities/member.entity';
       Designation,
       CastCategory,
       MemberBalance,
-      FdAccount,
       Office,
       Wing,
       SbAccount,
-      RdAccount,
       FundsMaster,
       FinancialYear,
     ]),
@@ -95,21 +88,19 @@ import { Member } from '../member/entities/member.entity';
     UserManagementController,
     SystemConfigController,
     DayEndController,
+    BackupController,
     CertificateTemplateController,
     PassbookTemplateController,
     RoleManagementController,
     DesignationController,
     CastCategoryController,
     MemberBalanceController,
-    FdAccountController,
     OfficeController,
     WingController,
     SbAccountController,
-    RdAccountController,
     MemberAdminController,
     MemberFundsController,
     FinancialYearController,
-    SaakhScoreController,
   ],
   providers: [
     AdminService,
@@ -123,15 +114,12 @@ import { Member } from '../member/entities/member.entity';
     DesignationService,
     CastCategoryService,
     MemberBalanceService,
-    FdAccountService,
     OfficeService,
     WingService,
     SbAccountService,
-    RdAccountService,
     MemberAdminService,
     MemberFundsService,
     FinancialYearService,
-    SaakhScoreService,
   ],
   exports: [
     AdminService,
@@ -145,15 +133,12 @@ import { Member } from '../member/entities/member.entity';
     DesignationService,
     CastCategoryService,
     MemberBalanceService,
-    FdAccountService,
     OfficeService,
     WingService,
     SbAccountService,
-    RdAccountService,
     MemberAdminService,
     MemberFundsService,
     FinancialYearService,
-    SaakhScoreService,
   ],
 })
 export class AdminModule { }

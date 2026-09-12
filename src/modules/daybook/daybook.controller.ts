@@ -1,50 +1,65 @@
 import { Controller, Get, Post, Query, Body, Logger } from '@nestjs/common';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { DayBookService } from './daybook.service';
-import {
-  GetDayBookDto,
-  DayBookSummaryDto,
+import { 
+  GetDayBookDto, 
+  DayBookSummaryDto, 
   InterestCalculationDto,
-  InterestPaymentDto
+  InterestPaymentDto 
 } from './dto/daybook.dto';
 
-@ApiTags('Day Book')
 @Controller('daybook')
 export class DayBookController {
   private readonly logger = new Logger(DayBookController.name);
 
   constructor(private readonly dayBookService: DayBookService) {}
 
-  // BUG FIX: both report endpoints below manually wrapped their payload in
-  // {success, data, message} on top of the global TransformInterceptor's
-  // identical wrap — same double-wrap pattern fixed repeatedly elsewhere this
-  // session. Harmless here specifically because the frontend already
-  // defensively unwraps both shapes (`response.data?.data ?? response.data`),
-  // but fixed anyway for consistency — every other endpoint of this shape has
-  // been fixed, and there's no reason for the frontend's defensive fallback to
-  // need to exist at all.
-  @ApiOperation({ summary: 'Day book report (all day transactions) for a given date, optionally filtered' })
   @Get('report')
-  async getDayBookReport(@Query() dto: GetDayBookDto): Promise<DayBookSummaryDto> {
+  async getDayBookReport(@Query() dto: GetDayBookDto): Promise<{
+    success: boolean;
+    data: DayBookSummaryDto;
+    message: string;
+  }> {
     this.logger.log(`Generating day book report for date: ${dto.date}, filter: ${dto.filterType || 'all'}`);
-    return this.dayBookService.getDayBookReport(dto);
+    
+    const report = await this.dayBookService.getDayBookReport(dto);
+    
+    return {
+      success: true,
+      data: report,
+      message: 'Day book report generated successfully'
+    };
   }
 
-  @ApiOperation({ summary: 'Day book report limited to savings-bank (SB) transactions for a date' })
   @Get('report/sb')
-  async getDayBookSBReport(@Query() dto: GetDayBookDto): Promise<DayBookSummaryDto> {
+  async getDayBookSBReport(@Query() dto: GetDayBookDto): Promise<{
+    success: boolean;
+    data: DayBookSummaryDto;
+    message: string;
+  }> {
     this.logger.log(`Generating day book SB report for date: ${dto.date}`);
-    return this.dayBookService.getDayBookSBReport(dto.date);
+    
+    // Force SB filtering
+    const sbDto = { ...dto, filterType: 'sb' as const };
+    const report = await this.dayBookService.getDayBookReport(sbDto);
+    
+    return {
+      success: true,
+      data: report,
+      message: 'Day book SB report generated successfully'
+    };
   }
 
-  @ApiOperation({ summary: 'List active members holding savings accounts' })
   @Get('active-members')
   async getActiveMembersWithSavings(): Promise<any[]> {
     this.logger.log('Fetching active members with savings accounts');
+
+    // No manual {success,data} wrapper -- the global TransformInterceptor
+    // already wraps every controller return value; wrapping again here
+    // double-nested the payload, so the frontend's `Array.isArray(res.data)`
+    // check always saw {success,data,message} instead of a real array.
     return this.dayBookService.getActiveMembersWithSavings();
   }
 
-  @ApiOperation({ summary: 'Calculate accrued savings interest for a member over a period (preview, no posting)' })
   @Post('calculate-interest')
   async calculateInterest(@Body() dto: InterestCalculationDto): Promise<{
     success: boolean;
@@ -62,7 +77,6 @@ export class DayBookController {
     };
   }
 
-  @ApiOperation({ summary: 'Post an interest payment to a member savings account' })
   @Post('pay-interest')
   async payInterest(@Body() dto: InterestPaymentDto): Promise<{
     success: boolean;
@@ -80,7 +94,6 @@ export class DayBookController {
     };
   }
 
-  @ApiOperation({ summary: 'Current savings interest rate used by the day book' })
   @Get('interest-rate')
   async getCurrentInterestRate(): Promise<{
     success: boolean;

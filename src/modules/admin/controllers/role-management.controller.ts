@@ -1,5 +1,4 @@
 import {
-    BadRequestException,
     Controller,
     Get,
     Post,
@@ -67,20 +66,6 @@ export class RoleManagementController {
     })
     async getDefaultRights(@Param('levelId', ParseIntPipe) levelId: number) {
         return this.roleManagementService.getDefaultRights(levelId);
-    }
-
-    @Post('levels')
-    @Roles(UserRole.ADMIN, 'sample_1' as any)
-    @RequirePermissions(UserPermission.MANAGE_USERS)
-    @ApiOperation({ summary: 'Create a new user level' })
-    @ApiResponse({ status: HttpStatus.CREATED, description: 'User level created successfully' })
-    // 4.4 fix: a missing roleName crashed with 500 "Cannot read properties of
-    // undefined (reading 'toUpperCase')" inside the service — confirmed live.
-    async createUserLevel(@Body() body: { roleName: string }) {
-        if (!body?.roleName) {
-            throw new BadRequestException('roleName is required');
-        }
-        return this.roleManagementService.createUserLevel(body.roleName);
     }
 
     @Post('defaults')

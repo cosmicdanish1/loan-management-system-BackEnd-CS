@@ -1,8 +1,7 @@
-import { Controller, Get, Post, Body, Patch, Param, ParseIntPipe, Query, Logger } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Logger } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { MemberFundsService } from '../services/member-funds.service';
 import { UpdateMemberFundsDto } from '../dto/member-funds.dto';
-import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 
 @ApiTags('Admin - Member Funds (Migration)')
 @Controller('admin/member-funds')
@@ -12,26 +11,19 @@ export class MemberFundsController {
     constructor(private readonly memberFundsService: MemberFundsService) { }
 
     @Get('list')
-    @ApiOperation({ summary: 'Get ordered list of member numbers in fundsmaster (optionally filtered by wing)' })
-    async getMemberList(@Query('wing') wing?: string) {
-        this.logger.log(`[MemberFunds] GET member list for navigation${wing ? ` (wing=${wing})` : ''}`);
-        const list = await this.memberFundsService.getMemberList(wing);
+    @ApiOperation({ summary: 'Get ordered list of all member numbers in fundsmaster for navigation' })
+    async getMemberList() {
+        this.logger.log('[MemberFunds] GET member list for navigation');
+        const list = await this.memberFundsService.getMemberList();
         return list;
-    }
-
-    @Get('wings')
-    @ApiOperation({ summary: 'Get wings that have members in fundsmaster' })
-    async getWings() {
-        this.logger.log('[MemberFunds] GET wings list');
-        return this.memberFundsService.getWings();
     }
 
     @Get(':memberNo')
     @ApiOperation({ summary: 'Get member detailed balances' })
     @ApiResponse({ status: 200, description: 'Return member fund balances.' })
-    async findOne(@Param('memberNo', ParseIntPipe) memberNo: number) {
+    async findOne(@Param('memberNo') memberNo: string) {
         this.logger.log(`[MemberFunds] GET balances for member: ${memberNo}`);
-        const data = await this.memberFundsService.findByMember(memberNo);
+        const data = await this.memberFundsService.findByMember(+memberNo);
         this.logger.log(`[MemberFunds] Returning data for member ${memberNo}`);
         return data;
     }
@@ -39,14 +31,9 @@ export class MemberFundsController {
     @Patch(':memberNo')
     @ApiOperation({ summary: 'Update member detailed balances' })
     @ApiResponse({ status: 200, description: 'Balances updated successfully.' })
-    async update(
-        @Param('memberNo', ParseIntPipe) memberNo: number,
-        @Body() updateDto: UpdateMemberFundsDto,
-        @CurrentUser() user: any,
-    ) {
-        const changedBy = user?.username || 'system';
-        this.logger.log(`[MemberFunds] PATCH balances for member: ${memberNo} by ${changedBy}`);
-        const result = await this.memberFundsService.updateBalances(memberNo, updateDto, changedBy);
+    async update(@Param('memberNo') memberNo: string, @Body() updateDto: UpdateMemberFundsDto) {
+        this.logger.log(`[MemberFunds] PATCH balances for member: ${memberNo}, payload: ${JSON.stringify(updateDto)}`);
+        const result = await this.memberFundsService.updateBalances(+memberNo, updateDto);
         this.logger.log(`[MemberFunds] Saved balances for member ${memberNo}`);
         return result;
     }

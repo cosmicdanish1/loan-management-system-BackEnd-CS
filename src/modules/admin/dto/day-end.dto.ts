@@ -39,15 +39,6 @@ export class InitiateDayEndDto {
   @IsEnum(DayEndProcessType, { each: true })
   @IsOptional()
   processTypes?: DayEndProcessType[];
-
-  @ApiProperty({
-    description: 'Next working date (user selects — for skipping weekends/holidays)',
-    example: '2024-01-16',
-    required: false,
-  })
-  @IsDateString()
-  @IsOptional()
-  nextWorkingDate?: string;
 }
 
 export class DayEndProcessResponseDto {
@@ -115,8 +106,6 @@ export class DayEndSummaryDto {
     loansProcessed: number;
     depositsProcessed: number;
     totalInterestPosted: number;
-    rdAccountsProcessed: number;
-    totalRdInterestAccrued: number;
   };
 
   @ApiProperty()

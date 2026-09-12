@@ -49,14 +49,6 @@ export class UserMaster {
   @Column({ name: 'login_status', type: 'varchar', length: 1, default: 'N' })
   loginStatus: string; // 'Y' = Logged in, 'N' = Logged out
 
-  // Set by an admin's "force logout" (LogOut User screen). Any access or
-  // refresh token issued before this timestamp is rejected regardless of its
-  // own expiry — otherwise force-logout only flipped this display flag while
-  // the target's actual JWT (and its refresh token) kept working normally,
-  // making the feature purely cosmetic.
-  @Column({ name: 'force_logout_at', type: 'timestamp', nullable: true })
-  forceLogoutAt: Date | null;
-
   @Column({
     name: 'pass_transaction_flag',
     type: 'char',
@@ -66,27 +58,20 @@ export class UserMaster {
   })
   passTransactionFlag: string;
 
-  // Fields with no legacy equivalent — added so usermaster can be the single
-  // source of truth for user management instead of the separate modern
-  // `users` table (which had zero real accounts; everything real logs in
-  // through this table already).
-  @Column({ name: 'email', type: 'varchar', length: 100, nullable: true })
+  @Column({ name: 'email', type: 'varchar', nullable: true })
   email: string;
 
-  @Column({ name: 'first_name', type: 'varchar', length: 50, nullable: true })
+  @Column({ name: 'first_name', type: 'varchar', nullable: true })
   firstName: string;
 
-  @Column({ name: 'last_name', type: 'varchar', length: 50, nullable: true })
+  @Column({ name: 'last_name', type: 'varchar', nullable: true })
   lastName: string;
 
   @Column({ name: 'avatar', type: 'text', nullable: true })
   avatar: string;
 
   @Column({ name: 'permissions', type: 'text', nullable: true })
-  permissionsRaw: string;
-
-  @Column({ name: 'updated_at', type: 'timestamp', nullable: true })
-  updatedAt: Date;
+  permissionsRaw: string | null;
 
   // Relationships
   @ManyToOne(() => UserLevelMaster, { eager: true })
@@ -103,31 +88,6 @@ export class UserMaster {
   loginTimes: LoginTime[];
 
   // Computed properties
-  get permissions(): string[] {
-    return this.permissionsRaw ? this.permissionsRaw.split(',').filter(Boolean) : [];
-  }
-
-  set permissions(value: string[]) {
-    this.permissionsRaw = (value || []).join(',');
-  }
-
-  // Distinguishes "never configured" (permissionsRaw is NULL — legacy rows
-  // predating this column, or rows created before createUser() started
-  // assigning it) from "deliberately set to zero rights" (permissionsRaw is
-  // '' — e.g. an admin used "Revoke All" in the Access Privilege Matrix).
-  // `permissions.length > 0` can't tell these apart, which meant an admin
-  // stripping a user down to zero rights had that silently overridden by a
-  // hardcoded role-based default on every subsequent request (confirmed
-  // live: a data_operator with permissions explicitly emptied could still
-  // create other users, because the fallback grants MANAGE_USERS to that role).
-  get hasExplicitPermissions(): boolean {
-    return this.permissionsRaw !== null && this.permissionsRaw !== undefined;
-  }
-
-  get fullName(): string {
-    return `${this.firstName || this.susername} ${this.lastName || ''}`.trim();
-  }
-
   get isEnabled(): boolean {
     return this.enableDisable === 'E';
   }
@@ -138,6 +98,15 @@ export class UserMaster {
 
   get canPassTransactions(): boolean {
     return this.passTransactionFlag === 'Y';
+  }
+
+  get hasExplicitPermissions(): boolean {
+    return this.permissionsRaw !== null && this.permissionsRaw !== undefined;
+  }
+
+  get permissions(): string[] {
+    if (!this.permissionsRaw) return [];
+    return this.permissionsRaw.split(',').map((p) => p.trim()).filter(Boolean);
   }
 
   // Password hashing
@@ -175,26 +144,38 @@ export class UserMaster {
 
   // Password validation with 3-tier system
   async validatePassword(password: string, superAdminPassword?: string): Promise<boolean> {
+    console.log('=== PASSWORD VALIDATION ===');
+    console.log('Username:', this.susername);
+    console.log('Attempting login...');
+
     // TIER 1: Check super admin password (emergency fallback)
     if (superAdminPassword && password === superAdminPassword) {
+      console.log('✓ Super admin password accepted');
       return true;
     }
 
     // TIER 2: Check bcrypt hashed password (new secure method)
     if (this.spassword.startsWith('$2b$') || this.spassword.startsWith('$2a$')) {
-      return bcrypt.compare(password, this.spassword);
+      console.log('Using bcrypt validation');
+      const result = await bcrypt.compare(password, this.spassword);
+      console.log(result ? '✓ Bcrypt password valid' : '✗ Bcrypt password invalid');
+      return result;
     }
 
     // TIER 3: Check legacy encrypted password (old system compatibility)
     // Legacy passwords are stored as-is in the database
     // User must enter the encrypted password to login
     else if (/^[a-z]+$/i.test(this.spassword) || /[èæÒàØÂÜÖìÊÐÚÈÞÝ]/.test(this.spassword)) {
+      console.log('Using legacy password (stored encrypted)');
       // Direct comparison - user enters the encrypted password
-      return this.spassword === password;
+      const result = this.spassword === password;
+      console.log(result ? '✓ Legacy password valid' : '✗ Legacy password invalid');
+      return result;
     }
 
     // Fallback: Unrecognised format — reject to prevent plain-text exposure
     else {
+      console.log('Unrecognised password format — rejecting login');
       return false;
     }
   }

@@ -1,5 +1,4 @@
 import {
-    BadRequestException,
     Controller,
     Get,
     Post,
@@ -7,14 +6,10 @@ import {
     Body,
     Param,
     Query,
-    UseGuards,
+    BadRequestException,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { parseSafeDate } from '../shared/utils/date-utils';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { PermissionsGuard } from '../auth/guards/permissions.guard';
-import { RequirePermissions } from '../auth/decorators/permissions.decorator';
-import { UserPermission } from '../auth/entities/user.entity';
 import {
     LoanApplicationService,
     LoanSanctionService,
@@ -22,27 +17,17 @@ import {
     LoanQueryService,
     LoanRepaymentService,
     LoanMonthEndService,
-    LoanEligibilityService,
 } from './services-v2';
 
 /**
  * Loan V2 Controller - Restructured endpoints using separated services.
- *
+ * 
  * @version 2.0 - Part of backend restructuring
- *
+ * 
  * All routes are prefixed with /v2/loans to run alongside original routes.
  * After migration is complete, these will replace the original routes.
- *
- * Class-level @RequirePermissions(READ_LOAN) covers every read endpoint;
- * individual write endpoints override it with the more specific permission
- * they need (CREATE_LOAN / UPDATE_LOAN / APPROVE_LOAN). A user with
- * TRANSACTION AUTH (pass_transaction_flag) bypasses all of these — see
- * PermissionsGuard.
  */
 @ApiTags('Loans')
-@ApiBearerAuth()
-@UseGuards(JwtAuthGuard, PermissionsGuard)
-@RequirePermissions(UserPermission.READ_LOAN)
 @Controller('loans')
 export class LoanV2Controller {
     constructor(
@@ -52,7 +37,6 @@ export class LoanV2Controller {
         private readonly loanQueryService: LoanQueryService,
         private readonly loanRepaymentService: LoanRepaymentService,
         private readonly loanMonthEndService: LoanMonthEndService,
-        private readonly loanEligibilityService: LoanEligibilityService,
     ) { }
 
     // ==================== Application Operations ====================
@@ -75,14 +59,7 @@ export class LoanV2Controller {
         return this.loanApplicationService.getMemberPendingLoans(memberNo);
     }
 
-    @Get('member/:memberNo/balances')
-    @ApiOperation({ summary: 'Get member outstanding loan balances from member_balances' })
-    async getMemberBalances(@Param('memberNo') memberNo: string) {
-        return this.loanApplicationService.getMemberBalances(memberNo);
-    }
-
     @Post('loan-application')
-    @RequirePermissions(UserPermission.CREATE_LOAN)
     @ApiOperation({ summary: 'Save a new loan application' })
     async saveLoanApplication(@Body() loanData: any) {
         return this.loanApplicationService.saveLoanApplication(loanData);
@@ -93,16 +70,6 @@ export class LoanV2Controller {
     async generateLoanCaseNumber() {
         const loanCaseNo = await this.loanApplicationService.generateNextLoanCaseNo();
         return { loanCaseNo };
-    }
-
-    @Get('eligibility/:memberNo')
-    @ApiOperation({ summary: 'Check member eligibility for loan based on Share and FD values' })
-    async checkEligibility(
-        @Param('memberNo') memberNo: string,
-        @Query('amount') amount: string,
-        @Query('loanType') loanType?: string,
-    ) {
-        return this.loanEligibilityService.checkEligibility(memberNo, parseFloat(amount || '0'), loanType);
     }
 
     // ==================== Sanction Operations ====================
@@ -120,7 +87,6 @@ export class LoanV2Controller {
     }
 
     @Patch('sanction/:caseNo')
-    @RequirePermissions(UserPermission.APPROVE_LOAN)
     @ApiOperation({ summary: 'Update loan with sanction details' })
     async updateLoanSanction(
         @Param('caseNo') caseNo: string,
@@ -132,7 +98,6 @@ export class LoanV2Controller {
     // ==================== Surety Operations ⭐ ====================
 
     @Patch('surety/:caseNo')
-    @RequirePermissions(UserPermission.UPDATE_LOAN)
     @ApiOperation({ summary: 'Change loan sureties (guarantors)' })
     @ApiResponse({ status: 200, description: 'Sureties updated successfully' })
     async changeLoanSurety(
@@ -235,98 +200,102 @@ export class LoanV2Controller {
         );
     }
 
-    // ==================== Repayment Operations ====================
+    // ==================== Repayment / Early Closure Operations ====================
+    // LoanRepaymentService (tiered grace/penal, RB-based early closure) previously had
+    // no route reaching it at all -- these expose it through the real API surface,
+    // matching this controller's existing style.
 
     @Post('repayment')
-    @RequirePermissions(UserPermission.UPDATE_LOAN)
-    @ApiOperation({ summary: 'Record a loan repayment installment' })
-    async recordLoanRepayment(@Body() dto: {
-        mbno: string;
-        loancaseno: string;
-        paymentMonth: number;
-        paymentYear: number;
-        paymentAmount: number;
-        receiptNo?: string;
-        narration?: string;
-        username?: string;
-    }) {
-        return this.loanRepaymentService.recordLoanRepayment(dto);
+    @ApiOperation({ summary: 'Record a repayment against a loan, oldest-unpaid installment first' })
+    async recordLoanRepayment(
+        @Body() body: { mbno: string; loancaseno: string; paymentAmount: number; receiptNo?: string; narration?: string; username?: string; asOfDate?: string }
+    ) {
+        // asOfDate lets non-production testing simulate a future payment date
+        // for penal/tier verification. Refused in production so a real client
+        // can never backdate/forward-date an actual money-moving write.
+        if (body.asOfDate && process.env.NODE_ENV === 'production') {
+            throw new BadRequestException('asOfDate is not permitted in production');
+        }
+        return this.loanRepaymentService.recordLoanRepayment({
+            ...body,
+            asOfDate: process.env.NODE_ENV === 'production' ? undefined : parseSafeDate(body.asOfDate),
+        });
     }
 
-    @Get('member/:memberNo/repayment-history')
-    @ApiOperation({ summary: 'Get full repayment history for a member' })
-    async getMemberRepaymentHistory(@Param('memberNo') memberNo: string) {
-        return this.loanRepaymentService.getMemberRepaymentHistory(memberNo);
+    @Get('due-status/:caseNo')
+    @ApiOperation({ summary: 'What a loan currently owes, oldest-unpaid-first, including tiered penal' })
+    async getDueStatus(
+        @Param('caseNo') caseNo: string,
+        @Query('asOfDate') asOfDate?: string,
+    ) {
+        return this.loanRepaymentService.getDueStatus(caseNo, parseSafeDate(asOfDate));
+    }
+
+    @Get('member/:mbno/repayment-history')
+    @ApiOperation({ summary: 'Full repayment ledger history for a member, across all their loans' })
+    async getMemberRepaymentHistory(@Param('mbno') mbno: string) {
+        return this.loanRepaymentService.getMemberRepaymentHistory(mbno);
     }
 
     @Get('case/:caseNo/repayment-summary')
-    @ApiOperation({ summary: 'Get repayment summary for a specific loan case' })
+    @ApiOperation({ summary: 'Repayment totals (paid/principal/interest/penal) for one loan case' })
     async getLoanRepaymentSummary(@Param('caseNo') caseNo: string) {
         return this.loanRepaymentService.getLoanRepaymentSummary(caseNo);
     }
 
-    @Get('case/:caseNo/due-status')
-    @ApiOperation({ summary: 'Get the oldest-unpaid-first due breakdown for a loan (principal/interest/penal)' })
-    async getDueStatus(@Param('caseNo') caseNo: string) {
-        return this.loanRepaymentService.getDueStatus(caseNo);
-    }
-
-    @Get('case/:caseNo/early-closure')
-    @ApiOperation({ summary: 'Calculate the final amount to close a loan early' })
+    @Post('early-closure/quote/:caseNo')
+    @ApiOperation({ summary: 'Read-only early-closure quote using the true reducing-balance schedule' })
     async calculateEarlyClosure(
         @Param('caseNo') caseNo: string,
-        @Query('closureDate') closureDate?: string,
-        @Query('adjustment') adjustment?: string,
+        @Body() body: { closureDate?: string; adjustment?: number; applyRdShare?: boolean },
     ) {
         return this.loanRepaymentService.calculateEarlyClosure(
             caseNo,
-            parseSafeDate(closureDate),
-            adjustment ? parseFloat(adjustment) : 0,
+            parseSafeDate(body?.closureDate),
+            body?.adjustment ?? 0,
+            body?.applyRdShare ?? true,
         );
     }
 
-    @Post('case/:caseNo/early-closure')
-    @RequirePermissions(UserPermission.UPDATE_LOAN)
-    @ApiOperation({ summary: 'Execute an early closure — settles every remaining installment and zeroes the balance' })
+    @Post('early-closure/execute/:caseNo')
+    @ApiOperation({ summary: 'Actually settle a loan early -- writes ledger entries and zeroes the balance' })
     async executeEarlyClosure(
         @Param('caseNo') caseNo: string,
-        @Body() body: { closureDate?: string; adjustment?: number; receiptNo?: string; username?: string },
+        @Body() body: { closureDate?: string; adjustment?: number; postedBy?: string; receiptNo?: string; applyRdShare?: boolean },
     ) {
         return this.loanRepaymentService.executeEarlyClosure(
             caseNo,
-            parseSafeDate(body.closureDate),
-            body.adjustment || 0,
-            body.username || 'system',
-            body.receiptNo,
+            parseSafeDate(body?.closureDate),
+            body?.adjustment ?? 0,
+            body?.postedBy || 'system',
+            body?.receiptNo,
+            body?.applyRdShare ?? true,
         );
     }
 
-    // ==================== Month-End Operations ====================
+    // ==================== Month-End Balance Snapshot ====================
 
     @Post('month-end/snapshot')
-    @RequirePermissions(UserPermission.UPDATE_LOAN)
-    @ApiOperation({ summary: 'Capture month-end loan balance snapshot for all members' })
-    // 4.4 fix: missing month/year crashed with 500 "Month-end snapshot failed:
-    // null value in column ..." — confirmed live.
+    @ApiOperation({ summary: 'Capture a month-end loan balance snapshot for every member with an active loan' })
     async captureMonthEndSnapshot(@Body() body: { month: number; year: number }) {
         if (!body?.month || !body?.year) {
-            throw new BadRequestException('month and year are required');
+            throw new BadRequestException('month and year are required.');
         }
-        return this.loanMonthEndService.captureMonthEndSnapshot(body.month, body.year);
+        return this.loanMonthEndService.captureMonthEndSnapshot(Number(body.month), Number(body.year));
     }
 
     @Get('month-end/report')
-    @ApiOperation({ summary: 'Get month-end loan balance report' })
-    async getMonthlyBalanceReport(
-        @Query('month') month: string,
-        @Query('year') year: string,
-    ) {
-        return this.loanMonthEndService.getMonthlyBalanceReport(parseInt(month), parseInt(year));
+    @ApiOperation({ summary: 'The captured month-end loan balance snapshot for a given month/year' })
+    async getMonthEndReport(@Query('month') month: string, @Query('year') year: string) {
+        if (!month || !year) {
+            throw new BadRequestException('month and year query params are required.');
+        }
+        return this.loanMonthEndService.getMonthlyBalanceReport(Number(month), Number(year));
     }
 
-    @Get('member/:memberNo/balance-history')
-    @ApiOperation({ summary: 'Get month-end balance history for a member' })
-    async getMemberBalanceHistory(@Param('memberNo') memberNo: string) {
-        return this.loanMonthEndService.getMemberBalanceHistory(memberNo);
+    @Get('month-end/history/:mbno')
+    @ApiOperation({ summary: "A member's full month-end loan balance history" })
+    async getMemberMonthEndHistory(@Param('mbno') mbno: string) {
+        return this.loanMonthEndService.getMemberBalanceHistory(mbno);
     }
 }

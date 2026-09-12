@@ -19,7 +19,6 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { UtilityService } from './utility.service';
 import { SearchService } from './services/search.service';
 import { BalanceService } from './services/balance.service';
-// import { InterestRateUpdateService } from './services/interest-rate-update.service';
 import { DataConsistencyService } from './services/data-consistency.service';
 import { DataCorrectionService } from './services/data-correction.service';
 import { SystemHealthMonitoringService } from './services/system-health-monitoring.service';
@@ -37,13 +36,9 @@ import {
   AccountStatement 
 } from './dto/balance.dto';
 import {
-  InterestRateUpdateDto,
-  BulkInterestRateUpdateDto,
-  RecalculateInterestDto,
   OrphanedRecordFixDto,
   BalanceCorrectionRequestDto,
   RemoveDuplicatesDto,
-  InterestRateUpdateResultDto,
   CorrectionResultDto,
   BulkCorrectionResultDto,
   SystemHealthMetricsDto,
@@ -60,7 +55,6 @@ export class UtilityController {
     private readonly utilityService: UtilityService,
     private readonly searchService: SearchService,
     private readonly balanceService: BalanceService,
-    // private readonly interestRateUpdateService: InterestRateUpdateService,
     private readonly dataConsistencyService: DataConsistencyService,
     private readonly dataCorrectionService: DataCorrectionService,
     private readonly systemHealthMonitoringService: SystemHealthMonitoringService,
@@ -88,20 +82,8 @@ export class UtilityController {
     return this.searchService.searchLoans(filters);
   }
 
-  // BUG FIX 48: this route collided with utilities.controller.ts's own, unrelated
-  // 'search/deposits' (both controllers are @Controller('utilities'), and this
-  // module is imported first in app.module.ts, so this guarded handler silently
-  // won every request — confirmed live, a curl with no token returned 401 from
-  // here instead of reaching the intended handler at all). The RD Premature
-  // Information screen (and getRDAccounts/searchRDAccounts in api.ts) was built
-  // against the OTHER controller's shape (query param `memberNo`+`type`, not this
-  // one's `memberNumber`-only SearchFiltersDto with forbidNonWhitelisted=true) —
-  // so every real call from that screen was failing outright (401, or 400 once
-  // authenticated, since memberNo/type aren't recognized DTO properties). Renamed
-  // this one out of the way; nothing in the frontend calls this specific route
-  // (confirmed via full-repo grep for 'search/deposits').
-  @Get('search/deposits-filtered')
-  @ApiOperation({ summary: 'Search deposit accounts with filters (generic multi-field filter version)' })
+  @Get('search/deposits')
+  @ApiOperation({ summary: 'Search deposit accounts with filters' })
   @ApiResponse({ status: 200, description: 'Deposit search results returned successfully' })
   async searchDeposits(@Query() filters: SearchFiltersDto): Promise<SearchResult<any>> {
     return this.searchService.searchDeposits(filters);
@@ -184,60 +166,6 @@ export class UtilityController {
     };
     return this.balanceService.generateAccountStatement(statementDto);
   }
-
-  // Interest Rate Update Endpoints - Temporarily disabled
-  /*
-  @Post('interest-rates/update')
-  @ApiOperation({ summary: 'Update interest rates' })
-  @ApiResponse({ status: 200, description: 'Interest rates updated successfully', type: InterestRateUpdateResultDto })
-  async updateInterestRates(@Body() updateDto: InterestRateUpdateDto): Promise<InterestRateUpdateResultDto> {
-    const serviceDto = {
-      ...updateDto,
-      effectiveDate: new Date(updateDto.effectiveDate),
-    };
-    return this.interestRateUpdateService.updateInterestRates(serviceDto);
-  }
-
-  @Post('interest-rates/bulk-update')
-  @ApiOperation({ summary: 'Bulk update interest rates' })
-  @ApiResponse({ status: 200, description: 'Interest rates bulk updated successfully', type: [InterestRateUpdateResultDto] })
-  async bulkUpdateInterestRates(@Body() bulkUpdate: BulkInterestRateUpdateDto): Promise<InterestRateUpdateResultDto[]> {
-    const serviceDto = {
-      ...bulkUpdate,
-      effectiveDate: new Date(bulkUpdate.effectiveDate),
-    };
-    return this.interestRateUpdateService.bulkUpdateInterestRates(serviceDto);
-  }
-
-  @Get('interest-rates/current')
-  @ApiOperation({ summary: 'Get current interest rates' })
-  @ApiResponse({ status: 200, description: 'Current interest rates returned successfully' })
-  async getCurrentInterestRates() {
-    return this.interestRateUpdateService.getCurrentInterestRates();
-  }
-
-  @Post('interest-rates/preview')
-  @ApiOperation({ summary: 'Preview interest rate update impact' })
-  @ApiResponse({ status: 200, description: 'Interest rate update preview generated successfully' })
-  async previewInterestRateUpdate(@Body() updateDto: InterestRateUpdateDto) {
-    const serviceDto = {
-      ...updateDto,
-      effectiveDate: new Date(updateDto.effectiveDate),
-    };
-    return this.interestRateUpdateService.previewInterestRateUpdate(serviceDto);
-  }
-
-  @Post('interest-rates/recalculate')
-  @ApiOperation({ summary: 'Recalculate interest for affected accounts' })
-  @ApiResponse({ status: 200, description: 'Interest recalculated successfully' })
-  async recalculateInterest(@Body() recalculateDto: RecalculateInterestDto) {
-    return this.interestRateUpdateService.recalculateInterestForAccounts(
-      recalculateDto.accountType,
-      recalculateDto.accountIds,
-      new Date(recalculateDto.effectiveDate),
-    );
-  }
-  */
 
   // Data Consistency Check Endpoints
   @Get('data-consistency/check')
@@ -350,7 +278,6 @@ export class UtilityController {
   }
 
   // Legacy endpoint
-  @ApiOperation({ summary: 'Legacy: list available utility services (index/health ping)' })
   @Get()
   async findAll() {
     return { 

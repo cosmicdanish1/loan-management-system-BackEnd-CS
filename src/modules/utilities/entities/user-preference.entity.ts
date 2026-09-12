@@ -1,7 +1,6 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, OneToOne, JoinColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { User } from '../../auth/entities/user.entity';
 
-// userId points at usermaster.userid (populated from req.user.id on the real
-// login path) — no FK relation here since usermaster is a separate legacy entity.
 @Entity('user_preferences')
 export class UserPreference {
     @PrimaryGeneratedColumn()
@@ -9,6 +8,10 @@ export class UserPreference {
 
     @Column()
     userId: number;
+
+    @OneToOne(() => User)
+    @JoinColumn({ name: 'userId' })
+    user: User;
 
     @Column({ default: 'light' })
     interfaceMode: 'light' | 'dark' | 'system';

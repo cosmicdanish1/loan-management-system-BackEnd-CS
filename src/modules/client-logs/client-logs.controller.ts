@@ -1,18 +1,35 @@
 import { Controller, Post, Body, Logger, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { Request } from 'express';
+import { Type } from 'class-transformer';
+import { IsArray, IsOptional, IsString, ValidateNested } from 'class-validator';
 import { ClientLogsService } from './client-logs.service';
 
 class ClientLogEntryDto {
+  @IsString()
   level: string;
+
+  @IsString()
   route: string;
+
+  @IsString()
   message: string;
+
+  @IsString()
   timestamp: string;
+
+  @IsOptional()
   data?: any;
 }
 
 class ClientLogBatchDto {
+  @IsOptional()
+  @IsString()
   hostname: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ClientLogEntryDto)
   entries: ClientLogEntryDto[];
 }
 

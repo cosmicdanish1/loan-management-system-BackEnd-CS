@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { UserMaster } from './entities';
@@ -6,8 +6,6 @@ import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class HashPasswordsService {
-  private readonly logger = new Logger(HashPasswordsService.name);
-
   constructor(
     @InjectRepository(UserMaster)
     private userMasterRepository: Repository<UserMaster>,
@@ -34,7 +32,9 @@ export class HashPasswordsService {
           user.spassword.startsWith('$2b$') ||
           user.spassword.startsWith('$2a$')
         ) {
-          this.logger.log(`User ${user.susername} already has hashed password, skipping`);
+          console.log(
+            `[HashPasswords] User ${user.susername} already has hashed password, skipping`,
+          );
           skipped++;
           continue;
         }
@@ -47,10 +47,15 @@ export class HashPasswordsService {
         user.spassword = hashedPassword;
         await this.userMasterRepository.save(user);
 
-        this.logger.log(`Successfully hashed password for user: ${user.susername}`);
+        console.log(
+          `[HashPasswords] Successfully hashed password for user: ${user.susername}`,
+        );
         updated++;
       } catch (error) {
-        this.logger.error(`Error hashing password for user ${user.susername}: ${error.message}`);
+        console.error(
+          `[HashPasswords] Error hashing password for user ${user.susername}:`,
+          error,
+        );
         errors++;
       }
     }
@@ -75,7 +80,7 @@ export class HashPasswordsService {
       user.spassword.startsWith('$2b$') ||
       user.spassword.startsWith('$2a$')
     ) {
-      this.logger.log(`User ${username} already has hashed password`);
+      console.log(`User ${username} already has hashed password`);
       return false;
     }
 
@@ -84,7 +89,7 @@ export class HashPasswordsService {
     user.spassword = await bcrypt.hash(user.spassword, saltRounds);
     await this.userMasterRepository.save(user);
 
-    this.logger.log(`Successfully hashed password for user: ${username}`);
+    console.log(`Successfully hashed password for user: ${username}`);
     return true;
   }
 }

@@ -9,13 +9,14 @@ import {
     LoanSuretyService,
     LoanQueryService,
     LoanRepaymentService,
-    LoanMonthEndService,
     LoanEligibilityService,
+    LoanMonthEndService,
 } from './services-v2';
 import { LoanV2Controller } from './loan-v2.controller';
 
 import { AdminModule } from '../admin/admin.module';
 import { UtilityModule } from '../utility/utility.module';
+import { RdModule } from '../rd/rd.module';
 
 @Module({
     imports: [
@@ -28,6 +29,7 @@ import { UtilityModule } from '../utility/utility.module';
         ]),
         AdminModule,
         UtilityModule,
+        RdModule,
     ],
     controllers: [LoanV2Controller],
     providers: [
@@ -36,8 +38,8 @@ import { UtilityModule } from '../utility/utility.module';
         LoanSuretyService,
         LoanQueryService,
         LoanRepaymentService,
-        LoanMonthEndService,
         LoanEligibilityService,
+        LoanMonthEndService,
     ],
     exports: [
         LoanApplicationService,
@@ -45,8 +47,8 @@ import { UtilityModule } from '../utility/utility.module';
         LoanSuretyService,
         LoanQueryService,
         LoanRepaymentService,
-        LoanMonthEndService,
         LoanEligibilityService,
+        LoanMonthEndService,
     ],
 })
 export class LoanV2Module { }

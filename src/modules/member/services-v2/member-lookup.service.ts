@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { MemberLookupResponseDto } from '../dto/member-lookup.dto';
 
@@ -10,8 +10,6 @@ import { MemberLookupResponseDto } from '../dto/member-lookup.dto';
  */
 @Injectable()
 export class MemberLookupService {
-    private readonly logger = new Logger(MemberLookupService.name);
-
     constructor(private readonly dataSource: DataSource) { }
 
     /**
@@ -19,7 +17,7 @@ export class MemberLookupService {
      */
     async lookupMembers(search?: string, limit?: number, offset?: number): Promise<MemberLookupResponseDto[]> {
         try {
-            this.logger.debug(`Looking up members with search: ${search}, limit: ${limit}, offset: ${offset}`);
+            console.log('[MemberLookup] Looking up members with search:', search, 'limit:', limit, 'offset:', offset);
 
             // Set defaults and limits
             const actualLimit = Math.min(limit || 500, 1000); // Default 500, max 1000
@@ -49,9 +47,9 @@ export class MemberLookupService {
         LIMIT $1 OFFSET $2
       `;
 
-            this.logger.debug(`Executing query with limit: ${actualLimit}, offset: ${actualOffset}`);
+            console.log('[MemberLookup] Executing query with limit:', actualLimit, 'offset:', actualOffset);
             const result = await this.dataSource.query(query, params);
-            this.logger.debug(`Query result count: ${result.length}`);
+            console.log('[MemberLookup] Query result count:', result.length);
 
             const mappedResult = result.map((member: any) => ({
                 memberNo: member.memberno,
@@ -61,10 +59,10 @@ export class MemberLookupService {
                 officeName: member.officename
             }));
 
-            this.logger.debug(`Mapped result count: ${mappedResult.length}`);
+            console.log('[MemberLookup] Mapped result count:', mappedResult.length);
             return mappedResult;
         } catch (error) {
-            this.logger.error(`Error in lookupMembers: ${error.message}`);
+            console.error('[MemberLookup] Error in lookupMembers:', error);
             return [];
         }
     }
@@ -126,7 +124,7 @@ export class MemberLookupService {
             const result = await this.dataSource.query(query, [memberNo]);
             return result[0] || null;
         } catch (error) {
-            this.logger.error(`Error getting member details: ${error.message}`);
+            console.error('[MemberLookup] Error getting member details:', error);
             throw error;
         }
     }
@@ -149,18 +147,10 @@ export class MemberLookupService {
       `;
 
             const result = await this.dataSource.query(query, [memberNo]);
-            // 4.1 fix: a fabricated member number used to return 200 with data:null
-            // instead of 404 — any caller checking the status code rather than
-            // `data !== null` would treat a non-existent member as found. No frontend
-            // caller uses this endpoint currently, so tightening it is safe.
-            if (!result[0]) {
-                throw new NotFoundException(`Member ${memberNo} not found`);
-            }
-            return result[0];
+            return result[0] || null;
         } catch (error) {
-            if (error instanceof NotFoundException) throw error;
-            this.logger.error(`Error finding member: ${error.message}`);
-            throw error;
+            console.error('[MemberLookup] Error finding member:', error);
+            return null;
         }
     }
 }

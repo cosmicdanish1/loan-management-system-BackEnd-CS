@@ -1,14 +1,11 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { UserLevelMaster, MenuMaster, UserLevelDefaultRights } from '../../auth/entities';
 import { UpdateDefaultRightsDto } from '../dto/role-management.dto';
-import { MENU_ACTION_MAP } from '../../auth/menu-action-map';
 
 @Injectable()
 export class RoleManagementService {
-    private readonly logger = new Logger(RoleManagementService.name);
-
     constructor(
         @InjectRepository(UserLevelMaster)
         private userLevelRepository: Repository<UserLevelMaster>,
@@ -116,24 +113,9 @@ export class RoleManagementService {
                 }
             }
 
-            // 3. Seed any modern-app windows that have no legacy menu row yet
-            // (see MENU_ACTION_MAP) so default rights can be configured for them.
-            for (const entry of MENU_ACTION_MAP) {
-                const existing = await this.menuRepository.findOne({ where: { menuid: entry.menuid } });
-                if (!existing) {
-                    const newMenu = this.menuRepository.create({
-                        menuid: entry.menuid,
-                        menuname: entry.action,
-                        menudesc: entry.title,
-                        visibleflag: 'Y',
-                    });
-                    await this.menuRepository.save(newMenu);
-                }
-            }
-
-            this.logger.log('Role Management standard data seeded successfully.');
+            console.log('Role Management standard data seeded successfully.');
         } catch (err) {
-            this.logger.error(`Failed to seed Role Management data: ${err.message}`);
+            console.error('Failed to seed Role Management data:', err.message);
         }
     }
 
@@ -154,16 +136,6 @@ export class RoleManagementService {
             where: { userlevelid: userLevelId },
         });
         return rights.map(r => r.menuid);
-    }
-
-    async createUserLevel(levelName: string): Promise<UserLevelMaster> {
-        const all = await this.userLevelRepository.find({ order: { userlevelid: 'DESC' }, take: 1 });
-        const nextId = all.length > 0 ? all[0].userlevelid + 1 : 11;
-        const newLevel = this.userLevelRepository.create({
-            userlevelid: nextId,
-            userlevel: levelName.toUpperCase().slice(0, 20),
-        });
-        return this.userLevelRepository.save(newLevel);
     }
 
     async updateDefaultRights(updateDto: UpdateDefaultRightsDto) {

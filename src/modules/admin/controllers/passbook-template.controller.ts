@@ -10,7 +10,7 @@ import { UserRole } from '../../auth/entities/user.entity';
 @Controller('admin/passbook-templates')
 @UseGuards(JwtAuthGuard, RoleGuard)
 @ApiBearerAuth()
-@Roles(UserRole.ADMIN, UserRole.MANAGER)
+@Roles(UserRole.ADMIN)
 export class PassbookTemplateController {
     constructor(private readonly templateService: PassbookTemplateService) { }
 

@@ -51,22 +51,11 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       error = exception.name;
     }
 
-    // Skip noisy browser auto-requests
-    if (request.url === '/favicon.ico') {
-      response.status(status).json({ statusCode: status, error, message });
-      return;
-    }
-
-    const requestId = (request as any).requestId || 'no-id';
-
-    if (status === HttpStatus.NOT_FOUND) {
-      this.logger.warn(`[${requestId}] ${request.method} ${request.url} - ${status} - ${message}`);
-    } else {
-      this.logger.error(
-        `[${requestId}] ${request.method} ${request.url} - ${status} - ${message}`,
-        exception instanceof Error ? exception.stack : exception,
-      );
-    }
+    // Log the error
+    this.logger.error(
+      `${request.method} ${request.url} - ${status} - ${message}`,
+      exception instanceof Error ? exception.stack : exception,
+    );
 
     const errorResponse = {
       statusCode: status,
@@ -75,7 +64,6 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       method: request.method,
       error,
       message,
-      requestId,
     };
 
     response.status(status).json(errorResponse);

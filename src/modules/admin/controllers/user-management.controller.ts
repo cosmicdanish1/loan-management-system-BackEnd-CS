@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Controller,
   Get,
   Post,
@@ -10,7 +9,6 @@ import {
   Query,
   UseGuards,
   ParseIntPipe,
-  DefaultValuePipe,
   HttpStatus,
 } from '@nestjs/common';
 import {
@@ -73,21 +71,17 @@ export class UserManagementController {
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Items per page' })
   @ApiQuery({ name: 'role', required: false, enum: UserRole, description: 'Filter by role' })
   @ApiQuery({ name: 'isActive', required: false, type: Boolean, description: 'Filter by active status' })
-  @ApiQuery({ name: 'username', required: false, type: String, description: 'Filter by username (partial match)' })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Users retrieved successfully',
   })
-  // 5.4 fix: same DefaultValuePipe+ParseIntPipe fix as day-end/processes —
-  // plain JS default parameters don't reliably apply to @Query() here.
   async findAllUsers(
-    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
-    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 10,
     @Query('role') role?: UserRole,
     @Query('isActive') isActive?: boolean,
-    @Query('username') username?: string,
   ) {
-    return this.userManagementService.findAllUsers(page, limit, role, isActive, username);
+    return this.userManagementService.findAllUsers(page, limit, role, isActive);
   }
 
   @Get('roles/permissions')
@@ -113,10 +107,9 @@ export class UserManagementController {
     status: HttpStatus.OK,
     description: 'User activities retrieved successfully',
   })
-  // 5.4 fix: same DefaultValuePipe+ParseIntPipe fix as day-end/processes.
   async getAllUserActivities(
-    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
-    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 20,
   ) {
     return this.userManagementService.getAllUserActivities(page, limit);
   }
@@ -250,37 +243,12 @@ export class UserManagementController {
     status: HttpStatus.OK,
     description: 'User activities retrieved successfully',
   })
-  // 5.4 fix: same DefaultValuePipe+ParseIntPipe fix as day-end/processes.
   async getUserActivities(
     @Param('id', ParseIntPipe) id: number,
-    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
-    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 20,
   ) {
     return this.userManagementService.getUserActivities(id, page, limit);
-  }
-
-  @Get(':id/login-history')
-  @Roles(UserRole.ADMIN, UserRole.BRANCH_MANAGER)
-  @RequirePermissions(UserPermission.MANAGE_USERS)
-  @ApiOperation({ summary: 'Get a user login/logout history (audit trail)' })
-  @ApiParam({ name: 'id', type: Number, description: 'User ID' })
-  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page number' })
-  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Items per page' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Login history retrieved successfully',
-  })
-  @ApiResponse({
-    status: HttpStatus.NOT_FOUND,
-    description: 'No login records found for user',
-  })
-  // 5.4 fix: same DefaultValuePipe+ParseIntPipe fix as day-end/processes.
-  async getUserLoginHistory(
-    @Param('id', ParseIntPipe) id: number,
-    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
-    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
-  ) {
-    return this.userManagementService.getUserLoginHistory(id, page, limit);
   }
 
   @Put('change-password')
@@ -305,12 +273,7 @@ export class UserManagementController {
   @RequirePermissions(UserPermission.MANAGE_USERS)
   @ApiOperation({ summary: 'Force logout a user session (Admin)' })
   @ApiResponse({ status: 200, description: 'Session terminated' })
-  // 4.4 fix: a missing username crashed with 500 "Cannot read properties of
-  // undefined (reading 'trim')" inside the service — confirmed live.
   async forceLogout(@Body('username') username: string): Promise<{ message: string }> {
-    if (!username) {
-      throw new BadRequestException('username is required');
-    }
     return this.userManagementService.forceLogoutUser(username);
   }
 

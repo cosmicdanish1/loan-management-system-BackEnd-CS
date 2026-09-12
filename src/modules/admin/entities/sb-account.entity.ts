@@ -2,12 +2,10 @@ import { Entity, Column, PrimaryColumn } from 'typeorm';
 
 @Entity('sbmaster')
 export class SbAccount {
-    // Column names are canonical to the savings-transaction flow (acc_no / mbno / balance)
-    // so opening, deposits/withdrawals, and search all operate on the same columns.
-    @PrimaryColumn({ name: 'acc_no', length: 20 })
+    @PrimaryColumn({ name: 'account_no', length: 20 })
     accountNo: string;
 
-    @Column({ name: 'mbno', length: 20 })
+    @Column({ name: 'member_no', length: 20 })
     memberNo: string;
 
     @Column({ name: 'opening_date', type: 'date', nullable: true })
@@ -16,8 +14,7 @@ export class SbAccount {
     @Column({ name: 'opening_balance', type: 'decimal', precision: 18, scale: 2, default: 0 })
     openingBalance: number;
 
-    // 'balance' is the live balance the deposit/withdrawal flow reads & updates.
-    @Column({ name: 'balance', type: 'decimal', precision: 18, scale: 2, default: 0 })
+    @Column({ name: 'current_balance', type: 'decimal', precision: 18, scale: 2, default: 0 })
     currentBalance: number;
 
     @Column({ name: 'ledger_group', length: 50, nullable: true })

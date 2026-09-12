@@ -2,9 +2,6 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AdminModule } from '../admin/admin.module';
 import { NotificationModule } from '../notification/notification.module';
-// Loan disbursement withholds any RD/Share shortfall — the rule itself is
-// owned by LoanEligibilityService, exported from LoanV2Module.
-import { LoanV2Module } from '../loan/loan-v2.module';
 import { Transaction } from './entities/transaction.entity';
 import { Voucher } from './entities/voucher.entity';
 import { DemandMaster } from './entities/demand-master.entity';
@@ -24,18 +21,19 @@ import {
     DemandReportService,
     CompulsoryDepositService,
     JournalTransferService,
-    FixedDepositService
+    DividendPaymentService,
 } from './services-v2';
-import { MemberBalanceTransferService } from './services-v2/member-balance-transfer.service';
+import { DemandImportService } from './services-v2/demand-import.service';
+import { LoanEligibilityService } from '../loan/services-v2/loan-eligibility.service';
+import { RdModule } from '../rd/rd.module';
 import { CompulsoryDepositController } from './compulsory-deposit.controller';
 import { JournalTransferController } from './journal-transfer.controller';
-import { FixedDepositController } from './fixed-deposit.controller';
+import { DividendPaymentController } from './dividend-payment.controller';
 
 @Module({
     imports: [
         AdminModule,
         NotificationModule,
-        LoanV2Module,
         TypeOrmModule.forFeature([
             Transaction,
             Voucher,
@@ -43,6 +41,7 @@ import { FixedDepositController } from './fixed-deposit.controller';
             ShortRecoveryAdjustment,
             MemberMaster
         ]),
+        RdModule,
     ],
     controllers: [
         TransactionV2Controller,
@@ -52,19 +51,20 @@ import { FixedDepositController } from './fixed-deposit.controller';
         DemandReportController, // Register
         CompulsoryDepositController,
         JournalTransferController,
-        FixedDepositController
+        DividendPaymentController,
     ],
     providers: [
         VoucherService,
         PassTransactionService,
         ShortRecoveryService,
-        DemandGenerationService,
-        LedgerPostingService,
-        DemandReportService,
+        DemandGenerationService, // Register
+        DemandImportService,
+        LedgerPostingService, // Register
+        DemandReportService, // Register
         CompulsoryDepositService,
         JournalTransferService,
-        FixedDepositService,
-        MemberBalanceTransferService,
+        DividendPaymentService,
+        LoanEligibilityService,
     ],
     exports: [
         VoucherService,
@@ -75,7 +75,8 @@ import { FixedDepositController } from './fixed-deposit.controller';
         DemandReportService,
         CompulsoryDepositService,
         JournalTransferService,
-        FixedDepositService
+        DividendPaymentService,
+        LoanEligibilityService,
     ]
 })
 export class TransactionV2Module { }

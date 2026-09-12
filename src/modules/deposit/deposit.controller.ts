@@ -251,12 +251,12 @@ export class DepositController {
   @Post('fixed-deposits/:id/certificate')
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.LOAN_OFFICER)
   @ApiOperation({ summary: 'Generate fixed deposit certificate' })
-  @ApiParam({ name: 'id', description: 'Fixed deposit account number' })
+  @ApiParam({ name: 'id', description: 'Fixed deposit ID' })
   @ApiResponse({
     status: HttpStatus.CREATED,
     description: 'Certificate generated successfully',
   })
-  async generateFixedDepositCertificate(@Param('id') id: string) {
+  async generateFixedDepositCertificate(@Param('id', ParseIntPipe) id: number) {
     const fileName = await this.certificateService.generateFixedDepositCertificate(id);
     return {
       message: 'Certificate generated successfully',

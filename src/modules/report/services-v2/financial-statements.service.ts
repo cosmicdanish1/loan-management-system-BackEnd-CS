@@ -1,10 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
 @Injectable()
 export class FinancialStatementsService {
-    private readonly logger = new Logger(FinancialStatementsService.name);
-
     constructor(private readonly dataSource: DataSource) { }
 
     /**
@@ -94,7 +92,7 @@ export class FinancialStatementsService {
             return { success: true, data: { id: scheduleId } };
         } catch (error) {
             await queryRunner.rollbackTransaction();
-            this.logger.error('Error creating schedule:', error);
+            console.error('Error creating schedule:', error);
             return { success: false, error: 'Failed to create schedule' };
         } finally {
             await queryRunner.release();
@@ -220,13 +218,6 @@ export class FinancialStatementsService {
 
     /**
      * Get Balance Sheet data
-     *
-     * BUG FIX: this manually wrapped its payload in {success, data} on top of
-     * the global TransformInterceptor's identical wrap. Unlike most other
-     * double-wrap instances this session, this one actually breaks the UI —
-     * PLBalanceSheet.tsx does `response.success && response.data` with no
-     * defensive unwrap, so it always fell into the "No Data" branch despite
-     * balancesheet having 138 real rows. Removed the manual wrap.
      */
     async getBalanceSheet(asOnDate?: string) {
         const query = `
@@ -255,26 +246,29 @@ export class FinancialStatementsService {
             sum + (parseFloat(item.closingbalance) || 0), 0);
             
         return {
-            liabilities: liabilities.map((item: any) => ({
-                headCode: item.head_code,
-                headName: item.head_name,
-                openingBalance: parseFloat(item.opening_balance) || 0,
-                debit: parseFloat(item.debit) || 0,
-                credit: parseFloat(item.credit) || 0,
-                closingBalance: parseFloat(item.closingbalance) || 0
-            })),
-            assets: assets.map((item: any) => ({
-                headCode: item.head_code,
-                headName: item.head_name,
-                openingBalance: parseFloat(item.opening_balance) || 0,
-                debit: parseFloat(item.debit) || 0,
-                credit: parseFloat(item.credit) || 0,
-                closingBalance: parseFloat(item.closingbalance) || 0
-            })),
-            totals: {
-                totalLiabilities,
-                totalAssets,
-                difference: totalAssets - totalLiabilities
+            success: true,
+            data: {
+                liabilities: liabilities.map((item: any) => ({
+                    headCode: item.head_code,
+                    headName: item.head_name,
+                    openingBalance: parseFloat(item.opening_balance) || 0,
+                    debit: parseFloat(item.debit) || 0,
+                    credit: parseFloat(item.credit) || 0,
+                    closingBalance: parseFloat(item.closingbalance) || 0
+                })),
+                assets: assets.map((item: any) => ({
+                    headCode: item.head_code,
+                    headName: item.head_name,
+                    openingBalance: parseFloat(item.opening_balance) || 0,
+                    debit: parseFloat(item.debit) || 0,
+                    credit: parseFloat(item.credit) || 0,
+                    closingBalance: parseFloat(item.closingbalance) || 0
+                })),
+                totals: {
+                    totalLiabilities,
+                    totalAssets,
+                    difference: totalAssets - totalLiabilities
+                }
             }
         };
     }

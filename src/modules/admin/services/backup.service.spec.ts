@@ -64,11 +64,10 @@ describe('BackupService', () => {
       };
 
       // Mock successful command execution
-      // (cast: TS resolves exec's (cmd, options) overload, making callback non-callable)
-      mockExec.mockImplementation(((command: any, callback: any) => {
+      mockExec.mockImplementation((command, callback) => {
         callback(null, 'Backup completed', '');
         return {} as any;
-      }) as any);
+      });
 
       // Mock fs operations
       mockFs.promises = {
@@ -89,10 +88,10 @@ describe('BackupService', () => {
 
     it('should throw BadRequestException on backup failure', async () => {
       // Mock failed command execution
-      mockExec.mockImplementation(((command: any, callback: any) => {
+      mockExec.mockImplementation((command, callback) => {
         callback(new Error('Backup failed'), '', 'Error message');
         return {} as any;
-      }) as any);
+      });
 
       await expect(service.createDatabaseBackup('test_backup')).rejects.toThrow(
         BadRequestException,
@@ -105,10 +104,10 @@ describe('BackupService', () => {
         birthtime: new Date(),
       };
 
-      mockExec.mockImplementation(((command: any, callback: any) => {
+      mockExec.mockImplementation((command, callback) => {
         callback(null, 'Backup completed', '');
         return {} as any;
-      }) as any);
+      });
 
       mockFs.promises = {
         stat: jest.fn().mockResolvedValue(mockStats),
@@ -134,10 +133,10 @@ describe('BackupService', () => {
       jest.spyOn(service, 'verifyBackupIntegrity').mockResolvedValue(true);
 
       // Mock successful restore command
-      mockExec.mockImplementation(((command: any, callback: any) => {
+      mockExec.mockImplementation((command, callback) => {
         callback(null, 'Restore completed', '');
         return {} as any;
-      }) as any);
+      });
 
       const result = await service.restoreDatabase(backupFilename);
 
@@ -174,10 +173,10 @@ describe('BackupService', () => {
       jest.spyOn(service, 'verifyBackupIntegrity').mockResolvedValue(true);
 
       // Mock failed restore command
-      mockExec.mockImplementation(((command: any, callback: any) => {
+      mockExec.mockImplementation((command, callback) => {
         callback(new Error('Restore failed'), '', 'Error message');
         return {} as any;
-      }) as any);
+      });
 
       const result = await service.restoreDatabase(backupFilename);
 

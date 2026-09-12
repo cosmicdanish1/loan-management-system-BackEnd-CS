@@ -143,39 +143,6 @@ export class MemberReportsService {
 
     const transactions = await this.dataSource.query(transactionQuery, params);
 
-    // Per-account summary: net balance up to toDate for the Receipt/Payment report
-    const summaryParams: any[] = [memberNo];
-    let summaryWhere = `WHERE CAST(l.mbno AS TEXT) = $1`;
-    if (toDate) {
-      summaryParams.push(parseSafeDate(toDate));
-      summaryWhere += ` AND l.trans_date::date <= $${summaryParams.length}::date`;
-    }
-    // BUG FIX: accountbalance is empty in this database (0 rows, confirmed
-    // live) — head_name always fell through to the raw code. headmaster has
-    // 151 real rows (confirmed live); same fallback pattern already
-    // established for this exact gap elsewhere this session.
-    const summaryResult = await this.dataSource.query(`
-      SELECT
-        l.code AS head_code,
-        COALESCE(ab.acname, hm.head_name, l.code) AS head_name,
-        SUM(CASE WHEN l.trans_type = 'CR' THEN CAST(l.trans_amt AS numeric) ELSE 0 END) AS total_cr,
-        SUM(CASE WHEN l.trans_type = 'DR' THEN CAST(l.trans_amt AS numeric) ELSE 0 END) AS total_dr
-      FROM ledger l
-      LEFT JOIN accountbalance ab ON ab.acno = l.code
-      LEFT JOIN headmaster     hm ON hm.code = l.code
-      ${summaryWhere}
-      GROUP BY l.code, ab.acname, hm.head_name
-      ORDER BY l.code
-    `, summaryParams);
-
-    const summary = summaryResult.map((r: any) => {
-      const cr = parseFloat(r.total_cr) || 0;
-      const dr = parseFloat(r.total_dr) || 0;
-      // Loan/asset codes (A*): outstanding = DR - CR; Deposit codes: balance = CR - DR
-      const balance = (r.head_code || '').startsWith('A') ? dr - cr : cr - dr;
-      return { headCode: r.head_code, headName: r.head_name, balance };
-    });
-
     return {
       metadata: {
         totalCount,
@@ -187,12 +154,8 @@ export class MemberReportsService {
       officeName: member.office_name,
       fromDate: fromDate || 'Start',
       toDate: toDate || 'End',
-      summary,
       transactions: transactions.map((t: any, idx: number) => ({
-        // BUG FIX: `offset || 0 + idx` — `+` binds tighter than `||`, so this
-        // evaluated as `offset || idx`. Live-confirmed: with offset=2, all 3
-        // rows on that page got the identical key "2" (React duplicate keys).
-        key: ((offset || 0) + idx).toString(),
+        key: (offset || 0 + idx).toString(),
         date: t.date,
         type: t.type,
         code: t.code,
@@ -643,51 +606,36 @@ export class MemberReportsService {
   }
 
   /**
-   * Get account balance report by member range — returns per-type breakdown
+   * Get account balance report by member range
    */
   async getAccountBalanceReport(dto: { fromAccountNo: string; toAccountNo: string }) {
     let { fromAccountNo, toAccountNo } = dto;
 
+    // Auto-swap if fromAccountNo > toAccountNo
     const fromNum = parseFloat(fromAccountNo);
-    const toNum   = parseFloat(toAccountNo);
-    if (!isNaN(fromNum) && !isNaN(toNum) && fromNum > toNum) {
+    const toNum = parseFloat(toAccountNo);
+    if (fromNum > toNum) {
       [fromAccountNo, toAccountNo] = [toAccountNo, fromAccountNo];
     }
 
-    const result = await this.dataSource.query(`
-      SELECT
-        mb.mbno                                AS "memberNo",
-        mb.member_name                         AS "memberName",
-        COALESCE(mb.shares, 0)                AS "shares",
-        COALESCE(mb.compulsory_deposit, 0)    AS "compulsoryDeposit",
-        COALESCE(mb.regularloan, 0)            AS "regularLoan",
-        COALESCE(mb.emergency_loan_balance, 0) AS "emergencyLoan",
-        COALESCE(mb.rd_amt, 0)                AS "rdAmount",
-        COALESCE(mb.frsbalance, 0)            AS "frsBalance"
+    // Use member_balances as primary table to avoid duplicates from member_master
+    const query = `
+      SELECT 
+        mb.mbno as "memberNo",
+        mb.member_name as "memberName",
+        (COALESCE(mb.shares, 0) + COALESCE(mb.compulsory_deposit, 0) - COALESCE(mb.regularloan, 0) - COALESCE(mb.emergency_loan_balance, 0)) as "currentBalance"
       FROM member_balances mb
       WHERE mb.mbno::numeric >= $1::numeric AND mb.mbno::numeric <= $2::numeric
       ORDER BY mb.mbno::numeric
-    `, [fromAccountNo, toAccountNo]);
+    `;
 
-    return result.map((r: any, idx: number) => {
-      const shares  = parseFloat(r.shares)            || 0;
-      const cd      = parseFloat(r.compulsoryDeposit) || 0;
-      const rl      = parseFloat(r.regularLoan)       || 0;
-      const el      = parseFloat(r.emergencyLoan)     || 0;
-      const rd      = parseFloat(r.rdAmount)          || 0;
-      const frs     = parseFloat(r.frsBalance)        || 0;
-      return {
-        key: idx.toString(),
-        memberNo:          r.memberNo?.toString() || '',
-        memberName:        r.memberName || '',
-        shares,
-        compulsoryDeposit: cd,
-        regularLoan:       rl,
-        emergencyLoan:     el,
-        rdAmount:          rd,
-        frsBalance:        frs,
-        netBalance:        shares + cd + rd + frs - rl - el,
-      };
-    });
+    const result = await this.dataSource.query(query, [fromAccountNo, toAccountNo]);
+
+    return result.map((r, idx) => ({
+      key: idx.toString(),
+      memberNo: r.memberNo,
+      memberName: r.memberName,
+      currentBalance: parseFloat(r.currentBalance) || 0
+    }));
   }
 }

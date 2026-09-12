@@ -37,15 +37,6 @@ export class UpdateSavingInterestDto {
   accountHead?: string;
 
   @ApiProperty({
-    description: 'Account type code (SB / RD / FD) stored as int_type in interest_master',
-    example: 'SB',
-    required: false,
-  })
-  @IsOptional()
-  @IsString()
-  accountType?: string;
-
-  @ApiProperty({
     description: 'Voucher number for this interest run',
     example: 'INT2025001',
     required: false,
@@ -71,15 +62,6 @@ export class UpdateSavingInterestDto {
   @IsOptional()
   @IsString()
   memberNo?: string;
-
-  @ApiProperty({
-    description: 'GL head code for the balancing interest-expense debit leg. No real "interest paid on savings" head currently exists in headmaster (checked) — defaults to a confirmed-wrong placeholder (L1028) until a real one is decided.',
-    example: 'L1028',
-    required: false,
-  })
-  @IsOptional()
-  @IsString()
-  expenseHeadCode?: string;
 }
 
 export class InterestCalculationResultDto {

@@ -1,4 +1,4 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
 /**
@@ -11,8 +11,6 @@ import { DataSource } from 'typeorm';
  */
 @Injectable()
 export class LoanSuretyService {
-    private readonly logger = new Logger(LoanSuretyService.name);
-
     constructor(private readonly dataSource: DataSource) { }
 
     /**
@@ -25,40 +23,13 @@ export class LoanSuretyService {
      * If records are missing in certain tables, it attempts to "repair" or skip gracefully.
      */
     async changeLoanSurety(caseNo: string, suretyData: { surety1: string; surety2?: string }) {
-        // 0. Fetch the loan case first (read-only) — needed for the loan amount and for the
-        // self-surety check below, before any validation or transaction runs.
-        const caseCheck = await this.dataSource.query(
-            `SELECT mbno, loancaseno, g1mbno, g2mbno FROM loan_pending WHERE loancaseno::text = $1`,
-            [caseNo]
-        );
-        if (caseCheck.length === 0) {
-            throw new BadRequestException(`Loan case ${caseNo} not found in loan_pending`);
-        }
-        const memberNo = String(caseCheck[0].mbno);
-        if (!memberNo || memberNo === 'undefined' || memberNo === 'null') {
-            throw new BadRequestException(`Invalid member number for loan case ${caseNo}`);
-        }
-
         // Validate surety members before opening a transaction
         const s1Check = await this.validateSurety(suretyData.surety1);
-        if (!s1Check.valid) throw new BadRequestException(`Surety 1: ${s1Check.message}`);
+        if (!s1Check.valid) throw new Error(`Surety 1: ${s1Check.message}`);
 
         if (suretyData.surety2) {
             const s2Check = await this.validateSurety(suretyData.surety2);
-            if (!s2Check.valid) throw new BadRequestException(`Surety 2: ${s2Check.message}`);
-        }
-
-        // BUG FIX 31: nothing stopped a member from guaranteeing their own loan, or from the
-        // same person filling both surety slots — confirmed live, both went through and were
-        // written to loan_pending. Either defeats the entire point of requiring a surety.
-        if (String(suretyData.surety1) === memberNo) {
-            throw new BadRequestException('Surety 1 cannot be the loan applicant themselves.');
-        }
-        if (suretyData.surety2 && String(suretyData.surety2) === memberNo) {
-            throw new BadRequestException('Surety 2 cannot be the loan applicant themselves.');
-        }
-        if (suretyData.surety2 && String(suretyData.surety1) === String(suretyData.surety2)) {
-            throw new BadRequestException('Surety 1 and Surety 2 cannot be the same member.');
+            if (!s2Check.valid) throw new Error(`Surety 2: ${s2Check.message}`);
         }
 
         const queryRunner = this.dataSource.createQueryRunner();
@@ -67,9 +38,32 @@ export class LoanSuretyService {
             await queryRunner.connect();
             await queryRunner.startTransaction();
 
-            this.logger.log(`Changing sureties for loan case: ${caseNo}`);
-            this.logger.debug(`New Surety1: ${suretyData.surety1}, Surety2: ${suretyData.surety2 || 'none'}`);
-            this.logger.debug(`Found loan case for member: ${memberNo}, Current G1=${caseCheck[0].g1mbno}, G2=${caseCheck[0].g2mbno}`);
+            console.log(`[LoanSurety] 🔄 Changing sureties for loan case: ${caseNo}`);
+            console.log(`[LoanSurety] New Surety1: ${suretyData.surety1}, Surety2: ${suretyData.surety2 || 'none'}`);
+
+            // 1. First, fetch the loan case to get member number and verify it exists
+            const selectQuery = `
+                SELECT mbno, loancaseno, g1mbno, g2mbno
+                FROM loan_pending 
+                WHERE loancaseno::text = $1
+            `;
+
+            const selectResult = await queryRunner.query(selectQuery, [caseNo]);
+
+            if (selectResult.length === 0) {
+                throw new Error(`Loan case ${caseNo} not found in loan_pending`);
+            }
+
+            const currentData = selectResult[0];
+            const memberNo = String(currentData.mbno);
+
+            console.log(`[LoanSurety] Found loan case for member: ${memberNo}`);
+            console.log(`[LoanSurety] Current guarantors: G1=${currentData.g1mbno}, G2=${currentData.g2mbno}`);
+
+            // Validate we have a valid member number
+            if (!memberNo || memberNo === 'undefined' || memberNo === 'null') {
+                throw new Error(`Invalid member number for loan case ${caseNo}`);
+            }
 
             // 2. Update loan_pending table with new guarantors
             const updateLpQuery = `
@@ -80,58 +74,36 @@ export class LoanSuretyService {
 
             await queryRunner.query(updateLpQuery, [
                 suretyData.surety1,
-                suretyData.surety2 || 0,  // loan_pending.g2mbno is NOT NULL DEFAULT 0
+                suretyData.surety2 || null,
                 caseNo
             ]);
 
-            this.logger.log(`Updated loan_pending for member: ${memberNo}, case: ${caseNo}`);
+            console.log(`[LoanSurety] ✅ Updated loan_pending for member: ${memberNo}, case: ${caseNo}`);
+            console.log(`[LoanSurety] New guarantors: G1=${suretyData.surety1}, G2=${suretyData.surety2 || '0'}`);
 
-            // 3. Update suretymaster, scoped to THIS loan case.
-            // Note: suretymaster has no 'id' column — mbno (+ now loancaseno) is the identifier.
-            //
-            // BUG FIX 33: suretymaster was keyed only by mbno, with no loancaseno column.
-            // A member with 2+ loan cases (confirmed live: member 900000003 has 3) shared one
-            // suretymaster row, so changing surety on any one case silently overwrote the
-            // guarantor record for that member's OTHER cases too. Migration
-            // 1755200000000-AddSuretymasterLoanCaseNo added a nullable loancaseno column;
-            // existing untagged rows (loancaseno IS NULL) are legacy — claim one for this case
-            // on first edit rather than leaving it permanently ambiguous.
-            const suretyParams = [suretyData.surety1, suretyData.surety2 || 0, memberNo, caseNo];
+            // 3. Update suretymaster table if record exists
+            // Note: suretymaster table has no 'id' column, only mbno as identifier
+            const updateSmQuery = `
+                UPDATE suretymaster 
+                SET g1mbno = $1, g2mbno = $2 
+                WHERE mbno = $3
+                RETURNING mbno
+            `;
 
-            let smResult = await queryRunner.query(
-                `UPDATE suretymaster SET g1mbno = $1, g2mbno = $2
-                 WHERE mbno = $3 AND loancaseno = $4
-                 RETURNING mbno`,
-                suretyParams
-            );
+            const smResult = await queryRunner.query(updateSmQuery, [
+                suretyData.surety1,
+                suretyData.surety2 || null,
+                memberNo
+            ]);
 
-            if (smResult.length === 0) {
-                // No row tagged to this case yet — claim a single untagged legacy row if exactly
-                // one exists for this member (ambiguous if there's more than one, so don't guess).
-                const untagged = await queryRunner.query(
-                    `SELECT 1 FROM suretymaster WHERE mbno = $1 AND loancaseno IS NULL`,
-                    [memberNo]
-                );
-                if (untagged.length === 1) {
-                    smResult = await queryRunner.query(
-                        `UPDATE suretymaster SET g1mbno = $1, g2mbno = $2, loancaseno = $4
-                         WHERE mbno = $3 AND loancaseno IS NULL
-                         RETURNING mbno`,
-                        suretyParams
-                    );
-                }
-            }
-
-            const suretymasterHadRow = smResult.length > 0;
-
-            if (suretymasterHadRow) {
-                this.logger.log(`Updated suretymaster for member: ${memberNo}, case: ${caseNo}`);
+            if (smResult.length > 0) {
+                console.log(`[LoanSurety] ✅ Updated suretymaster for member: ${memberNo}`);
             } else {
-                this.logger.warn(`No suretymaster record found for member: ${memberNo}, case: ${caseNo} (this is okay - not all loans have suretymaster entries)`);
+                console.log(`[LoanSurety] ⚠️ No suretymaster record found for member: ${memberNo} (this is okay - not all loans have suretymaster entries)`);
             }
 
             await queryRunner.commitTransaction();
-            this.logger.log('All surety changes committed successfully');
+            console.log(`[LoanSurety] ✅ All surety changes committed successfully`);
 
             return {
                 success: true,
@@ -140,13 +112,13 @@ export class LoanSuretyService {
                 loanCaseNo: caseNo,
                 updatedTables: {
                     loan_pending: true,
-                    suretymaster: suretymasterHadRow
+                    suretymaster: smResult.length > 0
                 }
             };
 
         } catch (error: any) {
             await queryRunner.rollbackTransaction();
-            this.logger.error(`Error changing loan sureties: ${error.message}`);
+            console.error(`[LoanSurety] ❌ Error changing loan sureties:`, error);
             throw new Error(`Failed to update loan sureties: ${error.message}`);
         } finally {
             await queryRunner.release();
@@ -188,7 +160,7 @@ export class LoanSuretyService {
                 surety2Name: loan.surety2_name || ''
             };
         } catch (error) {
-            this.logger.error(`Error getting loan sureties: ${error.message}`);
+            console.error('[LoanSurety] Error getting loan sureties:', error);
             throw error;
         }
     }
@@ -219,7 +191,7 @@ export class LoanSuretyService {
 
             return { valid: true };
         } catch (error) {
-            this.logger.error(`Error validating surety: ${error.message}`);
+            console.error('[LoanSurety] Error validating surety:', error);
             return { valid: false, message: 'Error validating surety member' };
         }
     }
@@ -257,10 +229,10 @@ export class LoanSuretyService {
 
             const rows = await this.dataSource.query(query, [String(memberNo)]);
 
-            this.logger.log(`Found ${rows.length} loan case(s) for member ${memberNo}`);
+            console.log(`[LoanSurety] Found ${rows.length} loan case(s) for member ${memberNo}`);
             return rows;
         } catch (error) {
-            this.logger.error(`Error fetching surety cases: ${error.message}`);
+            console.error('[LoanSurety] Error fetching surety cases:', error);
             throw error;
         }
     }

@@ -1,6 +1,6 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import * as PDFDocument from 'pdfkit';
 import * as fs from 'fs';
@@ -37,7 +37,6 @@ export interface CertificateData {
 
 @Injectable()
 export class CertificateService {
-  private readonly logger = new Logger(CertificateService.name);
   private readonly certificatesPath: string;
   private readonly defaultConfig: CertificateConfig;
 
@@ -50,7 +49,6 @@ export class CertificateService {
     private readonly memberRepository: Repository<Member>,
     private readonly configService: ConfigService,
     private readonly templateService: CertificateTemplateService,
-    private readonly dataSource: DataSource,
   ) {
     this.certificatesPath = this.configService.get('CERTIFICATES_PATH', './uploads/certificates');
     this.ensureDirectoryExists(this.certificatesPath);
@@ -67,49 +65,31 @@ export class CertificateService {
     };
   }
 
-  async generateFixedDepositCertificate(accountNumber: string, config?: Partial<CertificateConfig>): Promise<string> {
-    // BUG FIX: this used to look up the deposit in the `FixedDeposit` TypeORM
-    // entity by a numeric auto-increment id — a disconnected "new system"
-    // scaffold with zero real data. Real FD accounts live in fdmaster, keyed
-    // by account_number, joined to the real member table (member_master).
-    const rows = await this.dataSource.query(
-      `SELECT
-         fd.account_number, fd.fdamount, fd.rate, fd.depdate, fd.matdate, fd.matamount, fd.status,
-         -- depperiod is unreliable (documented in deposit-reports.service.ts —
-         -- reads plain months on some accounts, years on others); tenure is
-         -- derived from the account's own dates instead.
-         CASE WHEN fd.matdate IS NOT NULL AND fd.depdate IS NOT NULL
-              THEN EXTRACT(YEAR FROM AGE(fd.matdate, fd.depdate)) * 12
-                 + EXTRACT(MONTH FROM AGE(fd.matdate, fd.depdate))
-              ELSE COALESCE(fd.depperiod, 0) END as tenure_months,
-         TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
-         m.mbno as member_no
-       FROM fdmaster fd
-       LEFT JOIN member_master m ON m.mbno = fd.mbno
-       WHERE fd.account_number = $1 AND fd.fdrdflag = 'F'`,
-      [accountNumber],
-    );
+  async generateFixedDepositCertificate(depositId: number, config?: Partial<CertificateConfig>): Promise<string> {
+    const deposit = await this.fixedDepositRepository.findOne({
+      where: { id: depositId },
+      relations: ['member'],
+    });
 
-    if (rows.length === 0) {
-      throw new NotFoundException(`Fixed deposit with account number ${accountNumber} not found`);
+    if (!deposit) {
+      throw new NotFoundException(`Fixed deposit with ID ${depositId} not found`);
     }
 
-    const deposit = rows[0];
-    if (deposit.status !== '0') {
-      throw new BadRequestException('Certificate can only be generated for active deposits');
+    if (deposit.status !== 'ACTIVE' && deposit.status !== 'MATURED') {
+      throw new BadRequestException('Certificate can only be generated for active or matured deposits');
     }
 
     const certificateData: CertificateData = {
       certificateNumber: await this.generateCertificateNumber('FD'),
-      memberName: deposit.member_name,
-      memberNumber: deposit.member_no?.toString() ?? '',
-      accountNumber: deposit.account_number?.toString() ?? '',
-      principalAmount: Number(deposit.fdamount),
-      interestRate: Number(deposit.rate),
-      depositDate: deposit.depdate,
-      maturityDate: deposit.matdate,
-      maturityAmount: Number(deposit.matamount),
-      tenureMonths: Number(deposit.tenure_months) || 0,
+      memberName: deposit.member.fullName,
+      memberNumber: deposit.member.memberNumber,
+      accountNumber: deposit.accountNumber,
+      principalAmount: Number(deposit.principalAmount),
+      interestRate: Number(deposit.interestRate),
+      depositDate: deposit.depositDate,
+      maturityDate: deposit.maturityDate,
+      maturityAmount: Number(deposit.maturityAmount),
+      tenureMonths: deposit.tenureMonths,
       certificateType: 'FIXED_DEPOSIT',
     };
 
@@ -180,7 +160,7 @@ export class CertificateService {
     try {
       template = await this.templateService.findDefaultByAccountType(data.certificateType);
     } catch (e) {
-      this.logger.warn(`No template found for ${data.certificateType}, falling back to static layout.`);
+      console.warn(`[CertificateService] No template found for ${data.certificateType}, falling back to static layout.`);
     }
 
     return new Promise((resolve, reject) => {
@@ -476,19 +456,8 @@ export class CertificateService {
   }
 
   // Utility method to get certificate file path
-  // SECURITY: fileName comes straight from a URL param (deposit.controller.ts's
-  // GET certificates/download/:fileName) — generated certificate filenames are
-  // always flat (no path separators), so basename() strips any "../" traversal
-  // attempt outright, and the resolved-path check below is defense in depth
-  // against basename() being bypassed by a future refactor.
   getCertificateFilePath(fileName: string): string {
-    const safeName = path.basename(fileName);
-    const resolved = path.resolve(this.certificatesPath, safeName);
-    const root = path.resolve(this.certificatesPath);
-    if (resolved !== root && !resolved.startsWith(root + path.sep)) {
-      throw new BadRequestException('Invalid certificate file name');
-    }
-    return resolved;
+    return path.join(this.certificatesPath, fileName);
   }
 
   // Method to delete certificate file
