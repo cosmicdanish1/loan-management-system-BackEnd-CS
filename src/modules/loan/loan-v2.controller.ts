@@ -247,13 +247,14 @@ export class LoanV2Controller {
     @ApiOperation({ summary: 'Read-only early-closure quote using the true reducing-balance schedule' })
     async calculateEarlyClosure(
         @Param('caseNo') caseNo: string,
-        @Body() body: { closureDate?: string; adjustment?: number; applyRdShare?: boolean },
+        @Body() body: { closureDate?: string; adjustment?: number; applyRdShare?: boolean; mbno?: string },
     ) {
         return this.loanRepaymentService.calculateEarlyClosure(
             caseNo,
             parseSafeDate(body?.closureDate),
             body?.adjustment ?? 0,
             body?.applyRdShare ?? true,
+            body?.mbno,
         );
     }
 
@@ -261,7 +262,7 @@ export class LoanV2Controller {
     @ApiOperation({ summary: 'Actually settle a loan early -- writes ledger entries and zeroes the balance' })
     async executeEarlyClosure(
         @Param('caseNo') caseNo: string,
-        @Body() body: { closureDate?: string; adjustment?: number; postedBy?: string; receiptNo?: string; applyRdShare?: boolean },
+        @Body() body: { closureDate?: string; adjustment?: number; postedBy?: string; receiptNo?: string; applyRdShare?: boolean; mbno?: string },
     ) {
         return this.loanRepaymentService.executeEarlyClosure(
             caseNo,
@@ -270,6 +271,7 @@ export class LoanV2Controller {
             body?.postedBy || 'system',
             body?.receiptNo,
             body?.applyRdShare ?? true,
+            body?.mbno,
         );
     }
 
