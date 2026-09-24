@@ -69,6 +69,7 @@ import { LoanRepaymentService } from '../../modules/loan/services-v2/loan-repaym
 import { LoanEligibilityService } from '../../modules/loan/services-v2/loan-eligibility.service';
 import { RdRulesService } from '../../modules/rd/rd-rules.service';
 import { RdBalanceEventsService } from '../../modules/rd/services/rd-balance-events.service';
+import { determineLoanSlot } from '../../modules/loan/services-v2/loan-rb-schedule.util';
 
 // ---------------------------------------------------------------------
 // Config
@@ -132,6 +133,8 @@ interface LegacyEvent {
      *  recordLoanRepayment(), proportional to however much of `amt` a given
      *  case actually absorbed. */
     interestAmt: number;
+    interestAllocationWarning?: string;
+    interestAllocationInfo?: string;
     receiptVchrNo: string;
     vchrType: string;
     /** Raw PL_BALANCE from the ledger row — only ever meaningfully populated on
@@ -219,7 +222,9 @@ function getLegacyCases(mbno: string): LegacyCase[] {
  *  exactly why AP closure interest came out nonsensical (even negative) on
  *  migrated loans: the "frozen EMI" the app inherited never had real
  *  interest in it to begin with. */
-function getLegacyInterestLegs(mbno: string): { transDate: string; receiptVchrNo: string; amt: number }[] {
+function getLegacyInterestLegs(mbno: string): {
+    transDate: string; receiptVchrNo: string; amt: number;
+}[] {
     assertSafeMbno(mbno);
     const rows = sqlcmd(`
         SET NOCOUNT ON;
@@ -244,24 +249,68 @@ function getLegacyEvents(mbno: string): LegacyEvent[] {
         plBalance: r[7] ? parseFloat(r[7]) : undefined,
     }));
 
-    // Attach each interest leg to its matching CR (repayment) event(s) by
-    // (date, receipt voucher) — same key the legacy demand-receipt process
-    // itself used to tie the two legs together. A voucher matching more than
-    // one CR loan-leg (e.g. one receipt paying both an RLN and ALN case the
-    // same day) splits the interest proportionally by each leg's own
-    // principal amount, rather than either dropping it or double-counting it.
+    // The legacy demand's RLN_interest field contains the combined I1002
+    // amount on this member's mixed RLN/ALN receipts; it does not represent
+    // the per-loan split. Keep the unchanged regular-loan interest at the
+    // observed RLN-only baseline, then assign the remainder to the active
+    // ALN when both loan heads are present on the voucher.
     // Deliberately sets interestAmt, NOT amt — amt must stay principal-only
     // (see the LegacyEvent doc comment) for the FIFO exhaustion math below to
     // stay correct; the interest is folded back in only when building what
     // actually gets replayed via recordLoanRepayment().
     const interestLegs = getLegacyInterestLegs(mbno);
+    const matchesForLeg = interestLegs.map(leg => ({
+        leg,
+        matches: events.filter(e => e.transType === 'CR' && e.transDate === leg.transDate && e.receiptVchrNo === leg.receiptVchrNo),
+    }));
+    const rlnOnlyInterest = matchesForLeg
+        .filter(x => x.matches.some(e => e.accType === 'RLN') && !x.matches.some(e => e.accType === 'ALN') && x.leg.amt > 0)
+        .map(x => round2(x.leg.amt));
+    const frequency = new Map<number, number>();
+    for (const amount of rlnOnlyInterest) frequency.set(amount, (frequency.get(amount) || 0) + 1);
+    const fixedRlnInterest = [...frequency.entries()]
+        .sort((a, b) => b[1] - a[1] || b[0] - a[0])[0]?.[0];
     for (const leg of interestLegs) {
         const matches = events.filter(e => e.transType === 'CR' && e.transDate === leg.transDate && e.receiptVchrNo === leg.receiptVchrNo);
         if (matches.length === 0) continue; // no matching loan leg — leave unmatched, same as the confirmed ~0.5-6% tail
-        const principalSum = matches.reduce((s, m) => s + m.amt, 0);
-        if (principalSum <= 0) continue;
+        const byType = new Map<string, LegacyEvent[]>();
         for (const m of matches) {
-            m.interestAmt = round2(m.interestAmt + leg.amt * (m.amt / principalSum));
+            const rows = byType.get(m.accType) || [];
+            rows.push(m);
+            byType.set(m.accType, rows);
+        }
+        const hasRln = byType.has('RLN');
+        const hasAln = byType.has('ALN');
+        if (hasRln && hasAln && !(fixedRlnInterest && fixedRlnInterest > 0)) {
+            for (const m of matches) {
+                m.interestAllocationWarning = `Mixed RLN/ALN voucher ${leg.receiptVchrNo} on ${leg.transDate} has no RLN-only interest baseline; I1002 ₹${leg.amt} was not guessed into either loan`;
+            }
+            continue;
+        }
+        const rlnInterest = hasRln && hasAln
+            ? Math.min(round2(leg.amt), fixedRlnInterest!)
+            : (hasRln ? round2(leg.amt) : 0);
+        const typedInterest: Record<string, number> = {
+            RLN: rlnInterest,
+            ALN: hasAln ? round2(Math.max(0, leg.amt - rlnInterest)) : 0,
+        };
+        for (const [loanType, typedRows] of byType) {
+            const amount = typedInterest[loanType] ?? 0;
+            const principalSum = typedRows.reduce((s, m) => s + m.amt, 0);
+            if (principalSum <= 0 || amount <= 0) continue;
+            let assigned = 0;
+            typedRows.forEach((m, index) => {
+                const share = index === typedRows.length - 1
+                    ? round2(amount - assigned)
+                    : round2(amount * (m.amt / principalSum));
+                m.interestAmt = round2(m.interestAmt + share);
+                assigned = round2(assigned + share);
+            });
+        }
+        if (hasRln && hasAln) {
+            for (const m of matches) {
+                m.interestAllocationInfo = `INTEREST_SPLIT voucher=${leg.receiptVchrNo} date=${leg.transDate.slice(0, 10)} total=₹${round2(leg.amt)} RLN=₹${rlnInterest} (fixed RLN-only baseline) ALN=₹${typedInterest.ALN} (residual)`;
+            }
         }
     }
 
@@ -370,7 +419,7 @@ interface CaseState {
     closed: boolean;
     closedDate?: string;
     consolidatedInto?: string;
-    repaymentsToReplay: { date: string; amount: number }[];
+    repaymentsToReplay: { date: string; amount: number; principalAmount: number; interestAmount: number }[];
     toppedUpBy: number; // sum of consolidation amounts credited INTO this case
     /** Final principal-only remaining balance after the whole attribution
      *  walk — set once per type-group is fully processed (see buildAttribution's
@@ -516,7 +565,12 @@ function buildAttribution(cases: LegacyCase[], events: LegacyEvent[], consolidat
                     const applied = Math.min(amountLeft, remaining[cursor]);
                     if (applied > EPS) {
                         const appliedInterest = round2(applied * interestPerRupee);
-                        activeQueue[cursor].repaymentsToReplay.push({ date: tick.date, amount: round2(applied + appliedInterest) });
+                        activeQueue[cursor].repaymentsToReplay.push({
+                            date: tick.date,
+                            amount: round2(applied + appliedInterest),
+                            principalAmount: round2(applied),
+                            interestAmount: appliedInterest,
+                        });
                         remaining[cursor] -= applied;
                         amountLeft -= applied;
                     }
@@ -592,6 +646,7 @@ function buildAttribution(cases: LegacyCase[], events: LegacyEvent[], consolidat
 async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: string) => void) {
     const cases = getLegacyCases(mbno);
     const events = getLegacyEvents(mbno);
+    for (const info of new Set(events.map(e => e.interestAllocationInfo).filter(Boolean))) log(`  ${info}`);
     // Two independent, non-overlapping consolidation mechanisms in this legacy DB —
     // see findConsolidationEvents (cross-type, journal-voucher) and
     // findPvoucherConsolidations (same-type, ordinary disbursement-voucher) for why
@@ -599,6 +654,9 @@ async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: s
     const consolidations = [...findConsolidationEvents(events), ...findPvoucherConsolidations(cases, events)]
         .sort((a, b) => a.date.localeCompare(b.date));
     const { byType, flags } = buildAttribution(cases, events, consolidations);
+    for (const warning of new Set(events.map(e => e.interestAllocationWarning).filter(Boolean))) {
+        flags.push(warning!);
+    }
 
     // Arm payroll-lag detection where the stray old-rate payment will actually
     // LAND, not on the consolidation's cross-type "receiving" case. Those are
@@ -681,6 +739,30 @@ async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: s
                 continue;
             }
 
+            // The legacy LOAN_MASTER table has no persisted slot/delay field.
+            // The base import therefore leaves delay_months NULL, which makes
+            // early-closure dates start one month too early for Slot 1 loans.
+            // Reconstruct the immutable delay from the legacy origination date
+            // using the same business-rule resolver as live disbursement. Only
+            // NULL values are backfilled; an explicitly stored value is a
+            // deliberate historical override and must remain untouched.
+            const existingDelay = await AppDataSource.query(
+                `SELECT payment_date, delay_months FROM loan_master
+                 WHERE mbno = $1 AND loancaseno::text = $2 AND loantype = $3`,
+                [mbno, loancaseno, type],
+            );
+            if (existingDelay[0]?.delay_months == null && existingDelay[0]?.payment_date) {
+                const { delayMonths } = determineLoanSlot(new Date(existingDelay[0].payment_date));
+                log(`  SLOT_DELAY_BACKFILL case=${loancaseno} type=${type} delay_months=${delayMonths}`);
+                if (!DRY_RUN) {
+                    await AppDataSource.query(
+                        `UPDATE loan_master SET delay_months = $1
+                         WHERE mbno = $2 AND loancaseno::text = $3 AND loantype = $4 AND delay_months IS NULL`,
+                        [delayMonths, mbno, loancaseno, type],
+                    );
+                }
+            }
+
             // Schedule-exhaustion guard: getInstallmentStatus() builds EXACTLY
             // no_of_instal installments (loan-repayment.service.ts, `for (let n = 1;
             // n <= noOfInstal; n++)`), and the total principal pool across all of
@@ -698,6 +780,7 @@ async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: s
             // already applied to loan_amt<=0 and consolidation top-ups elsewhere in
             // this script, just triggered by capacity instead of a detected event.
             let scheduleExtension = 0;
+            const separateInterestMode = true; // migrations always preserve the source ledger model
             const totalToReplay = round2(cs.repaymentsToReplay.reduce((s, r) => s + r.amount, 0));
             const impliedTotal = round2(cs.toppedUpBy + totalToReplay);
             // A consolidated (topped-up) case's TRUE principal capacity is its own
@@ -713,7 +796,7 @@ async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: s
             // ₹58,330 alone, ignoring toppedUpBy=₹2,41,670) inflated it to
             // ₹8,22,782.63 loan_amt / ₹4,92,442.57 balance.
             const effectiveCapacity = round2(cs.legacyCase.loanAmt + cs.toppedUpBy);
-            if (impliedTotal > effectiveCapacity + BALANCE_TOLERANCE && cs.legacyCase.noOfInstal > 0) {
+            if (!separateInterestMode && impliedTotal > effectiveCapacity + BALANCE_TOLERANCE && cs.legacyCase.noOfInstal > 0) {
                 // Real overflow: total money genuinely exceeds the case's true capacity
                 // (own declared loan_amt + anything absorbed via consolidation) — the
                 // same stale-legacy-field pattern as loan_amt<=0, just measured against
@@ -733,7 +816,7 @@ async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: s
                         [extraAmount, extraInstallments, mbno, loancaseno, type]
                     );
                 }
-            } else if (!cs.closed
+            } else if (!separateInterestMode && !cs.closed
                 && impliedTotal >= effectiveCapacity - BALANCE_TOLERANCE * 20
                 && cs.legacyCase.noOfInstal > 0) {
                 // Pacing exhaustion: total money never exceeds loan_amt, but real payments
@@ -773,6 +856,46 @@ async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: s
                         `UPDATE loan_master SET loan_amt = loan_amt + $1, balance = balance + $1 WHERE mbno = $2 AND loancaseno::text = $3 AND loantype = $4`,
                         [cs.toppedUpBy, mbno, loancaseno, type]
                     );
+                    // A successor's EMI and term are derived from the repeated
+                    // recovery actually seen after the consolidation, not from
+                    // stale case-level fields. Principal and interest remain
+                    // separate ledger components, but loan_master.instal_amt
+                    // is the total monthly installment used by closure math.
+                    // For 610020500/15265 this is ₹8,333 principal + the
+                    // observed separate-interest component, over 60 months on
+                    // ₹5 lakh.
+                    if (separateInterestMode && cs.repaymentsToReplay.length > 0) {
+                        const principalFrequencies = new Map<number, number>();
+                        const interestFrequencies = new Map<number, number>();
+                        for (const r of cs.repaymentsToReplay) {
+                            if (r.principalAmount > 0) {
+                                const p = round2(r.principalAmount);
+                                principalFrequencies.set(p, (principalFrequencies.get(p) || 0) + 1);
+                            }
+                            if (r.interestAmount > 0) {
+                                const i = round2(r.interestAmount);
+                                interestFrequencies.set(i, (interestFrequencies.get(i) || 0) + 1);
+                            }
+                        }
+                        const principalEmi = [...principalFrequencies.entries()]
+                            .sort((a, b) => b[1] - a[1] || b[0] - a[0])[0]?.[0];
+                        const interestEmi = [...interestFrequencies.entries()]
+                            .sort((a, b) => b[1] - a[1] || b[0] - a[0])[0]?.[0] || 0;
+                        if (principalEmi && principalEmi > 0) {
+                            const combined = round2(cs.legacyCase.loanAmt + cs.toppedUpBy);
+                            const term = Math.max(1, Math.round(combined / principalEmi));
+                            const totalEmi = round2(principalEmi + interestEmi);
+                            await AppDataSource.query(
+                                `UPDATE loan_master
+                                 SET no_of_instal = $1, instal_amt = $2,
+                                     loan_payment_model = 'SEPARATE_INTEREST',
+                                     loan_interest_method = 'REDUCING_BALANCE'
+                                 WHERE mbno = $3 AND loancaseno::text = $4 AND loantype = $5`,
+                                [term, totalEmi, mbno, loancaseno, type]
+                            );
+                            log(`  LEGACY_PAYMENT_MODEL case=${loancaseno} principal EMI ₹${principalEmi} + separate interest ₹${interestEmi} = total EMI ₹${totalEmi} term=${term}`);
+                        }
+                    }
                 }
                 consolidationsApplied++;
             }
@@ -794,7 +917,20 @@ async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: s
                 }
             }
 
+            // The first old-EMI match inside the armed watch window is a
+            // predecessor-loan payroll deduction. It must stay in the audit
+            // ledger, but must not be replayed as a payment against this
+            // successor case. The normal repayment service can detect this
+            // for live transactions; explicit component replay used here had
+            // previously bypassed that detector and inserted false instead.
+            const payrollLagReplay = cs.payrollLag
+                ? cs.repaymentsToReplay.find(r =>
+                    r.date <= cs.payrollLag!.watchUntil
+                    && Math.abs(r.amount - round2(cs.payrollLag!.oldPrincipal + cs.payrollLag!.oldInterest)) < 1)
+                : undefined;
+
             for (const r of cs.repaymentsToReplay) {
+                const isPayrollLagCredit = payrollLagReplay === r;
                 log(`  REPAYMENT case=${loancaseno} type=${type} date=${r.date} amount=₹${r.amount}`);
                 if (!DRY_RUN) {
                     const result = await svc.recordLoanRepayment({
@@ -808,6 +944,9 @@ async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: s
                         narration: 'Legacy ledger replay (Phase 2 bulk migration)',
                         username: 'phase2-replay',
                         asOfDate: new Date(r.date),
+                        principalAmount: r.principalAmount,
+                        interestAmount: r.interestAmount,
+                        isPayrollLagCredit,
                     });
                     log(`    -> ${result.message}`);
                 }
@@ -862,8 +1001,11 @@ async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: s
                     log(`  PAYROLL_LAG_DETECTED case=${loancaseno} date=${match.date} amount=₹${match.amount} — excluded from schedule, netted at closure instead`);
                 }
             }
-            const expected = round2(cs.legacyCase.loanAmt + scheduleExtension + cs.toppedUpBy
-                - cs.repaymentsToReplay.reduce((s, r) => s + r.amount, 0) + payrollLagExcluded);
+            const expected = separateInterestMode
+                ? round2(cs.legacyCase.loanAmt + cs.toppedUpBy
+                    - cs.repaymentsToReplay.reduce((s, r) => s + r.principalAmount, 0))
+                : round2(cs.legacyCase.loanAmt + scheduleExtension + cs.toppedUpBy
+                    - cs.repaymentsToReplay.reduce((s, r) => s + r.amount, 0) + payrollLagExcluded);
             if (!cs.closed && !DRY_RUN) {
                 const after = await AppDataSource.query(
                     `SELECT balance FROM loan_master WHERE mbno = $1 AND loancaseno::text = $2 AND loantype = $3`, [mbno, loancaseno, type]

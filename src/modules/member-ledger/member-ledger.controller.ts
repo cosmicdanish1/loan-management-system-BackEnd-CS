@@ -33,6 +33,12 @@ export class MemberLedgerController {
     return report;
   }
 
+  @Get('detail-columnar')
+  async getMemberColumnarLedgerReport(@Query() dto: GetMemberDetailLedgerDto): Promise<any> {
+    this.logger.log(`Generating columnar member ledger for member: ${dto.memberNumber}, period: ${dto.fromDate} to ${dto.toDate}`);
+    return this.memberLedgerService.getMemberColumnarLedgerReport(dto);
+  }
+
   @Get('validate-member')
   async validateMember(@Query() dto: ValidateMemberDto): Promise<{ exists: boolean; memberName?: string; memberNumber: string }> {
     this.logger.log(`Validating member: ${dto.memberNumber}`);

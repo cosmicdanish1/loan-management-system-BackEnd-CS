@@ -31,6 +31,16 @@ export interface RepaymentDto {
      *  read so a caller that already knows which type it means (like the
      *  Phase 2 replay script) can't be handed the wrong loan's balance. */
     loantype?: string;
+    /** Explicit component replay used by the legacy separate-interest migration. */
+    principalAmount?: number;
+    interestAmount?: number;
+    penalAmount?: number;
+    /**
+     * True only for the predecessor-loan EMI that was deducted after a
+     * consolidation. It remains auditable in the ledger but must not reduce
+     * this successor loan's balance or installment pools.
+     */
+    isPayrollLagCredit?: boolean;
 }
 
 /** Which of the three penal tiers an installment currently sits in. */
@@ -195,9 +205,23 @@ export class LoanRepaymentService {
 
         if (noOfInstal <= 0 || isNaN(disbursementDate.getTime())) return [];
 
-        const monthlyPrincipal = loanAmt / noOfInstal;
+        let monthlyPrincipal = loanAmt / noOfInstal;
+        // A loan's interest is always the reducing-balance schedule interest.
+        // Migrated loans may have no reconstructed schedule; those fall back
+        // to the legacy installment split (which is zero for principal-only
+        // migrated loans).
         const totalInterest = Math.max(0, instalAmt * noOfInstal - loanAmt);
-        const monthlyInterest = totalInterest / noOfInstal;
+        let fallbackMonthlyInterest = totalInterest / noOfInstal;
+        const rbInterestRows = await queryRunner.query(
+            `SELECT installment_no, rb_interest FROM loan_rb_schedule
+             WHERE mbno = $1 AND loancaseno::text = $2`,
+            [loan.mbno, loancaseno],
+        );
+        const rbInterestByInstallment = new Map<number, number>(
+            rbInterestRows.map((r: any) => [
+                Number(r.installment_no), Math.round((parseFloat(r.rb_interest) || 0) * 100) / 100,
+            ]),
+        );
 
         // Principal and interest are matched as cumulative pools drawn down in
         // installment order, not bucketed by the calendar month a payment
@@ -228,6 +252,29 @@ export class LoanRepaymentService {
         );
         let principalPool = parseFloat(totalsRow[0]?.principal_paid) || 0;
         let interestPool = parseFloat(totalsRow[0]?.interest_paid) || 0;
+
+        // Legacy separate-interest loans post a fixed whole-rupee principal
+        // EMI (₹8,333 for ₹5,00,000/60), rather than the fractional result of
+        // loan_amt/no_of_instal. Use the dominant observed principal amount
+        // for migrated histories so the schedule does not invent a residual
+        // ₹18.33 on the penultimate installment.
+        if (loan.loan_payment_model === 'SEPARATE_INTEREST') {
+            const observed = await queryRunner.query(
+                `SELECT principal_amount, COUNT(*)::int AS frequency
+                 FROM loan_repayment_ledger
+                 WHERE loancaseno = $1 AND mbno = $2
+                   AND payment_date <= $3 AND is_payroll_lag_credit = false
+                   AND principal_amount > 0
+                 GROUP BY principal_amount
+                 ORDER BY frequency DESC, principal_amount DESC LIMIT 1`,
+                [loancaseno, loan.mbno, asOfDate],
+            );
+            const observedPrincipal = parseFloat(observed[0]?.principal_amount);
+            if (Number.isFinite(observedPrincipal) && observedPrincipal > 0) {
+                monthlyPrincipal = observedPrincipal;
+                fallbackMonthlyInterest = Math.max(0, instalAmt - monthlyPrincipal);
+            }
+        }
 
         // One penalty per installment, ever — this society's policy is that
         // Tier 1 and Tier 2 are mutually exclusive outcomes for a given
@@ -278,7 +325,13 @@ export class LoanRepaymentService {
         // interest) as a single unit means only a genuine shortfall in the
         // combined total — never a pure split/labeling difference — shows
         // up as still owed below.
-        let pool = principalPool + interestPool;
+        // Separate-interest loans use principal cash to advance principal
+        // installments. Their separately posted I1002-style interest must not
+        // prepay future principal slots.
+        // Reducing balance is the only supported method. Principal and
+        // interest remain separate pools so interest cannot prepay principal.
+        let principalRemaining = principalPool;
+        let interestRemaining = interestPool;
 
         const asOfYear = asOfDate.getFullYear();
         const asOfMonth0 = asOfDate.getMonth();
@@ -342,7 +395,8 @@ export class LoanRepaymentService {
             // for why a flat cent-level tolerance eventually fails for a
             // loan paid far enough ahead of schedule.
             const prepaidTolerance = SETTLEMENT_TOLERANCE * n;
-            const isPrepaidAhead = !isDue && pool >= instalAmt - prepaidTolerance;
+            const monthlyInterest = rbInterestByInstallment.get(n) ?? fallbackMonthlyInterest;
+            const isPrepaidAhead = !isDue && principalRemaining >= monthlyPrincipal - prepaidTolerance;
 
             if (!isDue && !isPrepaidAhead && !includeFuture) break; // due month hasn't started yet, and nothing prepaid to cover it
 
@@ -353,10 +407,16 @@ export class LoanRepaymentService {
             // the tolerances above, so the tiny sub-tolerance residue left
             // by rounding is swept to 0 rather than misreading a genuinely
             // settled installment as unpaid.
-            const totalApplied = Math.min(instalAmt, pool);
-            pool -= totalApplied;
-            const principalApplied = Math.min(monthlyPrincipal, totalApplied);
-            const paid = { principal: Math.round(principalApplied * 100) / 100, interest: 0 };
+            const principalApplied = Math.min(monthlyPrincipal, principalRemaining);
+            principalRemaining -= principalApplied;
+            const interestApplied = (isDue || isPrepaidAhead)
+                ? Math.min(monthlyInterest, interestRemaining)
+                : 0;
+            interestRemaining -= interestApplied;
+            const paid = {
+                principal: Math.round(principalApplied * 100) / 100,
+                interest: Math.round(interestApplied * 100) / 100,
+            };
             const principalDue = isSettled || isPrepaidAhead
                 ? 0
                 : Math.max(0, Math.round((monthlyPrincipal - principalApplied) * 100) / 100);
@@ -376,8 +436,6 @@ export class LoanRepaymentService {
             let monthsOverdue = 0;
             let penalDue = 0;
             if (isDue || isPrepaidAhead) {
-                const interestApplied = totalApplied - principalApplied;
-                paid.interest = Math.round(interestApplied * 100) / 100;
                 interestDue = isSettled || isPrepaidAhead
                     ? 0
                     : Math.max(0, Math.round((monthlyInterest - interestApplied) * 100) / 100);
@@ -385,7 +443,10 @@ export class LoanRepaymentService {
 
             const isFullyPaid = principalDue <= 0 && interestDue <= 0;
 
-            if (isDue) {
+            // Migrated loans intentionally have no reconstructed RB schedule.
+            // Do not invent new application penalties for their historical
+            // ledger; scheduled application loans use the normal tier rules.
+            if (isDue && rbInterestRows.length > 0) {
                 const tierResult = computeTier(
                     principalDue, isFullyPaid, dueDate, asOfDate,
                     graceDayOfMonth, penalRateAnnual, sameMonthPenalPct, sameMonthPenalDivisor,
@@ -450,21 +511,60 @@ export class LoanRepaymentService {
             if (dto.loantype) { params.push(dto.loantype); whereParts.push(`loantype = $${params.length}`); }
             const loanRows = await queryRunner.query(
                 `SELECT mbno, loantype, loan_amt, balance, instal_amt, no_of_instal, penalrate, gracedays, smpenalpct, smpenaldiv,
-                        payment_date, delay_months, payroll_lag_watch_until, payroll_lag_old_principal, payroll_lag_old_interest
+                        payment_date, delay_months, payroll_lag_watch_until, payroll_lag_old_principal, payroll_lag_old_interest, loan_payment_model
                  FROM loan_master WHERE ${whereParts.join(' AND ')}`,
                 params
             );
             if (loanRows.length === 0) {
                 throw new BadRequestException(`Loan case ${dto.loancaseno} not found in loan_master${dto.mbno ? ` for member ${dto.mbno}` : ''}`);
             }
-            const loan = loanRows[0];
-            const currentBalance = parseFloat(loan.balance || 0);
-            const payment = parseFloat(dto.paymentAmount as any);
+        const loan = loanRows[0];
+        const currentBalance = parseFloat(loan.balance || 0);
+        const payment = parseFloat(dto.paymentAmount as any);
 
             if (payment <= 0) throw new BadRequestException('Payment amount must be greater than zero');
             if (currentBalance <= 0) throw new BadRequestException(`Loan ${dto.loancaseno} is already fully repaid`);
 
-            const asOf = dto.asOfDate && !isNaN(dto.asOfDate.getTime()) ? dto.asOfDate : new Date();
+        const asOf = dto.asOfDate && !isNaN(dto.asOfDate.getTime()) ? dto.asOfDate : new Date();
+
+        // Legacy separate-interest replay: preserve the source system's
+        // principal/interest classification exactly. This branch is explicit
+        // so ordinary live repayments keep their existing allocation path.
+        if (dto.principalAmount !== undefined) {
+            const principal = round2(Math.max(0, Number(dto.principalAmount) || 0));
+            const interest = round2(Math.max(0, Number(dto.interestAmount) || 0));
+            const penal = round2(Math.max(0, Number(dto.penalAmount) || 0));
+            const isPayrollLagCredit = dto.isPayrollLagCredit === true;
+            const total = round2(principal + interest + penal);
+            if (total <= 0) throw new BadRequestException('Explicit repayment components must total more than zero');
+            await queryRunner.query(
+                `INSERT INTO loan_repayment_ledger
+                    (mbno, loancaseno, loantype, payment_date, payment_month, payment_year, payment_amount,
+                     principal_amount, interest_amount, penal_amount, months_overdue,
+                     receipt_no, narration, posted_by, is_payroll_lag_credit)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,0,$11,$12,$13,$14)`,
+                [dto.mbno, dto.loancaseno, loan.loantype, asOf,
+                    asOf.getMonth() + 1, asOf.getFullYear(), total,
+                    principal, interest, penal, dto.receiptNo || null,
+                    dto.narration || 'Legacy separate-interest repayment', dto.username || 'system',
+                    isPayrollLagCredit]
+            );
+            // Payroll-lag money is not a current-loan installment, but it is
+            // still real money received by the society and reduces the
+            // successor loan's financial principal balance.
+            const newBalance = Math.max(0, round2(currentBalance - principal));
+            await queryRunner.query(
+                `UPDATE loan_master SET balance = $1 WHERE loancaseno::text = $2 AND mbno = $3 AND loantype = $4`,
+                [newBalance, dto.loancaseno, dto.mbno, loan.loantype]
+            );
+            await queryRunner.commitTransaction();
+            return {
+                success: true,
+                message: isPayrollLagCredit
+                    ? `Recorded payroll-lag credit ₹${total}; reduced the loan balance but excluded from current-loan installments.`
+                    : `Recorded separate principal ₹${principal} and interest ₹${interest}.`,
+            };
+        }
 
             // Automatic payroll-lag credit detection — see
             // AddPayrollLagCredit1758900000000 and pass-transaction.service.ts's
@@ -506,12 +606,27 @@ export class LoanRepaymentService {
                                 dto.username || 'system',
                             ]
                         );
+                        await queryRunner.query(
+                            `UPDATE loan_master
+                             SET balance = GREATEST(0, balance - $1)
+                             WHERE loancaseno::text = $2 AND mbno = $3 AND loantype = $4`,
+                            [oldPrincipal, dto.loancaseno, dto.mbno, loan.loantype]
+                        );
+                        const isEmergency = (['ELN', 'ALN', 'A', 'E', 'EMR', 'ADD'].includes((loan.loantype || '').toUpperCase())
+                            || (loan.loantype || '').toUpperCase().includes('EMERGENCY'));
+                        const balanceColumn = isEmergency ? 'emergency_loan_balance' : 'regularloan';
+                        await queryRunner.query(
+                            `UPDATE member_balances
+                             SET ${balanceColumn} = GREATEST(0, COALESCE(${balanceColumn}, 0) - $1)
+                             WHERE mbno = $2`,
+                            [oldPrincipal, dto.mbno]
+                        );
                         await queryRunner.commitTransaction();
                         return {
                             success: true,
                             message: `Recognized as the old loan's payroll-lag EMI (₹${oldPrincipal.toLocaleString('en-IN')} `
                                 + `principal + ₹${oldInterest.toLocaleString('en-IN')} interest) — recorded as an automatic `
-                                + `credit, not applied against this loan's own installments.`,
+                                + `credit, applied to the balance but not this loan's own installments.`,
                         };
                     }
                 }
@@ -830,9 +945,9 @@ export class LoanRepaymentService {
         runner: DataSource | QueryRunner,
         loancaseno: string,
         mbno: string,
-    ): Promise<Array<{ date: string; amount: number; principal: number; interest: number; penal: number; receiptNo: string | null; narration: string | null }>> {
+    ): Promise<Array<{ date: string; amount: number; principal: number; interest: number; penal: number; receiptNo: string | null; narration: string | null; isPayrollLagCredit: boolean }>> {
         const rows = await runner.query(
-            `SELECT payment_date, payment_amount, principal_amount, interest_amount, penal_amount, receipt_no, narration
+            `SELECT payment_date, payment_amount, principal_amount, interest_amount, penal_amount, receipt_no, narration, is_payroll_lag_credit
              FROM loan_repayment_ledger WHERE mbno = $1 AND loancaseno = $2 ORDER BY payment_date`,
             [mbno, loancaseno],
         );
@@ -844,6 +959,7 @@ export class LoanRepaymentService {
             penal: round2(parseFloat(r.penal_amount) || 0),
             receiptNo: r.receipt_no,
             narration: r.narration,
+            isPayrollLagCredit: r.is_payroll_lag_credit === true,
         }));
     }
 
@@ -874,10 +990,10 @@ export class LoanRepaymentService {
         asOfDate: Date,
         mbno?: string,
     ): Promise<{ totalPrincipalPaid: number; totalInterestCollected: number }> {
-        // is_payroll_lag_credit excluded — see getInstallmentStatus's matching
-        // comment and AddPayrollLagCredit1758900000000. That money is real,
-        // but not against THIS loan's schedule; getAutoPayrollLagCredit below
-        // is what nets it back into the closure amount.
+        // Payroll-lag rows are included here because they are real principal
+        // credits against the successor loan's financial balance. They are
+        // excluded only from getInstallmentStatus's installment pools, so a
+        // predecessor EMI cannot falsely advance the current-loan schedule.
         // mbno-scoped alongside loancaseno for the same reason as
         // getInstallmentStatus's matching queries — loancaseno collides
         // across members in this schema. Optional only so any caller that
@@ -888,11 +1004,11 @@ export class LoanRepaymentService {
                 ? `SELECT COALESCE(SUM(principal_amount), 0) as principal_paid,
                           COALESCE(SUM(interest_amount), 0) as interest_paid
                    FROM loan_repayment_ledger
-                   WHERE loancaseno = $1 AND mbno = $2 AND payment_date <= $3 AND is_payroll_lag_credit = false`
+                   WHERE loancaseno = $1 AND mbno = $2 AND payment_date <= $3`
                 : `SELECT COALESCE(SUM(principal_amount), 0) as principal_paid,
                           COALESCE(SUM(interest_amount), 0) as interest_paid
                    FROM loan_repayment_ledger
-                   WHERE loancaseno = $1 AND payment_date <= $2 AND is_payroll_lag_credit = false`,
+                   WHERE loancaseno = $1 AND payment_date <= $2`,
             mbno ? [loancaseno, mbno, asOfDate] : [loancaseno, asOfDate]
         );
         return {
@@ -916,19 +1032,11 @@ export class LoanRepaymentService {
         asOfDate: Date,
         mbno?: string,
     ): Promise<number> {
-        // mbno-scoped for the same reason as getLedgerHistoryTotals — see its
-        // comment.
-        const rows = await runner.query(
-            mbno
-                ? `SELECT COALESCE(SUM(principal_amount + interest_amount), 0) as credit
-                   FROM loan_repayment_ledger
-                   WHERE loancaseno = $1 AND mbno = $2 AND payment_date <= $3 AND is_payroll_lag_credit = true`
-                : `SELECT COALESCE(SUM(principal_amount + interest_amount), 0) as credit
-                   FROM loan_repayment_ledger
-                   WHERE loancaseno = $1 AND payment_date <= $2 AND is_payroll_lag_credit = true`,
-            mbno ? [loancaseno, mbno, asOfDate] : [loancaseno, asOfDate]
-        );
-        return Math.round((parseFloat(rows[0]?.credit) || 0) * 100) / 100;
+        // Payroll-lag principal is already included in
+        // getLedgerHistoryTotals(), so subtracting it again as a suggested
+        // closure adjustment would double-count the credit. Keep this method
+        // as a compatibility seam for callers and return zero.
+        return 0;
     }
 
     /**
@@ -1014,14 +1122,19 @@ export class LoanRepaymentService {
         k: number,
         unpaid: InstallmentStatus[],
         rounding: LoanRoundingMode,
+        observedPrincipalEmi?: number,
     ): {
         nrPrincipal: number; nrInterest: number;
         futureInstallmentCount: number; averageRemainingPrincipal: number; averageRbInterest: number;
         apInterest: number; closureInterest: number;
     } {
-        const monthlyPrincipal = noOfInstal > 0 ? loanAmt / noOfInstal : 0;
+        const monthlyPrincipal = observedPrincipalEmi && observedPrincipalEmi > 0
+            ? observedPrincipalEmi
+            : (noOfInstal > 0 ? loanAmt / noOfInstal : 0);
         const totalInterestForEMI = instalAmt * noOfInstal - loanAmt;
-        const monthlyInterestForEMI = noOfInstal > 0 ? totalInterestForEMI / noOfInstal : 0;
+        const monthlyInterestForEMI = observedPrincipalEmi && observedPrincipalEmi > 0
+            ? Math.max(0, instalAmt - observedPrincipalEmi)
+            : (noOfInstal > 0 ? totalInterestForEMI / noOfInstal : 0);
         const monthlyRate = annualRate / 1200;
 
         const nrPrincipal = round2(unpaid.reduce((sum, i) => sum + i.principalDue, 0));
@@ -1031,7 +1144,7 @@ export class LoanRepaymentService {
         let averageRemainingPrincipal = 0;
         let averageRbInterest = 0;
         let apInterest = 0;
-        if (futureInstallmentCount > 0 && monthlyPrincipal > 0) {
+        if (monthlyInterestForEMI > 0 && futureInstallmentCount > 0 && monthlyPrincipal > 0) {
             const futurePrincipal = outstandingPrincipal - nrPrincipal;
             const firstOpening = futurePrincipal;
             const lastOpening = futurePrincipal - (futureInstallmentCount - 1) * monthlyPrincipal;
@@ -1085,9 +1198,9 @@ export class LoanRepaymentService {
         // unique caseno keep working; the controller always supplies it.
         const loanRows = await this.dataSource.query(
             mbno
-                ? `SELECT mbno, loantype, loan_amt, balance, instal_amt, no_of_instal, rate, penalrate, gracedays, smpenalpct, smpenaldiv, payment_date, delay_months
+                ? `SELECT mbno, loantype, loan_amt, balance, instal_amt, no_of_instal, rate, penalrate, gracedays, smpenalpct, smpenaldiv, payment_date, delay_months, loan_payment_model
                    FROM loan_master WHERE loancaseno::text = $1 AND mbno = $2`
-                : `SELECT mbno, loantype, loan_amt, balance, instal_amt, no_of_instal, rate, penalrate, gracedays, smpenalpct, smpenaldiv, payment_date, delay_months
+                : `SELECT mbno, loantype, loan_amt, balance, instal_amt, no_of_instal, rate, penalrate, gracedays, smpenalpct, smpenaldiv, payment_date, delay_months, loan_payment_model
                    FROM loan_master WHERE loancaseno::text = $1`,
             mbno ? [loancaseno, mbno] : [loancaseno]
         );
@@ -1121,11 +1234,40 @@ export class LoanRepaymentService {
             const outstandingPrincipal = applyLoanRounding(loanAmt - totalPrincipalPaid, rounding);
             const penalInterest = applyLoanRounding(unpaid.reduce((sum, i) => sum + i.penalDue, 0), rounding);
 
+            // In separate-interest mode, the remaining principal determines
+            // the legacy projection of the remaining principal slots. This
+            // keeps the closure quote aligned with the migrated loan's
+            // observed principal EMI even when the first/last principal slice
+            // contains rounding or consolidation residue.
+            const monthlyPrincipal = noOfInstal > 0 ? loanAmt / noOfInstal : 0;
+            // `k` is the number of schedule months that have actually started
+            // as of the closure date. It is the boundary between NR (due-month)
+            // installments and genuinely future installments. Deriving this
+            // from outstanding principal loses that boundary when the last due
+            // installment is only partly paid — exactly the Slot 1 September
+            // case where September is NR and the remaining four installments
+            // are future/AP installments.
+            const closureK = monthlyPrincipal > 0 ? k : 0;
+
+            const observedPrincipalRows = await queryRunner.query(
+                `SELECT principal_amount, COUNT(*)::int AS frequency
+                 FROM loan_repayment_ledger
+                 WHERE loancaseno = $1 AND mbno = $2
+                   AND payment_date <= $3 AND is_payroll_lag_credit = false
+                   AND principal_amount > 0
+                 GROUP BY principal_amount
+                 ORDER BY frequency DESC, principal_amount DESC LIMIT 1`,
+                [loancaseno, loan.mbno, asOf],
+            );
+            const observedPrincipalEmi = parseFloat(observedPrincipalRows[0]?.principal_amount);
+
             const {
                 nrPrincipal, nrInterest, futureInstallmentCount, averageRemainingPrincipal,
                 averageRbInterest, apInterest, closureInterest,
             } = this.computeApClosureInterest(
-                loanAmt, noOfInstal, instalAmt, annualRate, outstandingPrincipal, k, unpaid, rounding,
+                loanAmt, noOfInstal, instalAmt, annualRate, outstandingPrincipal, closureK, unpaid, rounding,
+                loan.loan_payment_model === 'SEPARATE_INTEREST' && Number.isFinite(observedPrincipalEmi)
+                    ? observedPrincipalEmi : undefined,
             );
 
             // Payroll-lag credit, detected at payment time (see
@@ -1154,6 +1296,18 @@ export class LoanRepaymentService {
             // surfaced; loan_repayment_ledger/loan_rb_schedule likewise).
             const consolidationHistory = await this.getConsolidationHistory(queryRunner, loancaseno, loan.mbno, loan.loantype);
             const repaymentHistory = await this.getRepaymentHistory(queryRunner, loancaseno, loan.mbno);
+            const payrollAdjustments = repaymentHistory
+                .filter(r => r.isPayrollLagCredit)
+                .map(r => ({
+                    date: r.date,
+                    principal: r.principal,
+                    interest: r.interest,
+                    total: round2(r.principal + r.interest + r.penal),
+                    receiptNo: r.receiptNo,
+                    predecessorLoanCaseNo: consolidationHistory.absorbedCases[0]?.loancaseno ?? null,
+                    affectsOutstandingBalance: true,
+                    countsTowardCurrentInstallments: false,
+                }));
             const rbSchedule = await this.getRbSchedule(queryRunner, loancaseno, loan.mbno);
 
             return {
@@ -1219,6 +1373,7 @@ export class LoanRepaymentService {
                 // to see what this loan absorbed, what it was paid with, or
                 // its amortization schedule.
                 consolidationHistory,
+                payrollAdjustments,
                 repaymentHistory,
                 rbSchedule,
             };
@@ -1273,9 +1428,9 @@ export class LoanRepaymentService {
             // the same legacy case number.
             const loanRows = await queryRunner.query(
                 mbno
-                    ? `SELECT mbno, loantype, loan_amt, balance, instal_amt, no_of_instal, rate, penalrate, gracedays, smpenalpct, smpenaldiv, payment_date, delay_months
+                    ? `SELECT mbno, loantype, loan_amt, balance, instal_amt, no_of_instal, rate, penalrate, gracedays, smpenalpct, smpenaldiv, payment_date, delay_months, loan_payment_model
                        FROM loan_master WHERE loancaseno::text = $1 AND mbno = $2`
-                    : `SELECT mbno, loantype, loan_amt, balance, instal_amt, no_of_instal, rate, penalrate, gracedays, smpenalpct, smpenaldiv, payment_date, delay_months
+                    : `SELECT mbno, loantype, loan_amt, balance, instal_amt, no_of_instal, rate, penalrate, gracedays, smpenalpct, smpenaldiv, payment_date, delay_months, loan_payment_model
                        FROM loan_master WHERE loancaseno::text = $1`,
                 mbno ? [loancaseno, mbno] : [loancaseno]
             );
@@ -1314,6 +1469,10 @@ export class LoanRepaymentService {
             // operator was shown is the figure that gets posted.
             const rounding = await this.getRoundingMode(queryRunner);
             const outstandingPrincipal = applyLoanRounding(loanAmt - totalPrincipalPaid, rounding);
+            const monthlyPrincipal = noOfInstal > 0 ? loanAmt / noOfInstal : 0;
+            const closureK = monthlyPrincipal > 0
+                ? Math.max(0, noOfInstal - Math.ceil(outstandingPrincipal / monthlyPrincipal))
+                : k;
 
             // Method B (AP) closure interest — see calculateEarlyClosure /
             // computeApClosureInterest's doc comment for the full formula.
@@ -1322,7 +1481,7 @@ export class LoanRepaymentService {
             // lump row below; nrInterest (already-due installments) is posted
             // naturally per-installment in the loop, same as it always was.
             const { apInterest, futureInstallmentCount, closureInterest } = this.computeApClosureInterest(
-                loanAmt, noOfInstal, instalAmt, annualRate, outstandingPrincipal, k, unpaidDue, rounding,
+                loanAmt, noOfInstal, instalAmt, annualRate, outstandingPrincipal, closureK, unpaidDue, rounding,
             );
 
             let rawPenalInterest = 0;
@@ -1542,7 +1701,7 @@ export class LoanRepaymentService {
      */
     async getDueStatus(loancaseno: string, asOfDate?: Date): Promise<any> {
         const loanRows = await this.dataSource.query(
-            `SELECT mbno, loantype, loan_amt, balance, instal_amt, no_of_instal, penalrate, gracedays, smpenalpct, smpenaldiv, payment_date, delay_months
+            `SELECT mbno, loantype, loan_amt, balance, instal_amt, no_of_instal, penalrate, gracedays, smpenalpct, smpenaldiv, payment_date, delay_months, loan_payment_model
              FROM loan_master WHERE loancaseno::text = $1`,
             [loancaseno]
         );

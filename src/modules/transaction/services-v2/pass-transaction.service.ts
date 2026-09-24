@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { DataSource, QueryRunner } from 'typeorm';
 import { SystemConfigService } from '../../admin/services/system-config.service';
 import { calculateConstantEmi, persistRbSchedule, round2, LoanRoundingMode, DEFAULT_SLOT1_START_DAY, DEFAULT_SLOT1_END_DAY } from '../../loan/services-v2/loan-rb-schedule.util';
+import { LOAN_INTEREST_METHOD } from '../../loan/services-v2/loan-payment-model';
 import { LoanEligibilityService } from '../../loan/services-v2/loan-eligibility.service';
 import { LoanRepaymentService } from '../../loan/services-v2/loan-repayment.service';
 import { RdBalanceEventsService } from '../../rd/services/rd-balance-events.service';
@@ -169,6 +170,9 @@ export class PassTransactionService {
 
                 const sanctionedAmt = parseMoney(loan.sanctioned_amt);
                 const noOfInstal = loan.no_of_instal || 1;
+                // Reducing balance is the only supported interest method.
+                // Principal and interest are always posted separately; there
+                // is no combined-installment calculation branch anymore.
                 const isEmergencyLoan = (['ELN', 'ALN', 'A', 'E', 'EMR', 'ADD'].includes((loan.loantype || '').toUpperCase())
                     || (loan.loantype || '').toUpperCase().includes('EMERGENCY'));
                 const balanceCol = isEmergencyLoan ? 'emergency_loan_balance' : 'regularloan';
@@ -352,22 +356,24 @@ export class PassTransactionService {
 
                 const appDate = loan.app_date ? new Date(loan.app_date) : new Date();
                 const emiCalc = calculateConstantEmi(combinedPrincipal, rate, noOfInstal, appDate, slot1DelayMonths, slot2DelayMonths, roundingMode, slot1StartDay, slot1EndDay);
-                const instalAmt = emiCalc.constantEMI;
-                console.log(`[PassTransaction] Slot ${emiCalc.slot} (+${emiCalc.delayMonths}mo, slot1 window ${slot1StartDay}-${slot1EndDay}) — RB interest=${emiCalc.totalRBInterest}, delay interest=${emiCalc.delayInterest}, monthly interest=${emiCalc.monthlyInterestForEMI} (rounding=${roundingMode}), constant EMI=${instalAmt}`);
+                const instalAmt = round2(emiCalc.monthlyPrincipal);
+                console.log(`[PassTransaction] ${LOAN_INTEREST_METHOD} slot ${emiCalc.slot} (+${emiCalc.delayMonths}mo, slot1 window ${slot1StartDay}-${slot1EndDay}) — RB interest=${emiCalc.totalRBInterest}, delay interest=${emiCalc.delayInterest}, separate interest schedule=${emiCalc.totalRBInterest} (rounding=${roundingMode}), principal EMI=${instalAmt}`);
 
                 // Activate Loan
                 const insertLoanMasterQuery = `
                     INSERT INTO loan_master (
                         mbno, loantype, loancaseno, loan_amt, payment_date,
                         rate, no_of_instal, instal_amt, balance, openbalance,
-                        purpose, intt_amount, penalrate, gracedays, smpenalpct, smpenaldiv, delay_months
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                        purpose, intt_amount, penalrate, gracedays, smpenalpct, smpenaldiv, delay_months, loan_payment_model, loan_interest_method
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
                 `;
                 console.log(`[PassTransaction] Activating loan in loan_master for mbno: ${loan.mbno}`);
                 await queryRunner.query(insertLoanMasterQuery, [
                     loan.mbno, loan.loantype, loan.loancaseno, combinedPrincipal, new Date(),
                     rate, noOfInstal, instalAmt, combinedPrincipal, 0,  // balance=combinedPrincipal, openbalance=0 (matches legacy)
-                    loan.purpose || '', emiCalc.monthlyInterestForEMI, penalrate, gracedays, smpenalpct, smpenaldiv, emiCalc.delayMonths
+                    loan.purpose || '', emiCalc.monthlyInterestForEMI, penalrate, gracedays, smpenalpct, smpenaldiv, emiCalc.delayMonths,
+                    'SEPARATE_INTEREST',
+                    LOAN_INTEREST_METHOD,
                 ]);
 
                 // Freeze the payroll-lag detection window for this consolidation —

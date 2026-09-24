@@ -47,4 +47,12 @@ export class LoanMaster {
   // never-consolidated loan.
   @Column({ type: 'numeric', precision: 18, scale: 0, nullable: true })
   consolidated_into_loancaseno: string;
+
+  /** Snapshot of the payment model at origination/consolidation. */
+  @Column({ type: 'varchar', length: 32, default: 'SEPARATE_INTEREST' })
+  loan_payment_model: string;
+
+  /** The one supported interest method for all new loans. */
+  @Column({ type: 'varchar', length: 32, default: 'REDUCING_BALANCE' })
+  loan_interest_method: string;
 }

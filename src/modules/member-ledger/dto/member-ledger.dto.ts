@@ -53,6 +53,7 @@ export class MemberDetailLedgerEntryDto {
   debit: number;
   credit: number;
   code: string;
+  balance?: number;
 }
 
 export class MemberLedgerSummaryDto {
@@ -75,6 +76,7 @@ export class MemberDetailLedgerSummaryDto {
   memberName: string;
   fromDate: string;
   toDate: string;
+  openingByCode?: Record<string, number>;
   entries: MemberDetailLedgerEntryDto[];
   totalDebits: number;
   totalCredits: number;

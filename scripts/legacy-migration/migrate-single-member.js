@@ -93,6 +93,9 @@ async function metadata(pg, spec) {
   const targetMap = new Map(target.map(c => [c.name.toLowerCase(), c]));
   const columns = source.map(s => ({ source: s, target: targetMap.get(s.name.toLowerCase()) })).filter(x => x.target);
   if (!columns.length) throw new Error(`No shared columns for ${spec.source}`);
+  // Target may intentionally contain application-only columns that do not
+  // exist in the legacy source (for example loan_payment_model). Those
+  // columns must have a database default and are omitted from the copy.
   if (columns.length !== source.length) throw new Error(`${spec.source}: source columns missing from target: ${source.filter(s => !targetMap.has(s.name.toLowerCase())).map(s => s.name).join(', ')}`);
   return columns;
 }

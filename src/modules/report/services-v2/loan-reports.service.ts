@@ -176,6 +176,103 @@ export class LoanReportsService {
     const memberResult = await this.dataSource.query(memberQuery, [memberNo]);
     const memberName = memberResult[0]?.member_name || 'Unknown';
 
+    // A selected loan case must be reported from the loan repayment ledger.
+    // The generic ledger stores the full EMI as one CR amount, so using it for
+    // a running loan balance incorrectly reduces principal by interest too.
+    if (loanCaseNo) {
+      const loanRows = await this.dataSource.query(`
+        SELECT loancaseno, loantype, CAST(loan_amt AS numeric) AS loan_amt,
+               payment_date, CAST(balance AS numeric) AS current_balance,
+               no_of_instal, CAST(instal_amt AS numeric) AS instal_amt,
+               CAST(rate AS numeric) AS rate
+        FROM loan_master
+        WHERE CAST(mbno AS text) = $1 AND CAST(loancaseno AS text) = $2
+      `, [memberNo, loanCaseNo]);
+
+      if (!loanRows.length) {
+        return {
+          metadata: { totalCount: 0, limit: limit || 0, offset: offset || 0 },
+          memberNo, memberName, loanCaseNo, transactions: [],
+          openingBalance: 0, closingBalance: 0,
+        };
+      }
+
+      const loan = loanRows[0];
+      const start = fromDate ? parseSafeDate(fromDate) : new Date('1900-01-01');
+      const end = toDate ? parseSafeDate(toDate) : new Date('2999-12-31');
+      const loanAmount = Number(loan.loan_amt) || 0;
+
+      const payments = await this.dataSource.query(`
+        SELECT payment_date AS date, payment_amount, principal_amount,
+               interest_amount, penal_amount, receipt_no, narration
+        FROM loan_repayment_ledger
+        WHERE CAST(mbno AS text) = $1
+          AND CAST(loancaseno AS text) = $2
+          AND payment_date >= $3 AND payment_date <= $4
+        ORDER BY payment_date ASC, id ASC
+      `, [memberNo, loanCaseNo, start, end]);
+
+      const before = await this.dataSource.query(`
+        SELECT COALESCE(SUM(principal_amount), 0) AS principal_paid
+        FROM loan_repayment_ledger
+        WHERE CAST(mbno AS text) = $1
+          AND CAST(loancaseno AS text) = $2
+          AND payment_date < $3
+      `, [memberNo, loanCaseNo, start]);
+
+      const disbursementDate = loan.payment_date ? new Date(loan.payment_date) : null;
+      const principalBefore = Number(before[0]?.principal_paid) || 0;
+      let openingBalance = disbursementDate && disbursementDate >= start
+        ? 0
+        : Math.max(0, loanAmount - principalBefore);
+      let runningBalance = openingBalance;
+      const transactions: any[] = [];
+
+      if (disbursementDate && disbursementDate >= start && disbursementDate <= end && loanAmount > 0) {
+        runningBalance = loanAmount;
+        transactions.push({
+          key: 'disbursement', date: disbursementDate, type: 'DR', amount: loanAmount,
+          principalAmount: loanAmount, interestAmount: 0, penalAmount: 0,
+          narration: 'Loan disbursement / consolidated principal', voucherNo: '',
+          balance: runningBalance,
+        });
+      }
+
+      for (const payment of payments) {
+        const principal = Number(payment.principal_amount) || 0;
+        const interest = Number(payment.interest_amount) || 0;
+        const penal = Number(payment.penal_amount) || 0;
+        const amount = Number(payment.payment_amount) || principal + interest + penal;
+        runningBalance = Math.max(0, runningBalance - principal);
+        transactions.push({
+          key: `${payment.date}-${transactions.length}`,
+          date: payment.date, type: 'CR', amount,
+          principalAmount: principal, interestAmount: interest, penalAmount: penal,
+          narration: payment.narration || 'Loan repayment', voucherNo: payment.receipt_no || '',
+          balance: runningBalance,
+        });
+      }
+
+      const paged = transactions.slice(offset || 0, limit === undefined ? undefined : (offset || 0) + limit);
+      return {
+        metadata: { totalCount: transactions.length, limit: limit || transactions.length, offset: offset || 0 },
+        memberNo, memberName, loanCaseNo,
+        openingBalance,
+        closingBalance: transactions.length ? transactions[transactions.length - 1].balance : openingBalance,
+        loan: {
+          loanType: loan.loantype, loanAmount, installments: loan.no_of_instal,
+          installmentAmount: Number(loan.instal_amt) || 0, interestRate: Number(loan.rate) || 0,
+          currentBalance: Number(loan.current_balance) || 0,
+        },
+        transactions: paged,
+      };
+    }
+
+    // No case selected: retain the member-wide accounting view. A single
+    // principal balance is not meaningful when multiple consolidated loans
+    // are mixed together; the UI should select a case for reducing-balance
+    // reporting.
+
     // Base criteria for loan transactions
     const criteria = `WHERE mbno = $1 AND (code LIKE 'A10%' OR acc_type IN ('RLN', 'ELN', 'ALN'))`;
     const params: any[] = [memberNo];
@@ -681,38 +778,40 @@ export class LoanReportsService {
     let totalTransactions = 0;
 
     for (const loan of loans) {
-      // 3. Get transactions for each loan within date range. `ledger` has no
-      // debit/credit columns and no loancaseno column — matched the same way
-      // the already-verified Member Loan Ledger report (getMemberLoanLedger,
-      // above) does: acc_no = the loan case number, restricted to loan-coded
-      // rows, single trans_amt split into debit/credit via trans_type.
+      // 3. Read repayments from the component ledger. The generic `ledger`
+      // table only stores the total EMI, which is not sufficient to calculate
+      // a reducing-balance principal position.
       const transactions = await this.dataSource.query(`
         SELECT
-          trans_date as transaction_date,
-          receipt_vchr_no as voucher_no,
+          payment_date as transaction_date,
+          receipt_no as voucher_no,
           narration,
-          trans_type,
-          CAST(trans_amt AS numeric) as trans_amt
-        FROM ledger
-        WHERE mbno = $1
-          AND acc_no = $2
-          AND (code LIKE 'A10%' OR acc_type IN ('RLN', 'ELN', 'ALN'))
-          AND trans_date >= $3 AND trans_date <= $4
-        ORDER BY trans_date ASC
+          CAST(payment_amount AS numeric) AS payment_amount,
+          CAST(principal_amount AS numeric) AS principal_amount,
+          CAST(interest_amount AS numeric) AS interest_amount,
+          CAST(penal_amount AS numeric) AS penal_amount
+        FROM loan_repayment_ledger
+        WHERE CAST(mbno AS text) = $1
+          AND CAST(loancaseno AS text) = $2
+          AND payment_date >= $3 AND payment_date <= $4
+        ORDER BY payment_date ASC, id ASC
       `, [memberNo, loan.loancaseno, fromDate, toDate]);
 
       const mappedTransactions = transactions.map((t: any) => {
-        const amount = parseFloat(t.trans_amt) || 0;
-        const debit = t.trans_type === 'DR' ? amount : 0;
-        const credit = t.trans_type === 'CR' ? amount : 0;
-        totalDebits += debit;
-        totalCredits += credit;
+        const amount = parseFloat(t.payment_amount) || 0;
+        const principal = parseFloat(t.principal_amount) || 0;
+        const interest = parseFloat(t.interest_amount) || 0;
+        const penal = parseFloat(t.penal_amount) || 0;
+        totalCredits += amount;
         totalTransactions++;
 
         return {
           transactionDate: t.transaction_date,
-          transactionType: t.trans_type,
+          transactionType: 'CR',
           transactionAmount: amount,
+          principalAmount: principal,
+          interestAmount: interest,
+          penalAmount: penal,
           narration: t.narration,
           voucherNo: t.voucher_no
         };
