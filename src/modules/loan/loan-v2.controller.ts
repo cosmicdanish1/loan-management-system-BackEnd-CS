@@ -169,6 +169,17 @@ export class LoanV2Controller {
         return this.loanQueryService.getMemberLoansFromPending(memberNo);
     }
 
+    @Get('case/:caseNo/consolidation-chain')
+    @ApiOperation({ summary: 'Full multi-hop consolidation chain for a case — every absorbed predecessor through to the currently-active head' })
+    async getConsolidationChain(
+        @Param('caseNo') caseNo: string,
+        @Query('mbno') mbno: string,
+        @Query('loantype') loantype: string,
+    ) {
+        if (!mbno || !loantype) throw new BadRequestException('mbno and loantype are required query params');
+        return this.loanQueryService.getConsolidationChain(caseNo, mbno, loantype);
+    }
+
     @Get('master/:caseNo/emi-schedule')
     @ApiOperation({ summary: 'Get EMI schedule for loan from loan_master with payment status' })
     async getEmiScheduleFromMaster(@Param('caseNo') caseNo: string) {

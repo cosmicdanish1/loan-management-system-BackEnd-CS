@@ -1,8 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { FundsMaster } from '../entities/funds-master.entity';
 import { UpdateMemberFundsDto } from '../dto/member-funds.dto';
+import { MemberValidationUtil } from '../../member/utils';
 
 @Injectable()
 export class MemberFundsService {
@@ -49,6 +50,29 @@ export class MemberFundsService {
 
     async updateBalances(memberNo: number, updateDto: UpdateMemberFundsDto): Promise<FundsMaster> {
         this.logger.log(`[MemberFunds] Updating fundsmaster for mbno=${memberNo}`);
+
+        // FRS (MD) eligibility: members who joined at age 50+ are locked to
+        // the ₹2 nominal contribution — block any manual edit here that
+        // would raise it above that. Age is evaluated at the member's actual
+        // membership date, not today, so this never restricts someone who
+        // simply grew old as a member.
+        if (updateDto.monthlyContributionInstallment !== undefined && updateDto.monthlyContributionInstallment !== 2) {
+            const memberRows = await this.fundsRepository.manager.query(
+                `SELECT dob, memb_date FROM member_master WHERE mbno = $1`,
+                [memberNo],
+            );
+            const member = memberRows[0];
+            if (member?.dob) {
+                const membershipDate = member.memb_date ? new Date(member.memb_date) : new Date();
+                const ageAtJoining = MemberValidationUtil.ageAtDate(new Date(member.dob), membershipDate);
+                if (ageAtJoining >= 50) {
+                    throw new BadRequestException(
+                        `Member ${memberNo} joined at age ${ageAtJoining} and is not eligible for FRS — only the ₹2 nominal contribution is allowed`,
+                    );
+                }
+            }
+        }
+
         let funds = await this.fundsRepository.findOne({ where: { memberNo } });
 
         if (!funds) {

@@ -730,6 +730,144 @@ export class LoanRepaymentService {
      * early-closure spec: never derive outstanding principal from remaining
      * EMI amounts, and never rewrite/recalculate historical payments.
      */
+    /**
+     * Cross-checks the general ledger (real transaction history, migrated
+     * from legacy or posted live) against loan_repayment_ledger before
+     * quoting or executing an early closure. getInstallmentStatus and
+     * getLedgerHistoryTotals only ever read loan_repayment_ledger — for a
+     * migrated member whose Phase 2 repayment replay hasn't reached this
+     * loan yet, that table is empty even though real repayments exist, so
+     * closure would otherwise silently quote against the full original
+     * principal (discovered live on case 17466: ledger showed 34 real
+     * receipts, loan_repayment_ledger had zero rows, quote came back
+     * ₹2,64,534 against a real ₹45,000 balance). Scoped to
+     * trans_date >= this case's own disbursement date so an older,
+     * unrelated same-type case for the same member (loancaseno collides
+     * across cases in this schema) can't trigger a false positive.
+     */
+    private async assertLedgerReconciled(
+        runner: DataSource | QueryRunner,
+        loancaseno: string,
+        loan: { mbno: string; loantype: string; payment_date: Date | string },
+    ): Promise<void> {
+        const LEDGER_RECONCILE_TOLERANCE = 100; // rupees — absorbs payroll-lag netting/rounding
+
+        const [ledgerRow] = await runner.query(
+            `SELECT COALESCE(SUM(trans_amt), 0) as total FROM ledger
+             WHERE mbno = $1 AND acc_type = $2 AND trans_type = 'CR' AND trans_date >= $3`,
+            [loan.mbno, loan.loantype, loan.payment_date],
+        );
+        const realPaid = parseFloat(ledgerRow?.total ?? '0');
+        if (realPaid <= LEDGER_RECONCILE_TOLERANCE) return;
+
+        const [recordedRow] = await runner.query(
+            `SELECT COALESCE(SUM(payment_amount), 0) as total FROM loan_repayment_ledger
+             WHERE mbno = $1 AND loantype = $2`,
+            [loan.mbno, loan.loantype],
+        );
+        const recordedPaid = parseFloat(recordedRow?.total ?? '0');
+
+        if (realPaid - recordedPaid > LEDGER_RECONCILE_TOLERANCE) {
+            throw new BadRequestException(
+                `Loan ${loancaseno}: the ledger shows ₹${realPaid.toFixed(2)} already repaid on this account, but only `
+                + `₹${recordedPaid.toFixed(2)} is recorded in this system's repayment history. This loan's repayment `
+                + `records have not been fully migrated/reconciled yet — early closure cannot be quoted or executed `
+                + `until that is resolved. Contact an administrator.`,
+            );
+        }
+    }
+
+    /**
+     * Full consolidation lineage for a loan case, both directions — cases it
+     * absorbed (walk consolidated_into_loancaseno backwards: any case that
+     * points AT this one) and, if this case was itself later closed into
+     * another, what it rolled into. Built for the Early Closure screen so an
+     * operator can see a loan's full history in one place instead of it
+     * being invisible (the field already existed on loan_master — this is
+     * the first place that surfaces it to the UI as a real timeline).
+     */
+    private async getConsolidationHistory(
+        runner: DataSource | QueryRunner,
+        loancaseno: string,
+        mbno: string,
+        loantype: string,
+    ): Promise<{
+        absorbedCases: Array<{ loancaseno: string; loantype: string; originalLoanAmt: number; closedBalance: number; closureDate: string | null }>;
+        consolidatedIntoLoancaseno: string | null;
+    }> {
+        const absorbed = await runner.query(
+            `SELECT lm.loancaseno, lm.loantype, lm.loan_amt,
+                    COALESCE((SELECT payment_amount FROM loan_repayment_ledger lrl
+                              WHERE lrl.loancaseno = lm.loancaseno::text AND lrl.mbno = lm.mbno
+                              ORDER BY lrl.payment_date DESC LIMIT 1), 0) as closed_balance,
+                    (SELECT payment_date FROM loan_repayment_ledger lrl
+                     WHERE lrl.loancaseno = lm.loancaseno::text AND lrl.mbno = lm.mbno
+                     ORDER BY lrl.payment_date DESC LIMIT 1) as closure_date
+             FROM loan_master lm
+             WHERE lm.mbno = $1 AND lm.consolidated_into_loancaseno::text = $2
+             ORDER BY lm.payment_date`,
+            [mbno, loancaseno],
+        );
+        const own = await runner.query(
+            `SELECT consolidated_into_loancaseno FROM loan_master WHERE mbno = $1 AND loancaseno::text = $2 AND loantype = $3`,
+            [mbno, loancaseno, loantype],
+        );
+        return {
+            absorbedCases: absorbed.map((r: any) => ({
+                loancaseno: r.loancaseno,
+                loantype: r.loantype,
+                originalLoanAmt: round2(parseFloat(r.loan_amt) || 0),
+                closedBalance: round2(parseFloat(r.closed_balance) || 0),
+                closureDate: r.closure_date ? toLocalDateString(new Date(r.closure_date)) : null,
+            })),
+            consolidatedIntoLoancaseno: own[0]?.consolidated_into_loancaseno ?? null,
+        };
+    }
+
+    /** Every real repayment recorded against this case — so an operator can
+     *  see what actually happened instead of re-deriving it from totals. */
+    private async getRepaymentHistory(
+        runner: DataSource | QueryRunner,
+        loancaseno: string,
+        mbno: string,
+    ): Promise<Array<{ date: string; amount: number; principal: number; interest: number; penal: number; receiptNo: string | null; narration: string | null }>> {
+        const rows = await runner.query(
+            `SELECT payment_date, payment_amount, principal_amount, interest_amount, penal_amount, receipt_no, narration
+             FROM loan_repayment_ledger WHERE mbno = $1 AND loancaseno = $2 ORDER BY payment_date`,
+            [mbno, loancaseno],
+        );
+        return rows.map((r: any) => ({
+            date: toLocalDateString(new Date(r.payment_date)),
+            amount: round2(parseFloat(r.payment_amount) || 0),
+            principal: round2(parseFloat(r.principal_amount) || 0),
+            interest: round2(parseFloat(r.interest_amount) || 0),
+            penal: round2(parseFloat(r.penal_amount) || 0),
+            receiptNo: r.receipt_no,
+            narration: r.narration,
+        }));
+    }
+
+    /** The reducing-balance amortization schedule built at disbursement —
+     *  the actual month-by-month plan this loan is running against. */
+    private async getRbSchedule(
+        runner: DataSource | QueryRunner,
+        loancaseno: string,
+        mbno: string,
+    ): Promise<Array<{ installmentNo: number; openingBalance: number; rbInterest: number; principal: number; closingBalance: number }>> {
+        const rows = await runner.query(
+            `SELECT installment_no, opening_balance, rb_interest, principal, closing_balance
+             FROM loan_rb_schedule WHERE mbno = $1 AND loancaseno = $2 ORDER BY installment_no`,
+            [mbno, loancaseno],
+        );
+        return rows.map((r: any) => ({
+            installmentNo: r.installment_no,
+            openingBalance: round2(parseFloat(r.opening_balance) || 0),
+            rbInterest: round2(parseFloat(r.rb_interest) || 0),
+            principal: round2(parseFloat(r.principal) || 0),
+            closingBalance: round2(parseFloat(r.closing_balance) || 0),
+        }));
+    }
+
     private async getLedgerHistoryTotals(
         runner: DataSource | QueryRunner,
         loancaseno: string,
@@ -962,6 +1100,7 @@ export class LoanRepaymentService {
         const queryRunner = this.dataSource.createQueryRunner();
         await queryRunner.connect();
         try {
+            await this.assertLedgerReconciled(queryRunner, loancaseno, loan);
             const installments = await this.getInstallmentStatus(queryRunner, loancaseno, loan, asOf);
             const unpaid = installments.filter(i => !i.isFullyPaid);
             const k = installments.length;
@@ -1007,6 +1146,15 @@ export class LoanRepaymentService {
                 ? await this.loanEligibility.getRdShareClosureAdjustment(loan.mbno, finalClosureAmount)
                 : null;
             const payableByMember = rdShareAdjustment ? rdShareAdjustment.payableByMember : finalClosureAmount;
+
+            // Full history so an operator never has to re-derive or ask for
+            // this separately before deciding — see the Transaction Flow
+            // Atlas §1b and this session's UI audit (loan_master.
+            // consolidated_into_loancaseno already existed but was never
+            // surfaced; loan_repayment_ledger/loan_rb_schedule likewise).
+            const consolidationHistory = await this.getConsolidationHistory(queryRunner, loancaseno, loan.mbno, loan.loantype);
+            const repaymentHistory = await this.getRepaymentHistory(queryRunner, loancaseno, loan.mbno);
+            const rbSchedule = await this.getRbSchedule(queryRunner, loancaseno, loan.mbno);
 
             return {
                 loanCaseNo: loancaseno,
@@ -1067,6 +1215,12 @@ export class LoanRepaymentService {
                     monthsOverdue: i.monthsOverdue,
                     tier: i.tier,
                 })),
+                // Full history — no re-calculation or separate lookup needed
+                // to see what this loan absorbed, what it was paid with, or
+                // its amortization schedule.
+                consolidationHistory,
+                repaymentHistory,
+                rbSchedule,
             };
         } finally {
             await queryRunner.release();
@@ -1134,6 +1288,8 @@ export class LoanRepaymentService {
             if (currentBalance <= 0) {
                 throw new BadRequestException(`Loan ${loancaseno} is already fully repaid`);
             }
+
+            await this.assertLedgerReconciled(queryRunner, loancaseno, loan);
 
             const noOfInstal = parseInt(loan.no_of_instal, 10) || 0;
             const loanAmt = parseFloat(loan.loan_amt) || 0;

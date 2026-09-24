@@ -42,8 +42,8 @@ async function main() {
     const rdRules = new RdRulesService(AppDataSource);
     const rdBalanceEvents = new RdBalanceEventsService(AppDataSource, rdRules);
     const loanEligibility = new LoanEligibilityService(AppDataSource, rdBalanceEvents, rdRules);
-    const passSvc = new PassTransactionService(AppDataSource, sysConfig, loanEligibility, rdBalanceEvents);
     const repaySvc = new LoanRepaymentService(AppDataSource, loanEligibility, rdBalanceEvents);
+    const passSvc = new PassTransactionService(AppDataSource, sysConfig, loanEligibility, rdBalanceEvents, repaySvc);
 
     // Reset this case number only
     for (const q of [

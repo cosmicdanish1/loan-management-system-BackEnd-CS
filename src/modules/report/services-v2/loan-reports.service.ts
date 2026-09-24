@@ -465,8 +465,8 @@ export class LoanReportsService {
       SELECT DISTINCT loantype as code, 
         CASE 
           WHEN loantype = 'RLN' THEN 'Regular Loan'
-          WHEN loantype = 'ELN' THEN 'Emergency Loan'
-          WHEN loantype = 'ALN' THEN 'Against Deposit Loan'
+          WHEN loantype = 'ALN' THEN 'Emergency Loan'
+          WHEN loantype = 'ELN' THEN 'Loan Against Recovery'
           ELSE loantype
         END as name
       FROM loan_master
@@ -632,8 +632,8 @@ export class LoanReportsService {
         isNil: activeLoans.length === 0,
         outstandingLoans: activeLoans.map((l: any) => ({
           headName: l.head_name === 'RLN' ? 'Regular Loan' :
-            l.head_name === 'ELN' ? 'Emergency Loan' :
-              l.head_name === 'ALN' ? 'Against Deposit Loan' : l.head_name,
+            l.head_name === 'ALN' ? 'Emergency Loan' :
+              l.head_name === 'ELN' ? 'Loan Against Recovery' : l.head_name,
           headCode: l.head_code,
           balance: parseFloat(l.balance) || 0
         }))

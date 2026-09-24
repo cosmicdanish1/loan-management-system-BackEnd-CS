@@ -51,16 +51,22 @@ export class MemberValidationUtil {
    * @returns True if age is within range, false otherwise
    */
   static isValidAge(dateOfBirth: Date, minAge: number = 18, maxAge: number = 100): boolean {
-    const today = new Date();
-    const birthDate = new Date(dateOfBirth);
-    const age = today.getFullYear() - birthDate.getFullYear();
-    const monthDiff = today.getMonth() - birthDate.getMonth();
-    
-    const actualAge = monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate()) 
-      ? age - 1 
-      : age;
-
+    const actualAge = this.ageAtDate(dateOfBirth, new Date());
     return actualAge >= minAge && actualAge <= maxAge;
+  }
+
+  /**
+   * Age a member had (or will have) as of a given reference date — e.g. age
+   * on their membership date, not age today.
+   */
+  static ageAtDate(dateOfBirth: Date, atDate: Date): number {
+    const birthDate = new Date(dateOfBirth);
+    const age = atDate.getFullYear() - birthDate.getFullYear();
+    const monthDiff = atDate.getMonth() - birthDate.getMonth();
+
+    return monthDiff < 0 || (monthDiff === 0 && atDate.getDate() < birthDate.getDate())
+      ? age - 1
+      : age;
   }
 
   /**

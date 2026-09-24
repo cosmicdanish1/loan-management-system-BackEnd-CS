@@ -202,16 +202,6 @@
         "operationId": "AuthController_changePassword",
         "summary": "Change user password",
         "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ChangePasswordDto"
-              }
-            }
-          }
-        },
         "responses": {
           "200": {
             "description": "Password changed successfully"
@@ -247,21 +237,6 @@
           {
             "bearer": []
           }
-        ]
-      }
-    },
-    "/auth/usernames": {
-      "get": {
-        "operationId": "AuthController_getUsernames",
-        "summary": "Get usernames only for password change dropdown (no sensitive data)",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Authentication"
         ]
       }
     },
@@ -649,40 +624,6 @@
         ]
       }
     },
-    "/members/{id}/status": {
-      "patch": {
-        "operationId": "MemberV2Controller_updateStatus",
-        "summary": "Change a member lifecycle status (active/inactive/resigned/expired/…)",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "number"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateMemberStatusDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Member status updated"
-          }
-        },
-        "tags": [
-          "Members"
-        ]
-      }
-    },
     "/members/balance/{memberNo}": {
       "get": {
         "operationId": "MemberV2Controller_getMemberBalance",
@@ -866,192 +807,6 @@
         "parameters": [
           {
             "name": "mbno",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Members"
-        ]
-      }
-    },
-    "/members/master/{mbno}/photo/{type}": {
-      "post": {
-        "operationId": "MemberV2Controller_uploadPhotoMaster",
-        "summary": "Upload photo for member_master member (type: profile | doc_front | doc_back)",
-        "parameters": [
-          {
-            "name": "mbno",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "type",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Members"
-        ]
-      },
-      "get": {
-        "operationId": "MemberV2Controller_getPhotoMaster",
-        "summary": "Get photo for member_master member",
-        "parameters": [
-          {
-            "name": "mbno",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "type",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Members"
-        ]
-      },
-      "delete": {
-        "operationId": "MemberV2Controller_deletePhotoMaster",
-        "summary": "Delete photo for member_master member",
-        "parameters": [
-          {
-            "name": "mbno",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "type",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Members"
-        ]
-      }
-    },
-    "/members/master/{mbno}/document": {
-      "post": {
-        "operationId": "MemberV2Controller_uploadDocument",
-        "summary": "Upload a KYC document (body: docType) for a member",
-        "parameters": [
-          {
-            "name": "mbno",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Members"
-        ]
-      }
-    },
-    "/members/master/{mbno}/documents": {
-      "get": {
-        "operationId": "MemberV2Controller_listDocuments",
-        "summary": "List KYC documents for a member",
-        "parameters": [
-          {
-            "name": "mbno",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Members"
-        ]
-      }
-    },
-    "/members/master/{mbno}/document/{id}": {
-      "get": {
-        "operationId": "MemberV2Controller_getDocument",
-        "summary": "Stream/download a KYC document file",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Members"
-        ]
-      },
-      "delete": {
-        "operationId": "MemberV2Controller_deleteDocument",
-        "summary": "Delete a KYC document",
-        "parameters": [
-          {
-            "name": "id",
             "required": true,
             "in": "path",
             "schema": {
@@ -1388,15 +1143,6 @@
             "description": "Filter by active status",
             "schema": {
               "type": "boolean"
-            }
-          },
-          {
-            "name": "username",
-            "required": false,
-            "in": "query",
-            "description": "Filter by username (partial match)",
-            "schema": {
-              "type": "string"
             }
           }
         ],
@@ -1780,57 +1526,6 @@
         "responses": {
           "200": {
             "description": "User activities retrieved successfully"
-          }
-        },
-        "tags": [
-          "User Management"
-        ],
-        "security": [
-          {
-            "bearer": []
-          }
-        ]
-      }
-    },
-    "/admin/users/{id}/login-history": {
-      "get": {
-        "operationId": "UserManagementController_getUserLoginHistory",
-        "summary": "Get a user login/logout history (audit trail)",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "description": "User ID",
-            "schema": {
-              "type": "number"
-            }
-          },
-          {
-            "name": "page",
-            "required": false,
-            "in": "query",
-            "description": "Page number",
-            "schema": {
-              "type": "number"
-            }
-          },
-          {
-            "name": "limit",
-            "required": false,
-            "in": "query",
-            "description": "Items per page",
-            "schema": {
-              "type": "number"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Login history retrieved successfully"
-          },
-          "404": {
-            "description": "No login records found for user"
           }
         },
         "tags": [
@@ -2426,8 +2121,7 @@
             "schema": {
               "enum": [
                 "fixed_deposit",
-                "recurring_deposit",
-                "loan"
+                "recurring_deposit"
               ],
               "type": "string"
             }
@@ -2454,36 +2148,6 @@
                 }
               }
             }
-          }
-        },
-        "tags": [
-          "System Configuration"
-        ],
-        "security": [
-          {
-            "bearer": []
-          }
-        ]
-      }
-    },
-    "/admin/config/deposit-slabs/bulk": {
-      "post": {
-        "operationId": "SystemConfigController_bulkSaveDepositSlabs",
-        "summary": "Bulk replace all deposit slabs for a given type",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BulkSaveDepositSlabsDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Slabs saved successfully"
           }
         },
         "tags": [
@@ -2663,46 +2327,6 @@
         ]
       }
     },
-    "/admin/day-end/initialize": {
-      "post": {
-        "operationId": "DayEndController_initializeWorkingDate",
-        "summary": "Create the genesis getworkingdate row (only when none exists)",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Day-End Processing"
-        ],
-        "security": [
-          {
-            "bearer": []
-          }
-        ]
-      }
-    },
-    "/admin/day-end/working-date": {
-      "delete": {
-        "operationId": "DayEndController_resetWorkingDate",
-        "summary": "Reset a mis-set initial working date (only before any day-end has completed)",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Day-End Processing"
-        ],
-        "security": [
-          {
-            "bearer": []
-          }
-        ]
-      }
-    },
     "/admin/day-end/processes": {
       "get": {
         "operationId": "DayEndController_getDayEndProcesses",
@@ -2865,28 +2489,201 @@
         ]
       }
     },
+    "/admin/backup/create": {
+      "post": {
+        "operationId": "BackupController_createBackup",
+        "summary": "Create database backup",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateBackupDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Backup created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Backup creation failed"
+          }
+        },
+        "tags": [
+          "Backup & Restore"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/admin/backup/restore": {
+      "post": {
+        "operationId": "BackupController_restoreBackup",
+        "summary": "Restore database from backup",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreBackupDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Database restore completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestoreResultDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Restore failed"
+          },
+          "404": {
+            "description": "Backup file not found"
+          }
+        },
+        "tags": [
+          "Backup & Restore"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/admin/backup/list": {
+      "get": {
+        "operationId": "BackupController_listBackups",
+        "summary": "List all available backups",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Backups retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BackupInfoDto"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Backup & Restore"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/admin/backup/verify/{filename}": {
+      "get": {
+        "operationId": "BackupController_verifyBackup",
+        "summary": "Verify backup integrity",
+        "parameters": [
+          {
+            "name": "filename",
+            "required": true,
+            "in": "path",
+            "description": "Backup filename",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Backup verification completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupVerificationDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Backup & Restore"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/admin/backup/{filename}": {
+      "delete": {
+        "operationId": "BackupController_deleteBackup",
+        "summary": "Delete backup file",
+        "parameters": [
+          {
+            "name": "filename",
+            "required": true,
+            "in": "path",
+            "description": "Backup filename",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Backup deleted successfully"
+          },
+          "404": {
+            "description": "Backup file not found"
+          }
+        },
+        "tags": [
+          "Backup & Restore"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/admin/certificate-templates": {
       "get": {
         "operationId": "CertificateTemplateController_findAll",
-        "summary": "List all certificate templates",
         "parameters": [],
         "responses": {
           "200": {
             "description": ""
           }
-        },
-        "tags": [
-          "Admin - Certificate Templates"
-        ],
-        "security": [
-          {
-            "JWT-auth": []
-          }
-        ]
+        }
       },
       "post": {
         "operationId": "CertificateTemplateController_create",
-        "summary": "Create a certificate template",
         "parameters": [],
         "requestBody": {
           "required": true,
@@ -2902,21 +2699,12 @@
           "201": {
             "description": ""
           }
-        },
-        "tags": [
-          "Admin - Certificate Templates"
-        ],
-        "security": [
-          {
-            "JWT-auth": []
-          }
-        ]
+        }
       }
     },
     "/admin/certificate-templates/default": {
       "get": {
         "operationId": "CertificateTemplateController_findDefault",
-        "summary": "Get the default certificate template for an account type",
         "parameters": [
           {
             "name": "accountType",
@@ -2931,21 +2719,12 @@
           "200": {
             "description": ""
           }
-        },
-        "tags": [
-          "Admin - Certificate Templates"
-        ],
-        "security": [
-          {
-            "JWT-auth": []
-          }
-        ]
+        }
       }
     },
     "/admin/certificate-templates/{id}": {
       "get": {
         "operationId": "CertificateTemplateController_findOne",
-        "summary": "Get a certificate template by id",
         "parameters": [
           {
             "name": "id",
@@ -2960,19 +2739,10 @@
           "200": {
             "description": ""
           }
-        },
-        "tags": [
-          "Admin - Certificate Templates"
-        ],
-        "security": [
-          {
-            "JWT-auth": []
-          }
-        ]
+        }
       },
       "put": {
         "operationId": "CertificateTemplateController_update",
-        "summary": "Update a certificate template by id",
         "parameters": [
           {
             "name": "id",
@@ -2997,19 +2767,10 @@
           "200": {
             "description": ""
           }
-        },
-        "tags": [
-          "Admin - Certificate Templates"
-        ],
-        "security": [
-          {
-            "JWT-auth": []
-          }
-        ]
+        }
       },
       "delete": {
         "operationId": "CertificateTemplateController_remove",
-        "summary": "Delete a certificate template by id",
         "parameters": [
           {
             "name": "id",
@@ -3024,15 +2785,7 @@
           "200": {
             "description": ""
           }
-        },
-        "tags": [
-          "Admin - Certificate Templates"
-        ],
-        "security": [
-          {
-            "JWT-auth": []
-          }
-        ]
+        }
       }
     },
     "/admin/passbook-templates": {
@@ -3223,24 +2976,6 @@
                 }
               }
             }
-          }
-        },
-        "tags": [
-          "Role Management"
-        ],
-        "security": [
-          {
-            "bearer": []
-          }
-        ]
-      },
-      "post": {
-        "operationId": "RoleManagementController_createUserLevel",
-        "summary": "Create a new user level",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": "User level created successfully"
           }
         },
         "tags": [
@@ -3645,92 +3380,6 @@
         ]
       }
     },
-    "/admin/fd-accounts": {
-      "get": {
-        "operationId": "FdAccountController_findAll",
-        "summary": "Get all FD accounts (or filter by memberNo)",
-        "parameters": [
-          {
-            "name": "memberNo",
-            "required": true,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Admin - FD Accounts"
-        ]
-      }
-    },
-    "/admin/fd-accounts/{accountNumber}": {
-      "get": {
-        "operationId": "FdAccountController_findOne",
-        "summary": "Get FD account by Account Number",
-        "parameters": [
-          {
-            "name": "accountNumber",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Return the FD account details."
-          },
-          "404": {
-            "description": "FD Account not found."
-          }
-        },
-        "tags": [
-          "Admin - FD Accounts"
-        ]
-      },
-      "patch": {
-        "operationId": "FdAccountController_update",
-        "summary": "Update FD account details",
-        "parameters": [
-          {
-            "name": "accountNumber",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateFdAccountDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "FD Account updated successfully."
-          },
-          "404": {
-            "description": "FD Account not found."
-          }
-        },
-        "tags": [
-          "Admin - FD Accounts"
-        ]
-      }
-    },
     "/admin/offices": {
       "post": {
         "operationId": "OfficeController_create",
@@ -4001,21 +3650,6 @@
         ]
       }
     },
-    "/admin/sb-accounts/next-number": {
-      "get": {
-        "operationId": "SbAccountController_getNextAccountNumber",
-        "summary": "Get next auto-generated SB account number (MAX + 1)",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Admin - SB Account"
-        ]
-      }
-    },
     "/admin/sb-accounts/{id}": {
       "get": {
         "operationId": "SbAccountController_findOne",
@@ -4094,146 +3728,6 @@
         ]
       }
     },
-    "/admin/rd-accounts": {
-      "post": {
-        "operationId": "RdAccountController_create",
-        "summary": "Create a new RD Account",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateRdAccountDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "The RD Account has been successfully created."
-          }
-        },
-        "tags": [
-          "Admin - RD Account"
-        ]
-      },
-      "get": {
-        "operationId": "RdAccountController_findAll",
-        "summary": "Get all RD Accounts, optionally filtered by memberNo",
-        "parameters": [
-          {
-            "name": "memberNo",
-            "required": true,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Return all RD Accounts."
-          }
-        },
-        "tags": [
-          "Admin - RD Account"
-        ]
-      }
-    },
-    "/admin/rd-accounts/next-number": {
-      "get": {
-        "operationId": "RdAccountController_getNextAccountNumber",
-        "summary": "Get next auto-generated account number (MAX + 1 from fdmaster)",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Admin - RD Account"
-        ]
-      }
-    },
-    "/admin/rd-accounts/{id}": {
-      "get": {
-        "operationId": "RdAccountController_findOne",
-        "summary": "Get an RD Account by ID",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "number"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Return the RD Account."
-          }
-        },
-        "tags": [
-          "Admin - RD Account"
-        ]
-      },
-      "patch": {
-        "operationId": "RdAccountController_update",
-        "summary": "Update an RD Account",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "number"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateRdAccountDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "The RD Account has been successfully updated."
-          }
-        },
-        "tags": [
-          "Admin - RD Account"
-        ]
-      },
-      "delete": {
-        "operationId": "RdAccountController_remove",
-        "summary": "Delete an RD Account",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "number"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The RD Account has been successfully deleted."
-          }
-        },
-        "tags": [
-          "Admin - RD Account"
-        ]
-      }
-    },
     "/admin/members/{memberNo}": {
       "get": {
         "operationId": "MemberAdminController_getMember",
@@ -4276,31 +3770,7 @@
     "/admin/member-funds/list": {
       "get": {
         "operationId": "MemberFundsController_getMemberList",
-        "summary": "Get ordered list of member numbers in fundsmaster (optionally filtered by wing)",
-        "parameters": [
-          {
-            "name": "wing",
-            "required": true,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Admin - Member Funds (Migration)"
-        ]
-      }
-    },
-    "/admin/member-funds/wings": {
-      "get": {
-        "operationId": "MemberFundsController_getWings",
-        "summary": "Get wings that have members in fundsmaster",
+        "summary": "Get ordered list of all member numbers in fundsmaster for navigation",
         "parameters": [],
         "responses": {
           "200": {
@@ -4373,63 +3843,6 @@
         "operationId": "FinancialYearController_getYears",
         "summary": "Get all financial years",
         "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Financial Year Management"
-        ],
-        "security": [
-          {
-            "bearer": []
-          }
-        ]
-      }
-    },
-    "/admin/financial-year/create": {
-      "post": {
-        "operationId": "FinancialYearController_createYear",
-        "summary": "Create a financial year (including the genesis year when none exist)",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Financial Year Management"
-        ],
-        "security": [
-          {
-            "bearer": []
-          }
-        ]
-      }
-    },
-    "/admin/financial-year/{yearCode}": {
-      "delete": {
-        "operationId": "FinancialYearController_deleteYear",
-        "summary": "Delete an un-closed, un-archived financial year",
-        "parameters": [
-          {
-            "name": "yearCode",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "number"
-            }
-          },
-          {
-            "name": "force",
-            "required": true,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": ""
@@ -4545,16 +3958,63 @@
         ]
       }
     },
-    "/admin/saakh-score/{mbno}": {
-      "get": {
-        "operationId": "SaakhScoreController_getSaakhScore",
-        "summary": "Calculate Saakh Score (member financial health index 0-10) for a member",
+    "/rd/member-config/{mbno}/{yearcode}": {
+      "post": {
+        "operationId": "RdMemberConfigController_setMonthlyAmount",
+        "summary": "Set a member's monthly RD amount for a financial year",
         "parameters": [
           {
             "name": "mbno",
             "required": true,
             "in": "path",
-            "description": "Member number (mbno)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "yearcode",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "RD - Member Config"
+        ]
+      }
+    },
+    "/rd/member-config/{mbno}/{yearcode}/current": {
+      "get": {
+        "operationId": "RdMemberConfigController_getCurrentAmount",
+        "summary": "The member's currently-effective monthly RD amount for a financial year",
+        "parameters": [
+          {
+            "name": "mbno",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "yearcode",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "asOfDate",
+            "required": true,
+            "in": "query",
             "schema": {
               "type": "string"
             }
@@ -4566,12 +4026,431 @@
           }
         },
         "tags": [
-          "Administration"
-        ],
-        "security": [
+          "RD - Member Config"
+        ]
+      }
+    },
+    "/rd/member-config/{mbno}/{yearcode}/history": {
+      "get": {
+        "operationId": "RdMemberConfigController_getHistory",
+        "summary": "A member's monthly RD amount change history for a financial year",
+        "parameters": [
           {
-            "bearer": []
+            "name": "mbno",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "yearcode",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
           }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "RD - Member Config"
+        ]
+      }
+    },
+    "/rd/balance/{mbno}/{yearcode}/current": {
+      "get": {
+        "operationId": "RdBalanceEventsController_getCurrent",
+        "summary": "A member's current RD balance for a financial year",
+        "parameters": [
+          {
+            "name": "mbno",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "yearcode",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "RD - Balance Events"
+        ]
+      }
+    },
+    "/rd/balance/{mbno}/{yearcode}/timeline": {
+      "get": {
+        "operationId": "RdBalanceEventsController_getTimeline",
+        "summary": "A member's full RD balance-event timeline for a financial year",
+        "parameters": [
+          {
+            "name": "mbno",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "yearcode",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "RD - Balance Events"
+        ]
+      }
+    },
+    "/rd/balance/{mbno}/{yearcode}/withdraw": {
+      "post": {
+        "operationId": "RdBalanceEventsController_withdraw",
+        "summary": "Withdraw from a member's RD balance, enforcing the configured minimum",
+        "parameters": [
+          {
+            "name": "mbno",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "yearcode",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "RD - Balance Events"
+        ]
+      }
+    },
+    "/rd/pattern/{mbno}/{yearcode}": {
+      "get": {
+        "operationId": "RdPatternEligibilityController_evaluate",
+        "summary": "Preview a member's RD payment-pattern eligibility for a financial year",
+        "parameters": [
+          {
+            "name": "mbno",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "yearcode",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "RD - Payment Pattern Eligibility"
+        ]
+      }
+    },
+    "/rd/interest/{mbno}/{yearcode}/preview": {
+      "get": {
+        "operationId": "RdInterestCalculationController_preview",
+        "summary": "Preview a member's RD installment + opening-balance interest for a financial year",
+        "parameters": [
+          {
+            "name": "mbno",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "yearcode",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "overrideEligible",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "RD - Interest Calculation"
+        ]
+      }
+    },
+    "/rd/closing/{yearcode}/members": {
+      "get": {
+        "operationId": "RdFinancialYearClosingController_listMembers",
+        "summary": "Every member with RD activity in a financial year (candidates for closing)",
+        "parameters": [
+          {
+            "name": "yearcode",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "RD - Financial Year Closing"
+        ]
+      }
+    },
+    "/rd/closing/{yearcode}/preview": {
+      "get": {
+        "operationId": "RdFinancialYearClosingController_previewAll",
+        "summary": "Bulk read-only preview of what closing this year would produce, for the review screen",
+        "parameters": [
+          {
+            "name": "yearcode",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "offset",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "RD - Financial Year Closing"
+        ]
+      }
+    },
+    "/rd/closing/{mbno}/{yearcode}/preview": {
+      "get": {
+        "operationId": "RdFinancialYearClosingController_previewOne",
+        "summary": "One member's read-only closing preview",
+        "parameters": [
+          {
+            "name": "mbno",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "yearcode",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "overrideEligible",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "RD - Financial Year Closing"
+        ]
+      }
+    },
+    "/rd/closing/{mbno}/{yearcode}/close": {
+      "post": {
+        "operationId": "RdFinancialYearClosingController_closeOne",
+        "summary": "Close one member's RD financial year — credits interest, writes the audit summary, rolls the balance forward",
+        "parameters": [
+          {
+            "name": "mbno",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "yearcode",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "RD - Financial Year Closing"
+        ]
+      }
+    },
+    "/rd/closing/{yearcode}/close-all": {
+      "post": {
+        "operationId": "RdFinancialYearClosingController_closeAll",
+        "summary": "Close every member with RD activity this year in one batch — failures are collected, not fatal to the batch",
+        "parameters": [
+          {
+            "name": "yearcode",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "RD - Financial Year Closing"
+        ]
+      }
+    },
+    "/rd/repayment/{mbno}/{yearcode}/pending": {
+      "get": {
+        "operationId": "RdRepaymentController_getPending",
+        "summary": "A member's 12 RD months for the financial year, with each one's current payment status",
+        "parameters": [
+          {
+            "name": "mbno",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "yearcode",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "RD - Counter Repayment"
+        ]
+      }
+    },
+    "/rd/repayment/{mbno}/{yearcode}": {
+      "post": {
+        "operationId": "RdRepaymentController_recordPayment",
+        "summary": "Record a member's RD payment for one specific month at the counter — amount used exactly as entered",
+        "parameters": [
+          {
+            "name": "mbno",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "yearcode",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "RD - Counter Repayment"
         ]
       }
     },
@@ -4638,30 +4517,6 @@
         ]
       }
     },
-    "/loans/member/{memberNo}/balances": {
-      "get": {
-        "operationId": "LoanV2Controller_getMemberBalances",
-        "summary": "Get member outstanding loan balances from member_balances",
-        "parameters": [
-          {
-            "name": "memberNo",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Loans"
-        ]
-      }
-    },
     "/loans/loan-application": {
       "post": {
         "operationId": "LoanV2Controller_saveLoanApplication",
@@ -4682,38 +4537,6 @@
         "operationId": "LoanV2Controller_generateLoanCaseNumber",
         "summary": "Generate next sequential loan case number",
         "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Loans"
-        ]
-      }
-    },
-    "/loans/eligibility/{memberNo}": {
-      "get": {
-        "operationId": "LoanV2Controller_checkEligibility",
-        "summary": "Check member eligibility for loan based on Share and FD values",
-        "parameters": [
-          {
-            "name": "memberNo",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "amount",
-            "required": true,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": ""
@@ -5082,7 +4905,7 @@
     "/loans/repayment": {
       "post": {
         "operationId": "LoanV2Controller_recordLoanRepayment",
-        "summary": "Record a loan repayment installment",
+        "summary": "Record a repayment against a loan, oldest-unpaid installment first",
         "parameters": [],
         "responses": {
           "201": {
@@ -5094,13 +4917,45 @@
         ]
       }
     },
-    "/loans/member/{memberNo}/repayment-history": {
+    "/loans/due-status/{caseNo}": {
       "get": {
-        "operationId": "LoanV2Controller_getMemberRepaymentHistory",
-        "summary": "Get full repayment history for a member",
+        "operationId": "LoanV2Controller_getDueStatus",
+        "summary": "What a loan currently owes, oldest-unpaid-first, including tiered penal",
         "parameters": [
           {
-            "name": "memberNo",
+            "name": "caseNo",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "asOfDate",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Loans"
+        ]
+      }
+    },
+    "/loans/member/{mbno}/repayment-history": {
+      "get": {
+        "operationId": "LoanV2Controller_getMemberRepaymentHistory",
+        "summary": "Full repayment ledger history for a member, across all their loans",
+        "parameters": [
+          {
+            "name": "mbno",
             "required": true,
             "in": "path",
             "schema": {
@@ -5121,7 +4976,7 @@
     "/loans/case/{caseNo}/repayment-summary": {
       "get": {
         "operationId": "LoanV2Controller_getLoanRepaymentSummary",
-        "summary": "Get repayment summary for a specific loan case",
+        "summary": "Repayment totals (paid/principal/interest/penal) for one loan case",
         "parameters": [
           {
             "name": "caseNo",
@@ -5142,34 +4997,10 @@
         ]
       }
     },
-    "/loans/case/{caseNo}/due-status": {
-      "get": {
-        "operationId": "LoanV2Controller_getDueStatus",
-        "summary": "Get the oldest-unpaid-first due breakdown for a loan (principal/interest/penal)",
-        "parameters": [
-          {
-            "name": "caseNo",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Loans"
-        ]
-      }
-    },
-    "/loans/case/{caseNo}/early-closure": {
-      "get": {
+    "/loans/early-closure/quote/{caseNo}": {
+      "post": {
         "operationId": "LoanV2Controller_calculateEarlyClosure",
-        "summary": "Calculate the final amount to close a loan early",
+        "summary": "Read-only early-closure quote using the true reducing-balance schedule",
         "parameters": [
           {
             "name": "caseNo",
@@ -5178,36 +5009,22 @@
             "schema": {
               "type": "string"
             }
-          },
-          {
-            "name": "closureDate",
-            "required": true,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "adjustment",
-            "required": true,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
           }
         ],
         "responses": {
-          "200": {
+          "201": {
             "description": ""
           }
         },
         "tags": [
           "Loans"
         ]
-      },
+      }
+    },
+    "/loans/early-closure/execute/{caseNo}": {
       "post": {
         "operationId": "LoanV2Controller_executeEarlyClosure",
-        "summary": "Execute an early closure — settles every remaining installment and zeroes the balance",
+        "summary": "Actually settle a loan early -- writes ledger entries and zeroes the balance",
         "parameters": [
           {
             "name": "caseNo",
@@ -5231,7 +5048,7 @@
     "/loans/month-end/snapshot": {
       "post": {
         "operationId": "LoanV2Controller_captureMonthEndSnapshot",
-        "summary": "Capture month-end loan balance snapshot for all members",
+        "summary": "Capture a month-end loan balance snapshot for every member with an active loan",
         "parameters": [],
         "responses": {
           "201": {
@@ -5245,8 +5062,8 @@
     },
     "/loans/month-end/report": {
       "get": {
-        "operationId": "LoanV2Controller_getMonthlyBalanceReport",
-        "summary": "Get month-end loan balance report",
+        "operationId": "LoanV2Controller_getMonthEndReport",
+        "summary": "The captured month-end loan balance snapshot for a given month/year",
         "parameters": [
           {
             "name": "month",
@@ -5275,13 +5092,13 @@
         ]
       }
     },
-    "/loans/member/{memberNo}/balance-history": {
+    "/loans/month-end/history/{mbno}": {
       "get": {
-        "operationId": "LoanV2Controller_getMemberBalanceHistory",
-        "summary": "Get month-end balance history for a member",
+        "operationId": "LoanV2Controller_getMemberMonthEndHistory",
+        "summary": "A member's full month-end loan balance history",
         "parameters": [
           {
-            "name": "memberNo",
+            "name": "mbno",
             "required": true,
             "in": "path",
             "schema": {
@@ -5634,137 +5451,41 @@
         ]
       }
     },
-    "/utilities/search/deposits-filtered": {
+    "/utilities/search/deposits": {
       "get": {
-        "operationId": "UtilityController_searchDeposits",
-        "summary": "Search deposit accounts with filters (generic multi-field filter version)",
+        "operationId": "UtilitiesController_searchDeposits",
+        "summary": "Search for deposit accounts (RD/FD) by member number",
         "parameters": [
           {
-            "name": "query",
-            "required": false,
+            "name": "memberNo",
+            "required": true,
             "in": "query",
-            "description": "General search query",
+            "description": "Member number",
             "schema": {
               "type": "string"
             }
           },
           {
-            "name": "memberNumber",
-            "required": false,
+            "name": "type",
+            "required": true,
             "in": "query",
-            "description": "Member number to search",
+            "description": "Deposit type",
             "schema": {
+              "enum": [
+                "RD",
+                "FD"
+              ],
               "type": "string"
-            }
-          },
-          {
-            "name": "accountNumber",
-            "required": false,
-            "in": "query",
-            "description": "Account number to search",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "status",
-            "required": false,
-            "in": "query",
-            "description": "Status filter",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "dateFrom",
-            "required": false,
-            "in": "query",
-            "description": "Date from (YYYY-MM-DD)",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "dateTo",
-            "required": false,
-            "in": "query",
-            "description": "Date to (YYYY-MM-DD)",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "amountFrom",
-            "required": false,
-            "in": "query",
-            "description": "Minimum amount",
-            "schema": {
-              "type": "number"
-            }
-          },
-          {
-            "name": "amountTo",
-            "required": false,
-            "in": "query",
-            "description": "Maximum amount",
-            "schema": {
-              "type": "number"
-            }
-          },
-          {
-            "name": "loanType",
-            "required": false,
-            "in": "query",
-            "description": "Loan type filter",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "memberIds",
-            "required": false,
-            "in": "query",
-            "description": "Member IDs to filter",
-            "schema": {
-              "type": "array",
-              "items": {
-                "type": "number"
-              }
-            }
-          },
-          {
-            "name": "page",
-            "required": false,
-            "in": "query",
-            "description": "Page number",
-            "schema": {
-              "default": 1,
-              "type": "number"
-            }
-          },
-          {
-            "name": "limit",
-            "required": false,
-            "in": "query",
-            "description": "Items per page",
-            "schema": {
-              "default": 10,
-              "type": "number"
             }
           }
         ],
         "responses": {
           "200": {
-            "description": "Deposit search results returned successfully"
+            "description": ""
           }
         },
         "tags": [
           "Utilities"
-        ],
-        "security": [
-          {
-            "bearer": []
-          }
         ]
       }
     },
@@ -6576,7 +6297,6 @@
     "/utilities": {
       "get": {
         "operationId": "UtilityController_findAll",
-        "summary": "Legacy: list available utility services (index/health ping)",
         "parameters": [],
         "responses": {
           "200": {
@@ -7149,9 +6869,9 @@
             "name": "id",
             "required": true,
             "in": "path",
-            "description": "Fixed deposit account number",
+            "description": "Fixed deposit ID",
             "schema": {
-              "type": "string"
+              "type": "number"
             }
           }
         ],
@@ -7280,6 +7000,163 @@
         ]
       }
     },
+    "/dividend/share-snapshot": {
+      "post": {
+        "operationId": "ShareMonthEndController_captureSnapshot",
+        "summary": "Capture a month-end Share Capital balance snapshot for every member holding shares",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Dividend - Share Monthly Balance"
+        ]
+      }
+    },
+    "/dividend/share-snapshot/report": {
+      "get": {
+        "operationId": "ShareMonthEndController_getReport",
+        "summary": "The captured Share Capital balance snapshot for a given month/year",
+        "parameters": [
+          {
+            "name": "month",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "year",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Dividend - Share Monthly Balance"
+        ]
+      }
+    },
+    "/dividend/share-snapshot/history/{mbno}": {
+      "get": {
+        "operationId": "ShareMonthEndController_getHistory",
+        "summary": "A member's full Share Capital monthly balance history",
+        "parameters": [
+          {
+            "name": "mbno",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Dividend - Share Monthly Balance"
+        ]
+      }
+    },
+    "/dividend/calculation/preview": {
+      "get": {
+        "operationId": "DividendCalculationController_preview",
+        "summary": "Read-only preview of the Total Product dividend calculation for a financial year — writes nothing",
+        "parameters": [
+          {
+            "name": "yearcode",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "dividendRate",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Dividend - Calculation"
+        ]
+      }
+    },
+    "/dividend/calculation/commit": {
+      "post": {
+        "operationId": "DividendCalculationController_commit",
+        "summary": "Commits the dividend calculation for a financial year into dividend_master — does NOT credit Share Value",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Dividend - Calculation"
+        ]
+      }
+    },
+    "/dividend/credit/preview": {
+      "get": {
+        "operationId": "DividendCreditController_preview",
+        "summary": "Read-only preview of the prior financial year's dividend that would be credited to Share Value at this year's close — writes nothing",
+        "parameters": [
+          {
+            "name": "yearcode",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Dividend - Credit"
+        ]
+      }
+    },
+    "/dividend/credit/commit": {
+      "post": {
+        "operationId": "DividendCreditController_commit",
+        "summary": "Credits every member's eligible prior-year dividend into their Share Value",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Dividend - Credit"
+        ]
+      }
+    },
     "/transactions/voucher": {
       "post": {
         "operationId": "TransactionV2Controller_createVoucher",
@@ -7398,7 +7275,7 @@
     "/transactions/reverse/{voucherNo}": {
       "post": {
         "operationId": "TransactionV2Controller_reverseTransaction",
-        "summary": "Reverse a posted transaction (ADMIN ONLY — destructive)",
+        "summary": "Reverse a posted transaction",
         "parameters": [
           {
             "name": "voucherNo",
@@ -7412,81 +7289,6 @@
         "responses": {
           "200": {
             "description": "Transaction reversed successfully"
-          }
-        },
-        "tags": [
-          "Transactions"
-        ]
-      }
-    },
-    "/transactions/fix-trans-types": {
-      "post": {
-        "operationId": "TransactionV2Controller_fixTransTypes",
-        "summary": "One-time fix: convert P/R to DR/CR in transactions table",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Transactions"
-        ]
-      }
-    },
-    "/transactions/member-balance-transfer/generate": {
-      "post": {
-        "operationId": "TransactionV2Controller_generateMemberBalanceTransfer",
-        "summary": "Generate member balance transfer preview",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Transactions"
-        ]
-      }
-    },
-    "/transactions/member-balance-transfer/post": {
-      "post": {
-        "operationId": "TransactionV2Controller_postMemberBalanceTransfer",
-        "summary": "Post member balance transfer to ledger",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Transactions"
-        ]
-      }
-    },
-    "/transactions/pending-loans": {
-      "get": {
-        "operationId": "TransactionV2Controller_getPendingLoans",
-        "summary": "Get all pending loan applications for approval",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Transactions"
-        ]
-      }
-    },
-    "/transactions/loan-pass-flag": {
-      "post": {
-        "operationId": "TransactionV2Controller_updateLoanPassFlag",
-        "summary": "Update loan pass flag (Y=Approve, N=Pending, D=Decline)",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
           }
         },
         "tags": [
@@ -7567,7 +7369,7 @@
     "/transactions/demand-generation/import-preview": {
       "post": {
         "operationId": "DemandGenerationController_previewImport",
-        "summary": "Parse Excel/CSV file and return preview data",
+        "summary": "Preview demand list import from a real uploaded Excel/CSV file",
         "parameters": [],
         "responses": {
           "201": {
@@ -7582,7 +7384,7 @@
     "/transactions/demand-generation/import-process": {
       "post": {
         "operationId": "DemandGenerationController_processImport",
-        "summary": "Save imported demand data to demand_master",
+        "summary": "Save previously-previewed demand import rows for the selected month/year",
         "parameters": [],
         "responses": {
           "201": {
@@ -7597,7 +7399,7 @@
     "/transactions/ledger-posting/summary": {
       "get": {
         "operationId": "LedgerPostingController_getSummary",
-        "summary": "Get member-wise demand summary for ledger posting",
+        "summary": "Get ledger posting summary for a period",
         "parameters": [
           {
             "name": "month",
@@ -7622,22 +7424,6 @@
             "schema": {
               "type": "string"
             }
-          },
-          {
-            "name": "fromMember",
-            "required": true,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "toMember",
-            "required": true,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
           }
         ],
         "responses": {
@@ -7653,7 +7439,7 @@
     "/transactions/ledger-posting/post": {
       "post": {
         "operationId": "LedgerPostingController_postUpdate",
-        "summary": "Post demand recovery to General Ledger",
+        "summary": "Post updates to General Ledger",
         "parameters": [],
         "responses": {
           "200": {
@@ -7760,25 +7546,10 @@
         ]
       }
     },
-    "/transactions/fixed-deposit": {
-      "post": {
-        "operationId": "FixedDepositController_createFixedDeposit",
-        "summary": "Create a new Fixed Deposit",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Transactions"
-        ]
-      }
-    },
-    "/transactions/fixed-deposit/member/{memberNo}": {
+    "/transactions/dividend/pending/{memberNo}": {
       "get": {
-        "operationId": "FixedDepositController_getActiveFDs",
-        "summary": "Get active FDs for a member",
+        "operationId": "DividendPaymentController_getPendingDividends",
+        "summary": "Get pending dividends for a member",
         "parameters": [
           {
             "name": "memberNo",
@@ -7799,25 +7570,10 @@
         ]
       }
     },
-    "/transactions/fixed-deposit/interest-voucher": {
+    "/transactions/dividend/pay": {
       "post": {
-        "operationId": "FixedDepositController_createInterestVoucher",
-        "summary": "Create Interest Voucher",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Transactions"
-        ]
-      }
-    },
-    "/transactions/fixed-deposit/close": {
-      "post": {
-        "operationId": "FixedDepositController_closeFixedDeposit",
-        "summary": "Close/Withdraw Fixed Deposit",
+        "operationId": "DividendPaymentController_processDividendPayment",
+        "summary": "Process dividend payment",
         "parameters": [],
         "responses": {
           "201": {
@@ -7832,7 +7588,6 @@
     "/notifications/history": {
       "get": {
         "operationId": "NotificationController_getHistory",
-        "summary": "List recent notification log entries (default last 100)",
         "parameters": [
           {
             "name": "limit",
@@ -7847,187 +7602,43 @@
           "200": {
             "description": ""
           }
-        },
-        "tags": [
-          "Notifications"
-        ]
+        }
       }
     },
     "/notifications/stats": {
       "get": {
         "operationId": "NotificationController_getStats",
-        "summary": "Notification counts/stats (sent, failed, pending)",
         "parameters": [],
         "responses": {
           "200": {
             "description": ""
           }
-        },
-        "tags": [
-          "Notifications"
-        ]
-      }
-    },
-    "/notifications/channel-status": {
-      "get": {
-        "operationId": "NotificationController_getChannelStatus",
-        "summary": "Configured/available notification channels and their status (SMS/email/etc.)",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Notifications"
-        ]
-      }
-    },
-    "/notifications/queue-manual": {
-      "post": {
-        "operationId": "NotificationController_queueManual",
-        "summary": "Queue a manual notification to a member for later sending",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Notifications"
-        ]
+        }
       }
     },
     "/notifications/send-manual": {
       "post": {
         "operationId": "NotificationController_sendManual",
-        "summary": "Send a manual notification to a member immediately",
         "parameters": [],
         "responses": {
           "201": {
             "description": ""
           }
-        },
-        "tags": [
-          "Notifications"
-        ]
-      }
-    },
-    "/notifications/send-one/{id}": {
-      "post": {
-        "operationId": "NotificationController_sendOne",
-        "summary": "Send a single queued notification by its log id",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "number"
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Notifications"
-        ]
-      }
-    },
-    "/notifications/send-batch": {
-      "post": {
-        "operationId": "NotificationController_sendBatch",
-        "summary": "Send a batch of queued notifications by their ids",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Notifications"
-        ]
-      }
-    },
-    "/notifications/cancel-batch": {
-      "post": {
-        "operationId": "NotificationController_cancelBatch",
-        "summary": "Cancel a batch of queued notifications by their ids",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Notifications"
-        ]
+        }
       }
     },
     "/notifications/trigger-emi-check": {
       "post": {
         "operationId": "NotificationController_triggerEmiCheck",
-        "summary": "Manually run the EMI-due check and queue EMI reminder alerts",
         "parameters": [],
         "responses": {
           "201": {
             "description": ""
           }
-        },
-        "tags": [
-          "Notifications"
-        ]
-      }
-    },
-    "/notifications/trigger-maturity-check": {
-      "post": {
-        "operationId": "NotificationController_triggerMaturityCheck",
-        "summary": "Manually run the deposit-maturity check and queue maturity alerts",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Notifications"
-        ]
-      }
-    },
-    "/notifications/queue-transaction-alert": {
-      "post": {
-        "operationId": "NotificationController_queueTransactionAlert",
-        "summary": "Queue a transaction alert notification for a member",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Notifications"
-        ]
+        }
       }
     },
     "/reports/cashbook/daily": {
-      "post": {
-        "operationId": "ReportV2Controller_getCashBookDaily",
-        "summary": "Get daily cash book report (voucher-wise)",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
-    "/report/cashbook/daily": {
       "post": {
         "operationId": "ReportV2Controller_getCashBookDaily",
         "summary": "Get daily cash book report (voucher-wise)",
@@ -8057,37 +7668,7 @@
         ]
       }
     },
-    "/report/cashbook2/daily": {
-      "post": {
-        "operationId": "ReportV2Controller_getCashBook2Daily",
-        "summary": "Get daily cash book report (head-wise from tblcashbook)",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
     "/reports/cashbook/monthly": {
-      "post": {
-        "operationId": "ReportV2Controller_getCashBookMonthly",
-        "summary": "Get monthly cash book summary",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
-    "/report/cashbook/monthly": {
       "post": {
         "operationId": "ReportV2Controller_getCashBookMonthly",
         "summary": "Get monthly cash book summary",
@@ -8117,37 +7698,7 @@
         ]
       }
     },
-    "/report/ledger/detail": {
-      "post": {
-        "operationId": "ReportV2Controller_getDetailLedger",
-        "summary": "Get detail ledger for a head code",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
     "/reports/bank/ledger": {
-      "post": {
-        "operationId": "ReportV2Controller_getBankDetailLedger",
-        "summary": "Get bank detail ledger",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
-    "/report/bank/ledger": {
       "post": {
         "operationId": "ReportV2Controller_getBankDetailLedger",
         "summary": "Get bank detail ledger",
@@ -8177,37 +7728,7 @@
         ]
       }
     },
-    "/report/heads": {
-      "get": {
-        "operationId": "ReportV2Controller_getHeadList",
-        "summary": "Get list of account heads",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
     "/reports/banks": {
-      "get": {
-        "operationId": "ReportV2Controller_getBankList",
-        "summary": "Get list of bank accounts",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
-    "/report/banks": {
       "get": {
         "operationId": "ReportV2Controller_getBankList",
         "summary": "Get list of bank accounts",
@@ -8246,46 +7767,7 @@
         ]
       }
     },
-    "/report/member/profile/{memberNo}": {
-      "get": {
-        "operationId": "ReportV2Controller_getMemberProfile",
-        "summary": "Get member profile",
-        "parameters": [
-          {
-            "name": "memberNo",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
     "/reports/member/statement": {
-      "post": {
-        "operationId": "ReportV2Controller_getMemberStatement",
-        "summary": "Get member statement",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
-    "/report/member/statement": {
       "post": {
         "operationId": "ReportV2Controller_getMemberStatement",
         "summary": "Get member statement",
@@ -8315,37 +7797,7 @@
         ]
       }
     },
-    "/report/voters-list": {
-      "get": {
-        "operationId": "ReportV2Controller_getVotersList",
-        "summary": "Get voters list",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
     "/reports/member/balance-range": {
-      "post": {
-        "operationId": "ReportV2Controller_getMemberBalanceRange",
-        "summary": "Get members by balance range",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
-    "/report/member/balance-range": {
       "post": {
         "operationId": "ReportV2Controller_getMemberBalanceRange",
         "summary": "Get members by balance range",
@@ -8375,37 +7827,7 @@
         ]
       }
     },
-    "/report/member-balance-range": {
-      "get": {
-        "operationId": "ReportV2Controller_getMemberBalanceByMemberRange",
-        "summary": "Get members by account number range",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
     "/reports/jotting": {
-      "post": {
-        "operationId": "ReportV2Controller_getJottingReport",
-        "summary": "Get jotting report",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
-    "/report/jotting": {
       "post": {
         "operationId": "ReportV2Controller_getJottingReport",
         "summary": "Get jotting report",
@@ -8435,37 +7857,7 @@
         ]
       }
     },
-    "/report/member-ledger": {
-      "get": {
-        "operationId": "ReportV2Controller_getMemberLedger",
-        "summary": "Get member ledger",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
     "/reports/annual-member-statement": {
-      "get": {
-        "operationId": "ReportV2Controller_getAnnualMemberStatement",
-        "summary": "Get annual member statement",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
-    "/report/annual-member-statement": {
       "get": {
         "operationId": "ReportV2Controller_getAnnualMemberStatement",
         "summary": "Get annual member statement",
@@ -8495,21 +7887,6 @@
         ]
       }
     },
-    "/report/yearly-member-statement": {
-      "get": {
-        "operationId": "ReportV2Controller_getYearlyMemberStatement",
-        "summary": "Get yearly member statement",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
     "/reports/defaulters": {
       "post": {
         "operationId": "ReportV2Controller_getDefaulterList",
@@ -8525,37 +7902,7 @@
         ]
       }
     },
-    "/report/defaulters": {
-      "post": {
-        "operationId": "ReportV2Controller_getDefaulterList",
-        "summary": "Get defaulter list",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
     "/reports/loans/new-disbursed": {
-      "post": {
-        "operationId": "ReportV2Controller_getNewLoanDisbursed",
-        "summary": "Get newly disbursed loans",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
-    "/report/loans/new-disbursed": {
       "post": {
         "operationId": "ReportV2Controller_getNewLoanDisbursed",
         "summary": "Get newly disbursed loans",
@@ -8594,46 +7941,7 @@
         ]
       }
     },
-    "/report/member/{memberNo}/loan-cases": {
-      "get": {
-        "operationId": "ReportV2Controller_getMemberLoanCases",
-        "summary": "Get loan cases for a member",
-        "parameters": [
-          {
-            "name": "memberNo",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
     "/reports/member/loan-ledger": {
-      "post": {
-        "operationId": "ReportV2Controller_getMemberLoanLedger",
-        "summary": "Get member loan ledger",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
-    "/report/member/loan-ledger": {
       "post": {
         "operationId": "ReportV2Controller_getMemberLoanLedger",
         "summary": "Get member loan ledger",
@@ -8663,37 +7971,7 @@
         ]
       }
     },
-    "/report/member-loan-detail": {
-      "get": {
-        "operationId": "ReportV2Controller_getMemberLoanDetail",
-        "summary": "Get member loan detail report",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
     "/reports/loan-contributions-register": {
-      "get": {
-        "operationId": "ReportV2Controller_getLoanContributionsRegister",
-        "summary": "Get loan contributions register",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
-    "/report/loan-contributions-register": {
       "get": {
         "operationId": "ReportV2Controller_getLoanContributionsRegister",
         "summary": "Get loan contributions register",
@@ -8723,21 +8001,6 @@
         ]
       }
     },
-    "/report/adhoc-reports": {
-      "get": {
-        "operationId": "ReportV2Controller_getAdHocReports",
-        "summary": "Get AdHoc reports",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
     "/reports/surety-register": {
       "get": {
         "operationId": "ReportV2Controller_getSuretyRegister",
@@ -8753,37 +8016,7 @@
         ]
       }
     },
-    "/report/surety-register": {
-      "get": {
-        "operationId": "ReportV2Controller_getSuretyRegister",
-        "summary": "Get surety register",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
     "/reports/loan-types": {
-      "get": {
-        "operationId": "ReportV2Controller_getLoanTypes",
-        "summary": "Get loan types",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
-    "/report/loan-types": {
       "get": {
         "operationId": "ReportV2Controller_getLoanTypes",
         "summary": "Get loan types",
@@ -8822,46 +8055,7 @@
         ]
       }
     },
-    "/report/loan-nil-certificate/{memberNo}": {
-      "get": {
-        "operationId": "ReportV2Controller_getLoanNilCertificate",
-        "summary": "Get loan nil certificate",
-        "parameters": [
-          {
-            "name": "memberNo",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
     "/reports/loans/interest-statement": {
-      "post": {
-        "operationId": "ReportV2Controller_getInterestStatement",
-        "summary": "Get interest receivable/received statement",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
-    "/report/loans/interest-statement": {
       "post": {
         "operationId": "ReportV2Controller_getInterestStatement",
         "summary": "Get interest receivable/received statement",
@@ -8891,37 +8085,7 @@
         ]
       }
     },
-    "/report/dividend-report": {
-      "get": {
-        "operationId": "ReportV2Controller_getDividendReport",
-        "summary": "Get dividend report",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
     "/reports/dividend-paid": {
-      "get": {
-        "operationId": "ReportV2Controller_getDividendPaid",
-        "summary": "Get dividend paid report",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
-    "/report/dividend-paid": {
       "get": {
         "operationId": "ReportV2Controller_getDividendPaid",
         "summary": "Get dividend paid report",
@@ -8951,37 +8115,7 @@
         ]
       }
     },
-    "/report/dividend-warrant": {
-      "get": {
-        "operationId": "ReportV2Controller_getDividendWarrant",
-        "summary": "Get dividend warrant",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
     "/reports/interest-list": {
-      "get": {
-        "operationId": "ReportV2Controller_getInterestList",
-        "summary": "Get interest list",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
-    "/report/interest-list": {
       "get": {
         "operationId": "ReportV2Controller_getInterestList",
         "summary": "Get interest list",
@@ -9011,21 +8145,6 @@
         ]
       }
     },
-    "/report/share-warrant": {
-      "get": {
-        "operationId": "ReportV2Controller_getShareWarrant",
-        "summary": "Get share warrant",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
     "/reports/interest-certificate": {
       "post": {
         "operationId": "ReportV2Controller_getInterestCertificate",
@@ -9041,67 +8160,7 @@
         ]
       }
     },
-    "/report/interest-certificate": {
-      "post": {
-        "operationId": "ReportV2Controller_getInterestCertificate",
-        "summary": "Get interest certificate",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
-    "/reports/fd/statement": {
-      "post": {
-        "operationId": "ReportV2Controller_getFDStatement",
-        "summary": "Get FD statement",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
-    "/report/fd/statement": {
-      "post": {
-        "operationId": "ReportV2Controller_getFDStatement",
-        "summary": "Get FD statement",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
     "/reports/rd/statement": {
-      "post": {
-        "operationId": "ReportV2Controller_getRDStatement",
-        "summary": "Get RD statement",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
-    "/report/rd/statement": {
       "post": {
         "operationId": "ReportV2Controller_getRDStatement",
         "summary": "Get RD statement",
@@ -9131,21 +8190,6 @@
         ]
       }
     },
-    "/report/saving/statement": {
-      "post": {
-        "operationId": "ReportV2Controller_getSavingStatement",
-        "summary": "Get saving statement",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
     "/reports/deposit/maturity": {
       "post": {
         "operationId": "ReportV2Controller_getDepositMaturity",
@@ -9161,67 +8205,7 @@
         ]
       }
     },
-    "/report/deposit/maturity": {
-      "post": {
-        "operationId": "ReportV2Controller_getDepositMaturity",
-        "summary": "Get deposit maturity report",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
-    "/reports/fd-certificate": {
-      "get": {
-        "operationId": "ReportV2Controller_getFDCertificate",
-        "summary": "Get FD certificate",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
-    "/report/fd-certificate": {
-      "get": {
-        "operationId": "ReportV2Controller_getFDCertificate",
-        "summary": "Get FD certificate",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
     "/reports/share-certificate": {
-      "get": {
-        "operationId": "ReportV2Controller_getShareCertificate",
-        "summary": "Get share certificate",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
-    "/report/share-certificate": {
       "get": {
         "operationId": "ReportV2Controller_getShareCertificate",
         "summary": "Get share certificate",
@@ -9251,37 +8235,7 @@
         ]
       }
     },
-    "/report/recurring-details": {
-      "get": {
-        "operationId": "ReportV2Controller_getRecurringDetails",
-        "summary": "Get recurring details",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
     "/reports/lien-account-information": {
-      "get": {
-        "operationId": "ReportV2Controller_getLienAccountInformation",
-        "summary": "Get lien account information",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
-    "/report/lien-account-information": {
       "get": {
         "operationId": "ReportV2Controller_getLienAccountInformation",
         "summary": "Get lien account information",
@@ -9311,119 +8265,7 @@
         ]
       }
     },
-    "/report/passbook-printing": {
-      "get": {
-        "operationId": "ReportV2Controller_getPassBookPrinting",
-        "summary": "Get passbook printing data",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
-    "/reports/passbook-reset": {
-      "post": {
-        "operationId": "ReportV2Controller_resetPassbookPrinting",
-        "summary": "Reset passbook print tracking for a member",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
-    "/report/passbook-reset": {
-      "post": {
-        "operationId": "ReportV2Controller_resetPassbookPrinting",
-        "summary": "Reset passbook print tracking for a member",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
-    "/reports/passbook-update-tracking": {
-      "post": {
-        "operationId": "ReportV2Controller_updatePassbookTracking",
-        "summary": "Update passbook tracking after print",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
-    "/report/passbook-update-tracking": {
-      "post": {
-        "operationId": "ReportV2Controller_updatePassbookTracking",
-        "summary": "Update passbook tracking after print",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
     "/reports/schedule": {
-      "get": {
-        "operationId": "ReportV2Controller_getAllReportSchedules",
-        "summary": "Get all report schedules",
-        "parameters": [
-          {
-            "name": "type",
-            "required": true,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      },
-      "post": {
-        "operationId": "ReportV2Controller_createReportSchedule",
-        "summary": "Create or update report schedule",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
-    "/report/schedule": {
       "get": {
         "operationId": "ReportV2Controller_getAllReportSchedules",
         "summary": "Get all report schedules",
@@ -9484,55 +8326,7 @@
         ]
       }
     },
-    "/report/schedule/{id}": {
-      "get": {
-        "operationId": "ReportV2Controller_getReportScheduleDetails",
-        "summary": "Get report schedule details",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
     "/reports/balance-sheet": {
-      "get": {
-        "operationId": "ReportV2Controller_getBalanceSheet",
-        "summary": "Get Balance Sheet",
-        "parameters": [
-          {
-            "name": "asOnDate",
-            "required": true,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
-    "/report/balance-sheet": {
       "get": {
         "operationId": "ReportV2Controller_getBalanceSheet",
         "summary": "Get Balance Sheet",
@@ -9571,21 +8365,6 @@
         ]
       }
     },
-    "/report/schedule/execute": {
-      "post": {
-        "operationId": "ReportV2Controller_executeReportSchedule",
-        "summary": "Execute report schedule",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
     "/reports/wings": {
       "get": {
         "operationId": "ReportV2Controller_getWingList",
@@ -9601,46 +8380,7 @@
         ]
       }
     },
-    "/report/wings": {
-      "get": {
-        "operationId": "ReportV2Controller_getWingList",
-        "summary": "Get wing list",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
     "/reports/offices": {
-      "get": {
-        "operationId": "ReportV2Controller_getOfficeList",
-        "summary": "Get office list",
-        "parameters": [
-          {
-            "name": "wingNo",
-            "required": true,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
-    "/report/offices": {
       "get": {
         "operationId": "ReportV2Controller_getOfficeList",
         "summary": "Get office list",
@@ -9688,46 +8428,7 @@
         ]
       }
     },
-    "/report/divisions": {
-      "get": {
-        "operationId": "ReportV2Controller_getDivisionList",
-        "summary": "Get division list",
-        "parameters": [
-          {
-            "name": "wingNo",
-            "required": true,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
     "/reports/financial-summary": {
-      "get": {
-        "operationId": "ReportV2Controller_getFinancialSummary",
-        "summary": "Get financial summary (Trial Balance)",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
-    "/report/financial-summary": {
       "get": {
         "operationId": "ReportV2Controller_getFinancialSummary",
         "summary": "Get financial summary (Trial Balance)",
@@ -9757,37 +8458,7 @@
         ]
       }
     },
-    "/report/account-closing": {
-      "get": {
-        "operationId": "ReportV2Controller_getAccountClosingRegister",
-        "summary": "Get account closing register",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
     "/reports/recovery-details": {
-      "get": {
-        "operationId": "ReportV2Controller_getRecoveryDetails",
-        "summary": "Get recovery details",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
-    "/report/recovery-details": {
       "get": {
         "operationId": "ReportV2Controller_getRecoveryDetails",
         "summary": "Get recovery details",
@@ -9817,83 +8488,6 @@
         ]
       }
     },
-    "/report/diagnostic": {
-      "get": {
-        "operationId": "ReportV2Controller_diagnosticCheck",
-        "summary": "Run diagnostic check",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Reports"
-        ]
-      }
-    },
-    "/utilities/head-balance/{code}": {
-      "get": {
-        "operationId": "UtilitiesController_getHeadBalance",
-        "summary": "Get the running ledger balance for an account head (e.g. a bank/cash account)",
-        "parameters": [
-          {
-            "name": "code",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Utilities"
-        ]
-      }
-    },
-    "/utilities/search/deposits": {
-      "get": {
-        "operationId": "UtilitiesController_searchDeposits",
-        "summary": "Search for deposit accounts (RD/FD) by member number",
-        "parameters": [
-          {
-            "name": "memberNo",
-            "required": true,
-            "in": "query",
-            "description": "Member number",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "type",
-            "required": true,
-            "in": "query",
-            "description": "Deposit type",
-            "schema": {
-              "enum": [
-                "RD",
-                "FD"
-              ],
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Utilities"
-        ]
-      }
-    },
     "/utilities/search/sb-accounts": {
       "get": {
         "operationId": "UtilitiesController_searchSBAccounts",
@@ -9909,36 +8503,6 @@
             }
           }
         ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Utilities"
-        ]
-      }
-    },
-    "/utilities/rd-accounts/holders": {
-      "get": {
-        "operationId": "UtilitiesController_listRdAccountHolders",
-        "summary": "List members who have at least one active RD account (for Premature Information dropdown)",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Utilities"
-        ]
-      }
-    },
-    "/utilities/sb-accounts/holders": {
-      "get": {
-        "operationId": "UtilitiesController_listSbAccountHolders",
-        "summary": "List members who have an SB account (for Premature Information dropdown)",
-        "parameters": [],
         "responses": {
           "200": {
             "description": ""
@@ -10272,27 +8836,7 @@
     "/utilities/fd-interest/post": {
       "post": {
         "operationId": "UtilitiesController_postFdInterestVoucher",
-        "summary": "Post FD interest voucher (accrual) — CR A003/FD, vchr_type=J",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Utilities"
-        ],
-        "security": [
-          {
-            "JWT-auth": []
-          }
-        ]
-      }
-    },
-    "/utilities/fd-interest/pay": {
-      "post": {
-        "operationId": "UtilitiesController_payFdInterest",
-        "summary": "Pay FD interest out to member — DR A003/FD, CR cash/bank, vchr_type=P",
+        "summary": "Post FD interest voucher — CR A003/FD, vchr_type=J",
         "parameters": [],
         "responses": {
           "201": {
@@ -10500,151 +9044,6 @@
         "operationId": "UtilitiesController_saveFdRdSbEntry",
         "summary": "Save FD/RD/SB ledger entry",
         "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Utilities"
-        ],
-        "security": [
-          {
-            "JWT-auth": []
-          }
-        ]
-      }
-    },
-    "/utilities/head-master/rebuild-tree": {
-      "post": {
-        "operationId": "UtilitiesController_rebuildBalancesheet",
-        "summary": "Rebuild balancesheet from ledger transactions (like legacy Build Tree)",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Utilities"
-        ],
-        "security": [
-          {
-            "JWT-auth": []
-          }
-        ]
-      }
-    },
-    "/utilities/head-master/{code}": {
-      "delete": {
-        "operationId": "UtilitiesController_deleteHeadMaster",
-        "summary": "Delete an account head (blocked if it has children)",
-        "parameters": [
-          {
-            "name": "code",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Utilities"
-        ],
-        "security": [
-          {
-            "JWT-auth": []
-          }
-        ]
-      }
-    },
-    "/utilities/financial-years": {
-      "get": {
-        "operationId": "UtilitiesController_getFinancialYears",
-        "summary": "Get distinct financial years from yearend table",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Utilities"
-        ],
-        "security": [
-          {
-            "JWT-auth": []
-          }
-        ]
-      }
-    },
-    "/utilities/head-opening-balance": {
-      "get": {
-        "operationId": "UtilitiesController_getHeadOpeningBalances",
-        "summary": "Get head opening balances for a financial year",
-        "parameters": [
-          {
-            "name": "yearcode",
-            "required": true,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Utilities"
-        ],
-        "security": [
-          {
-            "JWT-auth": []
-          }
-        ]
-      },
-      "post": {
-        "operationId": "UtilitiesController_saveHeadOpeningBalances",
-        "summary": "Save head opening balances for a financial year",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Utilities"
-        ],
-        "security": [
-          {
-            "JWT-auth": []
-          }
-        ]
-      }
-    },
-    "/utilities/head-opening-balance/apply/{yearcode}": {
-      "post": {
-        "operationId": "UtilitiesController_applyYearOpeningBalances",
-        "summary": "Apply year opening balances to headmaster.op_bal",
-        "parameters": [
-          {
-            "name": "yearcode",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
         "responses": {
           "201": {
             "description": ""
@@ -11007,67 +9406,6 @@
           },
           "500": {
             "description": "Backup creation failed"
-          }
-        },
-        "tags": [
-          "Database Backup"
-        ],
-        "security": [
-          {
-            "bearer": []
-          }
-        ]
-      }
-    },
-    "/backup/restore": {
-      "post": {
-        "operationId": "BackupController_restoreBackup",
-        "summary": "Restore the database from a backup file (DESTRUCTIVE — overwrites all current data)",
-        "description": "Decrypts and restores a backup created by POST /backup/create. Overwrites the current database. Requires \"confirm\" to equal the exact target database name. Automatically takes a pre-restore safety backup first (unless skipSafetyBackup=true) so the operation is reversible.",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "fileName": {
-                    "type": "string",
-                    "description": "Backup file name (looked up in backup log / BACKUP_PATH)",
-                    "example": "backup_2026-07-25T10-00-00-000Z.sql.safe"
-                  },
-                  "filePath": {
-                    "type": "string",
-                    "description": "Absolute path to the backup file (overrides fileName)"
-                  },
-                  "confirm": {
-                    "type": "string",
-                    "description": "Must equal the exact target database name to proceed",
-                    "example": "EMP_Espat_Society"
-                  },
-                  "skipSafetyBackup": {
-                    "type": "boolean",
-                    "description": "Skip the automatic pre-restore safety backup",
-                    "default": false
-                  }
-                },
-                "required": [
-                  "confirm"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Restore completed (see success flag)"
-          },
-          "400": {
-            "description": "Missing/invalid confirmation or backup file not found"
-          },
-          "500": {
-            "description": "Restore failed"
           }
         },
         "tags": [
@@ -11465,22 +9803,17 @@
     "/cashbook/report": {
       "get": {
         "operationId": "CashBookController_getCashBookReport",
-        "summary": "Daily cash book report (receipts & payments) for a given date",
         "parameters": [],
         "responses": {
           "200": {
             "description": ""
           }
-        },
-        "tags": [
-          "Cash Book"
-        ]
+        }
       }
     },
     "/cashbook/transaction": {
       "post": {
         "operationId": "CashBookController_createTransaction",
-        "summary": "Record a cash book transaction (receipt or payment entry)",
         "parameters": [],
         "requestBody": {
           "required": true,
@@ -11496,46 +9829,34 @@
           "201": {
             "description": ""
           }
-        },
-        "tags": [
-          "Cash Book"
-        ]
+        }
       }
     },
     "/cashbook/members/active": {
       "get": {
         "operationId": "CashBookController_getActiveMembers",
-        "summary": "List active members (for cash book entry dropdowns)",
         "parameters": [],
         "responses": {
           "200": {
             "description": ""
           }
-        },
-        "tags": [
-          "Cash Book"
-        ]
+        }
       }
     },
     "/cashbook/interest-rate": {
       "get": {
         "operationId": "CashBookController_getCurrentInterestRate",
-        "summary": "Current savings interest rate used by the cash book",
         "parameters": [],
         "responses": {
           "200": {
             "description": ""
           }
-        },
-        "tags": [
-          "Cash Book"
-        ]
+        }
       }
     },
     "/cashbook/member/balance": {
       "get": {
         "operationId": "CashBookController_getMemberBalance",
-        "summary": "Get a member current cash/savings balance by member code",
         "parameters": [
           {
             "name": "memberCode",
@@ -11550,16 +9871,12 @@
           "200": {
             "description": ""
           }
-        },
-        "tags": [
-          "Cash Book"
-        ]
+        }
       }
     },
     "/cashbook/transactions": {
       "get": {
         "operationId": "CashBookController_getTransactionsByDateRange",
-        "summary": "List cash book transactions within a start/end date range",
         "parameters": [
           {
             "name": "startDate",
@@ -11582,61 +9899,45 @@
           "200": {
             "description": ""
           }
-        },
-        "tags": [
-          "Cash Book"
-        ]
+        }
       }
     },
     "/daybook/report": {
       "get": {
         "operationId": "DayBookController_getDayBookReport",
-        "summary": "Day book report (all day transactions) for a given date, optionally filtered",
         "parameters": [],
         "responses": {
           "200": {
             "description": ""
           }
-        },
-        "tags": [
-          "Day Book"
-        ]
+        }
       }
     },
     "/daybook/report/sb": {
       "get": {
         "operationId": "DayBookController_getDayBookSBReport",
-        "summary": "Day book report limited to savings-bank (SB) transactions for a date",
         "parameters": [],
         "responses": {
           "200": {
             "description": ""
           }
-        },
-        "tags": [
-          "Day Book"
-        ]
+        }
       }
     },
     "/daybook/active-members": {
       "get": {
         "operationId": "DayBookController_getActiveMembersWithSavings",
-        "summary": "List active members holding savings accounts",
         "parameters": [],
         "responses": {
           "200": {
             "description": ""
           }
-        },
-        "tags": [
-          "Day Book"
-        ]
+        }
       }
     },
     "/daybook/calculate-interest": {
       "post": {
         "operationId": "DayBookController_calculateInterest",
-        "summary": "Calculate accrued savings interest for a member over a period (preview, no posting)",
         "parameters": [],
         "requestBody": {
           "required": true,
@@ -11652,16 +9953,12 @@
           "201": {
             "description": ""
           }
-        },
-        "tags": [
-          "Day Book"
-        ]
+        }
       }
     },
     "/daybook/pay-interest": {
       "post": {
         "operationId": "DayBookController_payInterest",
-        "summary": "Post an interest payment to a member savings account",
         "parameters": [],
         "requestBody": {
           "required": true,
@@ -11677,115 +9974,73 @@
           "201": {
             "description": ""
           }
-        },
-        "tags": [
-          "Day Book"
-        ]
+        }
       }
     },
     "/daybook/interest-rate": {
       "get": {
         "operationId": "DayBookController_getCurrentInterestRate",
-        "summary": "Current savings interest rate used by the day book",
         "parameters": [],
         "responses": {
           "200": {
             "description": ""
           }
-        },
-        "tags": [
-          "Day Book"
-        ]
+        }
       }
     },
     "/consolidation/report": {
       "get": {
         "operationId": "ConsolidationController_getConsolidationReport",
-        "summary": "Consolidation report (all-branch day totals) for a given date",
         "parameters": [],
         "responses": {
           "200": {
             "description": ""
           }
-        },
-        "tags": [
-          "Consolidation"
-        ]
+        }
       }
     },
     "/member-ledger/report": {
       "get": {
         "operationId": "MemberLedgerController_getMemberLedgerReport",
-        "summary": "Member ledger for a single head/account over a date range",
         "parameters": [],
         "responses": {
           "200": {
             "description": ""
           }
-        },
-        "tags": [
-          "Member Ledger"
-        ]
+        }
       }
     },
     "/member-ledger/detail-report": {
       "get": {
         "operationId": "MemberLedgerController_getMemberDetailLedgerReport",
-        "summary": "Detailed member ledger across all heads over a date range",
         "parameters": [],
         "responses": {
           "200": {
             "description": ""
           }
-        },
-        "tags": [
-          "Member Ledger"
-        ]
-      }
-    },
-    "/member-ledger/detail-columnar": {
-      "get": {
-        "operationId": "MemberLedgerController_getMemberColumnarLedger",
-        "summary": "Columnar member ledger (Share/LTL/Emergency/CD columns with per-date Dr/Cr/Bal)",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Member Ledger"
-        ]
+        }
       }
     },
     "/member-ledger/validate-member": {
       "get": {
         "operationId": "MemberLedgerController_validateMember",
-        "summary": "Check a member number exists and return the member name",
         "parameters": [],
         "responses": {
           "200": {
             "description": ""
           }
-        },
-        "tags": [
-          "Member Ledger"
-        ]
+        }
       }
     },
     "/member-ledger/head-masters": {
       "get": {
         "operationId": "MemberLedgerController_getHeadMasters",
-        "summary": "List account head masters (for ledger head dropdowns)",
         "parameters": [],
         "responses": {
           "200": {
             "description": ""
           }
-        },
-        "tags": [
-          "Member Ledger"
-        ]
+        }
       }
     },
     "/general-ledger/report": {
@@ -11879,37 +10134,28 @@
     "/print-voucher/list/all": {
       "get": {
         "operationId": "PrintVoucherController_getAllVoucherNos",
-        "summary": "List all voucher numbers (for the print-voucher picker)",
         "parameters": [],
         "responses": {
           "200": {
             "description": ""
           }
-        },
-        "tags": [
-          "Print Voucher"
-        ]
+        }
       }
     },
     "/print-voucher/journal/list/all": {
       "get": {
         "operationId": "PrintVoucherController_getAllJournalVoucherNos",
-        "summary": "List all journal voucher numbers",
         "parameters": [],
         "responses": {
           "200": {
             "description": ""
           }
-        },
-        "tags": [
-          "Print Voucher"
-        ]
+        }
       }
     },
     "/print-voucher/journal/{voucherNo}": {
       "get": {
         "operationId": "PrintVoucherController_getJournalVoucher",
-        "summary": "Get a journal voucher by number (printable payload)",
         "parameters": [
           {
             "name": "voucherNo",
@@ -11924,16 +10170,12 @@
           "200": {
             "description": ""
           }
-        },
-        "tags": [
-          "Print Voucher"
-        ]
+        }
       }
     },
     "/print-voucher/{voucherNo}": {
       "get": {
         "operationId": "PrintVoucherController_getVoucher",
-        "summary": "Get a voucher by number (printable payload)",
         "parameters": [
           {
             "name": "voucherNo",
@@ -11948,61 +10190,45 @@
           "200": {
             "description": ""
           }
-        },
-        "tags": [
-          "Print Voucher"
-        ]
+        }
       }
     },
     "/jotting-report/head-masters": {
       "get": {
         "operationId": "JottingReportController_getHeadMasters",
-        "summary": "List account head masters (for jotting-report head dropdown)",
         "parameters": [],
         "responses": {
           "200": {
             "description": ""
           }
-        },
-        "tags": [
-          "Jotting Report"
-        ]
+        }
       }
     },
     "/jotting-report/wings": {
       "get": {
         "operationId": "JottingReportController_getWingList",
-        "summary": "List wings (for jotting-report wing filter)",
         "parameters": [],
         "responses": {
           "200": {
             "description": ""
           }
-        },
-        "tags": [
-          "Jotting Report"
-        ]
+        }
       }
     },
     "/jotting-report/offices": {
       "get": {
         "operationId": "JottingReportController_getOfficeList",
-        "summary": "List offices (for jotting-report office filter)",
         "parameters": [],
         "responses": {
           "200": {
             "description": ""
           }
-        },
-        "tags": [
-          "Jotting Report"
-        ]
+        }
       }
     },
     "/jotting-report": {
       "get": {
         "operationId": "JottingReportController_getJottingReport",
-        "summary": "Generate the jotting report (head balances as-on-date, by wing/office)",
         "parameters": [
           {
             "name": "headCode",
@@ -12049,9 +10275,74 @@
           "200": {
             "description": ""
           }
+        }
+      }
+    },
+    "/license/status": {
+      "get": {
+        "operationId": "LicenseController_getStatus",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/license/activate": {
+      "post": {
+        "operationId": "LicenseController_activate",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActivateLicenseDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/license/list": {
+      "get": {
+        "operationId": "LicenseController_listAll",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/client-logs": {
+      "post": {
+        "operationId": "ClientLogsController_receiveClientLogs",
+        "summary": "Ingest a batch of client-side (desktop app) log entries",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientLogBatchDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
         },
         "tags": [
-          "Jotting Report"
+          "Client Logs"
         ]
       }
     },
@@ -12119,101 +10410,6 @@
         },
         "tags": [
           "Dashboard Notices"
-        ]
-      }
-    },
-    "/license/status": {
-      "get": {
-        "operationId": "LicenseController_getStatus",
-        "summary": "Public: current software license status (valid/grace/expired)",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "License"
-        ]
-      }
-    },
-    "/license/activate": {
-      "post": {
-        "operationId": "LicenseController_activate",
-        "summary": "Public: activate a license key (self-validating; replaces active license on this machine)",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ActivateLicenseDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "License"
-        ]
-      }
-    },
-    "/license/list": {
-      "get": {
-        "operationId": "LicenseController_listAll",
-        "summary": "Admin: list all license records (debugging)",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "License"
-        ]
-      }
-    },
-    "/ai-chat": {
-      "post": {
-        "operationId": "AiChatController_chat",
-        "summary": "Chat with AI assistant",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "AI Chat"
-        ]
-      }
-    },
-    "/client-logs": {
-      "post": {
-        "operationId": "ClientLogsController_receiveClientLogs",
-        "summary": "Ingest a batch of client-side (desktop app) log entries",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ClientLogBatchDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Client Logs"
         ]
       }
     }
@@ -12347,11 +10543,6 @@
             "type": "boolean",
             "description": "User active status",
             "example": true
-          },
-          "avatar": {
-            "type": "string",
-            "description": "User avatar/profile photo URL",
-            "example": "/uploads/avatars/user-1.jpg"
           },
           "lastLoginAt": {
             "format": "date-time",
@@ -12524,26 +10715,6 @@
           "refreshToken"
         ]
       },
-      "ChangePasswordDto": {
-        "type": "object",
-        "properties": {
-          "currentPassword": {
-            "type": "string",
-            "description": "Current password",
-            "example": "currentPassword123"
-          },
-          "newPassword": {
-            "type": "string",
-            "description": "New password",
-            "example": "newSecurePassword123",
-            "minLength": 6
-          }
-        },
-        "required": [
-          "currentPassword",
-          "newPassword"
-        ]
-      },
       "CreateMemberDto": {
         "type": "object",
         "properties": {
@@ -12687,32 +10858,6 @@
           }
         }
       },
-      "UpdateMemberStatusDto": {
-        "type": "object",
-        "properties": {
-          "status": {
-            "type": "string",
-            "description": "New member lifecycle status",
-            "enum": [
-              "ACTIVE",
-              "INACTIVE",
-              "SUSPENDED",
-              "RESIGNED",
-              "EXPIRED",
-              "CLOSED"
-            ],
-            "example": "INACTIVE"
-          },
-          "reason": {
-            "type": "string",
-            "description": "Optional reason/note for the status change (for audit)",
-            "example": "Member resigned from the society"
-          }
-        },
-        "required": [
-          "status"
-        ]
-      },
       "DepositSlabResponseDto": {
         "type": "object",
         "properties": {
@@ -12729,8 +10874,7 @@
             "type": "string",
             "enum": [
               "fixed_deposit",
-              "recurring_deposit",
-              "loan"
+              "recurring_deposit"
             ]
           },
           "minAmount": {
@@ -12807,8 +10951,7 @@
             "description": "Type of deposit slab",
             "enum": [
               "fixed_deposit",
-              "recurring_deposit",
-              "loan"
+              "recurring_deposit"
             ],
             "example": "fixed_deposit"
           },
@@ -13025,11 +11168,6 @@
             "description": "Whether the user account is active",
             "example": true,
             "default": true
-          },
-          "avatar": {
-            "type": "string",
-            "description": "User avatar/profile photo URL",
-            "example": "/uploads/avatars/user-1.jpg"
           }
         },
         "required": [
@@ -13185,10 +11323,6 @@
             "type": "boolean",
             "description": "Whether the user account is active",
             "example": true
-          },
-          "avatar": {
-            "type": "string",
-            "description": "User avatar/profile photo (URL or data URI)"
           }
         }
       },
@@ -13330,6 +11464,26 @@
           "userAgent",
           "createdAt",
           "user"
+        ]
+      },
+      "ChangePasswordDto": {
+        "type": "object",
+        "properties": {
+          "currentPassword": {
+            "type": "string",
+            "description": "Current password",
+            "example": "currentPassword123"
+          },
+          "newPassword": {
+            "type": "string",
+            "description": "New password",
+            "example": "newSecurePassword123",
+            "minLength": 6
+          }
+        },
+        "required": [
+          "currentPassword",
+          "newPassword"
         ]
       },
       "CreateSystemConfigDto": {
@@ -13817,32 +11971,6 @@
           }
         }
       },
-      "BulkSaveDepositSlabsDto": {
-        "type": "object",
-        "properties": {
-          "type": {
-            "type": "string",
-            "description": "Deposit slab type these rows replace",
-            "enum": [
-              "fixed_deposit",
-              "recurring_deposit",
-              "loan"
-            ],
-            "example": "fixed_deposit"
-          },
-          "rows": {
-            "description": "Full replacement set of slabs for the given type",
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/CreateDepositSlabDto"
-            }
-          }
-        },
-        "required": [
-          "type",
-          "rows"
-        ]
-      },
       "InitiateDayEndDto": {
         "type": "object",
         "properties": {
@@ -13870,11 +11998,6 @@
                 "system_cleanup"
               ]
             }
-          },
-          "nextWorkingDate": {
-            "type": "string",
-            "description": "Next working date (user selects — for skipping weekends/holidays)",
-            "example": "2024-01-16"
           }
         },
         "required": [
@@ -14038,6 +12161,128 @@
           "interestAmount",
           "calculationDate",
           "status"
+        ]
+      },
+      "CreateBackupDto": {
+        "type": "object",
+        "properties": {
+          "backupName": {
+            "type": "string",
+            "description": "Custom name for the backup (optional)",
+            "example": "monthly_backup"
+          }
+        }
+      },
+      "BackupResponseDto": {
+        "type": "object",
+        "properties": {
+          "filename": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "size": {
+            "type": "number"
+          },
+          "checksum": {
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "filename",
+          "path",
+          "size",
+          "checksum",
+          "createdAt"
+        ]
+      },
+      "RestoreBackupDto": {
+        "type": "object",
+        "properties": {
+          "filename": {
+            "type": "string",
+            "description": "Filename of the backup to restore",
+            "example": "backup_2024-01-15T10-30-00-000Z.sql"
+          }
+        },
+        "required": [
+          "filename"
+        ]
+      },
+      "RestoreResultDto": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "restoredAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "success",
+          "message",
+          "restoredAt"
+        ]
+      },
+      "BackupInfoDto": {
+        "type": "object",
+        "properties": {
+          "filename": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "size": {
+            "type": "number"
+          },
+          "checksum": {
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "isValid": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "filename",
+          "path",
+          "size",
+          "checksum",
+          "createdAt",
+          "isValid"
+        ]
+      },
+      "BackupVerificationDto": {
+        "type": "object",
+        "properties": {
+          "filename": {
+            "type": "string"
+          },
+          "isValid": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "filename",
+          "isValid",
+          "message"
         ]
       },
       "CreateCertificateTemplateDto": {
@@ -14212,131 +12457,6 @@
           "loanBalance",
           "emergencyLoanBalance",
           "frsBalance"
-        ]
-      },
-      "UpdateFdAccountDto": {
-        "type": "object",
-        "properties": {
-          "memberNo": {
-            "type": "number",
-            "description": "Member Number"
-          },
-          "prefix": {
-            "type": "string",
-            "description": "Prefix"
-          },
-          "firstName": {
-            "type": "string",
-            "description": "First Name"
-          },
-          "middleName": {
-            "type": "string",
-            "description": "Middle Name"
-          },
-          "lastName": {
-            "type": "string",
-            "description": "Last Name"
-          },
-          "certificateNo": {
-            "type": "string",
-            "description": "Certificate Number"
-          },
-          "depositUnit": {
-            "type": "number",
-            "description": "Deposit Unit"
-          },
-          "depositPeriod": {
-            "type": "number",
-            "description": "Deposit Period"
-          },
-          "rate": {
-            "type": "number",
-            "description": "Interest Rate"
-          },
-          "depositDate": {
-            "format": "date-time",
-            "type": "string",
-            "description": "Deposit Date"
-          },
-          "maturityDate": {
-            "format": "date-time",
-            "type": "string",
-            "description": "Maturity Date"
-          },
-          "fdAmount": {
-            "type": "number",
-            "description": "FD Amount"
-          },
-          "maturityAmount": {
-            "type": "number",
-            "description": "Maturity Amount"
-          },
-          "interestBalance": {
-            "type": "number",
-            "description": "Interest Balance"
-          },
-          "interestAmount": {
-            "type": "number",
-            "description": "Interest Amount"
-          },
-          "lastIntPaymentDate": {
-            "format": "date-time",
-            "type": "string",
-            "description": "Last Interest Payment Date"
-          },
-          "interestPaid": {
-            "type": "number",
-            "description": "Interest Paid"
-          },
-          "status": {
-            "type": "string",
-            "description": "Status"
-          },
-          "nominee": {
-            "type": "string",
-            "description": "Nominee Name"
-          },
-          "nomineeAge": {
-            "type": "string",
-            "description": "Nominee Age"
-          },
-          "nomineeAddress": {
-            "type": "string",
-            "description": "Nominee Address"
-          },
-          "nomineeRelation": {
-            "type": "string",
-            "description": "Nominee Relation"
-          },
-          "modeOfPayment": {
-            "type": "number",
-            "description": "Mode of Payment"
-          }
-        },
-        "required": [
-          "memberNo",
-          "prefix",
-          "firstName",
-          "middleName",
-          "lastName",
-          "certificateNo",
-          "depositUnit",
-          "depositPeriod",
-          "rate",
-          "depositDate",
-          "maturityDate",
-          "fdAmount",
-          "maturityAmount",
-          "interestBalance",
-          "interestAmount",
-          "lastIntPaymentDate",
-          "interestPaid",
-          "status",
-          "nominee",
-          "nomineeAge",
-          "nomineeAddress",
-          "nomineeRelation",
-          "modeOfPayment"
         ]
       },
       "CreateOfficeDto": {
@@ -14548,192 +12668,6 @@
           "nomineeRelation": {
             "type": "string",
             "description": "Nominee Relation"
-          }
-        }
-      },
-      "CreateRdAccountDto": {
-        "type": "object",
-        "properties": {
-          "accountNumber": {
-            "type": "number",
-            "description": "Account Number"
-          },
-          "memberNo": {
-            "type": "number",
-            "description": "Member Number"
-          },
-          "prefix": {
-            "type": "string",
-            "description": "Prefix (Mr./Mrs./Ms.)"
-          },
-          "firstName": {
-            "type": "string",
-            "description": "First Name"
-          },
-          "middleName": {
-            "type": "string",
-            "description": "Middle Name"
-          },
-          "lastName": {
-            "type": "string",
-            "description": "Last Name"
-          },
-          "depositDate": {
-            "format": "date-time",
-            "type": "string",
-            "description": "Deposit Date"
-          },
-          "amount": {
-            "type": "number",
-            "description": "Installment Amount"
-          },
-          "rate": {
-            "type": "number",
-            "description": "Interest Rate (%)"
-          },
-          "depositPeriod": {
-            "type": "number",
-            "description": "Deposit Period"
-          },
-          "depositUnit": {
-            "type": "number",
-            "description": "Deposit Unit (1=Months, 2=Years)"
-          },
-          "maturityDate": {
-            "format": "date-time",
-            "type": "string",
-            "description": "Maturity Date"
-          },
-          "maturityAmount": {
-            "type": "number",
-            "description": "Maturity Amount"
-          },
-          "openingBalance": {
-            "type": "number",
-            "description": "Opening Balance (openbal in fdmaster)"
-          },
-          "nominee": {
-            "type": "string",
-            "description": "Nominee Name"
-          },
-          "nomineeAge": {
-            "type": "string",
-            "description": "Nominee Age"
-          },
-          "nomineeAddress": {
-            "type": "string",
-            "description": "Nominee Address"
-          },
-          "nomineeRelation": {
-            "type": "string",
-            "description": "Nominee Relation"
-          },
-          "specialInstructions": {
-            "type": "string",
-            "description": "Special Instructions / Remarks"
-          },
-          "recoveryThroughDemand": {
-            "type": "boolean",
-            "description": "Recover installment via demand/salary deduction"
-          },
-          "headCode": {
-            "type": "string",
-            "description": "RD Head Code (ledger head for this RD account)"
-          }
-        },
-        "required": [
-          "accountNumber",
-          "memberNo"
-        ]
-      },
-      "UpdateRdAccountDto": {
-        "type": "object",
-        "properties": {
-          "accountNumber": {
-            "type": "number",
-            "description": "Account Number"
-          },
-          "memberNo": {
-            "type": "number",
-            "description": "Member Number"
-          },
-          "prefix": {
-            "type": "string",
-            "description": "Prefix (Mr./Mrs./Ms.)"
-          },
-          "firstName": {
-            "type": "string",
-            "description": "First Name"
-          },
-          "middleName": {
-            "type": "string",
-            "description": "Middle Name"
-          },
-          "lastName": {
-            "type": "string",
-            "description": "Last Name"
-          },
-          "depositDate": {
-            "format": "date-time",
-            "type": "string",
-            "description": "Deposit Date"
-          },
-          "amount": {
-            "type": "number",
-            "description": "Installment Amount"
-          },
-          "rate": {
-            "type": "number",
-            "description": "Interest Rate (%)"
-          },
-          "depositPeriod": {
-            "type": "number",
-            "description": "Deposit Period"
-          },
-          "depositUnit": {
-            "type": "number",
-            "description": "Deposit Unit (1=Months, 2=Years)"
-          },
-          "maturityDate": {
-            "format": "date-time",
-            "type": "string",
-            "description": "Maturity Date"
-          },
-          "maturityAmount": {
-            "type": "number",
-            "description": "Maturity Amount"
-          },
-          "openingBalance": {
-            "type": "number",
-            "description": "Opening Balance (openbal in fdmaster)"
-          },
-          "nominee": {
-            "type": "string",
-            "description": "Nominee Name"
-          },
-          "nomineeAge": {
-            "type": "string",
-            "description": "Nominee Age"
-          },
-          "nomineeAddress": {
-            "type": "string",
-            "description": "Nominee Address"
-          },
-          "nomineeRelation": {
-            "type": "string",
-            "description": "Nominee Relation"
-          },
-          "specialInstructions": {
-            "type": "string",
-            "description": "Special Instructions / Remarks"
-          },
-          "recoveryThroughDemand": {
-            "type": "boolean",
-            "description": "Recover installment via demand/salary deduction"
-          },
-          "headCode": {
-            "type": "string",
-            "description": "RD Head Code (ledger head for this RD account)"
           }
         }
       },
@@ -15638,11 +13572,6 @@
             "description": "Account head code for savings accounts",
             "example": "A1001"
           },
-          "accountType": {
-            "type": "string",
-            "description": "Account type code (SB / RD / FD) stored as int_type in interest_master",
-            "example": "SB"
-          },
           "voucherNumber": {
             "type": "string",
             "description": "Voucher number for this interest run",
@@ -15657,11 +13586,6 @@
             "type": "string",
             "description": "Filter interest calculation to a single member (specific_member mode)",
             "example": "1001"
-          },
-          "expenseHeadCode": {
-            "type": "string",
-            "description": "GL head code for the balancing interest-expense debit leg. No real \"interest paid on savings\" head currently exists in headmaster (checked) — defaults to a confirmed-wrong placeholder (L1028) until a real one is decided.",
-            "example": "L1028"
           }
         },
         "required": [

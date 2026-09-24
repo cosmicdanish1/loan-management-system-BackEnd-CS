@@ -123,7 +123,8 @@ export class LoanQueryService {
           rate,
           no_of_instal,
           instal_amt,
-          payment_date
+          payment_date,
+          consolidated_into_loancaseno
         FROM loan_master
         WHERE mbno = $1
         ORDER BY loancaseno DESC
@@ -134,6 +135,11 @@ export class LoanQueryService {
             // Field names match the LoanStatement report screen's ActiveLoan
             // interface (Frontend/.../LoanStatement/hooks/useLoanStatement.ts),
             // which reads snake_case keys straight off the raw loan_master row.
+            // consolidatedIntoLoancaseno lets the UI show WHY an old case's
+            // balance is 0 (merged into a newer case) instead of it looking
+            // like an unexplained anomaly — was written by passTransaction()'s
+            // consolidation branch but never surfaced past the database until
+            // now (see pass-transaction.service.ts's consolidation logic).
             return result.map((loan: any) => ({
                 loancaseno: loan.loancaseno,
                 loantype: loan.loantype,
@@ -141,6 +147,7 @@ export class LoanQueryService {
                 balance: parseFloat(loan.balance) || 0,
                 no_of_instal: loan.no_of_instal,
                 instal_amt: parseFloat(loan.instal_amt) || 0,
+                consolidatedIntoLoancaseno: loan.consolidated_into_loancaseno || null,
             }));
         } catch (error) {
             console.error('[LoanQuery] Error getting member loans from master:', error);
@@ -452,5 +459,81 @@ export class LoanQueryService {
             tenureMonths,
             startDate || new Date()
         );
+    }
+
+    /**
+     * Full multi-hop consolidation chain for any case in it — walks forward
+     * via consolidated_into_loancaseno to find the currently-active head, then
+     * backward to collect every absorbed predecessor, in chronological order.
+     * Built for the Consolidation Chain Explorer screen: shows an operator or
+     * auditor the whole "old balance + new loan = combined" history in one
+     * place instead of one hop at a time (which the Early Closure screen's
+     * Consolidation History panel already covers for a single link).
+     */
+    async getConsolidationChain(loancaseno: string, mbno: string, loantype: string) {
+        // Walk forward to the head (the currently open/active end of the chain).
+        let headCaseNo = loancaseno;
+        for (let hops = 0; hops < 100; hops++) { // hard cap — a real chain is never this long, just a runaway-loop guard
+            const row = await this.dataSource.query(
+                `SELECT consolidated_into_loancaseno FROM loan_master WHERE mbno = $1 AND loancaseno::text = $2 AND loantype = $3`,
+                [mbno, headCaseNo, loantype],
+            );
+            const next = row[0]?.consolidated_into_loancaseno;
+            if (!next) break;
+            headCaseNo = next;
+        }
+
+        // Walk backward from the head, collecting every real predecessor.
+        const chainCaseNos: string[] = [headCaseNo];
+        let cursor = headCaseNo;
+        for (let hops = 0; hops < 100; hops++) {
+            const row = await this.dataSource.query(
+                `SELECT loancaseno FROM loan_master WHERE mbno = $1 AND consolidated_into_loancaseno::text = $2 AND loantype = $3 LIMIT 1`,
+                [mbno, cursor, loantype],
+            );
+            const pred = row[0]?.loancaseno;
+            if (!pred) break;
+            chainCaseNos.unshift(pred);
+            cursor = pred;
+        }
+
+        const links = [];
+        for (const caseNo of chainCaseNos) {
+            const caseRow = await this.dataSource.query(
+                `SELECT loancaseno, loan_amt, balance, payment_date, consolidated_into_loancaseno
+                 FROM loan_master WHERE mbno = $1 AND loancaseno::text = $2 AND loantype = $3`,
+                [mbno, caseNo, loantype],
+            );
+            if (caseRow.length === 0) continue;
+            const lm = caseRow[0];
+            const isClosed = !!lm.consolidated_into_loancaseno;
+
+            // The closure-record row bulk_ledger_replay.ts inserts when a case is
+            // folded into its successor — its payment_amount is exactly what this
+            // case contributed to the combined balance at the moment of closure.
+            const closureRow = isClosed
+                ? await this.dataSource.query(
+                    `SELECT payment_date, payment_amount FROM loan_repayment_ledger
+                     WHERE mbno = $1 AND loancaseno = $2
+                       AND narration = 'Legacy consolidation replay: closed, folded into successor case'
+                     ORDER BY payment_date DESC LIMIT 1`,
+                    [mbno, caseNo],
+                )
+                : [];
+
+            links.push({
+                loancaseno: lm.loancaseno,
+                loantype,
+                loanAmt: parseFloat(lm.loan_amt) || 0,
+                currentBalance: parseFloat(lm.balance) || 0,
+                disbursementDate: lm.payment_date,
+                isActive: !isClosed,
+                closedIntoLoancaseno: lm.consolidated_into_loancaseno || null,
+                closedDate: closureRow[0]?.payment_date || null,
+                contributedAtClosure: closureRow[0] ? parseFloat(closureRow[0].payment_amount) || 0 : null,
+            });
+        }
+
+        return { mbno, loantype, chainLength: links.length, links };
     }
 }

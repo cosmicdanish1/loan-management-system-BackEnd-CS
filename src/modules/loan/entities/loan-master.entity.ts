@@ -40,4 +40,11 @@ export class LoanMaster {
 
   @Column({ type: 'numeric', precision: 10, scale: 2, default: 0 })
   penalrate: number;
+
+  // Set when this case's balance was absorbed into a later loan of the same
+  // type for the same member (loan consolidation, pass-transaction.service.ts)
+  // — points at the new case's own loancaseno. Null for every ordinary,
+  // never-consolidated loan.
+  @Column({ type: 'numeric', precision: 18, scale: 0, nullable: true })
+  consolidated_into_loancaseno: string;
 }

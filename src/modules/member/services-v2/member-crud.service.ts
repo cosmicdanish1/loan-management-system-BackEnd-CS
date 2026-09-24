@@ -452,6 +452,19 @@ export class MemberCrudService {
                         }
                     }
 
+                    // FRS (MD) eligibility: a member who JOINS at age 50 or
+                    // above is not eligible for the regular FRS contribution
+                    // — only a nominal ₹2 is deducted instead. This is fixed
+                    // at membership time based on age-at-joining, not
+                    // re-evaluated later as an existing member ages past 50.
+                    if (memberData.dob) {
+                        const membershipDate = memberData.memb_date ? new Date(memberData.memb_date) : new Date();
+                        const ageAtJoining = MemberValidationUtil.ageAtDate(new Date(memberData.dob), membershipDate);
+                        if (ageAtJoining >= 50) {
+                            await this.setFrsRestrictedAmount(queryRunner, memberNumber);
+                        }
+                    }
+
                     await queryRunner.commitTransaction();
                     // Return raw row — TransformInterceptor handles the { success, data } envelope
                     return result[0];
@@ -526,6 +539,24 @@ export class MemberCrudService {
             await queryRunner.query(
                 `INSERT INTO member_balances (mbno, compulsory_deposit) VALUES ($1, $2)`,
                 [mbno, amount],
+            );
+        }
+    }
+
+    /** Locks a member's FRS/MD monthly contribution (fundsmaster.mdamt) to
+     *  the ₹2 nominal amount for members who joined at age 50+. fundsmaster
+     *  has no unique constraint on mbno (confirmed live), so this uses the
+     *  same UPDATE-then-INSERT-if-absent pattern as postInitialCompulsoryDeposit
+     *  rather than an ON CONFLICT upsert. */
+    private async setFrsRestrictedAmount(queryRunner: QueryRunner, mbno: string): Promise<void> {
+        const updated = await queryRunner.query(
+            `UPDATE fundsmaster SET mdamt = 2 WHERE mbno = $1 RETURNING mbno`,
+            [mbno],
+        );
+        if (updated.length === 0) {
+            await queryRunner.query(
+                `INSERT INTO fundsmaster (mbno, mdamt) VALUES ($1, 2)`,
+                [mbno],
             );
         }
     }

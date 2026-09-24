@@ -25,6 +25,7 @@ import {
 } from './services-v2';
 import { DemandImportService } from './services-v2/demand-import.service';
 import { LoanEligibilityService } from '../loan/services-v2/loan-eligibility.service';
+import { LoanRepaymentService } from '../loan/services-v2/loan-repayment.service';
 import { RdModule } from '../rd/rd.module';
 import { CompulsoryDepositController } from './compulsory-deposit.controller';
 import { JournalTransferController } from './journal-transfer.controller';
@@ -65,6 +66,14 @@ import { DividendPaymentController } from './dividend-payment.controller';
         JournalTransferService,
         DividendPaymentService,
         LoanEligibilityService,
+        // Same duplicated-provider pattern as LoanEligibilityService above —
+        // PassTransactionService needs calculateEarlyClosure() (a pure,
+        // read-only quote) to price a same-type old loan's NR/AP/penal
+        // interest at consolidation time, but importing the whole LoanV2Module
+        // isn't needed since LoanRepaymentService's own dependencies
+        // (DataSource, LoanEligibilityService, RdBalanceEventsService) are
+        // already available in this module.
+        LoanRepaymentService,
     ],
     exports: [
         VoucherService,

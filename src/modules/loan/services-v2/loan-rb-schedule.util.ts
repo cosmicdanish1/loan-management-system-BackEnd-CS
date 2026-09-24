@@ -34,24 +34,106 @@ export interface RbScheduleRow {
 
 export interface LoanSlot {
     slot: 1 | 2;
-    delayMonths: 1 | 2;
+    delayMonths: number;
 }
 
-function round2(x: number): number {
+export function round2(x: number): number {
     return Math.round(x * 100) / 100;
 }
 
 /**
- * Slot 1: application date falls on/after the 25th of a month, OR on/before
- * the 5th of a month (the window spans a month boundary: 25th–5th).
- * Slot 2: the 6th through the 24th.
+ * How loan money is rounded — both the constant monthly interest when an EMI
+ * is sized, and the early-closure line items.
+ *
+ * The society's manual/legacy worksheets work in whole rupees: a constant
+ * monthly interest of 1687.50 is written as 1688 and then multiplied through
+ * every later step (NR months, the AP remaining-interest adjustment), and each
+ * closure line is written as a whole rupee too. Keeping full paisa precision
+ * makes our output drift a few rupees from the manual figure on every closure,
+ * so NEAREST (half-up: .00–.49 down, .50–.99 up) reproduces the manual
+ * calculation and is the default. NONE is the original 2-decimal behavior.
  */
-export function determineLoanSlot(applicationDate: Date): LoanSlot {
-    const day = applicationDate.getDate();
-    if (day >= 25 || day <= 5) {
-        return { slot: 1, delayMonths: 1 };
+export type LoanRoundingMode = 'NONE' | 'NEAREST' | 'UP' | 'DOWN';
+
+export const LOAN_ROUNDING_MODES: LoanRoundingMode[] = ['NONE', 'NEAREST', 'UP', 'DOWN'];
+
+/** Half-up at the rupee for NEAREST; falls back to 2 decimals for NONE. */
+export function applyLoanRounding(value: number, mode: LoanRoundingMode): number {
+    switch (mode) {
+        case 'NEAREST': return Math.round(value);
+        case 'UP': return Math.ceil(value);
+        case 'DOWN': return Math.floor(value);
+        default: return round2(value);
     }
-    return { slot: 2, delayMonths: 2 };
+}
+
+/** The society's original hardcoded Slot 1 window: the 25th through the 5th. */
+export const DEFAULT_SLOT1_START_DAY = 25;
+export const DEFAULT_SLOT1_END_DAY = 5;
+
+/**
+ * There are always exactly TWO slots — that structure is the society's own
+ * source of truth and does not change. Only Slot 1's day window is
+ * configurable; Slot 2 is by definition every other day of the month, so it
+ * can never be defined inconsistently with Slot 1 (no gaps, no overlap).
+ *
+ * The window may WRAP the month boundary, which the society's original
+ * 25th–5th window does: when startDay > endDay the window is
+ * "startDay..end-of-month, plus 1..endDay". When startDay <= endDay it's the
+ * plain inclusive range (e.g. a future "Slot 1 = 1st–10th" would be 1..10,
+ * leaving Slot 2 as the 11th onward).
+ *
+ * Days are clamped to 1..31 rather than validated against the specific
+ * month's real length: a window ending on the 31st must still mean "to the
+ * end of the month" in February. Anything non-numeric falls back to the
+ * society's original window, so a missing or corrupt config can never
+ * silently reclassify every loan.
+ */
+function normalizeSlotDay(value: number, fallback: number): number {
+    const n = Math.trunc(Number(value));
+    if (!Number.isFinite(n) || n < 1 || n > 31) return fallback;
+    return n;
+}
+
+export function isInSlot1Window(
+    day: number,
+    slot1StartDay: number = DEFAULT_SLOT1_START_DAY,
+    slot1EndDay: number = DEFAULT_SLOT1_END_DAY,
+): boolean {
+    const start = normalizeSlotDay(slot1StartDay, DEFAULT_SLOT1_START_DAY);
+    const end = normalizeSlotDay(slot1EndDay, DEFAULT_SLOT1_END_DAY);
+    // Wrapping window (25..31 plus 1..5) vs plain inclusive range (1..10).
+    return start > end ? (day >= start || day <= end) : (day >= start && day <= end);
+}
+
+/**
+ * Which slot an application date falls in, and how many months of delay that
+ * slot carries.
+ *
+ * Both halves are configurable from the "Modify Business Rules" screen and
+ * stored in system_configs — the delay months as
+ * RULE_LOAN_SLOT1_DELAY_MONTHS / RULE_LOAN_SLOT2_DELAY_MONTHS, and the Slot 1
+ * day window as RULE_LOAN_SLOT1_START_DAY / RULE_LOAN_SLOT1_END_DAY. Every
+ * default here reproduces the society's original hardcoded behaviour (25th–5th
+ * = Slot 1 = +1 month, everything else = Slot 2 = +2 months), so an unsaved or
+ * unreachable config leaves pricing exactly as it is today.
+ *
+ * The resolved delay is frozen onto loan_master.delay_months at disbursement,
+ * so changing any of these later never reprices or reschedules a loan that has
+ * already gone out.
+ */
+export function determineLoanSlot(
+    applicationDate: Date,
+    slot1DelayMonths: number = 1,
+    slot2DelayMonths: number = 2,
+    slot1StartDay: number = DEFAULT_SLOT1_START_DAY,
+    slot1EndDay: number = DEFAULT_SLOT1_END_DAY,
+): LoanSlot {
+    const day = applicationDate.getDate();
+    if (isInSlot1Window(day, slot1StartDay, slot1EndDay)) {
+        return { slot: 1, delayMonths: slot1DelayMonths };
+    }
+    return { slot: 2, delayMonths: slot2DelayMonths };
 }
 
 /**
@@ -93,7 +175,7 @@ export function buildReducingBalanceSchedule(
 
 export interface ConstantEmiResult {
     slot: 1 | 2;
-    delayMonths: 1 | 2;
+    delayMonths: number;
     monthlyRate: number;
     monthlyPrincipal: number;
     totalRBInterest: number;
@@ -114,8 +196,15 @@ export function calculateConstantEmi(
     annualRate: number,
     n: number,
     applicationDate: Date,
+    slot1DelayMonths: number = 1,
+    slot2DelayMonths: number = 2,
+    roundingMode: LoanRoundingMode = 'NONE',
+    slot1StartDay: number = DEFAULT_SLOT1_START_DAY,
+    slot1EndDay: number = DEFAULT_SLOT1_END_DAY,
 ): ConstantEmiResult {
-    const { slot, delayMonths } = determineLoanSlot(applicationDate);
+    const { slot, delayMonths } = determineLoanSlot(
+        applicationDate, slot1DelayMonths, slot2DelayMonths, slot1StartDay, slot1EndDay,
+    );
     const monthlyRate = annualRate / 1200;
     const { schedule, totalRBInterest } = buildReducingBalanceSchedule(loanAmt, annualRate, n);
 
@@ -125,7 +214,11 @@ export function calculateConstantEmi(
     const delayInterest = round2(loanAmt * monthlyRate * delayMonths);
     const totalInterestForEMI = round2(totalRBInterest + delayInterest);
     const monthlyPrincipal = round2(loanAmt / n);
-    const monthlyInterestForEMI = round2(totalInterestForEMI / n);
+    // Rounded ONCE here, never again downstream: instal_amt below carries this
+    // value permanently, and both getInstallmentStatus (monthlyInterest) and
+    // calculateEarlyClosure (compulsorySlotInterest) re-derive from instal_amt,
+    // so they inherit the same rounding without any per-month re-rounding.
+    const monthlyInterestForEMI = applyLoanRounding(totalInterestForEMI / n, roundingMode);
     const constantEMI = round2(monthlyPrincipal + monthlyInterestForEMI);
 
     return {

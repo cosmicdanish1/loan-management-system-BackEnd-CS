@@ -80,8 +80,8 @@ async function main() {
     const rdRules = new RdRulesService(AppDataSource);
     const rdBalanceEvents = new RdBalanceEventsService(AppDataSource, rdRules);
     const loanEligibility = new LoanEligibilityService(AppDataSource, rdBalanceEvents, rdRules);
-    const passSvc = new PassTransactionService(AppDataSource, sysConfig, loanEligibility, rdBalanceEvents);
     const repaySvc = new LoanRepaymentService(AppDataSource, loanEligibility, rdBalanceEvents);
+    const passSvc = new PassTransactionService(AppDataSource, sysConfig, loanEligibility, rdBalanceEvents, repaySvc);
 
     const checks: { label: string; pass: boolean; expected: any; actual: any }[] = [];
     function check(label: string, expected: number, actual: number, tol = 0.02) {

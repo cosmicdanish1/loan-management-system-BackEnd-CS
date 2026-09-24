@@ -6,6 +6,17 @@ import { SystemSetting } from './entities/system-setting.entity';
 import { UpdateUserPreferenceDto } from './dto/update-user-preference.dto';
 import { RD_RULE_DEFAULTS, RD_RULE_KEYS, RD_BOOLEAN_RULE_KEYS } from '../rd/rd-business-rules';
 
+/**
+ * A stored day-of-month setting, forced into 1-31. Deliberately NOT validated
+ * against any specific month's real length: a window ending on the 31st has to
+ * keep meaning "the end of the month" in February too.
+ */
+function clampDayOfMonth(value: any, fallback: number): number {
+  const n = Math.trunc(Number(value));
+  if (!Number.isFinite(n) || n < 1 || n > 31) return fallback;
+  return n;
+}
+
 @Injectable()
 export class UtilitiesService {
   private readonly logger = new Logger(UtilitiesService.name);
@@ -202,23 +213,23 @@ export class UtilitiesService {
         FROM busrules 
         WHERE appdate = (SELECT MAX(appdate) FROM busrules)
         UNION ALL
-        SELECT 
-          'Emergency Loan' as name,
+        SELECT
+          'Loan Against Recovery' as name,
           'ELN' as code,
           elnrate as rate,
           elnmaxloanamt as max_amount,
           elnmaxnoinst as max_tenure,
-          'Quick approval for urgent financial needs' as description
-        FROM busrules 
+          'Salary advance with lower interest rates' as description
+        FROM busrules
         WHERE appdate = (SELECT MAX(appdate) FROM busrules)
         UNION ALL
-        SELECT 
-          'Advance Loan' as name,
+        SELECT
+          'Emergency Loan' as name,
           'ALN' as code,
           alnrate as rate,
           alnmaxloanamt as max_amount,
           alnmaxnoinst as max_tenure,
-          'Salary advance with lower interest rates' as description
+          'Quick approval for urgent financial needs' as description
         FROM busrules 
         WHERE appdate = (SELECT MAX(appdate) FROM busrules)
         UNION ALL
@@ -1627,6 +1638,21 @@ export class UtilitiesService {
       // (password re-entry, minimum role) are deliberately deferred — this is
       // just the first, purely-frontend one.
       'RULE_EARLY_CLOSURE_REQUIRE_TYPE_CONFIRM',
+      // How many months Slot 1 / Slot 2 (loan-rb-schedule.util.ts) delay both
+      // the EMI's delay-interest sizing AND the installment due-date
+      // schedule itself — see AddLoanMasterDelayMonths migration. Defaults
+      // match the society's original hardcoded 1/2 months.
+      'RULE_LOAN_SLOT1_DELAY_MONTHS', 'RULE_LOAN_SLOT2_DELAY_MONTHS',
+      // Which application days fall in Slot 1 (inclusive, may wrap the month
+      // boundary as the society's original 25th-5th window does). Slot 2 is
+      // every other day by definition, so it is never stored separately and
+      // the two slots can never overlap or leave a gap.
+      'RULE_LOAN_SLOT1_START_DAY', 'RULE_LOAN_SLOT1_END_DAY',
+      // How the constant monthly interest is rounded when an EMI is sized at
+      // disbursement (NONE | NEAREST | UP | DOWN). NEAREST matches the
+      // society's manual whole-rupee worksheets; applied once and frozen into
+      // loan_master.instal_amt, never re-applied downstream.
+      'RULE_LOAN_ROUNDING_MODE',
       // RD system (built from scratch — see rd-business-rules.ts). Defaults
       // here are placeholders pending the society's final policy numbers,
       // not authoritative thresholds.
@@ -1652,6 +1678,11 @@ export class UtilitiesService {
       RULE_LOAN_ELIGIBILITY_APPLY_ALN: true,
       RULE_LOAN_ELIGIBILITY_APPLY_ELN: true,
       RULE_EARLY_CLOSURE_REQUIRE_TYPE_CONFIRM: true,
+      RULE_LOAN_SLOT1_DELAY_MONTHS: 1,
+      RULE_LOAN_SLOT2_DELAY_MONTHS: 2,
+      RULE_LOAN_SLOT1_START_DAY: 25,
+      RULE_LOAN_SLOT1_END_DAY: 5,
+      RULE_LOAN_ROUNDING_MODE: 'NEAREST',
       ...RD_RULE_DEFAULTS,
     };
     for (const row of rows) {
@@ -1794,6 +1825,14 @@ export class UtilitiesService {
         { key: 'RULE_LOAN_ELIGIBILITY_APPLY_ALN', value: data.RULE_LOAN_ELIGIBILITY_APPLY_ALN === false ? 'false' : 'true', dataType: 'boolean' },
         { key: 'RULE_LOAN_ELIGIBILITY_APPLY_ELN', value: data.RULE_LOAN_ELIGIBILITY_APPLY_ELN === false ? 'false' : 'true', dataType: 'boolean' },
         { key: 'RULE_EARLY_CLOSURE_REQUIRE_TYPE_CONFIRM', value: data.RULE_EARLY_CLOSURE_REQUIRE_TYPE_CONFIRM === false ? 'false' : 'true', dataType: 'boolean' },
+        { key: 'RULE_LOAN_SLOT1_DELAY_MONTHS', value: String(data.RULE_LOAN_SLOT1_DELAY_MONTHS ?? 1), dataType: 'number' },
+        { key: 'RULE_LOAN_SLOT2_DELAY_MONTHS', value: String(data.RULE_LOAN_SLOT2_DELAY_MONTHS ?? 2), dataType: 'number' },
+        // Clamped to a real day-of-month (1-31) on the way in — an out-of-range
+        // or non-numeric window would otherwise classify every application into
+        // Slot 2 and silently misprice every loan disbursed afterwards.
+        { key: 'RULE_LOAN_SLOT1_START_DAY', value: String(clampDayOfMonth(data.RULE_LOAN_SLOT1_START_DAY, 25)), dataType: 'number' },
+        { key: 'RULE_LOAN_SLOT1_END_DAY', value: String(clampDayOfMonth(data.RULE_LOAN_SLOT1_END_DAY, 5)), dataType: 'number' },
+        { key: 'RULE_LOAN_ROUNDING_MODE', value: ['NONE', 'NEAREST', 'UP', 'DOWN'].includes(data.RULE_LOAN_ROUNDING_MODE) ? data.RULE_LOAN_ROUNDING_MODE : 'NEAREST', dataType: 'string' },
         // RD system rules — new dedicated tab in Modify Business Rules.
         ...RD_RULE_KEYS.map((key) => ({
           key,
