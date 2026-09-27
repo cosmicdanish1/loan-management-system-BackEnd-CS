@@ -1,9 +1,11 @@
-import { Controller, Get, Post, Body, Query } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { ShortRecoveryService } from './services-v2/short-recovery.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @ApiTags('Transaction - Short Recovery')
 @Controller('transactions/short-recovery')
+@UseGuards(JwtAuthGuard)
 export class ShortRecoveryController {
     constructor(private readonly shortRecoveryService: ShortRecoveryService) { }
 
@@ -15,7 +17,7 @@ export class ShortRecoveryController {
 
     @Post('adjust')
     @ApiOperation({ summary: 'Adjust a short recovery' })
-    adjust(@Body() body: { demandId: number, reason: string, amount: number }) {
+    adjust(@Body() body: { demandId: string, reason: string, amount: number }) {
         return this.shortRecoveryService.adjust(body.demandId, body.reason, body.amount);
     }
 }

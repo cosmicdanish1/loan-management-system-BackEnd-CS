@@ -15,6 +15,9 @@ export interface LedgerPostingDto {
     head: string;
     totalAmount: number;
     recordCount: number;
+    branch?: string;
+    totalOfficeAmount?: number;
+    modeOfReceipt?: string;
 }
 
 @Injectable()
@@ -37,78 +40,47 @@ export class LedgerPostingService {
 
         if (!monthNum || !yearNum) return [];
 
-        // Aggregate query
-        // "Head" mapping is conceptual here. In reality, we might have separate lines for 'Regular Loan Principal', 'Regular Loan Interest', etc.
-        // For this streamlined implementation, we will summarize into 3 main Categories: 
-        // 1. Principal (sum of install amounts)
-        // 2. Interest (sum of interest amounts)
-        // 3. Savings (RD + Thrift + Share)
-
-        // Using query builder to sum
-        const qb = this.demandRepository.createQueryBuilder('dm');
-        qb.select([
-            // Principal Sums
-            'SUM(dm.rln_installment_amount + dm.eln_installment_amount + dm.aln_installment_amount + dm.mln_installment_amount) as principal_total',
-            // Interest Sums
-            'SUM(dm.rln_interest + dm.eln_interest + dm.aln_interest + dm.mln_interest) as interest_total',
-            // Savings Sums
-            'SUM(dm.rd_amount + dm.shr_amount + dm.md_amount + dm.cd_amount) as savings_total',
-            // Global Totals
-            'SUM(dm.totalDemand) as grand_demand',
-            'SUM(dm.balance) as grand_balance'
-        ])
-            .where('dm.demand_for_month = :month', { month: monthNum })
-            .andWhere('dm.demand_for_year = :year', { year: yearNum });
-
-        // If branch filter existed in demand_master (e.g. officeno), apply it:
+        const params: any[] = [monthNum, yearNum];
+        const conditions = ['dm.demand_for_month = $1', 'dm.demand_for_year = $2', "COALESCE(dm.demand_posted,'N') <> 'Y'"];
         if (dto.branch) {
-            // Mapping branch code to officeno if needed. defaulting to no filter for now unless explicitly needed.
+            params.push(dto.branch);
+            conditions.push(`dm.officeno::text = $${params.length}`);
         }
-
-        const res = await qb.getRawOne();
-
-        if (!res) return [];
-
-        // Parse result safely (handling nulls)
-        const principalDemand = parseFloat(res.principal_total || '0');
-        const interestDemand = parseFloat(res.interest_total || '0');
-        const savingsDemand = parseFloat(res.savings_total || '0');
-
-        // Shortfall calculations (Simple ratio based logic for demo as we don't store shortfall per head in a simple way in this table structure)
-        // We will assume mostly recovered for demo purposes or proportional distribution of balance
-        const totalDemand = parseFloat(res.grand_demand || '0');
-        const totalBalance = parseFloat(res.grand_balance || '0');
-
-        if (totalDemand === 0) return [];
-
-        const recoveryRate = 1 - (totalBalance / totalDemand);
-
-        return [
-            {
-                id: '1',
-                headName: 'Loan Principal',
-                balance: totalBalance * (principalDemand / totalDemand), // Proportional shortfall
-                demandSend: principalDemand,
-                demandReceived: principalDemand * recoveryRate,
-                shortRecovery: principalDemand * (1 - recoveryRate)
-            },
-            {
-                id: '2',
-                headName: 'Loan Interest',
-                balance: totalBalance * (interestDemand / totalDemand),
-                demandSend: interestDemand,
-                demandReceived: interestDemand * recoveryRate,
-                shortRecovery: interestDemand * (1 - recoveryRate)
-            },
-            {
-                id: '3',
-                headName: 'Savings Contribution',
-                balance: totalBalance * (savingsDemand / totalDemand),
-                demandSend: savingsDemand,
-                demandReceived: savingsDemand * recoveryRate,
-                shortRecovery: savingsDemand * (1 - recoveryRate)
-            }
-        ];
+        const rows = await this.dataSource.query(
+            `SELECT dm.mbno, dm.totaldemand, dm.balance_for_month,
+                    COALESCE(dm.rln_installment_amount,0)+COALESCE(dm.eln_installment_amount,0)+COALESCE(dm.aln_installment_amount,0)+COALESCE(dm.mln_installment_amount,0) principal,
+                    COALESCE(dm.rln_interest,0)+COALESCE(dm.eln_interest,0)+COALESCE(dm.aln_interest,0)+COALESCE(dm.mln_interest,0) interest,
+                    COALESCE(dm.rd_amount,0)+COALESCE(dm.md_amount,0)+COALESCE(dm.cd_amount,0)+COALESCE(dm.shr_amount,0) savings,
+                    TRIM(COALESCE(mm.f_name,'') || ' ' || COALESCE(mm.m_name,'') || ' ' || COALESCE(mm.l_name,'')) member_name
+             FROM demand_master dm LEFT JOIN member_master mm ON mm.mbno = dm.mbno
+             WHERE ${conditions.join(' AND ')} ORDER BY dm.mbno`,
+            params,
+        );
+        return rows.map((r: any) => {
+            const total = Number(r.totaldemand) || 0;
+            const balance = Math.max(0, Number(r.balance_for_month) || 0);
+            let principal = Number(r.principal) || 0;
+            let interest = Number(r.interest) || 0;
+            let savings = Number(r.savings) || 0;
+            if (principal + interest + savings === 0 && total > 0) principal = total;
+            const heads = [
+                ['PRINCIPAL', 'Loan Principal', principal],
+                ['INTEREST', 'Loan Interest', interest],
+                ['SAVINGS', 'Savings Contribution', savings],
+            ].filter(([, , amount]) => Number(amount) > 0).map(([code, headName, amount]) => {
+                const send = Number(amount);
+                const shortRecovery = total > 0 ? Math.min(send, balance * send / total) : 0;
+                return { code, headName, balance: shortRecovery, demandSend: send, demandReceived: send - shortRecovery, shortRecovery };
+            });
+            return {
+                memberNo: String(r.mbno),
+                memberName: r.member_name || `Member ${r.mbno}`,
+                heads,
+                totalSend: heads.reduce((s: number, h: any) => s + h.demandSend, 0),
+                totalReceived: heads.reduce((s: number, h: any) => s + h.demandReceived, 0),
+                totalShort: heads.reduce((s: number, h: any) => s + h.shortRecovery, 0),
+            };
+        });
     }
 
     async postUpdate(dto: LedgerPostingDto) {
@@ -121,7 +93,8 @@ export class LedgerPostingService {
         const monthNum = monthMap[dto.month] || 0;
         const yearNum = parseInt(dto.year);
 
-        if (!monthNum || !yearNum || dto.totalAmount <= 0) {
+        const requestedAmount = Number(dto.totalOfficeAmount ?? dto.totalAmount);
+        if (!monthNum || !yearNum || !Number.isFinite(requestedAmount) || requestedAmount <= 0) {
             return { success: false, message: 'Invalid parameters for ledger posting.' };
         }
 
@@ -131,6 +104,11 @@ export class LedgerPostingService {
 
         try {
             // BUG FIX: added FOR UPDATE to prevent duplicate trans_no under concurrent GL postings
+            const groups = await this.getSummary({ month: dto.month, year: dto.year, branch: dto.branch || '' });
+            const expectedAmount = groups.reduce((sum: number, g: any) => sum + Number(g.totalSend || 0), 0);
+            if (Math.abs(expectedAmount - requestedAmount) > 0.01) {
+                throw new Error(`Posting total ₹${requestedAmount.toFixed(2)} does not match pending demand ₹${expectedAmount.toFixed(2)}`);
+            }
             const transResult = await queryRunner.query(
                 `SELECT COALESCE(MAX(trans_no), 0) + 1 as next_no, COALESCE(MAX(ledgerid), 0) + 1 as next_ledger_id FROM ledger`
             );
@@ -141,7 +119,7 @@ export class LedgerPostingService {
             // BUG FIX: voucher number collision — "GLAPR2025" is reused for every head posted in
             // the same month. Two postings (e.g. Loan Principal + Loan Interest) share the same
             // voucherNo, making audit queries ambiguous. Include a timestamp suffix to ensure uniqueness.
-            const voucherNo = `GL${dto.month}${dto.year}${Date.now().toString().slice(-4)}`;
+            const voucherNo = `G${String(transNo).padStart(5, '0').slice(-5)}`;
             const narration = `GL Posting - ${dto.head} for ${dto.month} ${dto.year}`;
 
             // Head codes: DR = cash collection side, CR = account/income side
@@ -162,20 +140,31 @@ export class LedgerPostingService {
             await queryRunner.query(
                 `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid)
                  VALUES ($1, $2, 'DR', $3, 0, 0, $4, $5, $6, 'GL', 'C', 0, $7, 'SYSTEM', $8)`,
-                [transNo++, transDate, drCode, accType, dto.totalAmount, voucherNo, narration, ledgerId++]
+                [transNo++, transDate, drCode, accType, requestedAmount, voucherNo, narration, ledgerId++]
             );
 
             await queryRunner.query(
                 `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid)
                  VALUES ($1, $2, 'CR', $3, 0, 0, $4, $5, $6, 'GL', 'C', 0, $7, 'SYSTEM', $8)`,
-                [transNo, transDate, crCode, accType, dto.totalAmount, voucherNo, narration, ledgerId]
+                [transNo, transDate, crCode, accType, requestedAmount, voucherNo, narration, ledgerId]
+            );
+
+            await queryRunner.query(
+                `UPDATE demand_master SET demand_posted = 'Y', passflag = 'Y', dmnd_post_date = NOW()
+                 WHERE demand_for_month = $1 AND demand_for_year = $2
+                   AND COALESCE(demand_posted,'N') <> 'Y'
+                   ${dto.branch ? 'AND officeno::text = $3' : ''}`,
+                dto.branch ? [monthNum, yearNum, dto.branch] : [monthNum, yearNum],
             );
 
             await queryRunner.commitTransaction();
 
             return {
                 success: true,
-                message: `Successfully posted ${dto.head} amount ₹${dto.totalAmount} to General Ledger for ${dto.month} ${dto.year}.`
+                voucherNo,
+                recordCount: groups.length,
+                totalPosted: requestedAmount,
+                message: `Successfully posted ₹${requestedAmount} to General Ledger for ${dto.month} ${dto.year}.`
             };
         } catch (error: any) {
             await queryRunner.rollbackTransaction();

@@ -22,82 +22,6 @@ export class DemandGenerationService {
         private readonly dataSource: DataSource,
     ) { }
 
-    async previewDemandImport(month: string, year: string) {
-        this.logger.log(`Previewing demand import for ${month} ${year}`);
-
-        // Fetches real members from the database for preview display
-        const members = await this.dataSource.query(`
-            SELECT mbno as "memberId", CONCAT(f_name, ' ', l_name) as "memberName", dept_name as "department"
-            FROM member_master
-            LIMIT 15
-        `);
-
-        return members.map((m: any) => ({
-            key: m.memberId.toString(),
-            memberId: m.memberId.toString(),
-            memberName: m.memberName,
-            department: m.department || 'General',
-            demandAmount: Math.floor(Math.random() * 5000) + 1000,
-            status: 'Valid',
-            remarks: ''
-        }));
-    }
-
-    async processDemandImport(month: string, year: string, data: any[]) {
-        this.logger.log(`Processing demand import for ${month} ${year} with ${data.length} records`);
-
-        if (!data || data.length === 0) {
-            return { success: false, message: 'No records to process.' };
-        }
-
-        // Actual persistence of demand import records
-        const queryRunner = this.dataSource.createQueryRunner();
-        await queryRunner.connect();
-        await queryRunner.startTransaction();
-
-        try {
-            const monthMap: { [key: string]: number } = {
-                'January': 1, 'February': 2, 'March': 3, 'April': 4, 'May': 5, 'June': 6,
-                'July': 7, 'August': 8, 'September': 9, 'October': 10, 'November': 11, 'December': 12
-            };
-            const monthNum = monthMap[month] || 0;
-            const yearNum = parseInt(year);
-
-            if (!monthNum || !yearNum) {
-                throw new Error(`Invalid month/year: ${month} ${year}`);
-            }
-
-            // BUG FIX: processDemandImport was a stub — it returned fake success without saving anything.
-            // Now uses parameterized INSERT to persist each record in the demand_master table.
-            for (const record of data) {
-                const memberNo = parseInt(record.memberId);
-                const demandAmount = parseFloat(record.demandAmount) || 0;
-                if (isNaN(memberNo) || demandAmount <= 0) continue;
-
-                await queryRunner.query(
-                    `INSERT INTO demand_master (demand_for_month, demand_for_year, mbno, totaldemand, balance_for_month)
-                     VALUES ($1, $2, $3, $4, $5)
-                     ON CONFLICT (demand_for_month, demand_for_year, mbno) DO UPDATE
-                       SET totaldemand = EXCLUDED.totaldemand, balance_for_month = EXCLUDED.balance_for_month`,
-                    [monthNum, yearNum, memberNo, demandAmount, demandAmount]
-                );
-            }
-
-            await queryRunner.commitTransaction();
-
-            return {
-                success: true,
-                message: `Successfully processed ${data.length} records for ${month} ${year}`
-            };
-        } catch (error: any) {
-            await queryRunner.rollbackTransaction();
-            this.logger.error('processDemandImport failed', error);
-            throw new Error('Failed to process demand import: ' + error.message);
-        } finally {
-            await queryRunner.release();
-        }
-    }
-
     async generateDemand(dto: DemandGenerationDto) {
         this.logger.log(`Starting demand generation for ${dto.month} ${dto.year}`);
 
@@ -121,6 +45,7 @@ export class DemandGenerationService {
             // then the queryRunner was released with an open transaction on early return.
             // Fix: move the duplicate check INSIDE the queryRunner transaction and use FOR UPDATE
             // to prevent two concurrent requests both seeing count=0 and both inserting.
+            await queryRunner.query('LOCK TABLE demand_master IN SHARE ROW EXCLUSIVE MODE');
             const countResult = await queryRunner.query(
                 `SELECT COUNT(*) as cnt FROM demand_master WHERE demand_for_month = $1 AND demand_for_year = $2`,
                 [monthNum, yearNum]
@@ -139,7 +64,10 @@ export class DemandGenerationService {
 
             // Fetch Active Members
             const members = await queryRunner.query(
-                `SELECT mbno FROM member_master WHERE isactive IS NOT FALSE AND isactive IS DISTINCT FROM 'N'`
+                `SELECT mbno, officeno FROM member_master
+                 WHERE isactive IS NOT FALSE AND isactive IS DISTINCT FROM 'N'
+                 AND ($1 = '' OR officeno::text = $1)`,
+                [dto.divisionRO || '']
             );
 
             this.logger.log(`Generating demand for ${members.length} active members...`);
@@ -165,6 +93,7 @@ export class DemandGenerationService {
                         month: monthNum,
                         year: yearNum,
                         memberNo: mbno,
+                        officeNo: member.officeno,
                         balance: totalDemand,
                         totalDemand: totalDemand,
                     });
@@ -177,11 +106,18 @@ export class DemandGenerationService {
             // null, undefined, or NaN (e.g. if totalDemand is NaN → "VALUES (..., NaN, ...)" is invalid SQL).
             // Fix: use individual parameterized INSERTs per record, which is safe and correct.
             if (demands.length > 0) {
+                const serialResult = await queryRunner.query(
+                    'SELECT COALESCE(MAX(dmnd_srno), 0) + 1 AS next_serial FROM demand_master',
+                );
+                let nextSerial = Number(serialResult[0]?.next_serial || 1);
                 for (const d of demands) {
                     await queryRunner.query(
-                        `INSERT INTO demand_master (demand_for_month, demand_for_year, mbno, totaldemand, balance_for_month)
-                         VALUES ($1, $2, $3, $4, $5)`,
-                        [d.month, d.year, d.memberNo, d.totalDemand, d.balance]
+                        `INSERT INTO demand_master (
+                           demand_for_month, demand_for_year, mbno, officeno, dmnd_srno,
+                           demand_posted, sd, passflag, receipt_vchr_no,
+                           rln_installment_amount, totaldemand, balance_for_month
+                         ) VALUES ($1,$2,$3,$4,$5,'N','N','N','',$6,$6,$6)`,
+                        [d.month, d.year, d.memberNo, d.officeNo, nextSerial++, d.totalDemand]
                     );
                 }
             }

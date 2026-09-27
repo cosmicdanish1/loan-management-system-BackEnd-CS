@@ -1653,6 +1653,10 @@ export class UtilitiesService {
       // society's manual whole-rupee worksheets; applied once and frozen into
       // loan_master.instal_amt, never re-applied downstream.
       'RULE_LOAN_ROUNDING_MODE',
+      // One switch controls the tiered penal system for every active loan.
+      // Activation date is maintained server-side so existing arrears are
+      // never charged penalties for periods before the policy was enabled.
+      'RULE_TIERED_LOAN_PENALTY_ENABLED', 'RULE_TIERED_LOAN_PENALTY_ACTIVATION_DATE',
       // RD system (built from scratch — see rd-business-rules.ts). Defaults
       // here are placeholders pending the society's final policy numbers,
       // not authoritative thresholds.
@@ -1683,6 +1687,8 @@ export class UtilitiesService {
       RULE_LOAN_SLOT1_START_DAY: 25,
       RULE_LOAN_SLOT1_END_DAY: 5,
       RULE_LOAN_ROUNDING_MODE: 'NEAREST',
+      RULE_TIERED_LOAN_PENALTY_ENABLED: false,
+      RULE_TIERED_LOAN_PENALTY_ACTIVATION_DATE: '',
       ...RD_RULE_DEFAULTS,
     };
     for (const row of rows) {
@@ -1809,6 +1815,20 @@ export class UtilitiesService {
 
       await queryRunner.commitTransaction();
 
+      const oldPenaltyRows = await this.dataSource.query(
+        `SELECT value FROM system_configs WHERE key = 'RULE_TIERED_LOAN_PENALTY_ENABLED' AND "isActive" = true LIMIT 1`,
+      );
+      const wasPenaltyEnabled = ['true', '1', 'y'].includes(String(oldPenaltyRows[0]?.value ?? '').toLowerCase());
+      const willPenaltyBeEnabled = data.RULE_TIERED_LOAN_PENALTY_ENABLED === true
+        || ['true', '1', 'y'].includes(String(data.RULE_TIERED_LOAN_PENALTY_ENABLED ?? '').toLowerCase());
+      const penaltyActivationRows = await this.dataSource.query(
+        `SELECT value FROM system_configs WHERE key = 'RULE_TIERED_LOAN_PENALTY_ACTIVATION_DATE' AND "isActive" = true LIMIT 1`,
+      );
+      const savedActivationDate = penaltyActivationRows[0]?.value;
+      const penaltyActivationDate = willPenaltyBeEnabled && (!wasPenaltyEnabled || !savedActivationDate)
+        ? (await this.dataSource.query(`SELECT CURRENT_DATE::text AS today`))[0].today
+        : (savedActivationDate || (await this.dataSource.query(`SELECT CURRENT_DATE::text AS today`))[0].today);
+
       // RD/Share Value eligibility rule + per-loan-type on/off toggles —
       // these belong in system_configs (where loan-eligibility.service.ts
       // actually reads them from), not busrules, so they're persisted
@@ -1825,6 +1845,8 @@ export class UtilitiesService {
         { key: 'RULE_LOAN_ELIGIBILITY_APPLY_ALN', value: data.RULE_LOAN_ELIGIBILITY_APPLY_ALN === false ? 'false' : 'true', dataType: 'boolean' },
         { key: 'RULE_LOAN_ELIGIBILITY_APPLY_ELN', value: data.RULE_LOAN_ELIGIBILITY_APPLY_ELN === false ? 'false' : 'true', dataType: 'boolean' },
         { key: 'RULE_EARLY_CLOSURE_REQUIRE_TYPE_CONFIRM', value: data.RULE_EARLY_CLOSURE_REQUIRE_TYPE_CONFIRM === false ? 'false' : 'true', dataType: 'boolean' },
+        { key: 'RULE_TIERED_LOAN_PENALTY_ENABLED', value: willPenaltyBeEnabled ? 'true' : 'false', dataType: 'boolean' },
+        { key: 'RULE_TIERED_LOAN_PENALTY_ACTIVATION_DATE', value: penaltyActivationDate, dataType: 'string' },
         { key: 'RULE_LOAN_SLOT1_DELAY_MONTHS', value: String(data.RULE_LOAN_SLOT1_DELAY_MONTHS ?? 1), dataType: 'number' },
         { key: 'RULE_LOAN_SLOT2_DELAY_MONTHS', value: String(data.RULE_LOAN_SLOT2_DELAY_MONTHS ?? 2), dataType: 'number' },
         // Clamped to a real day-of-month (1-31) on the way in — an out-of-range

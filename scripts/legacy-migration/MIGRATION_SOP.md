@@ -36,6 +36,7 @@ node scripts/legacy-migration/wipe-all-loan-data.js --execute
 
 This clears `loan_master`, `loan_pending`, `loan_masterhistory`, `loan_product`,
 `loan_balance_history`, `loan_repayment_ledger`, `loan_rb_schedule`,
+`loan_schedule_versions`,
 `loan_nominee`, `legacy_replay_batch_log`, `suretymaster`, `loan_opbal`,
 `loan_interest_master`, `loan_monthly_balance`, `loan_accounts` completely,
 filters `ledger` to only `RLN`/`ALN`/`ELN` rows, and zeroes just the loan
@@ -74,6 +75,40 @@ a member's row shape didn't match what the script expected; check
 
 This step is pure column-copy — no repayment logic, no consolidation
 detection. It's the fast phase (minutes, not hours).
+
+## 2a. Install versioned loan schedules (required before Phase 2)
+
+Phase 2 now records immutable schedule versions from origination and each
+detected consolidation. A snapshot stores the principal balance at that
+boundary, the first due month after the applicable slot delay, the first
+eligible fixed-principal repayment, and the remaining term derived from those
+observed values. Payments in the slot-delay window are retained in the ledger
+but flagged as previous-schedule payroll, so they do not reduce the new
+schedule's principal. Same-day P-voucher `PL_BALANCE` top-ups are suppressed
+when an exact J-voucher CR proves that same prior balance was transferred out;
+otherwise that principal would be counted on both successor loans.
+
+**Important attribution rule:** do not classify a payment as predecessor
+payroll merely because it falls before an *origination* schedule's first due
+month. There is no predecessor schedule at origination, so those payments
+must be replayed against that loan. The slot-delay exclusion applies at a real
+`CONSOLIDATION` boundary (or when explicit predecessor-payroll metadata proves
+the old EMI is still in BSP's pipeline). This avoids leaving a phantom balance
+on a standalone loan whose principal was fully recovered before its next loan
+was issued. The dry-run should be checked for `TRANSITION_PAYROLL_EXCLUDED`
+entries: each must correspond to a consolidation transition, never an
+origination-only window.
+
+Apply this idempotent DDL to target Postgres once before Phase 2:
+
+```powershell
+psql -h <DB_HOST> -p <DB_PORT> -U <DB_USERNAME> -d <DB_DATABASE> -v ON_ERROR_STOP=1 -f database/migrations/create-loan-schedule-versions.sql
+```
+
+The wipe scripts clear this table during a loan-data reset. Do not run Phase 2
+live until the dry-run shows an `EFFECTIVE_SCHEDULE` for every consolidated
+active case. A `SCHEDULE_VERSION_NOT_BUILT` flag means source facts are
+insufficient; investigate rather than allow calculations to guess.
 
 ---
 
@@ -123,6 +158,8 @@ grep -E "^=====|Members processed|Repayments replayed|Consolidations applied|Fla
 ```
 
 - **Consolidations applied** — count of same-type/cross-type loan top-ups detected and replayed. Higher is normal for members with repeat loans.
+- **EFFECTIVE_SCHEDULE** — prints each version's source (origination/consolidation), effective date, first due month, opening principal, fixed principal amount, term, and slot delay. The latest version drives current calculations; earlier versions remain for audit.
+- **SCHEDULE_VERSION_NOT_BUILT** — stop for review. The migration refuses to invent a schedule when it cannot identify an eligible post-delay principal repayment or a valid rate.
 - **Flags raised** — anything the script couldn't resolve automatically. Read them:
 
 ```bash

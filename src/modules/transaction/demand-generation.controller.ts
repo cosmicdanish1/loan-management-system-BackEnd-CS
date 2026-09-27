@@ -1,8 +1,9 @@
-import { Controller, Post, Body, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Body, UseInterceptors, UploadedFile, BadRequestException, UseGuards } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiResponse, ApiConsumes } from '@nestjs/swagger';
 import { DemandGenerationService, DemandGenerationDto } from './services-v2/demand-generation.service';
 import { DemandImportService } from './services-v2/demand-import.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 const MONTH_MAP: Record<string, number> = {
     JAN: 1, FEB: 2, MAR: 3, APR: 4, MAY: 5, JUN: 6,
@@ -11,6 +12,7 @@ const MONTH_MAP: Record<string, number> = {
 
 @ApiTags('Transaction - Demand Generation')
 @Controller('transactions/demand-generation')
+@UseGuards(JwtAuthGuard)
 export class DemandGenerationController {
     constructor(
         private readonly service: DemandGenerationService,
@@ -57,7 +59,7 @@ export class DemandGenerationController {
 
     @Post('import-process')
     @ApiOperation({ summary: 'Save previously-previewed demand import rows for the selected month/year' })
-    async processImport(@Body() body: { month: string; year: string; data: any[] }) {
+    async processImport(@Body() body: { month: string; year: string; branch?: string; data: any[] }) {
         const monthNum = MONTH_MAP[(body.month || '').toUpperCase()] || 0;
         const yearNum = parseInt(body.year, 10) || 0;
         if (!monthNum || !yearNum) {
@@ -66,7 +68,7 @@ export class DemandGenerationController {
         if (!body.data || body.data.length === 0) {
             return { success: false, message: 'No records to process.' };
         }
-        const result = await this.importService.saveRows(monthNum, yearNum, body.data as any);
+        const result = await this.importService.saveRows(monthNum, yearNum, body.data as any, body.branch);
         return {
             success: true,
             recordCount: result.saved,

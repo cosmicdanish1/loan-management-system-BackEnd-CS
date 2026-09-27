@@ -357,6 +357,10 @@ export class PassTransactionService {
                 const appDate = loan.app_date ? new Date(loan.app_date) : new Date();
                 const emiCalc = calculateConstantEmi(combinedPrincipal, rate, noOfInstal, appDate, slot1DelayMonths, slot2DelayMonths, roundingMode, slot1StartDay, slot1EndDay);
                 const instalAmt = round2(emiCalc.monthlyPrincipal);
+                const disbursedAt = new Date();
+                const firstDueMonth = new Date(
+                    disbursedAt.getFullYear(), disbursedAt.getMonth() + 1 + emiCalc.delayMonths, 1,
+                );
                 console.log(`[PassTransaction] ${LOAN_INTEREST_METHOD} slot ${emiCalc.slot} (+${emiCalc.delayMonths}mo, slot1 window ${slot1StartDay}-${slot1EndDay}) — RB interest=${emiCalc.totalRBInterest}, delay interest=${emiCalc.delayInterest}, separate interest schedule=${emiCalc.totalRBInterest} (rounding=${roundingMode}), principal EMI=${instalAmt}`);
 
                 // Activate Loan
@@ -369,12 +373,29 @@ export class PassTransactionService {
                 `;
                 console.log(`[PassTransaction] Activating loan in loan_master for mbno: ${loan.mbno}`);
                 await queryRunner.query(insertLoanMasterQuery, [
-                    loan.mbno, loan.loantype, loan.loancaseno, combinedPrincipal, new Date(),
+                    loan.mbno, loan.loantype, loan.loancaseno, combinedPrincipal, disbursedAt,
                     rate, noOfInstal, instalAmt, combinedPrincipal, 0,  // balance=combinedPrincipal, openbalance=0 (matches legacy)
                     loan.purpose || '', emiCalc.monthlyInterestForEMI, penalrate, gracedays, smpenalpct, smpenaldiv, emiCalc.delayMonths,
                     'SEPARATE_INTEREST',
                     LOAN_INTEREST_METHOD,
                 ]);
+
+                // Freeze this agreement's balance basis and principal EMI.
+                // A later consolidation creates another immutable version;
+                // it never rewrites the earlier schedule or ledger.
+                await queryRunner.query(
+                    `INSERT INTO loan_schedule_versions
+                        (mbno, loantype, loancaseno, version_no, source, effective_date, first_due_month,
+                         opening_principal, monthly_principal, installment_count, monthly_installment,
+                         annual_rate, delay_months, source_case_no)
+                     VALUES ($1,$2,$3,1,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+                    [loan.mbno, loan.loantype, loan.loancaseno,
+                        existingActiveLoans.length ? 'CONSOLIDATION' : 'ORIGINATION',
+                        disbursedAt, firstDueMonth, combinedPrincipal,
+                        round2(emiCalc.monthlyPrincipal), noOfInstal,
+                        round2(emiCalc.monthlyPrincipal + emiCalc.monthlyInterestForEMI),
+                        rate, emiCalc.delayMonths, existingActiveLoans[0]?.loancaseno ?? null],
+                );
 
                 // Freeze the payroll-lag detection window for this consolidation —
                 // see AddPayrollLagCredit1758900000000's doc comment. Only set when
@@ -810,6 +831,12 @@ export class PassTransactionService {
                     `SELECT mbno, loantype, loan_amt FROM loan_master WHERE loancaseno::text = $1`,
                     [loanCaseNo]
                 );
+                if (loanRows[0]) {
+                    await queryRunner.query(
+                        `DELETE FROM loan_schedule_versions WHERE mbno=$1 AND loantype=$2 AND loancaseno::text=$3`,
+                        [loanRows[0].mbno, loanRows[0].loantype, loanCaseNo],
+                    );
+                }
                 await queryRunner.query(`DELETE FROM loan_master WHERE "loancaseno"::text = $1`, [loanCaseNo]);
                 await queryRunner.query(`DELETE FROM loan_rb_schedule WHERE loancaseno::text = $1`, [loanCaseNo]);
 

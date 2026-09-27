@@ -45,21 +45,14 @@
  *   - MBNO_FILTER env var restricts to a single member for a manual
  *     spot-check run before ever doing a full batch.
  *
- * OPEN DESIGN CALL NOT YET RESOLVED (flag to user before a live run):
- *   When a consolidation event tops up a case that already exists in
- *   Postgres (from the earlier bulk import) rather than being freshly
- *   disbursed, this script does NOT recompute a new blended EMI the way
- *   passTransaction()'s live consolidation path does (that would require
- *   re-deriving a slot/RB schedule historically, which risks silently
- *   diverging from what the member was actually charged). Instead it
- *   increases the receiving case's loan_amt/balance by the transfer amount
- *   and lets its existing (real, legacy-observed) instal_amt keep applying
- *   — the same "freeze the real observed EMI, don't force our formula"
- *   treatment already used for non-conforming loans elsewhere this
- *   session. This means a topped-up case may run a few installments longer
- *   than its original no_of_instal to fully amortize. This is a judgment
- *   call, not a certainty — review the CONSOLIDATION_APPLIED log lines
- *   from a dry run before deciding this is acceptable.
+ * Consolidation schedule reconstruction: each detected event starts a new
+ * schedule version. Its fixed principal EMI is taken from the first actual
+ * repayment in the eligible post-slot-delay period; the opening balance is
+ * the cumulative loan principal at that boundary less every principal amount
+ * recovered before the new schedule starts. A predecessor payroll-lag row is
+ * excluded from the successor installment count, but its principal still
+ * reduces the balance carried into consolidation. The old schedule and its
+ * repayments remain in history.
  */
 
 import { execFileSync } from 'child_process';
@@ -69,7 +62,9 @@ import { LoanRepaymentService } from '../../modules/loan/services-v2/loan-repaym
 import { LoanEligibilityService } from '../../modules/loan/services-v2/loan-eligibility.service';
 import { RdRulesService } from '../../modules/rd/rd-rules.service';
 import { RdBalanceEventsService } from '../../modules/rd/services/rd-balance-events.service';
-import { determineLoanSlot } from '../../modules/loan/services-v2/loan-rb-schedule.util';
+import { DEFAULT_SLOT1_END_DAY, DEFAULT_SLOT1_START_DAY, determineLoanSlot } from '../../modules/loan/services-v2/loan-rb-schedule.util';
+import { isSlotDelayPayroll, selectFirstRecurringPrincipal } from './schedule-seed.util';
+import { partitionReplayReceiptCopies } from './replay-receipt.util';
 
 // ---------------------------------------------------------------------
 // Config
@@ -81,11 +76,16 @@ const MBNO_FILTER = process.env.MBNO_FILTER; // e.g. '610033146' or a comma list
 // MBNO_FILTER env string for a real batch, so the run is auditable against exactly what
 // was reviewed in the preceding dry-run pass rather than re-deriving "clean" live.
 const MBNO_FILE = process.env.MBNO_FILE;
+// Set only for a reviewed repair run: completed members are re-evaluated so
+// derived schedules and payroll-lag classifications can be corrected. Exact
+// source receipts remain idempotent and are not inserted a second time.
+const REPLAY_COMPLETED = process.env.REPLAY_COMPLETED === 'true';
 const MEMBER_LIMIT = process.env.MEMBER_LIMIT ? parseInt(process.env.MEMBER_LIMIT, 10) : undefined;
 const BALANCE_TOLERANCE = 50; // rupees; mismatch beyond this is flagged, not silently accepted
 const MIN_CONSOLIDATION_AMOUNT = 50; // rupees; matched journal pairs below this are noise (rounding vouchers), not real consolidations
 const SQLCMD_SERVER = '.\\SQLEXPRESS';
 const SQLCMD_DB = 'EMP_Espat_Society_dan';
+let slotRuleConfig = { slot1DelayMonths: 1, slot2DelayMonths: 2, slot1StartDay: DEFAULT_SLOT1_START_DAY, slot1EndDay: DEFAULT_SLOT1_END_DAY };
 
 const AppDataSource = new DataSource({
     type: 'postgres', host: 'localhost', port: 5432, database: 'EMP_Espat_Society',
@@ -368,7 +368,11 @@ function findConsolidationEvents(events: LegacyEvent[]): ConsolidationEvent[] {
  *  case is open with the latest disbursement date" cursor logic — this function only
  *  has to say THAT a same-type close+topup happened here, not resolve which specific
  *  older case receives it. */
-function findPvoucherConsolidations(cases: LegacyCase[], events: LegacyEvent[]): ConsolidationEvent[] {
+function findPvoucherConsolidations(
+    cases: LegacyCase[],
+    events: LegacyEvent[],
+    log: (message: string) => void = () => undefined,
+): ConsolidationEvent[] {
     const PL_BALANCE_TOLERANCE = 1; // rupees — matches the validation query's own cutoff
     const result: ConsolidationEvent[] = [];
 
@@ -394,6 +398,23 @@ function findPvoucherConsolidations(cases: LegacyCase[], events: LegacyEvent[]):
             if (!disb || disb.plBalance === undefined || disb.plBalance <= disb.amt + PL_BALANCE_TOLERANCE) continue;
 
             const impliedPrior = round2(disb.plBalance - disb.amt);
+            // A P row can snapshot the old same-type balance before a same-day
+            // J voucher transfers that exact balance OUT of this loan type.
+            // Counting both the stale P PL_BALANCE and the explicit J transfer
+            // duplicates the same principal on two successor loans. The J CR
+            // amount is direct source evidence of the liability being removed;
+            // when it exactly matches the P row's implied prior balance, do not
+            // invent a second same-type top-up.
+            const explicitlyTransferredOut = events.some(e =>
+                e.vchrType === 'J' && e.transType === 'CR' && e.accType === type
+                && e.transDate.slice(0, 10) === disb.transDate.slice(0, 10)
+                && Math.abs(e.amt - impliedPrior) <= PL_BALANCE_TOLERANCE
+            );
+            if (explicitlyTransferredOut) {
+                log(`PVOUCHER_TOPUP_SUPPRESSED case=${newer.loancaseno} type=${type} date=${disb.transDate.slice(0, 10)} `
+                    + `implied_prior=₹${impliedPrior} — same amount is explicitly transferred out by a J-voucher CR; prevents duplicate principal`);
+                continue;
+            }
             result.push({
                 date: disb.transDate, receiptVchrNo: disb.receiptVchrNo, amt: impliedPrior,
                 fromHead: type, toHead: type, crTransNo: '',
@@ -434,7 +455,7 @@ interface CaseState {
      *  AddPayrollLagCredit1758900000000) catches a stray old-rate payment
      *  during replay exactly as it would for a live consolidation — no
      *  separate detection logic duplicated here. */
-    payrollLag?: { oldPrincipal: number; oldInterest: number; watchUntil: string };
+    payrollLag?: { oldPrincipal: number; oldInterest: number; effectiveFrom: string; watchUntil: string };
 }
 
 /** Same split pass-transaction.service.ts computes when arming payroll-lag
@@ -651,7 +672,7 @@ async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: s
     // see findConsolidationEvents (cross-type, journal-voucher) and
     // findPvoucherConsolidations (same-type, ordinary disbursement-voucher) for why
     // neither one alone covers both real patterns.
-    const consolidations = [...findConsolidationEvents(events), ...findPvoucherConsolidations(cases, events)]
+    const consolidations = [...findConsolidationEvents(events), ...findPvoucherConsolidations(cases, events, log)]
         .sort((a, b) => a.date.localeCompare(b.date));
     const { byType, flags } = buildAttribution(cases, events, consolidations);
     for (const warning of new Set(events.map(e => e.interestAllocationWarning).filter(Boolean))) {
@@ -708,6 +729,7 @@ async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: s
         watchUntil.setMonth(watchUntil.getMonth() + 2);
         receivingCase.payrollLag = {
             oldPrincipal: split.principal, oldInterest: split.interest,
+            effectiveFrom: cons.date.slice(0, 10),
             watchUntil: watchUntil.toISOString().slice(0, 10),
         };
     }
@@ -731,7 +753,7 @@ async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: s
             // collisions mean loancaseno alone is never trustworthy, and (mbno, loancaseno) isn't
             // either: 233 real members have the same case number reused across RLN and ALN.
             const pgRow = await AppDataSource.query(
-                `SELECT loancaseno, balance, loan_amt FROM loan_master WHERE mbno = $1 AND loancaseno::text = $2 AND loantype = $3`,
+                `SELECT loancaseno, balance, loan_amt, rate FROM loan_master WHERE mbno = $1 AND loancaseno::text = $2 AND loantype = $3`,
                 [mbno, loancaseno, type]
             );
             if (pgRow.length === 0) {
@@ -752,7 +774,10 @@ async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: s
                 [mbno, loancaseno, type],
             );
             if (existingDelay[0]?.delay_months == null && existingDelay[0]?.payment_date) {
-                const { delayMonths } = determineLoanSlot(new Date(existingDelay[0].payment_date));
+                const { delayMonths } = determineLoanSlot(
+                    new Date(existingDelay[0].payment_date), slotRuleConfig.slot1DelayMonths,
+                    slotRuleConfig.slot2DelayMonths, slotRuleConfig.slot1StartDay, slotRuleConfig.slot1EndDay,
+                );
                 log(`  SLOT_DELAY_BACKFILL case=${loancaseno} type=${type} delay_months=${delayMonths}`);
                 if (!DRY_RUN) {
                     await AppDataSource.query(
@@ -853,49 +878,11 @@ async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: s
                     // balance/loan_amt on every call. Fixed here and in the two
                     // production services after discovering it live.
                     await AppDataSource.query(
-                        `UPDATE loan_master SET loan_amt = loan_amt + $1, balance = balance + $1 WHERE mbno = $2 AND loancaseno::text = $3 AND loantype = $4`,
-                        [cs.toppedUpBy, mbno, loancaseno, type]
+                        `UPDATE loan_master
+                         SET balance = COALESCE(balance, 0) + ($1 - COALESCE(loan_amt, 0)), loan_amt = $1
+                         WHERE mbno = $2 AND loancaseno::text = $3 AND loantype = $4`,
+                        [effectiveCapacity, mbno, loancaseno, type]
                     );
-                    // A successor's EMI and term are derived from the repeated
-                    // recovery actually seen after the consolidation, not from
-                    // stale case-level fields. Principal and interest remain
-                    // separate ledger components, but loan_master.instal_amt
-                    // is the total monthly installment used by closure math.
-                    // For 610020500/15265 this is ₹8,333 principal + the
-                    // observed separate-interest component, over 60 months on
-                    // ₹5 lakh.
-                    if (separateInterestMode && cs.repaymentsToReplay.length > 0) {
-                        const principalFrequencies = new Map<number, number>();
-                        const interestFrequencies = new Map<number, number>();
-                        for (const r of cs.repaymentsToReplay) {
-                            if (r.principalAmount > 0) {
-                                const p = round2(r.principalAmount);
-                                principalFrequencies.set(p, (principalFrequencies.get(p) || 0) + 1);
-                            }
-                            if (r.interestAmount > 0) {
-                                const i = round2(r.interestAmount);
-                                interestFrequencies.set(i, (interestFrequencies.get(i) || 0) + 1);
-                            }
-                        }
-                        const principalEmi = [...principalFrequencies.entries()]
-                            .sort((a, b) => b[1] - a[1] || b[0] - a[0])[0]?.[0];
-                        const interestEmi = [...interestFrequencies.entries()]
-                            .sort((a, b) => b[1] - a[1] || b[0] - a[0])[0]?.[0] || 0;
-                        if (principalEmi && principalEmi > 0) {
-                            const combined = round2(cs.legacyCase.loanAmt + cs.toppedUpBy);
-                            const term = Math.max(1, Math.round(combined / principalEmi));
-                            const totalEmi = round2(principalEmi + interestEmi);
-                            await AppDataSource.query(
-                                `UPDATE loan_master
-                                 SET no_of_instal = $1, instal_amt = $2,
-                                     loan_payment_model = 'SEPARATE_INTEREST',
-                                     loan_interest_method = 'REDUCING_BALANCE'
-                                 WHERE mbno = $3 AND loancaseno::text = $4 AND loantype = $5`,
-                                [term, totalEmi, mbno, loancaseno, type]
-                            );
-                            log(`  LEGACY_PAYMENT_MODEL case=${loancaseno} principal EMI ₹${principalEmi} + separate interest ₹${interestEmi} = total EMI ₹${totalEmi} term=${term}`);
-                        }
-                    }
                 }
                 consolidationsApplied++;
             }
@@ -925,14 +912,293 @@ async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: s
             // previously bypassed that detector and inserted false instead.
             const payrollLagReplay = cs.payrollLag
                 ? cs.repaymentsToReplay.find(r =>
-                    r.date <= cs.payrollLag!.watchUntil
+                    r.date.slice(0, 10) >= cs.payrollLag!.effectiveFrom
+                    && r.date.slice(0, 10) <= cs.payrollLag!.watchUntil
                     && Math.abs(r.amount - round2(cs.payrollLag!.oldPrincipal + cs.payrollLag!.oldInterest)) < 1)
                 : undefined;
+            const receivedConsolidations = consolidations
+                .filter(c => c.resolvedToCase === loancaseno)
+                .sort((a, b) => a.date.localeCompare(b.date));
+            const scheduleBoundaries: Array<{ event: ConsolidationEvent; source: 'ORIGINATION' | 'CONSOLIDATION' }> = [];
+            const originationDate = cs.legacyCase.paymentDate.slice(0, 10);
+            if (!receivedConsolidations.some(c => c.date.slice(0, 10) === originationDate)) {
+                scheduleBoundaries.push({
+                    event: {
+                        date: originationDate, receiptVchrNo: '', amt: 0,
+                        fromHead: type as ConsolidationEvent['fromHead'],
+                        toHead: type as ConsolidationEvent['toHead'], crTransNo: '',
+                    },
+                    source: 'ORIGINATION',
+                });
+            }
+            // Several matched journal legs can describe the same receiving
+            // schedule on one effective date. Keep one schedule boundary for
+            // that date/head; the principal top-up itself is still calculated
+            // from the complete receivedConsolidations collection below.
+            const consolidationScheduleEvents = new Map<string, ConsolidationEvent>();
+            for (const event of receivedConsolidations) {
+                const key = `${event.date.slice(0, 10)}|${event.toHead}`;
+                if (!consolidationScheduleEvents.has(key)) consolidationScheduleEvents.set(key, event);
+            }
+            scheduleBoundaries.push(...[...consolidationScheduleEvents.values()].map(event => ({ event, source: 'CONSOLIDATION' as const })));
+            scheduleBoundaries.sort((a, b) => a.event.date.localeCompare(b.event.date));
+            const transitionPayrollRows = new Set<typeof cs.repaymentsToReplay[number]>();
+            const transitionWindows = scheduleBoundaries.map((boundary, index) => {
+                const { event, source } = boundary;
+                const effectiveDate = event.date.slice(0, 10);
+                const delayMonths = determineLoanSlot(
+                    new Date(`${effectiveDate}T12:00:00`), slotRuleConfig.slot1DelayMonths,
+                    slotRuleConfig.slot2DelayMonths, slotRuleConfig.slot1StartDay, slotRuleConfig.slot1EndDay,
+                ).delayMonths;
+                const date = new Date(`${effectiveDate}T12:00:00`);
+                const due = new Date(date.getFullYear(), date.getMonth() + 1 + delayMonths, 1);
+                const firstDueMonth = `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, '0')}-01`;
+                const nextEventDate = scheduleBoundaries[index + 1]?.event.date.slice(0, 10);
+                for (const repayment of cs.repaymentsToReplay) {
+                    // BSP payroll during the slot-delay window is still the
+                    // predecessor loan's deduction, including at a new
+                    // origination. Keep it auditable on this case, but exclude
+                    // it from this schedule and from current-loan principal.
+                    if (isSlotDelayPayroll(repayment.date, effectiveDate, firstDueMonth, nextEventDate)) {
+                        transitionPayrollRows.add(repayment);
+                    }
+                }
+                return { event, source, effectiveDate, firstDueMonth, delayMonths, nextEventDate };
+            });
+            const payrollLagReplayRows = new Set<typeof cs.repaymentsToReplay[number]>(transitionPayrollRows);
+            if (payrollLagReplay) payrollLagReplayRows.add(payrollLagReplay);
+            for (const row of transitionPayrollRows) {
+                log(`  TRANSITION_PAYROLL_EXCLUDED case=${loancaseno} date=${row.date} amount=₹${row.amount} — paid during the slot-delay window before the applicable schedule's first due month`);
+            }
 
+            // Rebuild each effective principal schedule from origination and
+            // consolidation boundaries, not the most-common principal amount across the
+            // entire case history. Earlier repayments remain historical and
+            // reduce the balance reaching each boundary; the first eligible
+            // post-slot-delay repayment defines the constant principal for
+            // that agreement version.
+            if (separateInterestMode && scheduleBoundaries.length > 0) {
+                const basePrincipal = round2(cs.legacyCase.loanAmt);
+                const annualRate = parseFloat(pgRow[0]?.rate) || 0;
+                if (annualRate <= 0) {
+                    flags.push(`SCHEDULE_VERSION_NOT_BUILT case=${loancaseno}: Postgres annual rate is missing/invalid; refusing to guess a rate`);
+                }
+                const scheduleSnapshots: Array<{
+                    source: 'ORIGINATION' | 'CONSOLIDATION';
+                    effectiveDate: string; firstDueMonth: string; openingPrincipal: number;
+                    monthlyPrincipal: number; monthlyInterest: number; installmentCount: number;
+                    delayMonths: number; sourceCaseNo: string | null;
+                }> = [];
+                for (let index = 0; annualRate > 0 && index < transitionWindows.length; index++) {
+                    const { event, source, effectiveDate, firstDueMonth, delayMonths, nextEventDate } = transitionWindows[index];
+                    const priorTopups = receivedConsolidations
+                        .filter(c => c.date <= event.date)
+                        .reduce((sum, c) => sum + c.amt, 0);
+                    const priorPrincipalPaid = cs.repaymentsToReplay
+                        // A slot-delay payroll row belongs to the prior loan
+                        // schedule. Keep it in the ledger for audit/closure
+                        // adjustment, but do not subtract it from this loan's
+                        // principal at any schedule boundary. Otherwise a
+                        // predecessor EMI lowers the successor's schedule
+                        // opening principal and is effectively counted twice.
+                        .filter(r => r.date.slice(0, 10) < effectiveDate)
+                        .filter(r => !payrollLagReplayRows.has(r))
+                        .reduce((sum, r) => sum + r.principalAmount, 0);
+                    const boundaryOpeningPrincipal = round2(basePrincipal + priorTopups - priorPrincipalPaid);
+                    const openingPrincipal = boundaryOpeningPrincipal;
+                    const eligiblePayments = cs.repaymentsToReplay
+                        .filter(r => r.date.slice(0, 7) >= firstDueMonth.slice(0, 7)
+                            && (!nextEventDate || r.date.slice(0, 10) < nextEventDate)
+                            && !payrollLagReplayRows.has(r) && r.principalAmount > 0)
+                        .sort((a, b) => a.date.localeCompare(b.date));
+                    const firstCurrentPayment = selectFirstRecurringPrincipal(eligiblePayments);
+                    if (openingPrincipal <= 0) {
+                        flags.push(`SCHEDULE_VERSION_NOT_BUILT case=${loancaseno} schedule=${event.date}: opening principal is zero/paid off before first due month (boundary ₹${boundaryOpeningPrincipal}); no future schedule was seeded`);
+                        continue;
+                    }
+                    if (!firstCurrentPayment) {
+                        const observed = eligiblePayments.map(r => `${r.date.slice(0, 10)}:${round2(r.principalAmount)}`).join(', ');
+                        flags.push(`SCHEDULE_VERSION_NOT_BUILT case=${loancaseno} schedule=${event.date}: no recurring principal payment found after slot delay; refusing to infer a term from a one-off residue or adjustment (observed ${observed || 'none'})`);
+                        continue;
+                    }
+                    const monthlyPrincipal = round2(firstCurrentPayment.principalAmount);
+                    const exactTerm = openingPrincipal / monthlyPrincipal;
+                    const nearestTerm = Math.round(exactTerm);
+                    // Small absolute rounding residues belong in the final
+                    // installment, not in a phantom extra month (e.g.
+                    // ₹781,654 / ₹19,541 = 40.0007 => 40 installments, with
+                    // the ₹14 residue absorbed by the last principal amount).
+                    const installmentCount = Math.max(1,
+                        Math.abs(exactTerm - nearestTerm) <= 0.02
+                            ? nearestTerm
+                            : Math.ceil(exactTerm));
+                    if (installmentCount > 32767) {
+                        flags.push(`SCHEDULE_VERSION_NOT_BUILT case=${loancaseno} schedule=${event.date}: inferred term ${installmentCount} exceeds the database smallint limit; principal seed ₹${monthlyPrincipal} is not accepted`);
+                        continue;
+                    }
+                    scheduleSnapshots.push({
+                        source,
+                        effectiveDate,
+                        firstDueMonth,
+                        openingPrincipal,
+                        monthlyPrincipal,
+                        monthlyInterest: round2(firstCurrentPayment.interestAmount),
+                        installmentCount,
+                        delayMonths,
+                        sourceCaseNo: event.resolvedFromCase ?? null,
+                    });
+                }
+                for (let index = 0; index < scheduleSnapshots.length; index++) {
+                    const snapshot = scheduleSnapshots[index];
+                    const monthlyInstallment = round2(snapshot.monthlyPrincipal + snapshot.monthlyInterest);
+                    log(`  EFFECTIVE_SCHEDULE case=${loancaseno} v${index + 1} source=${snapshot.source} effective=${snapshot.effectiveDate} first_due_month=${snapshot.firstDueMonth} `
+                        + `opening_principal=₹${snapshot.openingPrincipal} principal_emi=₹${snapshot.monthlyPrincipal} interest=₹${snapshot.monthlyInterest} `
+                        + `term=${snapshot.installmentCount} delay=${snapshot.delayMonths} source_case=${snapshot.sourceCaseNo ?? 'n/a'}`);
+                    if (!DRY_RUN) {
+                        if (index === 0) {
+                            // A prior interrupted/failed replay may have left
+                            // autocommitted schedule rows even though the
+                            // member batch was rolled back. Replace the whole
+                            // case's derived schedule set, including removing
+                            // stale invalid rows when no new snapshot exists.
+                            await AppDataSource.query(
+                                `DELETE FROM loan_schedule_versions WHERE mbno=$1 AND loantype=$2 AND loancaseno::text=$3`,
+                                [mbno, type, loancaseno],
+                            );
+                        }
+                        await AppDataSource.query(
+                            `INSERT INTO loan_schedule_versions
+                                (mbno, loantype, loancaseno, version_no, source, effective_date, first_due_month,
+                                 opening_principal, monthly_principal, installment_count, monthly_installment,
+                                 annual_rate, delay_months, source_case_no)
+                             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+                             ON CONFLICT (mbno, loantype, loancaseno, version_no) DO UPDATE SET
+                                source=EXCLUDED.source, effective_date=EXCLUDED.effective_date,
+                                first_due_month=EXCLUDED.first_due_month, opening_principal=EXCLUDED.opening_principal,
+                                monthly_principal=EXCLUDED.monthly_principal, installment_count=EXCLUDED.installment_count,
+                                monthly_installment=EXCLUDED.monthly_installment, annual_rate=EXCLUDED.annual_rate,
+                                delay_months=EXCLUDED.delay_months, source_case_no=EXCLUDED.source_case_no`,
+                            [mbno, type, loancaseno, index + 1, snapshot.source, snapshot.effectiveDate, snapshot.firstDueMonth,
+                                snapshot.openingPrincipal, snapshot.monthlyPrincipal, snapshot.installmentCount,
+                                monthlyInstallment, annualRate, snapshot.delayMonths, snapshot.sourceCaseNo],
+                        );
+                    }
+                }
+                if (!DRY_RUN && scheduleSnapshots.length === 0) {
+                    // A previous failed run may have committed a bad schedule
+                    // before hitting the smallint installment-count error.
+                    await AppDataSource.query(
+                        `DELETE FROM loan_schedule_versions WHERE mbno=$1 AND loantype=$2 AND loancaseno::text=$3`,
+                        [mbno, type, loancaseno],
+                    );
+                }
+                const latestSnapshot = scheduleSnapshots[scheduleSnapshots.length - 1];
+                if (latestSnapshot && !cs.closed) {
+                    const latestTotalInstallment = round2(latestSnapshot.monthlyPrincipal + latestSnapshot.monthlyInterest);
+                    if (!DRY_RUN) {
+                        await AppDataSource.query(
+                            `UPDATE loan_master SET no_of_instal=$1, instal_amt=$2,
+                                loan_payment_model='SEPARATE_INTEREST', loan_interest_method='REDUCING_BALANCE'
+                             WHERE mbno=$3 AND loancaseno::text=$4 AND loantype=$5`,
+                            [latestSnapshot.installmentCount, latestTotalInstallment, mbno, loancaseno, type],
+                        );
+                    }
+                }
+            }
+
+            type ExistingReplayRow = {
+                id: number | string;
+                receipt_no: string | null;
+                payment_amount: number | string;
+                principal_amount: number | string;
+                interest_amount: number | string;
+                penal_amount: number | string;
+                is_payroll_lag_credit: boolean | null;
+            };
+            const existingReplayRows: ExistingReplayRow[] = !DRY_RUN ? await AppDataSource.query<ExistingReplayRow[]>(
+                `SELECT id, receipt_no, payment_amount, principal_amount, interest_amount, penal_amount,
+                        is_payroll_lag_credit
+                 FROM loan_repayment_ledger
+                 WHERE mbno=$1 AND loantype=$2 AND loancaseno::text=$3 AND posted_by='phase2-replay'
+                   AND COALESCE(narration, '') <> 'Legacy consolidation replay: closed, folded into successor case'
+                 ORDER BY id`,
+                [mbno, type, loancaseno],
+            ) : [];
+            const replayReceiptRows = new Map<string, typeof existingReplayRows>();
+            const sourceReceiptCounts = new Map<string, number>();
+            const receiptFingerprint = (receiptNo: string, amount: number, principal: number, interest: number, penal = 0) =>
+                [receiptNo, round2(amount), round2(principal), round2(interest), round2(penal)].join('|');
             for (const r of cs.repaymentsToReplay) {
-                const isPayrollLagCredit = payrollLagReplay === r;
-                log(`  REPAYMENT case=${loancaseno} type=${type} date=${r.date} amount=₹${r.amount}`);
+                const receiptNo = `LR-${loancaseno}-${r.date.slice(0, 10)}`;
+                const key = receiptFingerprint(receiptNo, r.amount, r.principalAmount, r.interestAmount);
+                sourceReceiptCounts.set(key, (sourceReceiptCounts.get(key) || 0) + 1);
+            }
+            for (const row of existingReplayRows) {
+                const key = receiptFingerprint(row.receipt_no || '', Number(row.payment_amount),
+                    Number(row.principal_amount), Number(row.interest_amount), Number(row.penal_amount));
+                const matches = replayReceiptRows.get(key) || [];
+                matches.push(row);
+                replayReceiptRows.set(key, matches);
+            }
+            // Earlier interrupted runs could have committed the same replay
+            // receipt repeatedly. Retain exactly the multiplicity present in
+            // the source; remove only surplus rows whose full fingerprint is
+            // positively matched to a source receipt. Unknown rows are kept
+            // for manual review, never guessed away.
+            for (const [key, matches] of replayReceiptRows) {
+                const sourceCount = sourceReceiptCounts.get(key) || 0;
+                if (sourceCount === 0 || matches.length <= sourceCount) continue;
+                const { retained, excess: duplicates } = partitionReplayReceiptCopies(matches, sourceCount);
+                replayReceiptRows.set(key, retained);
+                for (const duplicate of duplicates) {
+                    const deleted = await AppDataSource.query(
+                        `DELETE FROM loan_repayment_ledger WHERE id=$1 AND mbno=$2 AND loantype=$3
+                           AND loancaseno::text=$4 AND posted_by='phase2-replay'
+                         RETURNING principal_amount, is_payroll_lag_credit`,
+                        [duplicate.id, mbno, type, loancaseno],
+                    );
+                    const principal = round2(Number(deleted[0]?.principal_amount) || 0);
+                    if (principal > 0 && deleted[0]?.is_payroll_lag_credit !== true && !cs.closed) {
+                        await AppDataSource.query(
+                            `UPDATE loan_master SET balance=COALESCE(balance, 0)+$1
+                             WHERE mbno=$2 AND loancaseno::text=$3 AND loantype=$4`,
+                            [principal, mbno, loancaseno, type],
+                        );
+                    }
+                    log(`  DUPLICATE_REPLAY_REMOVED case=${loancaseno} row=${duplicate.id} principal=₹${principal} — surplus identical receipt beyond source multiplicity`);
+                }
+            }
+            for (const r of cs.repaymentsToReplay) {
+                const isPayrollLagCredit = payrollLagReplayRows.has(r);
+                log(`  REPAYMENT case=${loancaseno} type=${type} date=${r.date} amount=₹${r.amount} principal=₹${r.principalAmount} interest=₹${r.interestAmount}`);
                 if (!DRY_RUN) {
+                    const receiptNo = `LR-${loancaseno}-${r.date.slice(0, 10)}`;
+                    const key = receiptFingerprint(receiptNo, r.amount, r.principalAmount, r.interestAmount);
+                    const existingMatches = replayReceiptRows.get(key) || [];
+                    const existingRow = existingMatches.shift();
+                    replayReceiptRows.set(key, existingMatches);
+                    if (existingRow) {
+                        if (isPayrollLagCredit && existingRow.is_payroll_lag_credit !== true) {
+                            const changed = await AppDataSource.query(
+                                `UPDATE loan_repayment_ledger SET is_payroll_lag_credit=true
+                                 WHERE id=$1 AND mbno=$2 AND loantype=$3 AND loancaseno::text=$4
+                                   AND COALESCE(is_payroll_lag_credit, false)=false
+                                 RETURNING principal_amount`,
+                                [existingRow.id, mbno, type, loancaseno],
+                            );
+                            const restoredPrincipal = round2(Number(changed[0]?.principal_amount) || 0);
+                            if (restoredPrincipal > 0 && !cs.closed) {
+                                await AppDataSource.query(
+                                    `UPDATE loan_master SET balance=COALESCE(balance, 0)+$1
+                                     WHERE mbno=$2 AND loancaseno::text=$3 AND loantype=$4`,
+                                    [restoredPrincipal, mbno, loancaseno, type],
+                                );
+                                log(`    -> Reclassified prior slot-delay payroll as predecessor credit; restored ₹${restoredPrincipal} to current principal.`);
+                            }
+                        }
+                        log('    -> SKIPPED exact replay receipt already committed by an earlier interrupted run.');
+                        continue;
+                    }
                     const result = await svc.recordLoanRepayment({
                         // receipt_no is varchar(30) — the original 'LEGACYREPLAY-<case>-<full timestamp>'
                         // format overflowed it on every single call, failing 100% of the live batch
@@ -940,7 +1206,7 @@ async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: s
                         // no unique constraint on this column so a same-day split repayment on one case
                         // reusing the same receipt_no is harmless.
                         mbno, loancaseno, loantype: type, paymentAmount: r.amount,
-                        receiptNo: `LR-${loancaseno}-${r.date.slice(0, 10)}`,
+                        receiptNo,
                         narration: 'Legacy ledger replay (Phase 2 bulk migration)',
                         username: 'phase2-replay',
                         asOfDate: new Date(r.date),
@@ -975,15 +1241,23 @@ async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: s
                             : `UPDATE loan_master SET balance = 0, consolidated_into_loancaseno = $4 WHERE mbno = $1 AND loancaseno::text = $2 AND loantype = $3`,
                         consolidatedInto === '(unresolved)' ? [mbno, loancaseno, type] : [mbno, loancaseno, type, consolidatedInto]
                     );
-                    await AppDataSource.query(
-                        `INSERT INTO loan_repayment_ledger
-                            (mbno, loancaseno, loantype, payment_date, payment_month, payment_year, payment_amount,
-                             principal_amount, interest_amount, penal_amount, months_overdue, receipt_no, narration, posted_by)
-                         VALUES ($1, $2, $3, $4, $5, $6, $7, $7, 0, 0, 0, NULL, $8, $9)`,
-                        [mbno, loancaseno, type, new Date(cs.closedDate!),
-                            new Date(cs.closedDate!).getMonth() + 1, new Date(cs.closedDate!).getFullYear(), remBal,
-                            `Legacy consolidation replay: closed, folded into successor case`, 'phase2-replay']
+                    const closeNarration = 'Legacy consolidation replay: closed, folded into successor case';
+                    const closeExists = await AppDataSource.query(
+                        `SELECT 1 FROM loan_repayment_ledger WHERE mbno=$1 AND loantype=$2 AND loancaseno::text=$3
+                         AND posted_by='phase2-replay' AND narration=$4 LIMIT 1`,
+                        [mbno, type, loancaseno, closeNarration],
                     );
+                    if (closeExists.length === 0) {
+                        await AppDataSource.query(
+                            `INSERT INTO loan_repayment_ledger
+                                (mbno, loancaseno, loantype, payment_date, payment_month, payment_year, payment_amount,
+                                 principal_amount, interest_amount, penal_amount, months_overdue, receipt_no, narration, posted_by)
+                             VALUES ($1, $2, $3, $4, $5, $6, $7, $7, 0, 0, 0, NULL, $8, $9)`,
+                            [mbno, loancaseno, type, new Date(cs.closedDate!),
+                                new Date(cs.closedDate!).getMonth() + 1, new Date(cs.closedDate!).getFullYear(), remBal,
+                                closeNarration, 'phase2-replay']
+                        );
+                    }
                 }
             }
 
@@ -992,18 +1266,22 @@ async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: s
             // Mirrors (doesn't call) the real payroll-lag detection purely so this preview's arithmetic
             // matches what will actually happen live — the first repayment inside the watch window that
             // matches the old EMI total is excluded from the sum, same as recordLoanRepayment does for real.
-            let payrollLagExcluded = 0;
+            const payrollLagExcluded = [...payrollLagReplayRows].reduce((sum, r) => sum + r.amount, 0);
             if (cs.payrollLag) {
                 const oldTotal = round2(cs.payrollLag.oldPrincipal + cs.payrollLag.oldInterest);
-                const match = cs.repaymentsToReplay.find(r => r.date <= cs.payrollLag!.watchUntil && Math.abs(r.amount - oldTotal) < 1);
+                const match = cs.repaymentsToReplay.find(r =>
+                    r.date.slice(0, 10) >= cs.payrollLag!.effectiveFrom
+                    && r.date.slice(0, 10) <= cs.payrollLag!.watchUntil
+                    && Math.abs(r.amount - oldTotal) < 1);
                 if (match) {
-                    payrollLagExcluded = match.amount;
-                    log(`  PAYROLL_LAG_DETECTED case=${loancaseno} date=${match.date} amount=₹${match.amount} — excluded from schedule, netted at closure instead`);
+                    log(`  PAYROLL_LAG_DETECTED case=${loancaseno} date=${match.date} amount=₹${match.amount} — predecessor-loan receipt; not applied to successor principal or installments`);
                 }
             }
+            const payrollLagPrincipalExcluded = [...payrollLagReplayRows].reduce((sum, r) => sum + r.principalAmount, 0);
             const expected = separateInterestMode
                 ? round2(cs.legacyCase.loanAmt + cs.toppedUpBy
-                    - cs.repaymentsToReplay.reduce((s, r) => s + r.principalAmount, 0))
+                    - cs.repaymentsToReplay.reduce((s, r) => s + r.principalAmount, 0)
+                    + payrollLagPrincipalExcluded)
                 : round2(cs.legacyCase.loanAmt + scheduleExtension + cs.toppedUpBy
                     - cs.repaymentsToReplay.reduce((s, r) => s + r.amount, 0) + payrollLagExcluded);
             if (!cs.closed && !DRY_RUN) {
@@ -1023,6 +1301,31 @@ async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: s
     return { repaymentsReplayed, consolidationsApplied, flags, casesProcessed: cases.length };
 }
 
+async function reconcileMemberLoanBalanceSummary(mbno: string): Promise<{ regular: number; emergency: number } | null> {
+    const rows = await AppDataSource.query(
+        `WITH totals AS (
+            SELECT mbno,
+                   COALESCE(SUM(CASE WHEN UPPER(COALESCE(loantype, '')) IN ('ELN','ALN','A','E','EMR','ADD')
+                                          OR UPPER(COALESCE(loantype, '')) LIKE '%EMERGENCY%'
+                                     THEN COALESCE(balance, 0) ELSE 0 END), 0) AS emergency_balance,
+                   COALESCE(SUM(CASE WHEN UPPER(COALESCE(loantype, '')) IN ('ELN','ALN','A','E','EMR','ADD')
+                                          OR UPPER(COALESCE(loantype, '')) LIKE '%EMERGENCY%'
+                                     THEN 0 ELSE COALESCE(balance, 0) END), 0) AS regular_balance
+            FROM loan_master WHERE mbno=$1 GROUP BY mbno
+         )
+         UPDATE member_balances mb
+         SET emergency_loan_balance=totals.emergency_balance, regularloan=totals.regular_balance
+         FROM totals WHERE mb.mbno=totals.mbno
+         RETURNING mb.regularloan, mb.emergency_loan_balance`,
+        [mbno],
+    );
+    if (!rows[0]) return null;
+    return {
+        regular: round2(Number(rows[0].regularloan) || 0),
+        emergency: round2(Number(rows[0].emergency_loan_balance) || 0),
+    };
+}
+
 async function main() {
     console.log(`===== Phase 2 bulk ledger replay — DRY_RUN=${DRY_RUN} =====`);
     if (DRY_RUN) {
@@ -1032,6 +1335,26 @@ async function main() {
     }
 
     await AppDataSource.initialize();
+    const slotRows = await AppDataSource.query(
+        `SELECT key, value FROM system_configs
+         WHERE key = ANY($1::text[]) AND "isActive" = true`,
+        [['RULE_LOAN_SLOT1_DELAY_MONTHS', 'RULE_LOAN_SLOT2_DELAY_MONTHS',
+            'RULE_LOAN_SLOT1_START_DAY', 'RULE_LOAN_SLOT1_END_DAY']],
+    );
+    const slotValues = new Map<string, number>(slotRows.map((r: any) => [r.key, Number(r.value)]));
+    const readSlotValue = (key: string, fallback: number) => {
+        const value = slotValues.get(key);
+        const min = key.includes('DELAY') ? 0 : 1;
+        const max = key.includes('DELAY') ? 24 : 31;
+        return Number.isInteger(value) && value! >= min && value! <= max ? value! : fallback;
+    };
+    slotRuleConfig = {
+        slot1DelayMonths: readSlotValue('RULE_LOAN_SLOT1_DELAY_MONTHS', 1),
+        slot2DelayMonths: readSlotValue('RULE_LOAN_SLOT2_DELAY_MONTHS', 2),
+        slot1StartDay: readSlotValue('RULE_LOAN_SLOT1_START_DAY', DEFAULT_SLOT1_START_DAY),
+        slot1EndDay: readSlotValue('RULE_LOAN_SLOT1_END_DAY', DEFAULT_SLOT1_END_DAY),
+    };
+    console.log(`Slot rules used for historical schedule reconstruction: ${JSON.stringify(slotRuleConfig)}`);
     const rdRules = new RdRulesService(AppDataSource);
     const rdBal = new RdBalanceEventsService(AppDataSource, rdRules);
     const elig = new LoanEligibilityService(AppDataSource, rdBal, rdRules);
@@ -1048,7 +1371,7 @@ async function main() {
             const existing = await AppDataSource.query(
                 `SELECT status FROM legacy_replay_batch_log WHERE mbno = $1`, [mbno]
             );
-            if (existing[0]?.status === 'done') {
+            if (existing[0]?.status === 'done' && !REPLAY_COMPLETED) {
                 console.log(`\n[${mbno}] already done, skipping`);
                 continue;
             }
@@ -1061,6 +1384,13 @@ async function main() {
         try {
             const { repaymentsReplayed, consolidationsApplied, flags, casesProcessed } =
                 await processMember(mbno, svc, (s) => console.log(s));
+
+            if (!DRY_RUN) {
+                const memberLoanBalances = await reconcileMemberLoanBalanceSummary(mbno);
+                if (memberLoanBalances) {
+                    console.log(`  MEMBER_LOAN_BALANCES_RECONCILED regular=₹${memberLoanBalances.regular} emergency=₹${memberLoanBalances.emergency} (sum of loan_master balances)`);
+                }
+            }
 
             totalRepayments += repaymentsReplayed;
             totalConsolidations += consolidationsApplied;

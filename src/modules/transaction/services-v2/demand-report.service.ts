@@ -1,7 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { DemandMaster } from '../entities/demand-master.entity';
+import { DataSource } from 'typeorm';
 
 export interface DemandListFiltersDto {
     month: string;
@@ -14,8 +12,7 @@ export interface DemandListFiltersDto {
 @Injectable()
 export class DemandReportService {
     constructor(
-        @InjectRepository(DemandMaster)
-        private readonly demandRepository: Repository<DemandMaster>,
+        private readonly dataSource: DataSource,
     ) { }
 
     async getDemandList(filters: DemandListFiltersDto) {
@@ -26,52 +23,44 @@ export class DemandReportService {
         const monthNum = monthMap[filters.month] || 0;
         const yearNum = parseInt(filters.year);
 
-        const qb = this.demandRepository.createQueryBuilder('dm');
+        if (!monthNum || !yearNum) return [];
 
-        // Simulating Join with MemberMaster (assuming table exists, but for safety in this strict environment, 
-        // we'll rely on what's available or join loosely if entity not imported).
-        // Since we don't have MemberMaster entity imported here yet, we will select available fields 
-        // and acknowledge that name retrieval would essentially require that join.
-
-        qb.select([
-            'dm.id',
-            'dm.memberNo',
-            'dm.demand_for_month',
-            'dm.demand_for_year',
-            'dm.rln_installment_amount',
-            'dm.rln_interest',
-            'dm.totalDemand',
-            'dm.balance',
-            // Ideally: member.name
-        ]);
-
-        qb.where('dm.demand_for_month = :month', { month: monthNum })
-            .andWhere('dm.demand_for_year = :year', { year: yearNum });
-
-        // Apply Branch/Division filter if columns exist (officeno is often used for this)
+        const params: any[] = [monthNum, yearNum];
+        const conditions = ['dm.demand_for_month = $1', 'dm.demand_for_year = $2'];
+        if (filters.division) {
+            params.push(filters.division);
+            conditions.push(`mm.wingno::text = $${params.length}`);
+        }
         if (filters.branch) {
-            // Mapping branch string to officeno code would happen here.
-            // For now, assuming no filter or mapping 'BR-01' to 1 for test
-            if (filters.branch === 'BR-01') qb.andWhere('dm.officeno = :office', { office: 1 });
+            params.push(filters.branch);
+            conditions.push(`dm.officeno::text = $${params.length}`);
         }
 
-        // Sort
-        if (filters.sortBy === 'Member No.') {
-            qb.orderBy('dm.memberNo', 'ASC');
-        } else if (filters.sortBy === 'Account No.') {
-            // Assuming loancaseno or similar
-            qb.orderBy('dm.memberNo', 'ASC'); // Fallback
-        } else {
-            qb.orderBy('dm.id', 'ASC');
-        }
+        const orderBy = filters.sortBy === 'Name'
+            ? 'member_name ASC'
+            : filters.sortBy === 'Account No.'
+                ? 'dm.loancaseno ASC NULLS LAST'
+                : 'dm.mbno ASC';
+        const results = await this.dataSource.query(
+            `SELECT dm.dmnd_srno as id, dm.mbno as "memberNo",
+                    dm.demand_for_month as month, dm.demand_for_year as year,
+                    dm.rln_installment_amount as "rlnInstallmentAmount",
+                    dm.rln_interest as "rlnInterest",
+                    dm.totaldemand as "totalDemand",
+                    dm.balance_for_month as balance,
+                    dm.officeno as "officeNo", dm.loancaseno as "loanCaseNo",
+                    TRIM(COALESCE(mm.f_name,'') || ' ' || COALESCE(mm.m_name,'') || ' ' || COALESCE(mm.l_name,'')) as member_name,
+                    CASE WHEN COALESCE(dm.balance_for_month,0) > 0 THEN 'Unpaid' ELSE 'Paid' END as status
+             FROM demand_master dm
+             LEFT JOIN member_master mm ON mm.mbno = dm.mbno
+             WHERE ${conditions.join(' AND ')}
+             ORDER BY ${orderBy}`,
+            params,
+        );
 
-        const results = await qb.getMany();
-
-        // Enrich with mock names if member join isn't perfect yet, just to make report look good
-        return results.map(r => ({
+        return results.map((r: any) => ({
             ...r,
-            memberName: `Member ${r.memberNo}`, // Placeholder until MemberMaster entity is widely available in this module
-            status: r.balance > 0 ? 'Unpaid' : 'Paid'
+            memberName: r.member_name || `Member ${r.memberNo}`,
         }));
     }
 }

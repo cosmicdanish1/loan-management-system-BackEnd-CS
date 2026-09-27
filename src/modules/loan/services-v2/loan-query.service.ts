@@ -115,19 +115,53 @@ export class LoanQueryService {
     async getMemberLoansFromMaster(memberNo: string) {
         try {
             const query = `
-        SELECT DISTINCT ON (loancaseno)
-          loancaseno,
-          loantype,
-          loan_amt::numeric as loan_amt,
-          balance::numeric as balance,
-          rate,
-          no_of_instal,
-          instal_amt,
-          payment_date,
-          consolidated_into_loancaseno
-        FROM loan_master
-        WHERE mbno = $1
-        ORDER BY loancaseno DESC
+        SELECT DISTINCT ON (lm.loancaseno, lm.loantype)
+          lm.loancaseno,
+          lm.loantype,
+          lm.loan_amt::numeric as loan_amt,
+          CASE WHEN schedule.effective_date IS NOT NULL THEN GREATEST(0,
+            schedule.opening_principal::numeric - COALESCE((
+              SELECT SUM(own.principal_amount)
+              FROM loan_repayment_ledger own
+              WHERE own.mbno = lm.mbno
+                AND own.loancaseno::text = lm.loancaseno::text
+                AND own.loantype = lm.loantype
+                AND own.payment_date >= schedule.effective_date
+                AND own.payment_date <= CURRENT_DATE
+                AND own.is_payroll_lag_credit = false
+            ), 0)
+          ) WHEN EXISTS (
+            SELECT 1 FROM loan_repayment_ledger lag
+            WHERE lag.mbno = lm.mbno
+              AND lag.loancaseno::text = lm.loancaseno::text
+              AND lag.loantype = lm.loantype
+              AND lag.is_payroll_lag_credit = true
+          ) THEN GREATEST(0, lm.loan_amt::numeric - COALESCE((
+            SELECT SUM(own.principal_amount)
+            FROM loan_repayment_ledger own
+            WHERE own.mbno = lm.mbno
+              AND own.loancaseno::text = lm.loancaseno::text
+              AND own.loantype = lm.loantype
+              AND own.is_payroll_lag_credit = false
+          ), 0)) ELSE lm.balance::numeric END as balance,
+          lm.rate,
+          lm.no_of_instal,
+          lm.instal_amt,
+          lm.payment_date,
+          lm.consolidated_into_loancaseno
+        FROM loan_master lm
+        LEFT JOIN LATERAL (
+          SELECT sv.effective_date, sv.opening_principal
+          FROM loan_schedule_versions sv
+          WHERE sv.mbno = lm.mbno
+            AND sv.loantype = lm.loantype
+            AND sv.loancaseno::text = lm.loancaseno::text
+            AND sv.effective_date <= CURRENT_DATE
+          ORDER BY sv.effective_date DESC, sv.version_no DESC
+          LIMIT 1
+        ) schedule ON TRUE
+        WHERE lm.mbno = $1
+        ORDER BY lm.loancaseno DESC, lm.loantype
       `;
 
             const result = await this.dataSource.query(query, [memberNo]);

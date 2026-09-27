@@ -18,11 +18,10 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 // those.
 //
 // loan_repayment_ledger gets a flag marking a row as this kind of credit —
-// getInstallmentStatus's pooling and getLedgerHistoryTotals's totals both
-// exclude flagged rows (the money never applied to any installment of the
-// new loan), while calculateEarlyClosure/executeEarlyClosure automatically
-// net it back out of the final closure amount, replacing the manual
-// adjustment step.
+// installment matching excludes flagged rows, but post-consolidation
+// principal is netted once from closure principal. Earlier predecessor
+// principal is included in the next schedule version's opening principal.
+// Predecessor interest remains visible for audit and is not charged again.
 export class AddPayrollLagCredit1758900000000 implements MigrationInterface {
     name = 'AddPayrollLagCredit1758900000000';
 

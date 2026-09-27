@@ -98,13 +98,22 @@ export class AuthService {
       }
     }
 
-    // Fallback to old users table
-    const user = await this.userRepository.findOne({
-      where: [
-        { username, isActive: true },
-        { email: username, isActive: true },
-      ],
-    });
+    // Fallback to the legacy users table when it exists. Some deployments
+    // intentionally use only usermaster; a missing legacy table must not turn
+    // a bad password into a database error.
+    let user: User | null = null;
+    try {
+      user = await this.userRepository.findOne({
+        where: [
+          { username, isActive: true },
+          { email: username, isActive: true },
+        ],
+      });
+    } catch (error: any) {
+      if (!/relation .*users.* does not exist/i.test(String(error?.message || ''))) {
+        throw error;
+      }
+    }
 
     if (user && (await user.validatePassword(password))) {
       return user;

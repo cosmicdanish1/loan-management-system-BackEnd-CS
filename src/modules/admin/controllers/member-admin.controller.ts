@@ -1,9 +1,11 @@
-import { Controller, Post, Body, Get, Param } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { MemberAdminService } from '../services/member-admin.service';
+import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 
 @ApiTags('Admin - Member Management')
 @Controller('admin/members')
+@UseGuards(JwtAuthGuard)
 export class MemberAdminController {
     constructor(private readonly service: MemberAdminService) { }
 

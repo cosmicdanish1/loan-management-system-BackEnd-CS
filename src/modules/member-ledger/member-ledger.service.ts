@@ -274,48 +274,58 @@ export class MemberLedgerService {
       WHERE CAST(mbno AS text) = $1 AND trans_date::date <= $2::date
       ORDER BY trans_date ASC, ledgerid ASC
     `, [memberNo, end]);
-    const repayments = await this.dataSource.query(`
-      SELECT to_char(r.payment_date::date, 'YYYY-MM-DD') AS date_key, r.principal_amount,
-             l.loantype
-      FROM loan_repayment_ledger r
-      JOIN loan_master l ON CAST(l.loancaseno AS text) = CAST(r.loancaseno AS text)
-      WHERE CAST(r.mbno AS text) = $1
-    `, [memberNo]);
-    const loanBalances = await this.dataSource.query(`
-      SELECT loantype, COALESCE(SUM(CAST(balance AS numeric)), 0) AS balance
+    // This is an account ledger report: its running loan balances must follow
+    // the posted ledger transactions (including payroll collected during a
+    // slot-delay window), exactly as the legacy ledger does. Schedule-level
+    // allocation flags belong to closure/schedule calculations and must not
+    // rewrite the historical account balance shown here.
+    // Some migrated member accounts begin with a legacy opening principal in
+    // loan_master.openbalance rather than a corresponding ledger disbursement
+    // row. Seed that account-level opening amount before replaying posted
+    // movements; without it, repayments can drive the running balance below
+    // zero and make the displayed balance appear to grow with each EMI.
+    const openingBalances = await this.dataSource.query(`
+      SELECT
+        COALESCE(SUM(openbalance) FILTER (WHERE loantype = 'RLN'), 0) AS ltl,
+        COALESCE(SUM(openbalance) FILTER (WHERE loantype IN ('ALN', 'ELN')), 0) AS emer
       FROM loan_master
       WHERE CAST(mbno AS text) = $1
-      GROUP BY loantype
     `, [memberNo]);
-
-    const currentLoan = (types: string[]) => loanBalances
-      .filter((r: any) => types.includes(r.loantype))
-      .reduce((sum: number, r: any) => sum + Number(r.balance || 0), 0);
-    const loanEvents: Record<string, Array<{ date: string; effect: number }>> = { ltl: [], emer: [] };
-    for (const row of raw) {
-      const bucket = row.acc_type === 'RLN' ? 'ltl' : (row.acc_type === 'ALN' || row.acc_type === 'ELN' ? 'emer' : null);
-      if (bucket && row.trans_type === 'DR') loanEvents[bucket].push({ date: row.date_key, effect: Number(row.trans_amt || 0) });
-    }
-    for (const row of repayments) {
-      const bucket = row.loantype === 'RLN' ? 'ltl' : (row.loantype === 'ALN' || row.loantype === 'ELN' ? 'emer' : null);
-      if (bucket) loanEvents[bucket].push({ date: row.date_key, effect: -(Number(row.principal_amount) || 0) });
-    }
-
-    const balanceAt = (bucket: 'ltl' | 'emer', date: string) => {
-      const current = currentLoan(bucket === 'ltl' ? ['RLN'] : ['ALN', 'ELN']);
-      const after = loanEvents[bucket].filter(e => e.date > date).reduce((sum, e) => sum + e.effect, 0);
-      return Math.max(0, current - after);
+    const openingLoan = {
+      ltl: Number(openingBalances[0]?.ltl) || 0,
+      emer: Number(openingBalances[0]?.emer) || 0,
     };
-    const openingLoan = (bucket: 'ltl' | 'emer') => {
-      const current = currentLoan(bucket === 'ltl' ? ['RLN'] : ['ALN', 'ELN']);
-      const fromStart = loanEvents[bucket].filter(e => e.date >= start).reduce((sum, e) => sum + e.effect, 0);
-      return Math.max(0, current - fromStart);
-    };
+    const closingLoan = { ltl: 0, emer: 0 };
+    const loanDailyEffects = new Map<string, { ltl: number; emer: number }>();
+    for (const item of raw) {
+      const bucket = item.acc_type === 'RLN' ? 'ltl' :
+        (item.acc_type === 'ALN' || item.acc_type === 'ELN') ? 'emer' : null;
+      if (!bucket) continue;
+
+      // Loan debits increase outstanding; credits (including payroll-lag
+      // receipts) decrease the posted account balance.
+      const amount = Number(item.trans_amt || 0);
+      const effect = item.trans_type === 'DR' ? amount : -amount;
+      closingLoan[bucket] += effect;
+      if (String(item.date_key) < start) {
+        openingLoan[bucket] += effect;
+      } else {
+        const daily = loanDailyEffects.get(String(item.date_key)) || { ltl: 0, emer: 0 };
+        daily[bucket] += effect;
+        loanDailyEffects.set(String(item.date_key), daily);
+      }
+    }
 
     const dates = Array.from(new Set(raw.filter((r: any) => r.date_key >= start).map((r: any) => String(r.date_key)))).sort();
     const empty = () => ({ dr: 0, cr: 0, bal: null as number | null });
+    const runningLoan = { ...openingLoan };
     const rows = dates.map(date => {
       const cells: any = { share: empty(), ltl: empty(), emer: empty(), cd: empty() };
+      const loanEffect = loanDailyEffects.get(String(date));
+      if (loanEffect) {
+        runningLoan.ltl += loanEffect.ltl;
+        runningLoan.emer += loanEffect.emer;
+      }
       for (const item of raw.filter((r: any) => String(r.date_key) === date)) {
         const amount = Number(item.trans_amt || 0);
         const bucket = item.acc_type === 'SHR' ? 'share' : item.acc_type === 'RLN' ? 'ltl' :
@@ -323,8 +333,8 @@ export class MemberLedgerService {
         if (!bucket) continue;
         if (item.trans_type === 'DR') cells[bucket].dr += amount; else cells[bucket].cr += amount;
       }
-      cells.ltl.bal = balanceAt('ltl', String(date));
-      cells.emer.bal = balanceAt('emer', String(date));
+      cells.ltl.bal = runningLoan.ltl;
+      cells.emer.bal = runningLoan.emer;
       for (const bucket of ['share', 'cd'] as const) {
         const before = raw.filter((r: any) => String(r.date_key) <= date && (r.acc_type === (bucket === 'share' ? 'SHR' : 'CD')))
           .reduce((sum: number, r: any) => sum + (r.trans_type === 'CR' ? 1 : -1) * Number(r.trans_amt || 0), 0);
@@ -337,10 +347,10 @@ export class MemberLedgerService {
       memberNumber: memberNo,
       memberName: `${member.f_name || ''} ${member.m_name || ''} ${member.l_name || ''}`.trim(),
       fromDate: start, toDate: end,
-      opening: { share: 0, ltl: openingLoan('ltl'), emer: openingLoan('emer'), cd: 0 },
+      opening: { share: 0, ltl: openingLoan.ltl, emer: openingLoan.emer, cd: 0 },
       closing: {
         share: rows.length ? rows[rows.length - 1].share.bal : 0,
-        ltl: balanceAt('ltl', end), emer: balanceAt('emer', end),
+        ltl: closingLoan.ltl, emer: closingLoan.emer,
         cd: rows.length ? rows[rows.length - 1].cd.bal : 0,
       },
       rows,

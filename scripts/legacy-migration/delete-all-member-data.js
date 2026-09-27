@@ -99,6 +99,19 @@ async function main() {
       console.log(`${spec.target}: ${EXECUTE ? 'deleted' : 'would delete'} ${result.rowCount} rows`);
     }
 
+    // Phase 2 owns this member-scoped table (it is not part of Phase 1's
+    // legacy COPY_TABLES list), so include it in the same scoped reset.
+    const scheduleTableExists = (await pg.query(
+      `SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='loan_schedule_versions'`,
+    )).rowCount > 0;
+    if (scheduleTableExists) {
+      const result = await pg.query(
+        `DELETE FROM loan_schedule_versions WHERE trim(mbno::text) = ANY($1::text[])`, [members],
+      );
+      report.tables.push({ table: 'loan_schedule_versions', matchedBeforeDelete: result.rowCount, deleted: result.rowCount });
+      console.log(`loan_schedule_versions: ${EXECUTE ? 'deleted' : 'would delete'} ${result.rowCount} rows`);
+    }
+
     report.finishedAt = new Date().toISOString();
     fs.mkdirSync(OUT, { recursive: true });
     if (EXECUTE) {

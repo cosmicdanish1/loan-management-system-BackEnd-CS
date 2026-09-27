@@ -160,45 +160,62 @@ export class DemandImportService {
 
         const realMembers = memberNos.length > 0
             ? await this.dataSource.query(
-                `SELECT mbno, TRIM(COALESCE(f_name,'') || ' ' || COALESCE(l_name,'')) as name
+                `SELECT mbno, officeno, dept_name,
+                        TRIM(COALESCE(f_name,'') || ' ' || COALESCE(l_name,'')) as name
                  FROM member_master WHERE CAST(mbno AS text) = ANY($1)`,
                 [memberNos],
             )
             : [];
-        const memberNameByNo = new Map<string, string>(realMembers.map((m: any) => [String(m.mbno), m.name]));
+        const memberByNo = new Map<string, any>(realMembers.map((m: any) => [String(m.mbno), m]));
 
-        const num = (v: any): number => {
-            const n = parseFloat(String(v ?? '').replace(/,/g, ''));
-            return Number.isFinite(n) ? n : 0;
+        const num = (v: any, label: string, remarks: string[]): number => {
+            const raw = String(v ?? '').trim();
+            if (!raw) return 0;
+            const n = Number(raw.replace(/,/g, ''));
+            if (!Number.isFinite(n) || n < 0) {
+                remarks.push(`${label} must be a non-negative number`);
+                return 0;
+            }
+            return Math.round(n * 100) / 100;
         };
 
+        const seenMemberNos = new Set<string>();
         const rows: DemandImportPreviewRow[] = dataRows.map((r, idx) => {
             const mbno = String(r[colIdx.mbno] ?? '').trim();
-            const rlnAmount = colIdx.rln !== -1 ? num(r[colIdx.rln]) : 0;
-            const alnAmount = colIdx.aln !== -1 ? num(r[colIdx.aln]) : 0;
-            const rdAmount = colIdx.rd !== -1 ? num(r[colIdx.rd]) : 0;
-            const interest = colIdx.intt !== -1 ? num(r[colIdx.intt]) : 0;
-            const fileTotal = colIdx.total !== -1 ? num(r[colIdx.total]) : 0;
+            const remarks: string[] = [];
+            const rlnAmount = colIdx.rln !== -1 ? num(r[colIdx.rln], 'R/LOAN', remarks) : 0;
+            const alnAmount = colIdx.aln !== -1 ? num(r[colIdx.aln], 'E/LOAN', remarks) : 0;
+            const rdAmount = colIdx.rd !== -1 ? num(r[colIdx.rd], 'R/D', remarks) : 0;
+            const interest = colIdx.intt !== -1 ? num(r[colIdx.intt], 'INTT', remarks) : 0;
+            const fileTotal = colIdx.total !== -1 ? num(r[colIdx.total], 'TOTAL', remarks) : 0;
             const computedTotal = Math.round((rlnAmount + alnAmount + rdAmount + interest) * 100) / 100;
 
-            const realName = memberNameByNo.get(mbno);
-            const remarks: string[] = [];
+            const member = memberByNo.get(mbno);
             let status: 'Valid' | 'Error' = 'Valid';
 
             if (!mbno) {
                 status = 'Error'; remarks.push('Missing member number');
-            } else if (!realName) {
+            } else if (!member) {
                 status = 'Error'; remarks.push(`Member ${mbno} not found`);
+            } else if (seenMemberNos.has(mbno)) {
+                status = 'Error'; remarks.push(`Duplicate member ${mbno} in file`);
+            } else {
+                seenMemberNos.add(mbno);
             }
             if (colIdx.total !== -1 && Math.abs(computedTotal - fileTotal) > 1) {
+                status = 'Error';
                 remarks.push(`Row total ₹${computedTotal} doesn't match file's TOTAL ₹${fileTotal}`);
+            }
+            if (requestedBranch && member && String(member.officeno) !== String(requestedBranch)) {
+                status = 'Error';
+                remarks.push(`Member belongs to branch ${member.officeno}, not ${requestedBranch}`);
             }
 
             return {
                 key: `${idx}-${mbno || 'unknown'}`,
                 memberId: mbno,
-                memberName: realName || (r[colIdx.name] ? String(r[colIdx.name]) : 'Unknown'),
-                department: 'General',
+                memberName: member?.name || (r[colIdx.name] ? String(r[colIdx.name]) : 'Unknown'),
+                department: member?.dept_name || 'General',
                 rlnAmount, alnAmount, rdAmount, interest,
                 totalDemand: computedTotal,
                 fileTotal,
@@ -225,15 +242,45 @@ export class DemandImportService {
         month: number,
         year: number,
         rows: DemandImportPreviewRow[],
+        requestedBranch?: string,
     ): Promise<{ saved: number; skipped: number }> {
         const queryRunner = this.dataSource.createQueryRunner();
         await queryRunner.connect();
         await queryRunner.startTransaction();
         try {
+            // Prevent two concurrent imports from allocating duplicate serials
+            // or racing the same period's composite key.
+            await queryRunner.query('LOCK TABLE demand_master IN SHARE ROW EXCLUSIVE MODE');
+            const nextSerialRows = await queryRunner.query(
+                'SELECT COALESCE(MAX(dmnd_srno), 0) + 1 AS next_serial FROM demand_master',
+            );
+            let nextSerial = Number(nextSerialRows[0]?.next_serial || 1);
+
+            const seenMembers = new Set<string>();
             let saved = 0;
             let skipped = 0;
             for (const row of rows) {
                 if (row.status !== 'Valid') { skipped++; continue; }
+                if (seenMembers.has(String(row.memberId))) {
+                    skipped++;
+                    continue;
+                }
+                seenMembers.add(String(row.memberId));
+
+                if (!Number.isFinite(Number(row.totalDemand)) || Number(row.totalDemand) < 0 ||
+                    !Number.isFinite(Number(row.rlnAmount)) || Number(row.rlnAmount) < 0 ||
+                    !Number.isFinite(Number(row.alnAmount)) || Number(row.alnAmount) < 0 ||
+                    !Number.isFinite(Number(row.rdAmount)) || Number(row.rdAmount) < 0 ||
+                    !Number.isFinite(Number(row.interest)) || Number(row.interest) < 0) {
+                    skipped++;
+                    continue;
+                }
+                const recomputedTotal = Number(row.rlnAmount) + Number(row.alnAmount) +
+                    Number(row.rdAmount) + Number(row.interest);
+                if (Math.abs(recomputedTotal - Number(row.totalDemand)) > 0.01) {
+                    skipped++;
+                    continue;
+                }
 
                 // officeno is NOT NULL on demand_master — pull the member's
                 // real office from member_master rather than guessing a
@@ -245,6 +292,10 @@ export class DemandImportService {
                 );
                 const officeno = officeRows[0]?.officeno ?? null;
                 if (officeno === null) {
+                    skipped++;
+                    continue;
+                }
+                if (requestedBranch && String(officeno) !== String(requestedBranch)) {
                     skipped++;
                     continue;
                 }
@@ -271,11 +322,12 @@ export class DemandImportService {
                     await queryRunner.query(
                         `INSERT INTO demand_master (
                             demand_for_month, demand_for_year, mbno, officeno, dmnd_srno,
+                            demand_posted, sd, passflag, receipt_vchr_no,
                             rln_installment_amount, rln_interest,
                             aln_installment_amount, aln_interest,
                             rd_amount, totaldemand, balance_for_month
-                        ) VALUES ($1,$2,$3,$4,0,$5,$6,$7,$8,$9,$10,$10)`,
-                        [month, year, row.memberId, officeno, row.rlnAmount, rlnInterest, row.alnAmount, alnInterest, row.rdAmount, row.totalDemand],
+                        ) VALUES ($1,$2,$3,$4,$5,'N','N','N','',$6,$7,$8,$9,$10,$11,$11)`,
+                        [month, year, row.memberId, officeno, nextSerial++, row.rlnAmount, rlnInterest, row.alnAmount, alnInterest, row.rdAmount, row.totalDemand],
                     );
                 }
 

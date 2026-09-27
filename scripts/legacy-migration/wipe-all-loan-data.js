@@ -44,7 +44,7 @@ const EXECUTE = process.argv.includes('--execute');
 
 const LOAN_EXCLUSIVE_TABLES = [
   'loan_master', 'loan_pending', 'loan_masterhistory', 'loan_product',
-  'loan_balance_history', 'loan_repayment_ledger', 'loan_rb_schedule',
+  'loan_balance_history', 'loan_repayment_ledger', 'loan_rb_schedule', 'loan_schedule_versions',
   'loan_nominee', 'legacy_replay_batch_log', 'suretymaster',
   'loan_opbal', 'loan_interest_master', 'loan_monthly_balance', 'loan_accounts',
 ];

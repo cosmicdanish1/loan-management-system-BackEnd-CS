@@ -182,7 +182,19 @@ export class LoanReportsService {
     if (loanCaseNo) {
       const loanRows = await this.dataSource.query(`
         SELECT loancaseno, loantype, CAST(loan_amt AS numeric) AS loan_amt,
-               payment_date, CAST(balance AS numeric) AS current_balance,
+               payment_date,
+               CASE WHEN EXISTS (
+                 SELECT 1 FROM loan_repayment_ledger lag
+                 WHERE lag.mbno = loan_master.mbno
+                   AND lag.loancaseno::text = loan_master.loancaseno::text
+                   AND lag.is_payroll_lag_credit = true
+               ) THEN GREATEST(0, loan_amt::numeric - COALESCE((
+                 SELECT SUM(own.principal_amount)
+                 FROM loan_repayment_ledger own
+                 WHERE own.mbno = loan_master.mbno
+                   AND own.loancaseno::text = loan_master.loancaseno::text
+                   AND own.is_payroll_lag_credit = false
+               ), 0)) ELSE CAST(balance AS numeric) END AS current_balance,
                no_of_instal, CAST(instal_amt AS numeric) AS instal_amt,
                CAST(rate AS numeric) AS rate
         FROM loan_master
@@ -204,10 +216,11 @@ export class LoanReportsService {
 
       const payments = await this.dataSource.query(`
         SELECT payment_date AS date, payment_amount, principal_amount,
-               interest_amount, penal_amount, receipt_no, narration
+               interest_amount, penal_amount, receipt_no, narration, is_payroll_lag_credit
         FROM loan_repayment_ledger
         WHERE CAST(mbno AS text) = $1
           AND CAST(loancaseno AS text) = $2
+          AND is_payroll_lag_credit = false
           AND payment_date >= $3 AND payment_date <= $4
         ORDER BY payment_date ASC, id ASC
       `, [memberNo, loanCaseNo, start, end]);
@@ -218,6 +231,7 @@ export class LoanReportsService {
         WHERE CAST(mbno AS text) = $1
           AND CAST(loancaseno AS text) = $2
           AND payment_date < $3
+          AND is_payroll_lag_credit = false
       `, [memberNo, loanCaseNo, start]);
 
       const disbursementDate = loan.payment_date ? new Date(loan.payment_date) : null;
@@ -239,7 +253,10 @@ export class LoanReportsService {
       }
 
       for (const payment of payments) {
-        const principal = Number(payment.principal_amount) || 0;
+        // A tagged payroll-lag receipt belongs to the predecessor loan. Keep
+        // it visible as source history, but do not reduce this loan's running
+        // principal balance with it.
+        const principal = payment.is_payroll_lag_credit ? 0 : Number(payment.principal_amount) || 0;
         const interest = Number(payment.interest_amount) || 0;
         const penal = Number(payment.penal_amount) || 0;
         const amount = Number(payment.payment_amount) || principal + interest + penal;
@@ -248,6 +265,7 @@ export class LoanReportsService {
           key: `${payment.date}-${transactions.length}`,
           date: payment.date, type: 'CR', amount,
           principalAmount: principal, interestAmount: interest, penalAmount: penal,
+          isPayrollLagCredit: payment.is_payroll_lag_credit === true,
           narration: payment.narration || 'Loan repayment', voucherNo: payment.receipt_no || '',
           balance: runningBalance,
         });
