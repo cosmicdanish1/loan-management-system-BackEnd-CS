@@ -3,8 +3,10 @@ export class VoucherPrintEntryDto {
     head_code: string;
     head_name: string;
     amount: number;
+    direction: 'Payment' | 'Receipt';
     narration: string;
     mbno?: number;
+    member_name?: string;
     access_no?: number;
     acc_type?: string;
 }

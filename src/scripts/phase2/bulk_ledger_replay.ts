@@ -62,7 +62,7 @@ import { LoanRepaymentService } from '../../modules/loan/services-v2/loan-repaym
 import { LoanEligibilityService } from '../../modules/loan/services-v2/loan-eligibility.service';
 import { RdRulesService } from '../../modules/rd/rd-rules.service';
 import { RdBalanceEventsService } from '../../modules/rd/services/rd-balance-events.service';
-import { DEFAULT_SLOT1_END_DAY, DEFAULT_SLOT1_START_DAY, determineLoanSlot } from '../../modules/loan/services-v2/loan-rb-schedule.util';
+import { DEFAULT_SLOT1_END_DAY, DEFAULT_SLOT1_START_DAY, determineLoanSlot, firstDueMonthFromDisbursement } from '../../modules/loan/services-v2/loan-rb-schedule.util';
 import { isSlotDelayPayroll, selectFirstRecurringPrincipal } from './schedule-seed.util';
 import { partitionReplayReceiptCopies } from './replay-receipt.util';
 
@@ -951,7 +951,7 @@ async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: s
                     slotRuleConfig.slot2DelayMonths, slotRuleConfig.slot1StartDay, slotRuleConfig.slot1EndDay,
                 ).delayMonths;
                 const date = new Date(`${effectiveDate}T12:00:00`);
-                const due = new Date(date.getFullYear(), date.getMonth() + 1 + delayMonths, 1);
+                const due = firstDueMonthFromDisbursement(date, delayMonths);
                 const firstDueMonth = `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, '0')}-01`;
                 const nextEventDate = scheduleBoundaries[index + 1]?.event.date.slice(0, 10);
                 for (const repayment of cs.repaymentsToReplay) {

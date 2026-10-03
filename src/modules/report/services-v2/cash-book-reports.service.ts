@@ -123,33 +123,46 @@ export class CashBookReportsService {
     async getCashBook2Daily(date: string) {
         const targetDate = parseSafeDate(date);
 
-        // Get all entries for the date from tblcashbook
+        // The legacy report is one aggregated row per head with four separate
+        // cash/transfer columns.
         const entries = await this.dataSource.query(`
-            SELECT 
+            SELECT
                 headcode as head_code,
-                headname as head_name,
-                COALESCE(rcash, 0) + COALESCE(rtransfer, 0) as receipt,
-                COALESCE(pcash, 0) + COALESCE(ptransfer, 0) as payment
+                MAX(headname) as head_name,
+                SUM(COALESCE(rcash, 0)) as receipt_cash,
+                SUM(COALESCE(rtransfer, 0)) as receipt_transfer,
+                SUM(COALESCE(pcash, 0)) as payment_cash,
+                SUM(COALESCE(ptransfer, 0)) as payment_transfer
             FROM tblcashbook
             WHERE trans_date::date = $1::date
+            GROUP BY headcode
             ORDER BY headcode
         `, [targetDate]);
 
-        // Calculate totals
-        const totalReceipts = entries.reduce((sum: number, e: any) => sum + (parseFloat(e.receipt) || 0), 0);
-        const totalPayments = entries.reduce((sum: number, e: any) => sum + (parseFloat(e.payment) || 0), 0);
+        const totalReceiptsCash = entries.reduce((sum: number, e: any) => sum + (parseFloat(e.receipt_cash) || 0), 0);
+        const totalReceiptsTransfer = entries.reduce((sum: number, e: any) => sum + (parseFloat(e.receipt_transfer) || 0), 0);
+        const totalPaymentsCash = entries.reduce((sum: number, e: any) => sum + (parseFloat(e.payment_cash) || 0), 0);
+        const totalPaymentsTransfer = entries.reduce((sum: number, e: any) => sum + (parseFloat(e.payment_transfer) || 0), 0);
+        const totalReceipts = totalReceiptsCash + totalReceiptsTransfer;
+        const totalPayments = totalPaymentsCash + totalPaymentsTransfer;
 
-        // Calculate opening balance (sum of all previous transactions)
+        // Keep cash and transfer opening balances separate. tblcashbook has no
+        // distinct clearing column, so clearing remains explicitly zero.
         const openingBalanceResult = await this.dataSource.query(`
-            SELECT 
-                SUM(COALESCE(rcash, 0) + COALESCE(rtransfer, 0)) -
-                SUM(COALESCE(pcash, 0) + COALESCE(ptransfer, 0)) as balance
+            SELECT
+                SUM(COALESCE(rcash, 0)) - SUM(COALESCE(pcash, 0)) as cash_balance,
+                SUM(COALESCE(rtransfer, 0)) - SUM(COALESCE(ptransfer, 0)) as transfer_balance
             FROM tblcashbook
             WHERE trans_date::date < $1::date
         `, [targetDate]);
 
-        const openingBalance = parseFloat(openingBalanceResult[0]?.balance) || 0;
+        const openingCashInHand = parseFloat(openingBalanceResult[0]?.cash_balance) || 0;
+        const openingTransferBalance = parseFloat(openingBalanceResult[0]?.transfer_balance) || 0;
+        const openingClearingBalance = 0;
+        const openingBalance = openingCashInHand + openingTransferBalance + openingClearingBalance;
         const closingBalance = openingBalance + totalReceipts - totalPayments;
+        const closingCashInHand = openingCashInHand + totalReceiptsCash - totalPaymentsCash;
+        const closingTransferBalance = openingTransferBalance + totalReceiptsTransfer - totalPaymentsTransfer;
 
         return {
             date: date,
@@ -157,11 +170,25 @@ export class CashBookReportsService {
             totalReceipts: totalReceipts,
             totalPayments: totalPayments,
             closingBalance: closingBalance,
+            totalReceiptsCash,
+            totalReceiptsTransfer,
+            totalPaymentsCash,
+            totalPaymentsTransfer,
+            openingCashInHand,
+            openingTransferBalance,
+            openingClearingBalance,
+            closingCashInHand,
+            closingTransferBalance,
+            closingClearingBalance: openingClearingBalance,
             entries: entries.map((e: any) => ({
                 headCode: e.head_code || '',
                 headName: e.head_name || 'Unknown',
-                receipt: parseFloat(e.receipt) || 0,
-                payment: parseFloat(e.payment) || 0,
+                receiptCash: parseFloat(e.receipt_cash) || 0,
+                receiptTransfer: parseFloat(e.receipt_transfer) || 0,
+                paymentCash: parseFloat(e.payment_cash) || 0,
+                paymentTransfer: parseFloat(e.payment_transfer) || 0,
+                receipt: (parseFloat(e.receipt_cash) || 0) + (parseFloat(e.receipt_transfer) || 0),
+                payment: (parseFloat(e.payment_cash) || 0) + (parseFloat(e.payment_transfer) || 0),
             }))
         };
     }

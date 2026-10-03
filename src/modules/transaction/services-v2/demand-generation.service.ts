@@ -10,6 +10,8 @@ export interface DemandGenerationDto {
     divisionRO: string;
     from?: string;
     to?: string;
+    /** Optional exact member scope used by controlled test runs and admin tools. */
+    memberNos?: string[];
 }
 
 @Injectable()
@@ -65,9 +67,13 @@ export class DemandGenerationService {
             // Fetch Active Members
             const members = await queryRunner.query(
                 `SELECT mbno, officeno FROM member_master
-                 WHERE isactive IS NOT FALSE AND isactive IS DISTINCT FROM 'N'
-                 AND ($1 = '' OR officeno::text = $1)`,
-                [dto.divisionRO || '']
+                 WHERE COALESCE(isactive, 'Y') <> 'N'
+                 AND ($1 = '' OR officeno::text = $1)
+                 AND ($2::text[] IS NULL OR CAST(mbno AS text) = ANY($2::text[]))`,
+                [dto.divisionRO || '',
+                    Array.isArray(dto.memberNos) && dto.memberNos.length > 0
+                        ? dto.memberNos.map(String)
+                        : null]
             );
 
             this.logger.log(`Generating demand for ${members.length} active members...`);
@@ -81,10 +87,13 @@ export class DemandGenerationService {
                 WHERE balance > 0
                 GROUP BY mbno
             `);
-            const loanMap = new Map(activeLoans.map((l: any) => [l.mbno, parseFloat(l.total_emi)]));
+            // pg can return numeric member IDs as strings while a grouped
+            // query may return the same IDs as numbers. Normalize both sides
+            // so every selected member receives its calculated demand.
+            const loanMap = new Map(activeLoans.map((l: any) => [String(l.mbno), parseFloat(l.total_emi)]));
 
             for (const member of members) {
-                const mbno = member.mbno;
+                const mbno = String(member.mbno);
                 const loanEmi: number = Number(loanMap.get(mbno)) || 0;
                 const totalDemand = loanEmi; // Add more heads (RD, shares, insurance) as needed
 

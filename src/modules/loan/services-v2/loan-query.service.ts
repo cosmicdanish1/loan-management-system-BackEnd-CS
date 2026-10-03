@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { CalculationService } from '../../utility/services/calculation.service';
+import { installmentDueMonth } from './loan-rb-schedule.util';
 
 /**
  * Loan Query Service - Handles loan searches and detail queries.
@@ -341,6 +342,22 @@ export class LoanQueryService {
 
             const loanMaster = loanResult[0];
 
+            // Use the due-month frozen with this loan's active agreement when
+            // available. This is the source used by repayment/closure status;
+            // older loans without a schedule version retain the legacy chart.
+            const scheduleRows = await this.dataSource.query(
+                `SELECT first_due_month
+                 FROM loan_schedule_versions
+                 WHERE mbno = $1 AND loantype = $2 AND loancaseno::text = $3
+                   AND effective_date <= CURRENT_DATE
+                 ORDER BY effective_date DESC, version_no DESC
+                 LIMIT 1`,
+                [loanMaster.mbno, loanMaster.loantype, String(loanMaster.loancaseno)],
+            );
+            const savedFirstDueMonth = scheduleRows[0]?.first_due_month
+                ? new Date(scheduleRows[0].first_due_month)
+                : null;
+
             // Get payment status from demand_master for this member
             const demandQuery = `
                 SELECT
@@ -381,13 +398,13 @@ export class LoanQueryService {
                 const principalAmount = emiAmount - interestAmount;
                 balance -= principalAmount;
 
-                // Calculate due date — installment #1 is due one full month after
-                // disbursement, matching the real repayment/penal system
-                // (loan-repayment.service.ts's getInstallmentStatus). This used to
-                // add (month - 1) months, so installment #1 came out due the same
-                // day as disbursement and immediately showed as "Overdue".
-                const dueDate = new Date(startDate);
-                dueDate.setMonth(dueDate.getMonth() + month);
+                // Use the frozen first due month when available, matching
+                // repayment and early-closure status. Otherwise keep the legacy
+                // chart's installment-one-month-after-disbursement behavior.
+                const dueDate = savedFirstDueMonth
+                    ? installmentDueMonth(savedFirstDueMonth, month)
+                    : new Date(startDate);
+                if (!savedFirstDueMonth) dueDate.setMonth(dueDate.getMonth() + month);
                 // Due date's DAY is the loan's configured grace day, not the
                 // disbursement day — due date and grace period are the same
                 // concept in this cooperative's model (see getInstallmentStatus's

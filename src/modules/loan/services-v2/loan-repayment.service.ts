@@ -2,7 +2,7 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { DataSource, QueryRunner } from 'typeorm';
 import { LoanEligibilityService } from './loan-eligibility.service';
 import { RdBalanceEventsService } from '../../rd/services/rd-balance-events.service';
-import { LoanRoundingMode, LOAN_ROUNDING_MODES, applyLoanRounding, round2 } from './loan-rb-schedule.util';
+import { LoanRoundingMode, LOAN_ROUNDING_MODES, applyLoanRounding, installmentDueMonth, round2 } from './loan-rb-schedule.util';
 
 export interface RepaymentDto {
     mbno: string;
@@ -457,14 +457,15 @@ export class LoanRepaymentService {
         const result: InstallmentStatus[] = [];
 
         for (let n = 1; n <= noOfInstal; n++) {
-            const dueDate = new Date(disbursementDate);
-            // Slot 1/2 already charges 1/2 extra months of interest (folded
-            // into instal_amt at disbursement) to cover the real processing
-            // gap before salary-deduction recovery can start — delayMonths
-            // pushes the actual collection schedule back by that same gap,
-            // so the member is never billed for a delay their due dates
-            // don't reflect.
-            dueDate.setMonth(dueDate.getMonth() + n + delayMonths);
+            // New schedule versions freeze the first EMI month at disbursement:
+            // Slot 1 = disbursement month + 1; Slot 2 = +2. Continue each
+            // installment from that saved month, preserving existing versions
+            // if business-rule settings later change. Legacy loans without a
+            // schedule version retain their prior date formula.
+            const dueDate = scheduleVersion
+                ? installmentDueMonth(this.firstDueMonthStart(scheduleVersion), n)
+                : new Date(disbursementDate);
+            if (!scheduleVersion) dueDate.setMonth(dueDate.getMonth() + n + delayMonths);
             // In this cooperative's model, due date and grace period are the
             // same concept: the due date's DAY is the configured grace day
             // (clamped to that month's real length, never below 1) — not the
@@ -517,7 +518,14 @@ export class LoanRepaymentService {
             const scheduledPrincipal = scheduleVersion && n === noOfInstal
                 ? round2(loanAmt - monthlyPrincipal * (noOfInstal - 1))
                 : monthlyPrincipal;
-            const monthlyInterest = rbInterestByInstallment.get(n) ?? fallbackMonthlyInterest;
+            // Loans with a frozen schedule version bill the constant average monthly
+            // interest (RB interest + slot delay interest, spread over n and rounded
+            // once at disbursement) — the same figure stored as intt_amount. The RB
+            // schedule stays the "economic truth" for early closure only. Legacy loans
+            // without a schedule version keep the per-installment RB interest.
+            const monthlyInterest = scheduleVersion
+                ? fallbackMonthlyInterest
+                : (rbInterestByInstallment.get(n) ?? fallbackMonthlyInterest);
             const isPrepaidAhead = !isDue && principalRemaining >= scheduledPrincipal - prepaidTolerance;
 
             if (!isDue && !isPrepaidAhead && !includeFuture) break; // due month hasn't started yet, and nothing prepaid to cover it
@@ -868,8 +876,10 @@ export class LoanRepaymentService {
                     const interestPortion = Math.round((slice - principalPortion) * 100) / 100;
                     if (principalPortion <= 0 && interestPortion <= 0) break;
 
-                    const dueDate = new Date(loan.payment_date);
-                    dueDate.setMonth(dueDate.getMonth() + nextInstallmentNo);
+                    const dueDate = scheduleVersion
+                        ? installmentDueMonth(this.firstDueMonthStart(scheduleVersion), nextInstallmentNo)
+                        : new Date(loan.payment_date);
+                    if (!scheduleVersion) dueDate.setMonth(dueDate.getMonth() + nextInstallmentNo);
 
                     await queryRunner.query(
                         `INSERT INTO loan_repayment_ledger
@@ -1187,11 +1197,14 @@ export class LoanRepaymentService {
     private async getRbScheduleTotals(
         runner: DataSource | QueryRunner,
         loancaseno: string,
+        mbno: string,
+        loantype: string,
         uptoInstallmentNo: number,
     ): Promise<{ rbInterestTillClosure: number; totalRBInterestFullSchedule: number; hasRbSchedule: boolean }> {
         const rows = await runner.query(
-            `SELECT installment_no, rb_interest FROM loan_rb_schedule WHERE loancaseno::text = $1`,
-            [loancaseno]
+            `SELECT installment_no, rb_interest FROM loan_rb_schedule
+             WHERE mbno = $1 AND loantype = $2 AND loancaseno::text = $3`,
+            [mbno, loantype, loancaseno],
         );
         if (rows.length === 0) {
             return { rbInterestTillClosure: 0, totalRBInterestFullSchedule: 0, hasRbSchedule: false };
@@ -1919,7 +1932,9 @@ export class LoanRepaymentService {
                     ? Math.round(((instalAmt * noOfInstalNum - loanAmt) / noOfInstalNum) * 100) / 100
                     : 0);
             const totalInterestForEMI = Math.round(monthlyInterestForEMI * noOfInstalNum * 100) / 100;
-            const { totalRBInterestFullSchedule, hasRbSchedule } = await this.getRbScheduleTotals(queryRunner, loancaseno, noOfInstalNum);
+            const { totalRBInterestFullSchedule, hasRbSchedule } = await this.getRbScheduleTotals(
+                queryRunner, loancaseno, loan.mbno, loan.loantype, noOfInstalNum,
+            );
             const compulsorySlotInterest = hasRbSchedule ? Math.round((totalInterestForEMI - totalRBInterestFullSchedule) * 100) / 100 : 0;
 
             return {

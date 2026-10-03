@@ -188,7 +188,8 @@ export class LoanSanctionService {
                 caseNo
             ]);
 
-            if (result.length === 0) {
+            const sanctionedRows = Array.isArray(result[0]) ? result[0] : result; // [rows, count] shape
+            if (sanctionedRows.length === 0) {
                 throw new Error('Loan case not found');
             }
 

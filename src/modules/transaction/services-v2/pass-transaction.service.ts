@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource, QueryRunner } from 'typeorm';
 import { SystemConfigService } from '../../admin/services/system-config.service';
-import { calculateConstantEmi, persistRbSchedule, round2, LoanRoundingMode, DEFAULT_SLOT1_START_DAY, DEFAULT_SLOT1_END_DAY } from '../../loan/services-v2/loan-rb-schedule.util';
+import { calculateConstantEmi, firstDueMonthFromDisbursement, persistRbSchedule, round2, LoanRoundingMode, DEFAULT_SLOT1_START_DAY, DEFAULT_SLOT1_END_DAY } from '../../loan/services-v2/loan-rb-schedule.util';
 import { LOAN_INTEREST_METHOD } from '../../loan/services-v2/loan-payment-model';
 import { LoanEligibilityService } from '../../loan/services-v2/loan-eligibility.service';
 import { LoanRepaymentService } from '../../loan/services-v2/loan-repayment.service';
@@ -98,8 +98,32 @@ export class PassTransactionService {
             // response indicated it at all).
             let consolidationSummary: {
                 newLoanCaseNo: string;
+                memberNo: string;
+                loanType: string;
+                sanctionedAmount: number;
+                existingOutstandingPrincipal: number;
                 combinedPrincipal: number;
                 oldClosureInterestTotal: number;
+                disbursementDeductions: Array<{
+                    code: string;
+                    name: string;
+                    amount: number;
+                    kind: 'RD' | 'SHARE';
+                }>;
+                shareRdDeductionTotal: number;
+                totalWithheld: number;
+                netDisbursement: number;
+                repaymentPlan: {
+                    installments: number;
+                    monthlyPrincipal: number;
+                    monthlyInterest: number;
+                    monthlyInstallment: number;
+                    slot: number;
+                    subSlot: 'EARLY_MONTH' | 'LATE_MONTH' | null;
+                    interestDelayMonths: number;
+                    firstDueDelayMonths: number;
+                    delayMonths: number;
+                };
                 consolidatedCases: Array<{
                     loancaseno: string;
                     oldBalance: number;
@@ -190,7 +214,7 @@ export class PassTransactionService {
                 // transaction, so two simultaneous disbursements can never both
                 // consolidate against the same now-stale balance.
                 const existingActiveLoans = await queryRunner.query(
-                    `SELECT loancaseno, balance, loan_amt, no_of_instal, instal_amt FROM loan_master
+                    `SELECT loancaseno, balance, loan_amt, no_of_instal, instal_amt, intt_amount FROM loan_master
                      WHERE mbno = $1 AND loantype = $2 AND balance > 0
                      FOR UPDATE`,
                     [loan.mbno, loan.loantype]
@@ -198,7 +222,7 @@ export class PassTransactionService {
                 const existingBalanceTotal = existingActiveLoans.reduce(
                     (sum: number, r: any) => sum + (parseFloat(r.balance) || 0), 0
                 );
-                const combinedPrincipal = round2(existingBalanceTotal + sanctionedAmt);
+                let combinedPrincipal = round2(existingBalanceTotal + sanctionedAmt);
                 if (existingActiveLoans.length > 0) {
                     console.log(`[PassTransaction] Consolidating ${existingActiveLoans.length} existing active ${loan.loantype} case(s) `
                         + `(total balance ₹${existingBalanceTotal}) into new case ${loan.loancaseno} — combined principal ₹${combinedPrincipal}`);
@@ -250,6 +274,12 @@ export class PassTransactionService {
                 // against the new combined principal, not the old case's own
                 // closure-time RD/Share adjustment.
                 let oldClosureInterestTotal = 0;
+                // Principal the member already paid through payroll-lag credits on an old
+                // case. loan_master.balance never drops for those (they are excluded from
+                // the successor schedule) but the money is real, so it must not be folded
+                // into the combined principal a second time.
+                const lagNettingByCase: Record<string, number> = {};
+                let totalLagNetting = 0;
                 const oldClosureBreakdown: Record<string, { nrInterest: number; apInterest: number; penalInterest: number; closureInterest: number }> = {};
                 if (existingActiveLoans.length > 0) {
                     const consolidationPostingDate = new Date();
@@ -270,7 +300,18 @@ export class PassTransactionService {
                         // actually being folded in.
                         const oldBalanceForRecon = round2(parseFloat(oldLoan.balance) || 0);
                         const ledgerDerivedOutstanding = round2(closureQuote.outstandingPrincipal || 0);
-                        const ledgerReconDiff = Math.abs(oldBalanceForRecon - ledgerDerivedOutstanding);
+                        // A payroll-lag credit explains the whole gap: balance minus the lag
+                        // principal must equal the ledger-derived outstanding.
+                        const lagOffset = round2(closureQuote.payrollLagPrincipalOffset || 0);
+                        const lagExplained = lagOffset > 0
+                            && Math.abs(oldBalanceForRecon - lagOffset - ledgerDerivedOutstanding) <= 10;
+                        const ledgerReconDiff = lagExplained
+                            ? 0
+                            : Math.abs(oldBalanceForRecon - ledgerDerivedOutstanding);
+                        if (lagExplained) {
+                            lagNettingByCase[oldLoan.loancaseno] = lagOffset;
+                            totalLagNetting = round2(totalLagNetting + lagOffset);
+                        }
                         if (ledgerReconDiff > 10) {
                             throw new Error(
                                 `Loan consolidation blocked for member ${loan.mbno}, old case ${oldLoan.loancaseno}: `
@@ -291,16 +332,39 @@ export class PassTransactionService {
                         console.log(`[PassTransaction] Old case ${oldLoan.loancaseno} closure interest as of consolidation: `
                             + `NR=₹${nrInterest} + AP=₹${apInterest} + penal=₹${penalInterest} = ₹${closureInterest}`);
                     }
+                    if (totalLagNetting > 0) {
+                        combinedPrincipal = round2(combinedPrincipal - totalLagNetting);
+                        console.log(`[PassTransaction] Payroll-lag principal already collected on absorbed case(s): ₹${totalLagNetting} — combined principal netted to ₹${combinedPrincipal}`);
+                    }
                     if (oldClosureInterestTotal > 0) {
                         console.log(`[PassTransaction] Total oldClosureInterest across ${existingActiveLoans.length} absorbed case(s): ₹${oldClosureInterestTotal} — will be withheld from fresh disbursement`);
                     }
                     consolidationSummary = {
                         newLoanCaseNo: loan.loancaseno,
+                        memberNo: String(loan.mbno),
+                        loanType: String(loan.loantype),
+                        sanctionedAmount: sanctionedAmt,
+                        existingOutstandingPrincipal: round2(existingBalanceTotal - totalLagNetting),
                         combinedPrincipal,
                         oldClosureInterestTotal,
+                        disbursementDeductions: [],
+                        shareRdDeductionTotal: 0,
+                        totalWithheld: 0,
+                        netDisbursement: sanctionedAmt,
+                        repaymentPlan: {
+                            installments: 0,
+                            monthlyPrincipal: 0,
+                            monthlyInterest: 0,
+                            monthlyInstallment: 0,
+                            slot: 0,
+                            subSlot: null,
+                            interestDelayMonths: 0,
+                            firstDueDelayMonths: 0,
+                            delayMonths: 0,
+                        },
                         consolidatedCases: existingActiveLoans.map((oldLoan: any) => ({
                             loancaseno: oldLoan.loancaseno,
-                            oldBalance: round2(parseFloat(oldLoan.balance) || 0),
+                            oldBalance: round2((parseFloat(oldLoan.balance) || 0) - (lagNettingByCase[oldLoan.loancaseno] || 0)),
                             ...oldClosureBreakdown[oldLoan.loancaseno],
                         })),
                     };
@@ -358,10 +422,11 @@ export class PassTransactionService {
                 const emiCalc = calculateConstantEmi(combinedPrincipal, rate, noOfInstal, appDate, slot1DelayMonths, slot2DelayMonths, roundingMode, slot1StartDay, slot1EndDay);
                 const instalAmt = round2(emiCalc.monthlyPrincipal);
                 const disbursedAt = new Date();
-                const firstDueMonth = new Date(
-                    disbursedAt.getFullYear(), disbursedAt.getMonth() + 1 + emiCalc.delayMonths, 1,
-                );
-                console.log(`[PassTransaction] ${LOAN_INTEREST_METHOD} slot ${emiCalc.slot} (+${emiCalc.delayMonths}mo, slot1 window ${slot1StartDay}-${slot1EndDay}) — RB interest=${emiCalc.totalRBInterest}, delay interest=${emiCalc.delayInterest}, separate interest schedule=${emiCalc.totalRBInterest} (rounding=${roundingMode}), principal EMI=${instalAmt}`);
+                const firstDueMonth = firstDueMonthFromDisbursement(disbursedAt, emiCalc.firstDueDelayMonths);
+                console.log(`[PassTransaction] ${LOAN_INTEREST_METHOD} slot ${emiCalc.slot}/${emiCalc.subSlot ?? 'STANDARD'} ` +
+                    `(interest +${emiCalc.interestDelayMonths}mo, first EMI +${emiCalc.firstDueDelayMonths}mo, ` +
+                    `slot1 window ${slot1StartDay}-${slot1EndDay}) — RB interest=${emiCalc.totalRBInterest}, delay interest=${emiCalc.delayInterest}, ` +
+                    `separate interest schedule=${emiCalc.totalRBInterest} (rounding=${roundingMode}), principal EMI=${instalAmt}`);
 
                 // Activate Loan
                 const insertLoanMasterQuery = `
@@ -375,7 +440,7 @@ export class PassTransactionService {
                 await queryRunner.query(insertLoanMasterQuery, [
                     loan.mbno, loan.loantype, loan.loancaseno, combinedPrincipal, disbursedAt,
                     rate, noOfInstal, instalAmt, combinedPrincipal, 0,  // balance=combinedPrincipal, openbalance=0 (matches legacy)
-                    loan.purpose || '', emiCalc.monthlyInterestForEMI, penalrate, gracedays, smpenalpct, smpenaldiv, emiCalc.delayMonths,
+                    loan.purpose || '', emiCalc.monthlyInterestForEMI, penalrate, gracedays, smpenalpct, smpenaldiv, emiCalc.firstDueDelayMonths,
                     'SEPARATE_INTEREST',
                     LOAN_INTEREST_METHOD,
                 ]);
@@ -394,7 +459,7 @@ export class PassTransactionService {
                         disbursedAt, firstDueMonth, combinedPrincipal,
                         round2(emiCalc.monthlyPrincipal), noOfInstal,
                         round2(emiCalc.monthlyPrincipal + emiCalc.monthlyInterestForEMI),
-                        rate, emiCalc.delayMonths, existingActiveLoans[0]?.loancaseno ?? null],
+                        rate, emiCalc.firstDueDelayMonths, existingActiveLoans[0]?.loancaseno ?? null],
                 );
 
                 // Freeze the payroll-lag detection window for this consolidation —
@@ -404,8 +469,8 @@ export class PassTransactionService {
                 // Interest is each absorbed loan's OWN frozen EMI split (its own
                 // instal_amt minus its own loan_amt/no_of_instal) — summed across
                 // every case being consolidated, the same way payroll would have
-                // been deducting one line per active loan. The watch window reuses
-                // emiCalc.delayMonths (the same slot delay already priced into this
+                // been deducting one line per active loan. The watch follows the
+                // first scheduled EMI boundary, not the interest delay. The
                 // new loan's own EMI) rather than a separate config value, per the
                 // user's explicit instruction — BSP's real processing lag has
                 // consistently landed well inside even the shorter 1-month slot in
@@ -420,10 +485,17 @@ export class PassTransactionService {
                         if (oldN <= 0) continue;
                         const mp = round2(oldAmt / oldN);
                         oldMonthlyPrincipal += mp;
-                        oldMonthlyInterest += round2(oldInstal - mp);
+                        // Separate-interest loans keep instal_amt principal-only, so the old
+                        // EMI's interest is the constant monthly interest stored in intt_amount
+                        // (what payroll actually deducts alongside the principal). Older loans
+                        // whose instal_amt still embeds interest keep the original split.
+                        const oldConstantInterest = parseFloat(oldLoan.intt_amount) || 0;
+                        oldMonthlyInterest += oldConstantInterest > 0
+                            ? round2(oldConstantInterest)
+                            : round2(Math.max(0, oldInstal - mp));
                     }
                     const watchUntil = new Date();
-                    watchUntil.setMonth(watchUntil.getMonth() + emiCalc.delayMonths);
+                    watchUntil.setMonth(watchUntil.getMonth() + emiCalc.firstDueDelayMonths);
                     // loancaseno alone is unscoped enough to hit a different member's
                     // case sharing this number, or (within this same member) the
                     // sibling case of another loan type — same class of collision
@@ -447,7 +519,7 @@ export class PassTransactionService {
                 // rbAdjustment reconciliation at early closure) — something no
                 // migrated/legacy multi-loan account ever had, since this is the
                 // only place in the codebase that ever writes loan_rb_schedule.
-                await persistRbSchedule(queryRunner, loan.loancaseno, loan.mbno, emiCalc.rbSchedule);
+                await persistRbSchedule(queryRunner, loan.loancaseno, loan.mbno, loan.loantype, emiCalc.rbSchedule);
 
                 // Close out every case just absorbed into this new one — balance
                 // zeroed (not via the normal repayment path, since no money
@@ -456,7 +528,7 @@ export class PassTransactionService {
                 // rather than silently disappearing. consolidated_into_loancaseno
                 // keeps a permanent, queryable link from old case to new.
                 for (const oldLoan of existingActiveLoans) {
-                    const oldBalance = round2(parseFloat(oldLoan.balance) || 0);
+                    const oldBalance = round2((parseFloat(oldLoan.balance) || 0) - (lagNettingByCase[oldLoan.loancaseno] || 0));
                     const breakdown = oldClosureBreakdown[oldLoan.loancaseno] || { nrInterest: 0, apInterest: 0, penalInterest: 0, closureInterest: 0 };
                     // mbno+loantype-scoped for the same reason as the arming UPDATE above —
                     // existingActiveLoans was fetched WHERE mbno=loan.mbno AND
@@ -507,12 +579,16 @@ export class PassTransactionService {
                 // declared once, up near sanctionedAmt above, and reused here.
                 const balUpdateResult = await queryRunner.query(
                     `UPDATE member_balances SET ${balanceCol} = COALESCE(${balanceCol}, 0) + $1 WHERE mbno = $2 RETURNING mbno`,
-                    [sanctionedAmt, loan.mbno]
+                    [round2(sanctionedAmt - totalLagNetting), loan.mbno]
                 );
-                if (balUpdateResult.length === 0) {
+                // TypeORM's postgres driver returns [rows, affectedCount] for UPDATE ... RETURNING,
+                // so the bare result's .length is always 2 — read the rows array.
+                const balUpdatedRows = Array.isArray(balUpdateResult[0]) ? balUpdateResult[0] : balUpdateResult;
+                if (balUpdatedRows.length === 0) {
+                    const openingLoanBalance = round2(sanctionedAmt - totalLagNetting);
                     await queryRunner.query(
                         `INSERT INTO member_balances (mbno, emergency_loan_balance, regularloan) VALUES ($1, $2, $3)`,
-                        [loan.mbno, isEmergencyLoan ? sanctionedAmt : 0, isEmergencyLoan ? 0 : sanctionedAmt]
+                        [loan.mbno, isEmergencyLoan ? openingLoanBalance : 0, isEmergencyLoan ? 0 : openingLoanBalance]
                     );
                 }
 
@@ -569,6 +645,29 @@ export class PassTransactionService {
                     );
                 }
 
+                if (consolidationSummary) {
+                    consolidationSummary.disbursementDeductions = deductions.map((deduction) => ({
+                        code: deduction.code,
+                        name: deduction.name,
+                        amount: round2(deduction.amount),
+                        kind: deduction.kind,
+                    }));
+                    consolidationSummary.shareRdDeductionTotal = shareRdDeductionTotal;
+                    consolidationSummary.totalWithheld = totalWithheld;
+                    consolidationSummary.netDisbursement = round2(sanctionedAmt - totalWithheld);
+                    consolidationSummary.repaymentPlan = {
+                        installments: noOfInstal,
+                        monthlyPrincipal: instalAmt,
+                        monthlyInterest: round2(emiCalc.monthlyInterestForEMI),
+                        monthlyInstallment: round2(instalAmt + emiCalc.monthlyInterestForEMI),
+                        slot: emiCalc.slot,
+                        subSlot: emiCalc.subSlot,
+                        interestDelayMonths: emiCalc.interestDelayMonths,
+                        firstDueDelayMonths: emiCalc.firstDueDelayMonths,
+                        delayMonths: emiCalc.delayMonths,
+                    };
+                }
+
                 let remainingDeduction = totalWithheld;
                 if (remainingDeduction > 0) {
                     console.log(`[PassTransaction] Total withheld from disbursement: ₹${remainingDeduction} `
@@ -583,7 +682,7 @@ export class PassTransactionService {
                     const amt = fullAmt - withheld;
                     const headCode = detail.code || (loan.loantype === 'RLN' ? 'A1002' : 'A1047');
 
-                    if (amt <= 0) continue; // fully withheld against the RD/Share shortfall
+                    if (fullAmt <= 0) continue;
 
                     // Ledger Insert
                     // BUG FIX 41: was hardcoded 'P' (a payment/receipt marker, not a
@@ -603,11 +702,13 @@ export class PassTransactionService {
                     `, [
                         nextTransNo++, new Date(), loanLegDirection, headCode, loan.mbno,
                         loan.loancaseno, loan.loantype,
-                        amt, voucherNo, 'JV', mode, 0,
+                        fullAmt, voucherNo, 'JV', mode, 0,
                         detail.narration || '', postedBy, nextLedgerId++
                     ]);
 
-                    // Cashbook Insert
+                    // Cashbook Insert — cash actually handed over (net of withholdings);
+                    // the ledger row above carries the full loan principal like the legacy J voucher.
+                    if (amt <= 0) continue;
                     let rcash = 0, rtransfer = 0, pcash = 0, ptransfer = 0;
                     if (mode === 'C') pcash = amt; else ptransfer = amt;
 
@@ -636,7 +737,7 @@ export class PassTransactionService {
                         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
                     `, [
                         nextTransNo++, new Date(), deductionDirection, deduction.code, loan.mbno,
-                        loan.loancaseno, loan.loantype,
+                        loan.loancaseno, deduction.kind === 'SHARE' ? 'SHR' : 'CD',
                         deduction.amount, voucherNo, 'JV', mode, 0,
                         deduction.name, postedBy, nextLedgerId++
                     ]);
@@ -714,7 +815,7 @@ export class PassTransactionService {
                         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
                     `, [
                         nextTransNo++, new Date(), closureInterestDirection, closureInterestHeadCode, loan.mbno,
-                        loan.loancaseno, loan.loantype,
+                        loan.loancaseno, 'OTH',
                         breakdown.closureInterest, voucherNo, 'JV', mode, 0,
                         closureNarration, postedBy, nextLedgerId++
                     ]);
@@ -836,9 +937,12 @@ export class PassTransactionService {
                         `DELETE FROM loan_schedule_versions WHERE mbno=$1 AND loantype=$2 AND loancaseno::text=$3`,
                         [loanRows[0].mbno, loanRows[0].loantype, loanCaseNo],
                     );
+                    await queryRunner.query(
+                        `DELETE FROM loan_rb_schedule WHERE mbno=$1 AND loantype=$2 AND loancaseno::text=$3`,
+                        [loanRows[0].mbno, loanRows[0].loantype, loanCaseNo],
+                    );
                 }
                 await queryRunner.query(`DELETE FROM loan_master WHERE "loancaseno"::text = $1`, [loanCaseNo]);
-                await queryRunner.query(`DELETE FROM loan_rb_schedule WHERE loancaseno::text = $1`, [loanCaseNo]);
 
                 if (loanRows.length > 0) {
                     const loan = loanRows[0];

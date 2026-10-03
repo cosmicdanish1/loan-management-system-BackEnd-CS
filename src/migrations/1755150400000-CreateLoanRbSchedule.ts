@@ -20,17 +20,20 @@ export class CreateLoanRbSchedule1755150400000 implements MigrationInterface {
                 "id" SERIAL PRIMARY KEY,
                 "loancaseno" numeric(18,0) NOT NULL,
                 "mbno" numeric(18,0) NOT NULL,
+                "loantype" varchar(20) NOT NULL,
                 "installment_no" smallint NOT NULL,
                 "opening_balance" numeric(19,4) NOT NULL,
                 "rb_interest" numeric(19,4) NOT NULL,
                 "principal" numeric(19,4) NOT NULL,
                 "closing_balance" numeric(19,4) NOT NULL,
                 "created_at" timestamp NOT NULL DEFAULT NOW(),
-                CONSTRAINT "uq_loan_rb_schedule_case_instal" UNIQUE ("loancaseno", "installment_no")
+                CONSTRAINT "uq_loan_rb_schedule_member_type_case_instal"
+                    UNIQUE ("mbno", "loantype", "loancaseno", "installment_no")
             )
         `);
         await queryRunner.query(`
-            CREATE INDEX IF NOT EXISTS "idx_loan_rb_schedule_loancaseno" ON "loan_rb_schedule" ("loancaseno")
+            CREATE INDEX IF NOT EXISTS "idx_loan_rb_schedule_member_type_case"
+                ON "loan_rb_schedule" ("mbno", "loantype", "loancaseno")
         `);
     }
 

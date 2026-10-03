@@ -1,6 +1,6 @@
 {
   "name": "loan-management-backend",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "NestJS backend for Loan Management System",
   "author": "Paperwhite Technology",
   "private": true,
@@ -20,6 +20,8 @@
     "test:cov": "jest --config tests/jest.json --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./tests/e2e/jest-e2e.json",
+    "test:demand-master": "node tests/scripts/demand-master-agent.js",
+    "seed:demand-master-demo": "node tests/scripts/seed-demand-master-november-demo.js",
     "typeorm": "typeorm-ts-node-commonjs",
     "migration:generate": "npm run typeorm -- migration:generate -d src/config/database.config.ts",
     "migration:run": "npm run typeorm -- migration:run -d src/config/database.config.ts",

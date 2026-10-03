@@ -10,7 +10,7 @@ export class GetDayBookDto {
 
   @IsOptional()
   @IsString()
-  filterType?: 'all' | 'sb' | 'savings' = 'all';
+  filterType?: 'all' | 'sb' | 'savings' | 'cd' = 'all';
 }
 
 export class DayBookEntryDto {

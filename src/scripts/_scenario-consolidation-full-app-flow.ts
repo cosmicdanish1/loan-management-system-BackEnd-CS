@@ -93,7 +93,7 @@ async function main() {
 
         for (let i = 1; i <= 4; i++) {
             const asOf = new Date(sevenMonthsAgo);
-            asOf.setMonth(asOf.getMonth() + i + 1); // matches Slot delayMonths=1/2 due-date offset closely enough
+            asOf.setMonth(asOf.getMonth() + i + 1); // scenario repayments advance monthly from the first due month
             const dueStatus = await loanRepayment.getDueStatus(aln1, asOf as any);
             const payAmt = dueStatus?.totalDue || 0;
             if (payAmt <= 0) { console.log(`  [ALN#1 EMI ${i}] nothing due as of ${asOf.toDateString()}, skipping`); continue; }

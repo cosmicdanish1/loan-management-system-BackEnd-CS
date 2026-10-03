@@ -7,7 +7,7 @@ export class JournalVoucherDto {
 
 export class JournalEntryDto {
     trans_no: number;
-    member_code: number;
+    member_code: number | string;
     member_name: string;
     head_code: string;
     head_name: string;

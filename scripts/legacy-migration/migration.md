@@ -143,6 +143,37 @@ If validation fails, stop the run. Restore only from a verified backup after ass
 
 For every later migration-rule change, append: the date, issue and source evidence, exact old/new formula, affected member/case examples, code paths changed, dry-run counts/flags, live execution scope, backup identity, and post-run database checks. Keep credentials and connection strings out of this document and reports shared outside the trusted operator environment.
 
+## 2026-09-28: early-closure quote failed on reducing-balance schedule schema
+
+The Loan Early Closure screen failed to load a quote for member `610033022` / emergency loan case `18445`. The server error was `column "loantype" does not exist` while reading the reducing-balance schedule. Application code was already filtering schedule rows by member, loan type, and case, but the deployed PostgreSQL `loan_rb_schedule` schema had no `loantype` column and keyed rows only by case/installment. This was a target schema/application-version mismatch; it was not caused by migrating this member's loan transactions.
+
+Fix:
+
+- Added `loantype` to the fresh-install schedule migration and added a follow-up migration, `AddLoanRbScheduleLoanType1790553600000`, to safely upgrade existing databases.
+- The migration verifies each existing schedule row maps to exactly one `loan_master` row by member and case before backfilling loan type. It aborts on ambiguous/missing matches or conflicting pre-existing types, rather than guessing.
+- Replaced the case-only uniqueness with `(mbno, loantype, loancaseno, installment_no)` and added a matching lookup index so identical case numbers across members/types do not collide.
+- Updated schedule creation, repayment totals, and reversal cleanup to use the same member/type/case key.
+
+The target schedule table contained zero rows when the migration was applied, so no historical schedule values required backfill and no member ledger/repayment rows were rewritten. Only this schema migration was run; no bulk member migration or loan closure transaction was performed.
+
+Verification: backend TypeScript build passed. The migration was applied to `EMP_Espat_Society`. The read-only early-closure quote call for case `18445` then succeeded for 28-Sep-2026, returning outstanding principal ₹1,05,833, closure interest ₹40,236, penalty ₹0, and total ₹1,46,069. This was a quote calculation only; it did not post a payment or close the loan. The UI's generic “Failed to load closure quote” message was masking the SQL error returned by the server.
+
+## 2026-09-28: fresh migration of member `610028658` from restored SQL Server source
+
+The first single-member migration pass started before the operator restored the intended legacy SQL Server state. Its Phase 1 copied 624 rows, and Phase 2 completed against that earlier source version. After the operator reported the restore, the restored SQL Server source was rechecked: the single-member Phase 1 dry run now saw 647 rows (including 80 `demand_master`, 135 `demand_masterdelete`, and 384 `ledger` rows, versus the earlier 77, 130, and 369 respectively).
+
+To ensure a genuinely fresh result, a verified full PostgreSQL backup was taken, then only member `610028658` was removed from member-scoped Postgres tables. The reset deleted 669 rows across 18 populated tables, including the prior replay batch, 43 prior repayment rows, 3 loan-master rows, and the prior schedule version. The full backup is `backups/pre-single-member-reset-610028658-restored-source-2026-09-28T12-21-00-899Z.dump` (91,505,315 bytes). The subsequent phase-1 runner also took its normal pre-copy full backup: `backups/pre-single-member-migration-610028658-2026-09-28T12-21-39-761Z.dump` (91,494,961 bytes).
+
+The final run was restricted to `610028658`:
+
+- Phase 1 copied and fingerprint-verified 647 source rows across all 15 legacy member tables, with no skipped tables or copy flags.
+- Phase 2 dry run and live replay each processed one member, found 46 source repayment receipts, and detected no consolidations.
+- Two zero-amount legacy loan placeholders (case `2086` / `RLN` and case `3018` / `ALN`) were correctly excluded and remain flagged; they are not valid disbursed loans.
+- Valid active loan case `16261` / `RLN` has original principal ₹10,00,000, fixed principal ₹15,385, and 65 installments. Of the ₹8,10,452 principal attributed across 46 replay rows, one ₹15,385 payroll-lag credit is predecessor payroll and excluded from current-loan principal. Thus current-loan principal paid is ₹8,10,452 − ₹15,385 = ₹7,95,067 and remaining principal is ₹10,00,000 − ₹7,95,067 = ₹2,04,933, matching Postgres `loan_master.balance`.
+- Post-run Postgres verification found 46 `loan_repayment_ledger` rows, one payroll-lag marker, one effective schedule version, replay batch status `done`, and no `loan_rb_schedule` rows. Current copied source row counts match the Phase 1 report.
+
+The Phase 2 output is preserved at `reports/phase2-610028658-restored-source-live-20260928.log`. No other member was selected by either migration phase. The process was rerun only after the restored SQL Server source was confirmed through a fresh source extraction.
+
 ## 2026-09-25: live resume stopped on duplicate-receipt regression
 
 At the user's request, a live resume was started without another full-population dry run, using the pinned 8,552-member list (3,639 matched the current legacy scope; the three previously migrated members were excluded). The run log is `reports/full-population-live-resume-20260925.log`. It was stopped after 30 member blocks when the previously observed failures recurred: member `30019263` / case `17896` and member `30020860` / case `44` both hit `Loan … is already fully repaid` while processing a source receipt.

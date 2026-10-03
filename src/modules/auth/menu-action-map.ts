@@ -65,7 +65,7 @@ export const MENU_ACTION_MAP: MenuActionEntry[] = [
   { action: 'CASH_BOOK_RECEIPTWISE', menuid: 48, title: 'Cash Book Receiptwise Rough' },
   { action: 'CASH_BOOK', menuid: 27, title: 'Cash Book' },
   { action: 'DAY_BOOK', menuid: 28, title: 'Day Book' },
-  { action: 'DAY_BOOK_SB', menuid: 82, title: 'Day Book SB' },
+  { action: 'DAY_BOOK_CD', menuid: 82, title: 'Day Book CD' },
   { action: 'CONSOLIDATION_DAILY_AC', menuid: 83, title: 'Consolidation Of Daily A/c' },
   { action: 'MEMBER_LEDGER_REPORT', menuid: 29, title: 'Member Ledger Report' },
   { action: 'GENERAL_LEDGER', menuid: 30, title: 'General Ledger' },
@@ -139,6 +139,7 @@ export const MENU_ACTION_MAP: MenuActionEntry[] = [
   { action: 'COMMUNICATION_HUB', menuid: 234, title: 'Communication Hub' },
   { action: 'CONTENTS', menuid: 235, title: 'Contents' },
   { action: 'FIN_YEAR_PL_PROCESS', menuid: 236, title: 'P and L Year End Process' },
+  { action: 'REPORT_PRO', menuid: 237, title: 'Report Pro' },
 ];
 
 export const MENUID_TO_ACTION: ReadonlyMap<number, string> = new Map(

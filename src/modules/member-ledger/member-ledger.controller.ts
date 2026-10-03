@@ -8,6 +8,7 @@ import {
   GetMemberDetailLedgerDto,
   MemberDetailLedgerSummaryDto
 } from './dto/member-ledger.dto';
+import { MemberLedgerContextDto } from './dto/member-ledger.dto';
 
 @Controller('member-ledger')
 export class MemberLedgerController {
@@ -46,6 +47,11 @@ export class MemberLedgerController {
     const result = await this.memberLedgerService.validateMember(dto);
 
     return result;
+  }
+
+  @Get('member-context')
+  async getMemberLedgerContext(@Query() dto: ValidateMemberDto): Promise<MemberLedgerContextDto> {
+    return this.memberLedgerService.getMemberLedgerContext(dto);
   }
 
   @Get('head-masters')

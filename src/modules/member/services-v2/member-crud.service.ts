@@ -553,7 +553,8 @@ export class MemberCrudService {
             `UPDATE fundsmaster SET mdamt = 2 WHERE mbno = $1 RETURNING mbno`,
             [mbno],
         );
-        if (updated.length === 0) {
+        const updatedRows = Array.isArray(updated[0]) ? updated[0] : updated; // [rows, count] shape
+        if (updatedRows.length === 0) {
             await queryRunner.query(
                 `INSERT INTO fundsmaster (mbno, mdamt) VALUES ($1, 2)`,
                 [mbno],

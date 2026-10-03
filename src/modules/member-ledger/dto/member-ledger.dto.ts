@@ -91,3 +91,19 @@ export class ValidateMemberDto {
   @IsNumberString()
   memberNumber: string;
 }
+
+export interface MemberLedgerHeadAvailabilityDto {
+  code: string;
+  headName: string;
+  transactionCount: number;
+  hasData: boolean;
+}
+
+export interface MemberLedgerContextDto {
+  exists: boolean;
+  memberName?: string;
+  memberNumber: string;
+  minDate: string | null;
+  maxDate: string | null;
+  heads: MemberLedgerHeadAvailabilityDto[];
+}

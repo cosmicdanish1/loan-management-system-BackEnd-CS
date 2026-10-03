@@ -30,27 +30,41 @@ export class DayBookService {
 
   async getDayBookReport(dto: GetDayBookDto): Promise<DayBookSummaryDto> {
     try {
-      const reportDate = new Date(dto.date);
-      const startOfDay = new Date(reportDate);
-      startOfDay.setHours(0, 0, 0, 0);
-
-      const endOfDay = new Date(reportDate);
-      endOfDay.setHours(23, 59, 59, 999);
+      // `ledger.trans_date` is a timestamp without time zone. Compare it to
+      // local calendar-day strings and use an exclusive next-day boundary so
+      // JavaScript/server timezone conversion cannot move the report by a day.
+      const reportDate = dto.date.slice(0, 10);
+      const parsedReportDate = new Date(`${reportDate}T00:00:00.000Z`);
+      if (!Number.isFinite(parsedReportDate.getTime())) {
+        throw new Error(`Invalid Day Book date: ${dto.date}`);
+      }
+      const nextDate = new Date(parsedReportDate);
+      nextDate.setUTCDate(nextDate.getUTCDate() + 1);
+      const startOfDay = `${reportDate} 00:00:00`;
+      const startOfNextDay = `${nextDate.toISOString().slice(0, 10)} 00:00:00`;
 
       // Get transactions from ledger for the selected date
       let query = this.ledgerRepository
         .createQueryBuilder('l')
-        .where('l.trans_date >= :startDate AND l.trans_date <= :endDate', {
+        .where('l.trans_date >= :startDate AND l.trans_date < :endDate', {
           startDate: startOfDay,
-          endDate: endOfDay
+          endDate: startOfNextDay
         });
 
-      // Add filtering for SB (Savings Bank) transactions if specified
+      // Scope account-specific day books by their ledger identity. CD activity
+      // exists in legacy rows under any of these markers, depending on the
+      // workflow that created it: account type, GL head, or voucher type.
       if (dto.filterType === 'sb' || dto.filterType === 'savings') {
         // Filter for Savings Bank related transactions (acc_type = 'SB' or code relates to savings)
         query = query.andWhere('(l.acc_type = :sbType OR l.code = :sbCode)', {
           sbType: 'SB',
           sbCode: 'A1001'
+        });
+      } else if (dto.filterType === 'cd') {
+        query = query.andWhere('(l.acc_type = :cdType OR l.code = :cdCode OR l.vchr_type = :cdVoucherType)', {
+          cdType: 'CD',
+          cdCode: 'L1004',
+          cdVoucherType: 'CD'
         });
       }
 
@@ -58,6 +72,15 @@ export class DayBookService {
         .orderBy('l.trans_date', 'ASC')
         .addOrderBy('l.trans_no', 'ASC')
         .getMany();
+
+      const invalidEntry = ledgerEntries.find(l => !this.normalizeTransactionType(l.trans_type, dto.filterType));
+      if (invalidEntry) {
+        throw new Error(`Ledger transaction ${invalidEntry.trans_no} has unsupported type '${invalidEntry.trans_type}'.`);
+      }
+      const invalidAmountEntry = ledgerEntries.find(l => !Number.isFinite(Number(l.trans_amt)));
+      if (invalidAmountEntry) {
+        throw new Error(`Ledger transaction ${invalidAmountEntry.trans_no} has an invalid amount.`);
+      }
 
       // Get all head names for the codes found in ledger
       const codes = [...new Set(ledgerEntries.map(l => l.code))].filter(Boolean);
@@ -94,14 +117,19 @@ export class DayBookService {
             }
           }
 
+          const reportHeadCode = this.getReportHeadCode(l, dto.filterType);
+          const resolvedHeadName = dto.filterType === 'cd' && reportHeadCode === 'L1004'
+            ? 'Compulsory Deposit'
+            : headNames.get(reportHeadCode) || this.getHeadNameByCode(reportHeadCode);
+
           return {
             mbNo: mbNoStr || '0',
             memberName,
             voucherNo: l.receipt_vchr_no || '-',
-            transactionType: l.trans_type as 'CR' | 'DR',
+            transactionType: this.normalizeTransactionType(l.trans_type, dto.filterType)!,
             amount: Number(l.trans_amt) || 0,
-            headCode: (l.code || '').trim(),
-            headName: headNames.get((l.code || '').trim()) || this.getHeadNameByCode((l.code || '').trim()),
+            headCode: reportHeadCode,
+            headName: resolvedHeadName,
             narration: l.narration || '',
             username: l.username || '',
             transactionTime: l.trans_date
@@ -110,7 +138,7 @@ export class DayBookService {
       );
 
       // Calculate opening balance (balance before the selected date)
-      const openingBalance = await this.calculateOpeningBalance(reportDate, dto.filterType);
+      const openingBalance = await this.calculateOpeningBalance(startOfDay, dto.filterType);
 
       // Calculate totals
       const totalReceipts = entries
@@ -339,6 +367,7 @@ export class DayBookService {
   private getHeadNameByCode(code: string): string {
     const codeMap: { [key: string]: string } = {
       'A1001': 'Savings Account',
+      'L1004': 'Compulsory Deposit',
       'A1002': 'Fixed Deposit',
       'A1003': 'Recurring Deposit',
       'L2001': 'Member Deposits',
@@ -352,32 +381,57 @@ export class DayBookService {
     return codeMap[code] || `Head Code ${code}`;
   }
 
-  private async calculateOpeningBalance(date: Date, filterType?: string): Promise<number> {
-    try {
-      let query = this.ledgerRepository
-        .createQueryBuilder('l')
-        .where('l.trans_date < :date', { date });
+  private async calculateOpeningBalance(date: string, filterType?: string): Promise<number> {
+    let query = this.ledgerRepository
+      .createQueryBuilder('l')
+      .where('l.trans_date < :date', { date });
 
-      // Add filtering for SB transactions if specified
+      // Keep the opening-balance scope identical to the selected report rows.
       if (filterType === 'sb' || filterType === 'savings') {
-        query = query.andWhere('(l.acc_type = :sbType OR l.code = :sbCode)', {
-          sbType: 'SB',
-          sbCode: 'A1001'
-        });
-      }
-
-      const results = await query
-        .select(`
-          SUM(CASE WHEN l.trans_type = 'CR' THEN l.trans_amt ELSE 0 END) - 
-          SUM(CASE WHEN l.trans_type = 'DR' THEN l.trans_amt ELSE 0 END)
-        `, 'balance')
-        .getRawOne();
-
-      return Number(results?.balance || 0);
-    } catch (error) {
-      this.logger.error('Error calculating opening balance:', error);
-      return 0;
+      query = query.andWhere('(l.acc_type = :sbType OR l.code = :sbCode)', {
+        sbType: 'SB',
+        sbCode: 'A1001'
+      });
+    } else if (filterType === 'cd') {
+      query = query.andWhere('(l.acc_type = :cdType OR l.code = :cdCode OR l.vchr_type = :cdVoucherType)', {
+        cdType: 'CD',
+        cdCode: 'L1004',
+        cdVoucherType: 'CD'
+      });
     }
+
+    const creditTypes = filterType === 'cd' ? "'CR', 'R'" : "'CR'";
+    const debitTypes = filterType === 'cd' ? "'DR', 'P'" : "'DR'";
+    const supportedTypes = filterType === 'cd' ? "'CR', 'DR', 'R', 'P'" : "'CR', 'DR'";
+    const results = await query
+      .select(`
+          SUM(CASE WHEN l.trans_type IN (${creditTypes}) THEN l.trans_amt ELSE 0 END) -
+          SUM(CASE WHEN l.trans_type IN (${debitTypes}) THEN l.trans_amt ELSE 0 END)
+        `, 'balance')
+      .addSelect(`COUNT(*) FILTER (WHERE l.trans_type NOT IN (${supportedTypes}))`, 'unsupportedCount')
+      .getRawOne();
+
+    if (Number(results?.unsupportedCount ?? 0) > 0) {
+      throw new Error('Earlier ledger rows contain unsupported transaction types; opening balance cannot be trusted.');
+    }
+
+    // SUM is null only when there are no earlier ledger rows. A query error
+    // must propagate so the report cannot present a fabricated zero balance.
+    return results?.balance == null ? 0 : Number(results.balance);
+  }
+
+  private normalizeTransactionType(value: unknown, filterType?: string): 'CR' | 'DR' | null {
+    const type = String(value ?? '').trim().toUpperCase();
+    if (type === 'CR' || (filterType === 'cd' && type === 'R')) return 'CR';
+    if (type === 'DR' || (filterType === 'cd' && type === 'P')) return 'DR';
+    return null;
+  }
+
+  private getReportHeadCode(entry: Ledger, filterType?: string): string {
+    const code = (entry.code || '').trim();
+    // Some CD posting paths write the account voucher marker but omit the GL
+    // code on the member-side ledger row. The report is already CD-scoped.
+    return filterType === 'cd' && !code ? 'L1004' : code;
   }
 
   private async getNextTransactionNumber(): Promise<number> {

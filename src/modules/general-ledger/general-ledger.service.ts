@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, HttpException, Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Ledger } from '../member-ledger/entities/ledger.entity';
@@ -23,15 +23,11 @@ export class GeneralLedgerService {
 
   async getGeneralLedgerReport(dto: GetGeneralLedgerDto): Promise<GeneralLedgerSummaryDto> {
     try {
-      const fromDate = new Date(dto.fromDate);
-      const toDate = new Date(dto.toDate);
-      
-      // Set time boundaries
-      const startOfDay = new Date(fromDate);
-      startOfDay.setHours(0, 0, 0, 0);
-      
-      const endOfDay = new Date(toDate);
-      endOfDay.setHours(23, 59, 59, 999);
+      const fromDate = dto.fromDate.slice(0, 10);
+      const toDate = dto.toDate.slice(0, 10);
+      if (fromDate > toDate) {
+        throw new BadRequestException('From date must be on or before the To date');
+      }
 
       // Validate head code exists
       const headMaster = await this.headMasterRepository.findOne({
@@ -49,9 +45,9 @@ export class GeneralLedgerService {
       const ledgerEntries = await this.ledgerRepository
         .createQueryBuilder('l')
         .where('l.code = :headCode', { headCode: dto.headCode })
-        .andWhere('l.trans_date >= :startDate AND l.trans_date <= :endDate', {
-          startDate: startOfDay,
-          endDate: endOfDay
+        .andWhere("l.trans_date >= CAST(:fromDate AS date) AND l.trans_date < CAST(:toDate AS date) + INTERVAL '1 day'", {
+          fromDate,
+          toDate,
         })
         .orderBy('l.trans_date', 'ASC')
         .addOrderBy('l.trans_no', 'ASC')
@@ -59,17 +55,18 @@ export class GeneralLedgerService {
 
       // Calculate opening balance (transactions before the from date)
       const openingBalance = await this.calculateOpeningBalance(
-        dto.headCode, 
-        startOfDay
+        dto.headCode,
+        dto.fromDate
       );
 
       // Transform ledger entries
       let runningBalance = openingBalance;
       const entries: GeneralLedgerEntryDto[] = ledgerEntries.map(entry => {
         const amount = this.parseMoneyAmount(entry.trans_amt.toString());
+        const direction = this.normalizeLedgerDirection(entry.trans_type);
         
         // Update running balance
-        if (entry.trans_type === 'CR') {
+        if (direction === 'CR') {
           runningBalance += amount;
         } else {
           runningBalance -= amount;
@@ -80,10 +77,10 @@ export class GeneralLedgerService {
           transactionDate: entry.trans_date.toISOString(),
           voucherNo: entry.receipt_vchr_no || '',
           narration: entry.narration || '',
-          debit: entry.trans_type === 'DR' ? amount : 0,
-          credit: entry.trans_type === 'CR' ? amount : 0,
+          debit: direction === 'DR' ? amount : 0,
+          credit: direction === 'CR' ? amount : 0,
           balance: runningBalance,
-          transactionType: entry.trans_type as 'DR' | 'CR',
+          transactionType: direction,
           memberNumber: entry.mbno || undefined,
           accountNumber: entry.acc_no || undefined,
           username: entry.username || ''
@@ -110,7 +107,7 @@ export class GeneralLedgerService {
 
     } catch (error) {
       this.logger.error('Error generating general ledger report:', error);
-      if (error instanceof NotFoundException) {
+      if (error instanceof HttpException) {
         throw error;
       }
       throw new Error('Failed to generate general ledger report');
@@ -139,32 +136,39 @@ export class GeneralLedgerService {
   }
 
   private async calculateOpeningBalance(
-    headCode: string, 
-    beforeDate: Date
+    headCode: string,
+    beforeDate: string
   ): Promise<number> {
     try {
-      const entries = await this.ledgerRepository
+      const result = await this.ledgerRepository
         .createQueryBuilder('l')
+        .select(`COALESCE(SUM(CASE
+          WHEN UPPER(TRIM(l.trans_type)) IN ('CR', 'R') THEN l.trans_amt
+          WHEN UPPER(TRIM(l.trans_type)) IN ('DR', 'P') THEN -l.trans_amt
+          ELSE 0
+        END), 0)`, 'balance')
+        .addSelect(`COUNT(*) FILTER (WHERE UPPER(TRIM(l.trans_type)) NOT IN ('CR', 'R', 'DR', 'P'))`, 'unsupportedCount')
         .where('l.code = :headCode', { headCode })
-        .andWhere('l.trans_date < :beforeDate', { beforeDate })
-        .getMany();
+        .andWhere('l.trans_date < CAST(:beforeDate AS date)', { beforeDate })
+        .getRawOne() as { balance: string | number; unsupportedCount: string | number };
 
-      let balance = 0;
-      for (const entry of entries) {
-        const amount = this.parseMoneyAmount(entry.trans_amt.toString());
-        if (entry.trans_type === 'CR') {
-          balance += amount;
-        } else {
-          balance -= amount;
-        }
+      if (Number(result?.unsupportedCount) > 0) {
+        throw new InternalServerErrorException('The opening balance contains unrecognized transaction types. No report was generated.');
       }
-
-      return balance;
+      return Number(result?.balance) || 0;
 
     } catch (error) {
       this.logger.error('Error calculating opening balance:', error);
-      return 0;
+      if (error instanceof HttpException) throw error;
+      throw new InternalServerErrorException('Could not calculate the opening balance. No report was generated.');
     }
+  }
+
+  private normalizeLedgerDirection(value: string): 'CR' | 'DR' {
+    const type = String(value || '').trim().toUpperCase();
+    if (type === 'CR' || type === 'R') return 'CR';
+    if (type === 'DR' || type === 'P') return 'DR';
+    throw new InternalServerErrorException('The ledger contains an unrecognized transaction type. No balances were produced.');
   }
 
   private parseMoneyAmount(moneyValue: string): number {

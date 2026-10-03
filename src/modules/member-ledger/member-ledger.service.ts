@@ -12,7 +12,8 @@ import {
   HeadMasterDto,
   ValidateMemberDto,
   GetMemberDetailLedgerDto,
-  MemberDetailLedgerSummaryDto
+  MemberDetailLedgerSummaryDto,
+  MemberLedgerContextDto
 } from './dto/member-ledger.dto';
 
 @Injectable()
@@ -84,9 +85,10 @@ export class MemberLedgerService {
       let runningBalance = openingBalance;
       const entries: MemberLedgerEntryDto[] = ledgerEntries.map(entry => {
         const amount = this.parseMoneyAmount(entry.trans_amt.toString());
+        const direction = this.normalizeLedgerDirection(entry.trans_type);
 
         // Update running balance
-        if (entry.trans_type === 'CR') {
+        if (direction === 'CR') {
           runningBalance += amount;
         } else {
           runningBalance -= amount;
@@ -97,10 +99,10 @@ export class MemberLedgerService {
           transactionDate: entry.trans_date,
           voucherNo: entry.receipt_vchr_no || '',
           narration: entry.narration || '',
-          debit: entry.trans_type === 'DR' ? amount : 0,
-          credit: entry.trans_type === 'CR' ? amount : 0,
+          debit: direction === 'DR' ? amount : 0,
+          credit: direction === 'CR' ? amount : 0,
           balance: runningBalance,
-          transactionType: entry.trans_type as 'DR' | 'CR',
+          transactionType: direction,
           username: entry.username || ''
         };
       });
@@ -186,7 +188,11 @@ export class MemberLedgerService {
         .getRawMany();
 
       const openingRows = await this.dataSource.query(`
-        SELECT code, COALESCE(SUM(CASE WHEN trans_type = 'CR' THEN trans_amt ELSE -trans_amt END), 0) AS opening
+        SELECT code, COALESCE(SUM(CASE
+          WHEN trans_type IN ('CR', 'R') THEN trans_amt
+          WHEN trans_type IN ('DR', 'P') THEN -trans_amt
+          ELSE 0
+        END), 0) AS opening
         FROM ledger
         WHERE CAST(mbno AS text) = $1 AND trans_date < $2
         GROUP BY code
@@ -211,8 +217,9 @@ export class MemberLedgerService {
       // Transform to DTO
       const entries = rawEntries.map(entry => {
         const amount = typeof entry.l_trans_amt === 'number' ? entry.l_trans_amt : parseFloat(entry.l_trans_amt);
-        const debit = entry.l_trans_type === 'DR' ? amount : 0;
-        const credit = entry.l_trans_type === 'CR' ? amount : 0;
+        const direction = this.normalizeLedgerDirection(entry.l_trans_type);
+        const debit = direction === 'DR' ? amount : 0;
+        const credit = direction === 'CR' ? amount : 0;
         const isRegularLoan = entry.l_acc_type === 'RLN';
         const isEmergencyLoan = entry.l_acc_type === 'ALN' || entry.l_acc_type === 'ELN';
         const loanBalances = balanceByDate.get(dateKey(entry.l_trans_date));
@@ -305,7 +312,8 @@ export class MemberLedgerService {
       // Loan debits increase outstanding; credits (including payroll-lag
       // receipts) decrease the posted account balance.
       const amount = Number(item.trans_amt || 0);
-      const effect = item.trans_type === 'DR' ? amount : -amount;
+        const direction = this.normalizeLedgerDirection(item.trans_type);
+        const effect = direction === 'DR' ? amount : -amount;
       closingLoan[bucket] += effect;
       if (String(item.date_key) < start) {
         openingLoan[bucket] += effect;
@@ -317,6 +325,17 @@ export class MemberLedgerService {
     }
 
     const dates = Array.from(new Set(raw.filter((r: any) => r.date_key >= start).map((r: any) => String(r.date_key)))).sort();
+    const balanceFor = (accType: string, predicate: (row: any) => boolean = () => true) =>
+      raw.reduce((sum: number, row: any) => {
+        if (row.acc_type !== accType || !predicate(row)) return sum;
+        const amount = Number(row.trans_amt || 0);
+        const direction = this.normalizeLedgerDirection(row.trans_type);
+        return sum + (direction === 'CR' ? amount : -amount);
+      }, 0);
+    const openingShare = balanceFor('SHR', row => String(row.date_key) < start);
+    const openingCd = balanceFor('CD', row => String(row.date_key) < start);
+    const closingShare = balanceFor('SHR');
+    const closingCd = balanceFor('CD');
     const empty = () => ({ dr: 0, cr: 0, bal: null as number | null });
     const runningLoan = { ...openingLoan };
     const rows = dates.map(date => {
@@ -331,13 +350,17 @@ export class MemberLedgerService {
         const bucket = item.acc_type === 'SHR' ? 'share' : item.acc_type === 'RLN' ? 'ltl' :
           (item.acc_type === 'ALN' || item.acc_type === 'ELN') ? 'emer' : item.acc_type === 'CD' ? 'cd' : null;
         if (!bucket) continue;
-        if (item.trans_type === 'DR') cells[bucket].dr += amount; else cells[bucket].cr += amount;
+        const direction = this.normalizeLedgerDirection(item.trans_type);
+        if (direction === 'DR') cells[bucket].dr += amount; else cells[bucket].cr += amount;
       }
       cells.ltl.bal = runningLoan.ltl;
       cells.emer.bal = runningLoan.emer;
       for (const bucket of ['share', 'cd'] as const) {
         const before = raw.filter((r: any) => String(r.date_key) <= date && (r.acc_type === (bucket === 'share' ? 'SHR' : 'CD')))
-          .reduce((sum: number, r: any) => sum + (r.trans_type === 'CR' ? 1 : -1) * Number(r.trans_amt || 0), 0);
+          .reduce((sum: number, r: any) => {
+            const direction = this.normalizeLedgerDirection(r.trans_type);
+            return sum + (direction === 'CR' ? 1 : -1) * Number(r.trans_amt || 0);
+          }, 0);
         cells[bucket].bal = before;
       }
       return { date, ...cells };
@@ -347,11 +370,11 @@ export class MemberLedgerService {
       memberNumber: memberNo,
       memberName: `${member.f_name || ''} ${member.m_name || ''} ${member.l_name || ''}`.trim(),
       fromDate: start, toDate: end,
-      opening: { share: 0, ltl: openingLoan.ltl, emer: openingLoan.emer, cd: 0 },
+      opening: { share: openingShare, ltl: openingLoan.ltl, emer: openingLoan.emer, cd: openingCd },
       closing: {
-        share: rows.length ? rows[rows.length - 1].share.bal : 0,
+        share: closingShare,
         ltl: closingLoan.ltl, emer: closingLoan.emer,
-        cd: rows.length ? rows[rows.length - 1].cd.bal : 0,
+        cd: closingCd,
       },
       rows,
     };
@@ -416,31 +439,90 @@ export class MemberLedgerService {
     headCode: string,
     beforeDate: Date
   ): Promise<number> {
-    try {
-      // FIX: Use string comparison for numeric mbno column
-      const entries = await this.ledgerRepository
-        .createQueryBuilder('l')
-        .where('l.mbno = :memberNumber', { memberNumber: memberNumberStr })
-        .andWhere('l.code = :headCode', { headCode })
-        .andWhere('l.trans_date < :beforeDate', { beforeDate })
-        .getMany();
+    // Fail the report rather than presenting a failed opening-balance query as zero.
+    const entries = await this.ledgerRepository
+      .createQueryBuilder('l')
+      .where('l.mbno = :memberNumber', { memberNumber: memberNumberStr })
+      .andWhere('l.code = :headCode', { headCode })
+      .andWhere('l.trans_date < :beforeDate', { beforeDate })
+      .getMany();
 
-      let balance = 0;
-      for (const entry of entries) {
-        const amount = this.parseMoneyAmount(entry.trans_amt.toString());
-        if (entry.trans_type === 'CR') {
-          balance += amount;
-        } else {
-          balance -= amount;
-        }
+    let balance = 0;
+    for (const entry of entries) {
+      const amount = this.parseMoneyAmount(entry.trans_amt.toString());
+      if (this.normalizeLedgerDirection(entry.trans_type) === 'CR') {
+        balance += amount;
+      } else {
+        balance -= amount;
       }
-
-      return balance;
-
-    } catch (error) {
-      this.logger.error('Error calculating opening balance:', error);
-      return 0;
     }
+
+    return balance;
+  }
+
+  async getMemberLedgerContext(dto: ValidateMemberDto): Promise<MemberLedgerContextDto> {
+    const memberNumber = dto.memberNumber.trim();
+    const member = await this.memberRepository.findOne({ where: { mbno: memberNumber } });
+    const memberName = member
+      ? [member.f_name, member.m_name, member.l_name].filter(Boolean).join(' ')
+      : undefined;
+
+    const rows: Array<{
+      code: string;
+      headName: string;
+      transactionCount: number | string;
+      minDate: string | null;
+      maxDate: string | null;
+    }> = await this.dataSource.query(`
+      WITH member_ledger AS (
+        SELECT code, COUNT(*)::int AS transaction_count
+        FROM ledger
+        WHERE CAST(mbno AS text) = $1
+        GROUP BY code
+      ),
+      member_bounds AS (
+        SELECT to_char(MIN(trans_date)::date, 'YYYY-MM-DD') AS min_date,
+               to_char(MAX(trans_date)::date, 'YYYY-MM-DD') AS max_date
+        FROM ledger
+        WHERE CAST(mbno AS text) = $1
+      ),
+      all_codes AS (
+        SELECT code FROM headmaster
+        UNION
+        SELECT code FROM member_ledger
+      )
+      SELECT c.code,
+             COALESCE(h.head_name, c.code) AS "headName",
+             COALESCE(ml.transaction_count, 0)::int AS "transactionCount",
+             mb.min_date AS "minDate",
+             mb.max_date AS "maxDate"
+      FROM all_codes c
+      LEFT JOIN headmaster h ON h.code = c.code
+      LEFT JOIN member_ledger ml ON ml.code = c.code
+      CROSS JOIN member_bounds mb
+      ORDER BY c.code
+    `, [memberNumber]);
+
+    return {
+      exists: Boolean(member),
+      memberName,
+      memberNumber,
+      minDate: rows[0]?.minDate ?? null,
+      maxDate: rows[0]?.maxDate ?? null,
+      heads: rows.map(row => ({
+        code: row.code,
+        headName: row.headName || row.code,
+        transactionCount: Number(row.transactionCount) || 0,
+        hasData: Number(row.transactionCount) > 0,
+      })),
+    };
+  }
+
+  private normalizeLedgerDirection(value: string): 'CR' | 'DR' {
+    const type = String(value || '').toUpperCase();
+    if (type === 'CR' || type === 'R') return 'CR';
+    if (type === 'DR' || type === 'P') return 'DR';
+    throw new Error(`Unsupported member-ledger transaction type: ${type || '(blank)'}`);
   }
 
   private parseMoneyAmount(moneyValue: string): number {

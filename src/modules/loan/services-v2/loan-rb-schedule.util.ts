@@ -34,11 +34,32 @@ export interface RbScheduleRow {
 
 export interface LoanSlot {
     slot: 1 | 2;
+    subSlot: 'EARLY_MONTH' | 'LATE_MONTH' | null;
+    interestDelayMonths: number;
+    firstDueDelayMonths: number;
     delayMonths: number;
 }
 
 export function round2(x: number): number {
     return Math.round(x * 100) / 100;
+}
+
+/** First scheduled EMI month: disbursement month plus the frozen slot delay. */
+export function firstDueMonthFromDisbursement(disbursementDate: Date, delayMonths: number): Date {
+    return new Date(
+        disbursementDate.getFullYear(),
+        disbursementDate.getMonth() + delayMonths,
+        1,
+    );
+}
+
+/** Calendar month for installment 1..N, counted from the saved first due month. */
+export function installmentDueMonth(firstDueMonth: Date, installmentNo: number): Date {
+    return new Date(
+        firstDueMonth.getFullYear(),
+        firstDueMonth.getMonth() + installmentNo - 1,
+        1,
+    );
 }
 
 /**
@@ -110,15 +131,17 @@ export function isInSlot1Window(
  * Which slot an application date falls in, and how many months of delay that
  * slot carries.
  *
- * Both halves are configurable from the "Modify Business Rules" screen and
+ * Both slot delay values are configurable from the "Modify Business Rules" screen and
  * stored in system_configs — the delay months as
  * RULE_LOAN_SLOT1_DELAY_MONTHS / RULE_LOAN_SLOT2_DELAY_MONTHS, and the Slot 1
  * day window as RULE_LOAN_SLOT1_START_DAY / RULE_LOAN_SLOT1_END_DAY. Every
- * default here reproduces the society's original hardcoded behaviour (25th–5th
- * = Slot 1 = +1 month, everything else = Slot 2 = +2 months), so an unsaved or
+ * default here reproduces the society's original interest behaviour (25th–5th
+ * = Slot 1 interest, everything else = Slot 2 interest), while the first EMI
+ * has a late-month Slot 1 sub-slot (25th–month-end) that starts two calendar
+ * months after disbursement. An unsaved or
  * unreachable config leaves pricing exactly as it is today.
  *
- * The resolved delay is frozen onto loan_master.delay_months at disbursement,
+ * The resolved first-due delay is frozen onto loan_master.delay_months at disbursement,
  * so changing any of these later never reprices or reschedules a loan that has
  * already gone out.
  */
@@ -130,10 +153,16 @@ export function determineLoanSlot(
     slot1EndDay: number = DEFAULT_SLOT1_END_DAY,
 ): LoanSlot {
     const day = applicationDate.getDate();
-    if (isInSlot1Window(day, slot1StartDay, slot1EndDay)) {
-        return { slot: 1, delayMonths: slot1DelayMonths };
+    const start = normalizeSlotDay(slot1StartDay, DEFAULT_SLOT1_START_DAY);
+    const end = normalizeSlotDay(slot1EndDay, DEFAULT_SLOT1_END_DAY);
+    if (start > end && day >= start) {
+        const firstDueDelayMonths = slot1DelayMonths + 1;
+        return { slot: 1, subSlot: 'LATE_MONTH', interestDelayMonths: slot1DelayMonths, firstDueDelayMonths, delayMonths: firstDueDelayMonths };
     }
-    return { slot: 2, delayMonths: slot2DelayMonths };
+    if (isInSlot1Window(day, start, end)) {
+        return { slot: 1, subSlot: 'EARLY_MONTH', interestDelayMonths: slot1DelayMonths, firstDueDelayMonths: slot1DelayMonths, delayMonths: slot1DelayMonths };
+    }
+    return { slot: 2, subSlot: null, interestDelayMonths: slot2DelayMonths, firstDueDelayMonths: slot2DelayMonths, delayMonths: slot2DelayMonths };
 }
 
 /**
@@ -175,6 +204,9 @@ export function buildReducingBalanceSchedule(
 
 export interface ConstantEmiResult {
     slot: 1 | 2;
+    subSlot: 'EARLY_MONTH' | 'LATE_MONTH' | null;
+    interestDelayMonths: number;
+    firstDueDelayMonths: number;
     delayMonths: number;
     monthlyRate: number;
     monthlyPrincipal: number;
@@ -202,7 +234,7 @@ export function calculateConstantEmi(
     slot1StartDay: number = DEFAULT_SLOT1_START_DAY,
     slot1EndDay: number = DEFAULT_SLOT1_END_DAY,
 ): ConstantEmiResult {
-    const { slot, delayMonths } = determineLoanSlot(
+    const { slot, subSlot, interestDelayMonths, firstDueDelayMonths, delayMonths } = determineLoanSlot(
         applicationDate, slot1DelayMonths, slot2DelayMonths, slot1StartDay, slot1EndDay,
     );
     const monthlyRate = annualRate / 1200;
@@ -211,7 +243,7 @@ export function calculateConstantEmi(
     // Delay interest is always on the FULL original principal — never the
     // declining balance — because it represents the period before any
     // deduction (and therefore any principal reduction) has started at all.
-    const delayInterest = round2(loanAmt * monthlyRate * delayMonths);
+    const delayInterest = round2(loanAmt * monthlyRate * interestDelayMonths);
     const totalInterestForEMI = round2(totalRBInterest + delayInterest);
     const monthlyPrincipal = round2(loanAmt / n);
     // Rounded ONCE here, never again downstream: instal_amt below carries this
@@ -222,7 +254,8 @@ export function calculateConstantEmi(
     const constantEMI = round2(monthlyPrincipal + monthlyInterestForEMI);
 
     return {
-        slot, delayMonths, monthlyRate, monthlyPrincipal,
+        slot, subSlot, interestDelayMonths, firstDueDelayMonths, delayMonths,
+        monthlyRate, monthlyPrincipal,
         totalRBInterest, delayInterest, totalInterestForEMI, monthlyInterestForEMI,
         constantEMI, rbSchedule: schedule,
     };
@@ -233,15 +266,19 @@ export async function persistRbSchedule(
     queryRunner: QueryRunner,
     loancaseno: string,
     mbno: string,
+    loantype: string,
     schedule: RbScheduleRow[],
 ): Promise<void> {
-    await queryRunner.query(`DELETE FROM loan_rb_schedule WHERE loancaseno::text = $1`, [loancaseno]);
+    await queryRunner.query(
+        `DELETE FROM loan_rb_schedule WHERE mbno = $1 AND loantype = $2 AND loancaseno::text = $3`,
+        [mbno, loantype, loancaseno],
+    );
     for (const row of schedule) {
         await queryRunner.query(
             `INSERT INTO loan_rb_schedule
-                (loancaseno, mbno, installment_no, opening_balance, rb_interest, principal, closing_balance)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-            [loancaseno, mbno, row.installmentNo, row.openingBalance, row.rbInterest, row.principal, row.closingBalance]
+                (loancaseno, mbno, loantype, installment_no, opening_balance, rb_interest, principal, closing_balance)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [loancaseno, mbno, loantype, row.installmentNo, row.openingBalance, row.rbInterest, row.principal, row.closingBalance],
         );
     }
 }
