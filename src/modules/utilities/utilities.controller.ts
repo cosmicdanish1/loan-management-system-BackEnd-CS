@@ -365,6 +365,14 @@ export class UtilitiesController {
     return result;
   }
 
+  @Post('head-master/rebuild-tree')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Build Tree: refresh the stored head balances (balancesheet) from the ledger' })
+  async rebuildBalancesheet() {
+    return this.utilitiesService.rebuildBalancesheet();
+  }
+
   @Get('deposit-loan-slabs')  @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Get deposit/loan interest slabs from fdrd_slab_details' })

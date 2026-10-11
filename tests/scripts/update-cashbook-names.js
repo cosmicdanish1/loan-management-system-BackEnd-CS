@@ -1,8 +1,9 @@
+require('dotenv').config();
 const { Client } = require('pg');
 
 async function updateHeadNames() {
     const client = new Client({
-        user: 'postgres', host: 'localhost', database: 'EMP_Espat_Society', password: 'Test@1212', port: 5432,
+        user: 'postgres', host: 'localhost', database: 'EMP_Espat_Society', password: process.env.DB_PASSWORD, port: 5432,
     });
 
     const mappings = [

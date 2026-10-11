@@ -1,10 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { UserPreference } from './entities/user-preference.entity';
 import { SystemSetting } from './entities/system-setting.entity';
 import { UpdateUserPreferenceDto } from './dto/update-user-preference.dto';
 import { RD_RULE_DEFAULTS, RD_RULE_KEYS, RD_BOOLEAN_RULE_KEYS } from '../rd/rd-business-rules';
+import { HEAD_BALANCES_SELECT } from './head-balances.sql';
 
 /**
  * A stored day-of-month setting, forced into 1-31. Deliberately NOT validated
@@ -214,7 +215,7 @@ export class UtilitiesService {
         WHERE appdate = (SELECT MAX(appdate) FROM busrules)
         UNION ALL
         SELECT
-          'Loan Against Recovery' as name,
+          'Loan Against RD' as name,
           'ELN' as code,
           elnrate as rate,
           elnmaxloanamt as max_amount,
@@ -1049,6 +1050,8 @@ export class UtilitiesService {
       cheqNo?: string;
       cheqDate?: string;
       bankName?: string;
+      /** Our bank/cash head to debit. Used in bank mode; cash mode always debits A1001. */
+      receiveIntoCode?: string;
       rows: Array<{ code: string; accType: string; amount: number }>;
     },
     username: string = 'system',
@@ -1081,13 +1084,17 @@ export class UtilitiesService {
       const totalAmount = data.rows.reduce((s, r) => s + r.amount, 0);
       const modeOfPay = data.modeOfPay || 'C';
 
-      // DR CINH (A1001) — cash/bank received increases the asset
+      // DR cash/bank received increases the asset. ES-50: this was hard-coded to A1001, so a bank-mode
+      // receipt debited Cash in Hand and never reached the bank head the user chose.
+      const isBankMode = String(modeOfPay).toUpperCase() === 'B';
+      const drCode = isBankMode ? (data.receiveIntoCode || 'A1001') : 'A1001';
+      const drAccType = drCode === 'A1001' ? 'CINH' : 'BANK';
       await queryRunner.query(
         `INSERT INTO transactions (trans_no, trans_type, trans_date, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, cheq_no, cheq_amt, cheq_date, bankname, pass_flag, cashier_flag, code, narration, username)
-         VALUES ($1, 'DR', $2, $3, 0, 'CINH', $4, $5, 'R', $6, $7, 0, $8, $9, 'N', 'Y', 'A1001', $10, $11)`,
+         VALUES ($1, 'DR', $2, $3, 0, $12, $4, $5, 'R', $6, $7, 0, $8, $9, 'N', 'Y', $13, $10, $11)`,
         [nextTransNo++, transDate, data.memberNo, totalAmount, voucherNo, modeOfPay,
          data.cheqNo || '', data.cheqDate ? new Date(data.cheqDate) : null, data.bankName || '',
-         data.narration || '', username]
+         data.narration || '', username, drAccType, drCode]
       );
 
       // CR each row (loan recovery, interest income, etc.) — credit the income/liability accounts
@@ -1204,6 +1211,17 @@ export class UtilitiesService {
     },
     username: string = 'system',
   ): Promise<{ success: boolean; loanCaseNo: number; message: string }> {
+    // A Loan Against RD must be secured by a lock on the member's RD, which is only placed (together
+    // with the 90% / maximum-amount checks) when the loan goes through Loan Application, Sanction and
+    // Pass Transactions. This screen writes the loan record directly and never reaches that code, so
+    // it would create an unsecured loan the member could walk away from by withdrawing the RD.
+    if ((data.loanType || '').toUpperCase() === 'ELN') {
+      throw new BadRequestException(
+        'Loan Against RD cannot be entered here, because this screen cannot lock the member\'s RD. ' +
+        'Enter it through Loan Application, then sanction and pay it out.',
+      );
+    }
+
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -1382,7 +1400,8 @@ export class UtilitiesService {
   }
 
   async getHeadMaster(): Promise<any[]> {
-    // Join headmaster with balancesheet to get financial data
+    // ES-48: balances are computed live from the ledger (HEAD_BALANCES_SELECT), not read from the
+    // balancesheet snapshot table, which nothing kept up to date.
     const result = await this.dataSource.query(`
       SELECT 
         hm.code, hm.parent_code as "parentCode", hm.head_name as "headName",
@@ -1393,10 +1412,44 @@ export class UtilitiesService {
         COALESCE(bs.credit, 0) as "credit",
         COALESCE(bs.closingbalance, 0) as "balance"
       FROM headmaster hm
-      LEFT JOIN balancesheet bs ON bs.head_code = hm.code
+      LEFT JOIN (${HEAD_BALANCES_SELECT}) bs ON bs.head_code = hm.code
       ORDER BY hm.code
     `);
     return result;
+  }
+
+  /**
+   * "Build Tree": persist the live head balances into the balancesheet table. The Head screen and
+   * Balance Sheet no longer depend on it (they compute live); it is kept for anything that still reads
+   * the stored table. Restored after commit 2cfd3e7 dropped it while the frontend kept calling it.
+   */
+  async rebuildBalancesheet(): Promise<{ success: boolean; message: string; leafCount: number }> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      this.logger.log('[BuildTree] Rebuilding balancesheet from ledger...');
+      await queryRunner.query(`DELETE FROM balancesheet`);
+      // useStructuredResult exposes the inserted row count (.affected); a plain query() result is empty for INSERT.
+      const result = await queryRunner.query(`
+        INSERT INTO balancesheet
+          (head_code, parent_code, head_name, opening_balance, debit, credit,
+           closingbalance, closingbal_db, closing_cr, maincd)
+        SELECT head_code, parent_code, head_name, opening_balance, debit, credit,
+               closingbalance, closingbal_db, closing_cr, maincd
+        FROM (${HEAD_BALANCES_SELECT}) live
+      `, undefined, true);
+      await queryRunner.commitTransaction();
+      const leafCount = result.affected ?? 0;
+      this.logger.log(`[BuildTree] Rebuilt ${leafCount} head balances from ledger`);
+      return { success: true, message: `Balance sheet rebuilt from ledger. ${leafCount} accounts updated.`, leafCount };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      this.logger.error('[BuildTree] Failed:', error);
+      throw new Error(`Failed to rebuild balance sheet: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   async saveHeadMaster(data: any): Promise<{ success: boolean; message: string }> {
@@ -1625,6 +1678,8 @@ export class UtilitiesService {
   private async fetchSystemConfigRules(): Promise<Record<string, any>> {
     const keys = [
       'RULE_FUND_INT_RATE', 'RULE_DIVIDEND_PCT', 'RULE_GRP_INSURANCE_AMT', 'RULE_CD_INTEREST_CHART',
+      // Nightly automatic Day-End switch — day-end.service.ts runs the job only when this is on.
+      'SYS_DAYEND_AUTO_CLOSE',
       // RD/Share Value eligibility rule (loan-eligibility.service.ts) — these
       // used to be sent by the frontend's "Regular Loan Eligibility" section
       // and silently dropped on every save, since nothing here persisted them.
@@ -1670,8 +1725,11 @@ export class UtilitiesService {
       // not authoritative thresholds.
       ...RD_RULE_KEYS,
     ];
+    // "IS NOT FALSE", not "= true": the four Fund Management rows were seeded with isActive left
+    // empty (NULL), so "= true" never loaded them — the screen showed 0 for the fund interest rate
+    // while the real stored value is 7.0, and saving would have overwritten it with that 0.
     const rows = await this.dataSource.query(
-      `SELECT key, value, "dataType" FROM system_configs WHERE key = ANY($1) AND "isActive" = true`,
+      `SELECT key, value, "dataType" FROM system_configs WHERE key = ANY($1) AND "isActive" IS NOT FALSE`,
       [keys]
     );
     const out: Record<string, any> = {
@@ -1679,6 +1737,7 @@ export class UtilitiesService {
       RULE_DIVIDEND_PCT: 0,
       RULE_GRP_INSURANCE_AMT: 0,
       RULE_CD_INTEREST_CHART: '[]',
+      SYS_DAYEND_AUTO_CLOSE: false,
       RULE_LOAN_R_MAX_LIMIT: 1000000,
       RULE_LOAN_R_RD_PCT: 5,
       RULE_LOAN_R_SHARE_PCT: 5,
@@ -1722,6 +1781,16 @@ export class UtilitiesService {
     return out;
   }
 
+  /** The interest chart arrives as a JSON string (or an array); always store valid JSON, never garbage. */
+  private normaliseInterestChart(raw: unknown): string {
+    try {
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      return JSON.stringify(Array.isArray(parsed) ? parsed : []);
+    } catch {
+      return '[]';
+    }
+  }
+
   /**
    * UPDATE-then-INSERT-if-absent for system_configs — used for keys that
    * belong there rather than in the legacy busrules table (currently just
@@ -1731,7 +1800,7 @@ export class UtilitiesService {
    * usable; this does the same thing in two steps instead.
    */
   private async upsertSystemConfigs(
-    entries: Array<{ key: string; value: string; dataType: 'number' | 'string' | 'boolean' }>,
+    entries: Array<{ key: string; value: string; dataType: 'number' | 'string' | 'boolean' | 'percentage' | 'json' }>,
   ): Promise<void> {
     for (const entry of entries) {
       // BUG FIX: dataSource.query() returns [rows[], rowCount] for a non-SELECT
@@ -1880,6 +1949,15 @@ export class UtilitiesService {
         })),
         { key: 'RULE_REAGREEMENT_ALLOW_RATE_INCREASE', value: data.RULE_REAGREEMENT_ALLOW_RATE_INCREASE === false ? 'false' : 'true', dataType: 'boolean' },
         { key: 'RULE_REAGREEMENT_ALLOW_BACKDATE', value: data.RULE_REAGREEMENT_ALLOW_BACKDATE === true ? 'true' : 'false', dataType: 'boolean' },
+        // Auto Day-End switch: the nightly job (day-end.service.ts) runs only when this is ON.
+        { key: 'SYS_DAYEND_AUTO_CLOSE', value: data.SYS_DAYEND_AUTO_CLOSE === true ? 'true' : 'false', dataType: 'boolean' },
+        // Fund Management — read by the interest run, profit distribution and the dashboard, but this
+        // screen never saved them. Written only when the screen actually sent the value, so an older
+        // client that omits them can't zero them.
+        ...(data.RULE_FUND_INT_RATE !== undefined ? [{ key: 'RULE_FUND_INT_RATE', value: String(Math.max(0, Number(data.RULE_FUND_INT_RATE) || 0)), dataType: 'percentage' as const }] : []),
+        ...(data.RULE_DIVIDEND_PCT !== undefined ? [{ key: 'RULE_DIVIDEND_PCT', value: String(Math.max(0, Number(data.RULE_DIVIDEND_PCT) || 0)), dataType: 'percentage' as const }] : []),
+        ...(data.RULE_GRP_INSURANCE_AMT !== undefined ? [{ key: 'RULE_GRP_INSURANCE_AMT', value: String(Math.max(0, Number(data.RULE_GRP_INSURANCE_AMT) || 0)), dataType: 'number' as const }] : []),
+        ...(data.RULE_CD_INTEREST_CHART !== undefined ? [{ key: 'RULE_CD_INTEREST_CHART', value: this.normaliseInterestChart(data.RULE_CD_INTEREST_CHART), dataType: 'json' as const }] : []),
         // RD system rules — new dedicated tab in Modify Business Rules.
         ...RD_RULE_KEYS.map((key) => ({
           key,
@@ -1950,7 +2028,7 @@ export class UtilitiesService {
       await queryRunner.query(
         `INSERT INTO bankopbal (fycode, headcode, parentcode, closingbalance)
          SELECT $1, head_code, parent_code, closingbalance
-         FROM balancesheet
+         FROM (${HEAD_BALANCES_SELECT}) live
          WHERE COALESCE(closingbalance, 0) <> 0`,
         [yearCode],
       );

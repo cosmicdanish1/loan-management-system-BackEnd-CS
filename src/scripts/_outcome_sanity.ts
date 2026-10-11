@@ -1,3 +1,4 @@
+import 'dotenv/config';
 /**
  * OUTCOME SANITY TEST for migrated loans (read-only). A loan can pass every data check and still produce a result nobody should accept
  * without a look (610028678: principal Rs 52,336, early-closure amount Rs 1,34,129). For every open loan of the members in MBNO_FILE this
@@ -20,7 +21,7 @@ import { RdBalanceEventsService } from '../modules/rd/services/rd-balance-events
 const RATIO = Number(process.env.SANITY_RATIO || 1.5);
 const BEHIND = Number(process.env.SANITY_BEHIND || 6);
 const SILENT = Number(process.env.SANITY_SILENT_MONTHS || 12);
-const ds = new DataSource({ type: 'postgres', host: 'localhost', port: 5432, database: 'EMP_Espat_Society', username: 'postgres', password: 'Test@1212',
+const ds = new DataSource({ type: 'postgres', host: 'localhost', port: 5432, database: 'EMP_Espat_Society', username: 'postgres', password: process.env.DB_PASSWORD,
     entities: [__dirname + '/../**/*.entity{.ts,.js}'], synchronize: false, logging: false });
 const r2 = (n: number) => Math.round(n * 100) / 100;
 

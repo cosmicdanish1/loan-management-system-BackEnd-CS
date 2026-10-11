@@ -1,3 +1,4 @@
+import 'dotenv/config';
 /**
  * Phase 2 — bulk ledger-replay migration.
  *
@@ -91,7 +92,7 @@ let slotRuleConfig = { slot1DelayMonths: 1, slot2DelayMonths: 2, slot1StartDay: 
 
 const AppDataSource = new DataSource({
     type: 'postgres', host: 'localhost', port: 5432, database: 'EMP_Espat_Society',
-    username: 'postgres', password: 'Test@1212',
+    username: 'postgres', password: process.env.DB_PASSWORD,
     entities: [__dirname + '/../../**/*.entity{.ts,.js}'], synchronize: false, logging: false,
 });
 

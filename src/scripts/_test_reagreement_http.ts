@@ -1,3 +1,4 @@
+import 'dotenv/config';
 // Live HTTP test of the Re-agreement feature against the RUNNING backend (real controllers, JWT guard, response
 // envelope, global exception filter). Builds one old loan on test member 900000002 directly in the database
 // (22 of 24 EMIs paid), then drives every step over HTTP exactly as the screens do.
@@ -22,7 +23,7 @@ import { RdBalanceEventsService } from '../modules/rd/services/rd-balance-events
 const BASE = 'http://localhost:3001/api/v1';
 const MB = '900000002', SURETY = '900000003';
 const KEEP = process.argv.includes('--keep');
-const ds = new DataSource({ type: 'postgres', host: 'localhost', port: 5432, database: 'EMP_Espat_Society', username: 'postgres', password: 'Test@1212', entities: [__dirname + '/../**/*.entity{.ts,.js}'], synchronize: false, logging: false });
+const ds = new DataSource({ type: 'postgres', host: 'localhost', port: 5432, database: 'EMP_Espat_Society', username: 'postgres', password: process.env.DB_PASSWORD, entities: [__dirname + '/../**/*.entity{.ts,.js}'], synchronize: false, logging: false });
 const checks: { label: string; ok: boolean; detail: string }[] = [];
 const check = (label: string, ok: boolean, detail = '') => { checks.push({ label, ok, detail }); console.log(`${ok ? 'PASS' : 'FAIL'}  ${label}${detail ? '  -> ' + detail : ''}`); };
 const near = (label: string, e: number, a: number, tol = 0.02) => check(label, Math.abs(e - a) <= tol, `expected ${e} actual ${a}`);
@@ -94,7 +95,7 @@ async function main() {
     console.log('\n=== A. authentication and guard');
     const noTok = await http('GET', '/loans/reagreement/open', undefined, { noAuth: true });
     check('re-agreement endpoints reject a request without a token (401)', noTok.status === 401);
-    const login = await http('POST', '/auth/login', { username: 'admin', password: 'SuperAdmin@2025' }, { noAuth: true });
+    const login = await http('POST', '/auth/login', { username: 'admin', password: process.env.DEV_ADMIN_PASSWORD }, { noAuth: true });
     token = login.data?.accessToken || login.body?.accessToken || '';
     check('login as admin returns a token', !!token, `status ${login.status}`);
 
@@ -247,7 +248,7 @@ async function main() {
     check('loan-voucher returns a voucher number', !!VNO, `${v.status} ${VNO}`);
     const lines = await ds.query(`SELECT code, trans_amt, vchr_type, trans_type, pass_flag FROM transactions WHERE receipt_vchr_no = $1 ORDER BY trans_no`, [VNO]);
     near('voucher lines total = NR + penalty from the sanctioned quote', sq.collect.total, lines.reduce((s: number, l: any) => s + parseFloat(l.trans_amt), 0));
-    check('lines are RA receipts on I1002, pass_flag N, one for NR and one for penalty', lines.length === 2 && lines.every((l: any) => l.vchr_type === 'RA' && l.trans_type === 'R' && l.code === 'I1002' && l.pass_flag === 'N'));
+    check('lines are RA receipts on I1002, pass_flag N, one for NR and one for penalty', lines.length === 2 && lines.every((l: any) => l.vchr_type === 'RA' && l.trans_type === 'R' && ['I1002','I1013','I1014'].includes(l.code) && l.pass_flag === 'N'));
     const vDup = await http('POST', '/transactions/loan-voucher', { loanCaseNo: NEW, paymentMode: 'CASH' });
     check('a second voucher for the same re-agreement is refused', vDup.status >= 400, `${vDup.status}`);
     const sanctioned2 = await http('GET', '/loans/sanctioned');
@@ -348,7 +349,7 @@ async function main() {
     check('log shows PASSED, DOCUMENT_ISSUED and the downloads', ['APPLIED', 'SANCTIONED', 'VOUCHER_CREATED', 'VOUCHER_REJECTED', 'PASSED', 'DOCUMENT_ISSUED', 'PDF_DOWNLOADED', 'IMAGE_DOWNLOADED', 'DOCUMENT_VIEWED'].every(e => lg.includes(e)), lg.join(','));
     const ledgerRows = await ds.query(`SELECT code, trans_type, trans_amt, vchr_type FROM ledger WHERE receipt_vchr_no = $1`, [VNO3]);
     const cash = await ds.query(`SELECT rcash, rtransfer FROM tblcashbook WHERE voucher_no = $1`, [VNO3]);
-    check('money posted: credits to I1002 vchr_type RA and cashbook receipts tagged with the voucher', ledgerRows.length >= 1 && ledgerRows.every((l: any) => l.code === 'I1002' && l.trans_type === 'CR' && l.vchr_type === 'RA') && cash.length === ledgerRows.length, JSON.stringify(ledgerRows));
+    check('money posted: credits to I1002 vchr_type RA and cashbook receipts tagged with the voucher', ledgerRows.length >= 1 && ledgerRows.every((l: any) => ['I1002','I1013','I1014'].includes(l.code) && l.trans_type === 'CR' && l.vchr_type === 'RA') && cash.length === ledgerRows.length, JSON.stringify(ledgerRows));
 
     // ---------------- reverse ----------------
     console.log('\n=== I. reverse from the History window');

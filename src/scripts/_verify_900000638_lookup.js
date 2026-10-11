@@ -1,5 +1,6 @@
+require('dotenv').config();
 const { Client } = require('pg');
-const c = new Client({ host: 'localhost', port: 5432, database: 'EMP_Espat_Society', user: 'postgres', password: 'Test@1212' });
+const c = new Client({ host: 'localhost', port: 5432, database: 'EMP_Espat_Society', user: 'postgres', password: process.env.DB_PASSWORD });
 c.connect().then(async () => {
     const q = `SELECT m.mbno, TRIM(COALESCE(m.f_name,'')||' '||COALESCE(m.m_name,'')||' '||COALESCE(m.l_name,'')) AS name
                FROM member_master m

@@ -1,6 +1,7 @@
+require('dotenv').config();
 const { Client } = require('pg');
 async function testJoin() {
-    const client = new Client({ host: 'localhost', port: 5432, database: 'EMP_Espat_Society', user: 'postgres', password: 'Test@1212' });
+    const client = new Client({ host: 'localhost', port: 5432, database: 'EMP_Espat_Society', user: 'postgres', password: process.env.DB_PASSWORD });
     try {
         await client.connect();
         const res = await client.query(`

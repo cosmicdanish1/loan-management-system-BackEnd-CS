@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Ledger } from '../member-ledger/entities/ledger.entity';
 import { HeadMaster } from '../consolidation/entities/head-master.entity';
+import { ALL_LOAN_INTEREST_HEADS, LOAN_INTEREST_PARENT_HEAD } from '../loan/loan-interest-heads';
 import { 
   GetGeneralLedgerDto, 
   GeneralLedgerSummaryDto, 
@@ -42,16 +43,27 @@ export class GeneralLedgerService {
 
       // Get ledger entries for the head code and date range
       // Note: For General Ledger, we get ALL transactions for this head code (all members)
-      const ledgerEntries = await this.ledgerRepository
+      // ES-47: read RAW rows. The Ledger entity's primary key (trans_no) is not unique in this
+      // table, so getMany() silently merged rows sharing a trans_no and dropped ~10% of rows.
+      const ledgerEntries = (await this.ledgerRepository
         .createQueryBuilder('l')
-        .where('l.code = :headCode', { headCode: dto.headCode })
+        .select([
+          'l.trans_no AS trans_no', 'l.trans_date AS trans_date', 'l.trans_type AS trans_type',
+          'l.trans_amt AS trans_amt', 'l.receipt_vchr_no AS receipt_vchr_no', 'l.narration AS narration',
+          'l.mbno AS mbno', 'l.acc_no AS acc_no', 'l.username AS username',
+        ])
+        .where('l.code IN (:...headCodes)', { headCodes: this.headCodesFor(dto.headCode) })
         .andWhere("l.trans_date >= CAST(:fromDate AS date) AND l.trans_date < CAST(:toDate AS date) + INTERVAL '1 day'", {
           fromDate,
           toDate,
         })
         .orderBy('l.trans_date', 'ASC')
         .addOrderBy('l.trans_no', 'ASC')
-        .getMany();
+        .addOrderBy('l.ledgerid', 'ASC')
+        .getRawMany()) as Array<{
+          trans_no: any; trans_date: Date; trans_type: string; trans_amt: any; receipt_vchr_no: string;
+          narration: string; mbno: any; acc_no: any; username: string;
+        }>;
 
       // Calculate opening balance (transactions before the from date)
       const openingBalance = await this.calculateOpeningBalance(
@@ -135,6 +147,11 @@ export class GeneralLedgerService {
     }
   }
 
+  /** ES-46: the I1002 loan-interest parent reports as the combined total of itself plus its per-loan-type children. */
+  private headCodesFor(headCode: string): string[] {
+    return headCode === LOAN_INTEREST_PARENT_HEAD ? ALL_LOAN_INTEREST_HEADS : [headCode];
+  }
+
   private async calculateOpeningBalance(
     headCode: string,
     beforeDate: string
@@ -148,7 +165,7 @@ export class GeneralLedgerService {
           ELSE 0
         END), 0)`, 'balance')
         .addSelect(`COUNT(*) FILTER (WHERE UPPER(TRIM(l.trans_type)) NOT IN ('CR', 'R', 'DR', 'P'))`, 'unsupportedCount')
-        .where('l.code = :headCode', { headCode })
+        .where('l.code IN (:...headCodes)', { headCodes: this.headCodesFor(headCode) })
         .andWhere('l.trans_date < CAST(:beforeDate AS date)', { beforeDate })
         .getRawOne() as { balance: string | number; unsupportedCount: string | number };
 

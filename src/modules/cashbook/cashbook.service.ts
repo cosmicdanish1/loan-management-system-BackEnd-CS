@@ -13,6 +13,13 @@ import {
   CreateTransactionDto
 } from './dto/cashbook.dto';
 
+/** The ledger columns the Cash Book needs, read as raw rows (see ES-47). */
+interface LedgerLine {
+  code: string;
+  trans_type: string;
+  trans_amt: number | string;
+}
+
 @Injectable()
 export class CashBookService {
   private readonly logger = new Logger(CashBookService.name);
@@ -40,14 +47,17 @@ export class CashBookService {
       endOfDay.setHours(23, 59, 59, 999);
 
       // Get transactions from ledger for the selected date
-      const ledgerEntries = await this.ledgerRepository
+      // ES-47: raw rows — the Ledger entity's key (trans_no) is not unique, so getMany() merged rows
+      // that share a trans_no and dropped them from the report.
+      const ledgerEntries = (await this.ledgerRepository
         .createQueryBuilder('l')
+        .select(['l.code AS code', 'l.trans_type AS trans_type', 'l.trans_amt AS trans_amt'])
         .where('l.trans_date >= :startDate AND l.trans_date <= :endDate', {
           startDate: startOfDay,
           endDate: endOfDay
         })
         .orderBy('l.code', 'ASC')
-        .getMany();
+        .getRawMany()) as LedgerLine[];
 
       // Get all head names for the codes found in ledger
       const codes = [...new Set(ledgerEntries.map(l => l.code))].filter(Boolean);
@@ -94,7 +104,7 @@ export class CashBookService {
     }
   }
 
-  private groupLedgerByCode(entries: Ledger[], headMap: Map<string, string>): CashBookEntryDto[] {
+  private groupLedgerByCode(entries: LedgerLine[], headMap: Map<string, string>): CashBookEntryDto[] {
     const grouped = new Map<string, CashBookEntryDto>();
 
     entries.forEach(l => {

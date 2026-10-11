@@ -358,27 +358,31 @@ export class DepositReportsService {
      * Get lien account information
      */
     async getLienAccountInformation() {
+        // Reads the RD locks placed for Loan Against RD loans (rd_lien). The old
+        // fdrdlienmaster table is account-number based and has never held a row in
+        // either the old or the new system; its columns never matched this query,
+        // so the report errored before this rewrite. Only ACTIVE locks are listed —
+        // a released lock means the loan is closed and the RD is free again.
         const query = `
       SELECT
-        l.mbno as member_no,
-        TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
-        m.present_address as address,
-        l.loancaseno as loan_case_no,
-        l.fdrdaccountno as fdrd_account_no,
-        l.fromdate as lien_from_date,
-        l.certificate_no,
-        l.principal_amt as account_amount,
-        l.rate as interest_rate,
-        l.deposit_date,
-        l.maturity_date,
-        l.type as account_type,
-        l.loan_amt as loan_amount,
-        l.loan_bal as loan_balance,
-        l.loan_date,
-        l.loan_type
-      FROM fdrdlienmaster l
+        l.mbno AS member_no,
+        TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) AS member_name,
+        m.present_address AS address,
+        l.loancaseno AS loan_case_no,
+        l.lien_amount,
+        l.rd_holdings_at_lien,
+        l.placed_at AS lien_from_date,
+        lm.loan_amt AS loan_amount,
+        lm.balance AS loan_balance,
+        lm.payment_date AS loan_date
+      FROM rd_lien l
       LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(l.mbno AS text)
-      ORDER BY l.fromdate DESC
+      LEFT JOIN loan_master lm
+             ON CAST(lm.loancaseno AS text) = l.loancaseno
+            AND CAST(lm.mbno AS text) = CAST(l.mbno AS text)
+            AND lm.loantype = 'ELN'
+      WHERE l.status = 'ACTIVE'
+      ORDER BY l.placed_at DESC, l.id DESC
     `;
 
         const results = await this.dataSource.query(query);
@@ -389,22 +393,18 @@ export class DepositReportsService {
             memberName: r.member_name,
             address: r.address || 'Address not available',
             loanCaseNo: r.loan_case_no,
-            fdrdAccountNumber: r.fdrd_account_no,
+            lienAmount: parseFloat(r.lien_amount) || 0,
             lienFromDate: r.lien_from_date,
             accountDetails: {
-                certificateNo: r.certificate_no,
-                accountAmount: parseFloat(r.account_amount) || 0,
-                interestRate: parseFloat(r.interest_rate) || 0,
-                depositDate: r.deposit_date,
-                maturityDate: r.maturity_date,
-                accountType: r.account_type === 'F' ? 'Fixed Deposit' : r.account_type === 'R' ? 'Recurring Deposit' : 'Savings',
+                accountType: 'Recurring Deposit (RD)',
+                accountAmount: parseFloat(r.rd_holdings_at_lien) || 0,
             },
             loanDetails: {
                 loanAmount: parseFloat(r.loan_amount) || 0,
                 loanBalance: parseFloat(r.loan_balance) || 0,
                 loanDate: r.loan_date,
-                loanType: r.loan_type || 'Not specified'
-            }
+                loanType: 'Loan Against RD',
+            },
         }));
     }
 

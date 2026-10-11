@@ -1,3 +1,4 @@
+import 'dotenv/config';
 // End-to-end test of the Re-agreement feature on a synthetic test member (900000002), driving the REAL
 // services in the REAL order: loan -> repayments -> apply -> sanction -> loan payment voucher -> pass ->
 // reverse -> re-pass -> cancel / reject paths -> early-closure guard.
@@ -25,7 +26,7 @@ import { calculateConstantEmi } from '../modules/loan/services-v2/loan-rb-schedu
 
 const ds = new DataSource({
     type: 'postgres', host: 'localhost', port: 5432, database: 'EMP_Espat_Society',
-    username: 'postgres', password: 'Test@1212', entities: [__dirname + '/../**/*.entity{.ts,.js}'], synchronize: false, logging: false,
+    username: 'postgres', password: process.env.DB_PASSWORD, entities: [__dirname + '/../**/*.entity{.ts,.js}'], synchronize: false, logging: false,
 });
 
 const MB = '900000002';
@@ -170,7 +171,7 @@ async function main() {
     check('voucher is a PENDING RECEIPT tagged REAGREEMENT (not LOAN_CASE)', vh.voucherType === 'RECEIPT' && vh.status === 'PENDING' && /REAGREEMENT:/.test(vh.remarks) && !/LOAN_CASE:/.test(vh.remarks) && vh.sourceModule === 'LOAN_REAGREEMENT', JSON.stringify(vh));
     const vlines = await ds.query(`SELECT code, trans_amt, vchr_type, trans_type, pass_flag FROM transactions WHERE receipt_vchr_no = $1 ORDER BY trans_no`, [RV]);
     console.log('voucher lines', vlines);
-    check('voucher lines are Receipts of type RA on I1002, pass_flag N', vlines.length >= 1 && vlines.every((l: any) => l.vchr_type === 'RA' && l.trans_type === 'R' && l.code === 'I1002' && l.pass_flag === 'N'));
+    check('voucher lines are Receipts of type RA on I1002, pass_flag N', vlines.length >= 1 && vlines.every((l: any) => l.vchr_type === 'RA' && l.trans_type === 'R' && ['I1002','I1013','I1014'].includes(l.code) && l.pass_flag === 'N'));
     const collectTotal = round2(vlines.reduce((s: number, l: any) => s + parseFloat(l.trans_amt), 0));
     near('voucher total = NR + penalty from the sanctioned quote', afterS!.collect.total >= 0 ? (await ra.getByNewCase(NEW))!.collect.total : 0, collectTotal);
     const pend = await voucherSvc.getPendingVouchers();
@@ -203,7 +204,7 @@ async function main() {
     check('RB schedule rebuilt: 60 rows', (await ds.query(`SELECT COUNT(*)::int AS c FROM loan_rb_schedule WHERE loancaseno::text = $1 AND mbno = $2`, [NEW, MB]))[0].c === 60);
     const led = await ds.query(`SELECT code, trans_type, trans_amt, acc_no, vchr_type FROM ledger WHERE receipt_vchr_no = $1`, [RV]);
     console.log('ledger rows', led);
-    check('only NR/penalty receipts were posted (credits to I1002), no principal movement', led.length === before.ledger + (collectTotal > 0 ? vlines.filter((l: any) => parseFloat(l.trans_amt) > 0).length : 0) && led.every((l: any) => l.code === 'I1002' && l.trans_type === 'CR' && l.vchr_type === 'RA'));
+    check('only NR/penalty receipts were posted (credits to I1002), no principal movement', led.length === before.ledger + (collectTotal > 0 ? vlines.filter((l: any) => parseFloat(l.trans_amt) > 0).length : 0) && led.every((l: any) => ['I1002','I1013','I1014'].includes(l.code) && l.trans_type === 'CR' && l.vchr_type === 'RA'));
     const oldCl = (await ds.query(`SELECT principal_amount, interest_amount, penal_amount, narration FROM loan_repayment_ledger WHERE loancaseno = $1 AND mbno = $2 AND receipt_no = $3`, [String(OLD), MB, RV]))[0];
     check('closing row on the old case explains the re-agreement', !!oldCl && Math.abs(parseFloat(oldCl.principal_amount) - 190000) < 0.01 && /Re-agreed into loan case/.test(oldCl.narration));
     const raRow = await ra.getByNewCase(NEW);

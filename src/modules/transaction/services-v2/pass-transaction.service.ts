@@ -7,7 +7,10 @@ import { LoanEligibilityService } from '../../loan/services-v2/loan-eligibility.
 import { LoanRepaymentService } from '../../loan/services-v2/loan-repayment.service';
 import { LoanReagreementService } from '../../loan/services-v2/reagreement/loan-reagreement.service';
 import { RdBalanceEventsService } from '../../rd/services/rd-balance-events.service';
+import { RdLienService } from '../../rd/services/rd-lien.service';
+import { RdRulesService } from '../../rd/rd-rules.service';
 import { isDebitNormal } from '../../shared/utils/balance-direction';
+import { interestHeadForLoanType } from '../../loan/loan-interest-heads';
 
 /**
  * Pass Transaction Service - Handles final posting of transactions.
@@ -25,6 +28,8 @@ export class PassTransactionService {
         // Optional only so existing maintenance scripts that build this service by hand (5 arguments) keep compiling;
         // Nest always injects it.
         private readonly reagreementService?: LoanReagreementService,
+        // Same reason: only Loan Against RD (ELN) needs it, and Nest always injects it.
+        private readonly rdLienService?: RdLienService,
     ) { }
 
     /** Current financial year per the real yearend table, read within the
@@ -160,6 +165,26 @@ export class PassTransactionService {
                     rate = await this.systemConfigService.getConfigValue(rateKey);
                 } catch (e) {
                     console.warn(`[PassTransaction] Could not fetch interest rate for ${loan.loantype}, using default 12%`);
+                }
+
+                // The interest rate comes from the loan type's own card on "Modify Business
+                // Rules" (busrules.rlnrate / alnrate / elnrate), the same screen that already
+                // supplies its penal rate, grace days and same-month fee below. It used to be
+                // a hidden system_configs value shared by every non-regular type, so editing a
+                // card changed nothing. The card value is frozen onto the loan here, as before.
+                // If a card is empty/zero, or the type is a legacy code, the old rate above is
+                // kept, except Loan Against RD, whose own default is 9%.
+                const rateColumnByType: Record<string, string> = { RLN: 'rlnrate', ALN: 'alnrate', ELN: 'elnrate' };
+                const rateColumn = rateColumnByType[(loan.loantype || '').toUpperCase()];
+                if (rateColumn) {
+                    if (rateColumn === 'elnrate') rate = 9;
+                    try {
+                        const rateRows = await queryRunner.query(`SELECT ${rateColumn} AS card_rate FROM busrules ORDER BY appdate DESC LIMIT 1`);
+                        const cardRate = parseFloat(rateRows[0]?.card_rate);
+                        if (!isNaN(cardRate) && cardRate > 0) rate = cardRate;
+                    } catch (e) {
+                        console.warn(`[PassTransaction] Could not read the ${loan.loantype} rate from Business Rules, keeping ${rate}%`);
+                    }
                 }
 
                 // Penal rate, grace days, and same-month penal %/divisor — all
@@ -578,6 +603,36 @@ export class PassTransactionService {
                     );
                 }
 
+                // Loan Against RD (ELN): lock the member's RD as security, inside
+                // this same transaction, so a loan can never be disbursed without
+                // its lock and a failed disbursement leaves no lock behind. Any
+                // earlier ELN case absorbed above is closed here, so its lock is
+                // released first and the single new lock covers the combined
+                // principal. The 90% / ₹5 lakh rule is re-checked now (the RD may
+                // have changed since the application) against the locks as they
+                // stand inside this transaction.
+                if ((loan.loantype || '').toUpperCase() === 'ELN') {
+                    const rdLienService = this.rdLienService ?? new RdLienService(
+                        this.dataSource, this.rdBalanceEventsService, new RdRulesService(this.dataSource),
+                    );
+                    for (const oldLoan of existingActiveLoans) {
+                        await rdLienService.release(
+                            String(oldLoan.loancaseno), postedBy, `CONSOLIDATED INTO ${loan.loancaseno}`, queryRunner,
+                        );
+                    }
+                    const rdCheck = await this.loanEligibilityService.checkEligibility(
+                        loan.mbno, combinedPrincipal, 'ELN', queryRunner,
+                    );
+                    if (!rdCheck.isEligible) {
+                        throw new Error(`Loan Against RD cannot be disbursed: ${rdCheck.message}`);
+                    }
+                    await rdLienService.place(
+                        { mbno: String(loan.mbno), loanCaseNo: String(loan.loancaseno), amount: combinedPrincipal, placedBy: postedBy },
+                        queryRunner,
+                    );
+                    console.log(`[PassTransaction] RD lien of ₹${combinedPrincipal} placed for Loan Against RD case ${loan.loancaseno}`);
+                }
+
                 // Mirror of the decrement in loan-repayment.service.ts
                 // (recordLoanRepayment / executeEarlyClosure) — until now
                 // nothing on the disbursement side ever increased
@@ -812,7 +867,8 @@ export class PassTransactionService {
                 for (const oldLoan of existingActiveLoans) {
                     const breakdown = oldClosureBreakdown[oldLoan.loancaseno];
                     if (!breakdown || breakdown.closureInterest <= 0) continue;
-                    const closureInterestHeadCode = 'I1002';
+                    // ES-46: per-loan-type child of I1002 (falls back to I1002 for other types)
+                    const closureInterestHeadCode = interestHeadForLoanType(loan.loantype);
                     const closureInterestDirection = await this.increaseDirection(queryRunner, closureInterestHeadCode);
                     const closureNarration = `Old case ${oldLoan.loancaseno} closure interest on consolidation `
                         + `into ${loan.loancaseno} (NR ₹${breakdown.nrInterest} + AP ₹${breakdown.apInterest} `
@@ -835,7 +891,7 @@ export class PassTransactionService {
                     await queryRunner.query(`
                         INSERT INTO tblcashbook (headcode, headname, rcash, rtransfer, pcash, ptransfer, trans_date)
                         VALUES ($1, $2, 0, 0, 0, 0, $3)
-                    `, [closureInterestHeadCode, 'INTT FROM MEMBER (old loan consolidation)', new Date()]);
+                    `, [closureInterestHeadCode, `INTT FROM MEMBER ${loan.loantype} (old loan consolidation)`, new Date()]);
                 }
 
                 console.log(`[PassTransaction] Marking loan as PAID in loan_pending for case: ${loanCaseNo}`);
@@ -852,30 +908,49 @@ export class PassTransactionService {
                     // Now uses the actual trans_type from the transactions table row.
                     const entryTransType = detail.trans_type || 'P';
 
-                    // Ledger Insert (if member)
-                    if (header.memberId) {
-                        console.log(`[PassTransaction] Posting member ledger: ${header.memberId}, Code: ${headCode}, Type: ${entryTransType}`);
-                        await queryRunner.query(`
-                            INSERT INTO ledger (
-                                trans_no, trans_date, trans_type, code, mbno,
-                                trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance,
-                                narration, username, ledgerid
-                            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-                        `, [
-                            nextTransNo++, new Date(), entryTransType, headCode, header.memberId,
-                            amt, voucherNo, 'JV', mode, 0,
-                            detail.narration || header.description, postedBy, nextLedgerId++
-                        ]);
+                    // Ledger Insert. ES-49: this used to run only `if (header.memberId)`, so a voucher
+                    // with no member passed "successfully" yet never reached the ledger and the head's
+                    // General Ledger balance never moved. Member-less rows follow the existing ledger
+                    // convention: mbno 0, acc_no 0, acc_type 'OTH'.
+                    const isMemberVoucher = !!header.memberId;
+                    console.log(`[PassTransaction] Posting ledger: member ${header.memberId || 0}, Code: ${headCode}, Type: ${entryTransType}`);
+                    await queryRunner.query(`
+                        INSERT INTO ledger (
+                            trans_no, trans_date, trans_type, code, mbno,
+                            trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance,
+                            narration, username, ledgerid, acc_no, acc_type
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                    `, [
+                        nextTransNo++, new Date(), entryTransType, headCode, header.memberId || 0,
+                        amt, voucherNo, 'JV', mode, 0,
+                        detail.narration || header.description, postedBy, nextLedgerId++,
+                        isMemberVoucher ? null : 0,
+                        // ES-50: keep the account type staged on the line (CINH for cash, BANK for a bank leg)
+                        detail.acc_type || (isMemberVoucher ? null : 'OTH')
+                    ]);
+
+                    // Cashbook Insert. ES-51: every line used to be written as a PAYMENT, so receipts were
+                    // recorded as payments. The Cash Book is head-wise: each voucher line appears once, on
+                    // the head that explains the money, as a receipt (Receipt voucher) or a payment (Payment
+                    // voucher). The balancing cash/bank line is not a separate cashbook entry (the report
+                    // nets receipts minus payments across heads, so counting it would double the amount).
+                    const voucherKind = String(header.voucherType || '').toUpperCase();
+                    const lineIsCredit = ['CR', 'R'].includes(String(entryTransType).trim().toUpperCase());
+                    let rcash = 0, rtransfer = 0, pcash = 0, ptransfer = 0;
+                    if (voucherKind === 'RECEIPT' || voucherKind === 'PAYMENT') {
+                        const isBalancingLeg = voucherKind === 'RECEIPT' ? !lineIsCredit : lineIsCredit;
+                        if (isBalancingLeg) continue;
+                        if (voucherKind === 'RECEIPT') { if (mode === 'C') rcash = amt; else rtransfer = amt; }
+                        else { if (mode === 'C') pcash = amt; else ptransfer = amt; }
+                    } else {
+                        // Other voucher kinds keep the previous behaviour.
+                        if (mode === 'C') pcash = amt; else ptransfer = amt;
                     }
 
-                    // Cashbook Insert
-                    let rcash = 0, rtransfer = 0, pcash = 0, ptransfer = 0;
-                    if (mode === 'C') pcash = amt; else ptransfer = amt;
-
                     await queryRunner.query(`
-                        INSERT INTO tblcashbook (headcode, headname, rcash, rtransfer, pcash, ptransfer, trans_date)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7)
-                    `, [headCode, detail.narration || header.description, rcash, rtransfer, pcash, ptransfer, new Date()]);
+                        INSERT INTO tblcashbook (headcode, headname, rcash, rtransfer, pcash, ptransfer, trans_date, voucher_no, username)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                    `, [headCode, detail.narration || header.description, rcash, rtransfer, pcash, ptransfer, new Date(), voucherNo, postedBy]);
                 }
             }
 
@@ -966,6 +1041,12 @@ export class PassTransactionService {
                     );
                 }
                 await queryRunner.query(`DELETE FROM loan_master WHERE "loancaseno"::text = $1`, [loanCaseNo]);
+
+                // A reversed disbursement means the loan no longer exists, so its RD
+                // lock (Loan Against RD only; a no-op for every other loan) goes too.
+                await (this.rdLienService ?? new RdLienService(
+                    this.dataSource, this.rdBalanceEventsService, new RdRulesService(this.dataSource),
+                )).release(String(loanCaseNo), reversedBy, 'DISBURSEMENT REVERSED', queryRunner);
 
                 if (loanRows.length > 0) {
                     const loan = loanRows[0];

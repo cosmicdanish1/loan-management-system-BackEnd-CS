@@ -26,7 +26,7 @@ if errorlevel 1 (
     echo Please check:
     echo - PostgreSQL is running
     echo - Database 'employeesociety_new' exists
-    echo - Password is correct (Test@1212)
+    echo - Password is correct (from .env)
     echo.
     pause
     exit /b 1

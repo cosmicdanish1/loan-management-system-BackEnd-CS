@@ -15,12 +15,15 @@ export class RdBalanceEventsController {
         // No manual {success,data} wrapper -- see rd-member-config.controller.ts's
         // comment: the global TransformInterceptor already wraps everything
         // returned here, so wrapping again double-nests the payload.
-        const [balance, totalHoldings, maxWithdrawable] = await Promise.all([
+        const [balance, totalHoldings, maxWithdrawable, lockedAmount] = await Promise.all([
             this.service.getCurrentBalance(mbno, yearcode),
             this.service.getTotalCurrentHoldings(mbno, yearcode),
             this.service.getMaxWithdrawable(mbno, yearcode),
+            this.service.getLockedAmount(mbno),
         ]);
-        return { balance, totalHoldings, maxWithdrawable };
+        // lockedAmount: RD held as security for a Loan Against RD — part of
+        // totalHoldings, but not withdrawable until that loan closes.
+        return { balance, totalHoldings, maxWithdrawable, lockedAmount };
     }
 
     @Get(':mbno/:yearcode/timeline')

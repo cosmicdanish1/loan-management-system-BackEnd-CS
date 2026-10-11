@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { DataSource } from 'typeorm';
 import { AddLoanPaymentFlags1790640000000 } from '../migrations/1790640000000-AddLoanPaymentFlags';
 
@@ -5,7 +6,7 @@ import { AddLoanPaymentFlags1790640000000 } from '../migrations/1790640000000-Ad
 // (npm run migration:run fails on an older migration — see project notes).
 const AppDataSource = new DataSource({
     type: 'postgres', host: 'localhost', port: 5432, database: 'EMP_Espat_Society',
-    username: 'postgres', password: 'Test@1212',
+    username: 'postgres', password: process.env.DB_PASSWORD,
     entities: [__dirname + '/../**/*.entity{.ts,.js}'], synchronize: false, logging: false,
 });
 

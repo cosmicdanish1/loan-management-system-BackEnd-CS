@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { DataSource } from 'typeorm';
 import { CreateRdSystemTables1757300000000 } from '../migrations/1757300000000-CreateRdSystemTables';
 
@@ -7,7 +8,7 @@ const AppDataSource = new DataSource({
     port: 5432,
     database: 'EMP_Espat_Society',
     username: 'postgres',
-    password: 'Test@1212',
+    password: process.env.DB_PASSWORD,
     synchronize: false,
 });
 

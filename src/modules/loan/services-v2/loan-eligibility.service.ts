@@ -1,5 +1,5 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { DataSource, QueryRunner } from 'typeorm';
 import { RdBalanceEventsService } from '../../rd/services/rd-balance-events.service';
 import { RdRulesService } from '../../rd/rd-rules.service';
 
@@ -81,6 +81,17 @@ export interface EligibilityStatus {
     loanAmount: number;
     existingOutstanding: number;
     totalExposure: number;
+
+    /** Loan Against RD (ELN) only — the RD is the security, so the usual
+     *  RD%/Share% rules below don't apply; the limit comes from free RD. */
+    rdBacked?: boolean;
+    /** Total RD holdings, the part already locked by other active liens, and
+     *  the free remainder this loan is measured against. */
+    totalRd?: number;
+    lockedRd?: number;
+    freeRd?: number;
+    /** Largest loan this member can take right now (ELN only). */
+    maxLoanAmount?: number;
 
     // Rule 1 — maximum regular loan limit
     maxLimit: number;
@@ -240,7 +251,16 @@ export class LoanEligibilityService {
         memberNo: string,
         loanAmount: number,
         loanType?: string,
+        /** Pass the caller's open transaction when RD locks may have been
+         *  changed inside it and not yet committed (loan disbursement). */
+        queryRunner?: QueryRunner,
     ): Promise<EligibilityStatus> {
+        // Loan Against RD (ELN) is secured by the member's own RD, so it has
+        // its own rule instead of the RD%/Share% requirement below.
+        if ((loanType || '').toString().toUpperCase() === 'ELN') {
+            return this.checkLoanAgainstRd(memberNo, loanAmount, queryRunner);
+        }
+
         if (!(await this.isEligibilityRuleApplicable(loanType))) {
             return this.exemptResult(
                 loanAmount,
@@ -346,6 +366,135 @@ export class LoanEligibilityService {
             requiredFd: requiredRd,
             currentFd: currentRd,
             additionalFdRequired: rdShortfall,
+        };
+    }
+
+    /** The % of RD a member may borrow against it, from the "Loan Against
+     *  Deposits" card on Modify Business Rules (busrules.loanagainstdeppercent,
+     *  the legacy 90% rule). Falls back to 90 when unset or zero. */
+    private async getLoanAgainstRdPct(): Promise<number> {
+        try {
+            const rows = await this.dataSource.query(
+                `SELECT loanagainstdeppercent FROM busrules ORDER BY appdate DESC LIMIT 1`,
+            );
+            const pct = Number(rows[0]?.loanagainstdeppercent);
+            return Number.isFinite(pct) && pct > 0 ? pct : 90;
+        } catch (error: any) {
+            this.logger.warn(`Could not read loanagainstdeppercent, using 90: ${error.message}`);
+            return 90;
+        }
+    }
+
+    /** Largest total a member may hold as Loan Against RD, from the Max Amount
+     *  on the Loan Against RD card (busrules.elnmaxloanamt). Falls back to
+     *  ₹5,00,000 when unset or zero. */
+    private async getLoanAgainstRdCeiling(): Promise<number> {
+        try {
+            const rows = await this.dataSource.query(
+                `SELECT elnmaxloanamt FROM busrules ORDER BY appdate DESC LIMIT 1`,
+            );
+            const cap = Number(rows[0]?.elnmaxloanamt);
+            return Number.isFinite(cap) && cap > 0 ? cap : 500000;
+        } catch (error: any) {
+            this.logger.warn(`Could not read elnmaxloanamt, using 500000: ${error.message}`);
+            return 500000;
+        }
+    }
+
+    /** RD already locked as security for this member's other open loans. */
+    private async getLockedRd(memberNo: string, queryRunner?: QueryRunner): Promise<number> {
+        const rows = await (queryRunner ?? this.dataSource).query(
+            `SELECT COALESCE(SUM(lien_amount), 0) AS total FROM rd_lien WHERE mbno = $1 AND status = 'ACTIVE'`,
+            [memberNo],
+        );
+        return Number(rows[0]?.total || 0);
+    }
+
+    /**
+     * Eligibility for Loan Against RD (ELN).
+     *
+     * Only a member with free RD can take it. The most they can borrow is the
+     * smallest of (a) the configured % of their total RD (90%) less what is
+     * already locked for their other such loans, (b) free RD
+     * less the minimum balance that must stay in the RD (₹1,000), so the RD
+     * itself never drops below the floor, and (c) the Max Amount ceiling
+     * (₹5,00,000) less what they already hold as Loan Against RD (the amount
+     * their active liens lock). "Free" RD is total holdings minus what other
+     * active liens already lock. Nothing is withheld from the disbursement —
+     * the RD is the security, not a deduction.
+     */
+    private async checkLoanAgainstRd(memberNo: string, loanAmount: number, queryRunner?: QueryRunner): Promise<EligibilityStatus> {
+        const [pct, ceiling, minBalance, totalRd, lockedRd] = await Promise.all([
+            this.getLoanAgainstRdPct(),
+            this.getLoanAgainstRdCeiling(),
+            this.rdRules.getRule('RULE_RD_MIN_BALANCE_AFTER_WITHDRAWAL'),
+            this.getRdBalance(memberNo),
+            this.getLockedRd(memberNo, queryRunner),
+        ]);
+
+        const freeRd = Math.max(0, Math.round((totalRd - lockedRd) * 100) / 100);
+        // 90% applies to the member's WHOLE RD, counting what other loans
+        // already lock — otherwise stacking loans would creep past 90% in total.
+        const byPercent = Math.max(0, totalRd * (pct / 100) - lockedRd);
+        const byFloor = freeRd - minBalance;
+        // Each lien locks exactly its loan's amount, so the active liens are
+        // what this member already holds as Loan Against RD.
+        const ceilingLeft = Math.max(0, ceiling - lockedRd);
+        const maxLoanAmount = Math.max(0, Math.floor(Math.min(byPercent, byFloor, ceilingLeft)));
+
+        const inr = (n: number) => `₹${n.toLocaleString('en-IN')}`;
+        const withinLimit = maxLoanAmount > 0 && loanAmount <= maxLoanAmount;
+        const ceilingBinds = maxLoanAmount > 0 && ceilingLeft <= Math.min(byPercent, byFloor);
+
+        let message: string;
+        if (freeRd <= 0) {
+            message = 'Loan Against RD is available only to members with an RD balance. This member has no free RD' +
+                (lockedRd > 0 ? ` (${inr(lockedRd)} is already locked for another loan).` : '.');
+        } else if (ceilingLeft <= 0) {
+            message = `This member already holds ${inr(lockedRd)} as Loan Against RD, which reaches the ${inr(ceiling)} maximum.`;
+        } else if (maxLoanAmount <= 0) {
+            message = `Free RD is only ${inr(freeRd)}; ${inr(minBalance)} must stay in the RD, so nothing can be lent against it.`;
+        } else if (!withinLimit) {
+            message = ceilingBinds
+                ? `Maximum Loan Against RD for this member is ${inr(maxLoanAmount)} (the ${inr(ceiling)} ceiling` +
+                  `${lockedRd > 0 ? ` less ${inr(lockedRd)} already held` : ''}). Applied: ${inr(loanAmount)}.`
+                : `Maximum Loan Against RD for this member is ${inr(maxLoanAmount)} ` +
+                  `(${pct}% of total RD ${inr(totalRd)}${lockedRd > 0 ? `, less ${inr(lockedRd)} already held` : ''}). Applied: ${inr(loanAmount)}.`;
+        } else {
+            message = `Within limit: up to ${inr(maxLoanAmount)} can be lent against free RD of ${inr(freeRd)}.`;
+        }
+
+        return {
+            ruleApplies: true,
+            rdBacked: true,
+            totalRd,
+            lockedRd,
+            freeRd,
+            maxLoanAmount,
+            loanAmount,
+            existingOutstanding: 0,
+            totalExposure: loanAmount,
+            maxLimit: maxLoanAmount,
+            withinMaxLimit: withinLimit,
+            rdPct: pct,
+            requiredRd: loanAmount,
+            currentRd: freeRd,
+            rdShortfall: 0,
+            sharePct: 0,
+            requiredShare: 0,
+            currentShare: 0,
+            shareShortfall: 0,
+            shortfallMode: 'NONE',
+            totalShortfall: 0,
+            netDisbursement: loanAmount,
+            rdHeadCode: '',
+            shareHeadCode: '',
+            isEligible: withinLimit,
+            message,
+            additionalShareRequired: 0,
+            requiredFd: 0,
+            currentFd: totalRd,
+            additionalFdRequired: 0,
         };
     }
 
@@ -467,6 +616,10 @@ export class LoanEligibilityService {
     async getRdShareClosureAdjustment(
         memberNo: string,
         finalClosureAmount: number,
+        /** The loan being closed: its own RD lock (Loan Against RD) is being
+         *  released by this very closure, so it must not count as blocking the
+         *  RD that settles it. Locks held for the member's OTHER loans still do. */
+        excludeLoanCaseNo?: string,
     ): Promise<{
         currentRd: number;
         currentShare: number;
@@ -499,7 +652,14 @@ export class LoanEligibilityService {
         // Share alone still applies), same as if they had no RD at all.
         const rdYearClosed = !!rdClosedRows[0]?.closed_at;
 
-        const rdAvailable = rdYearClosed ? 0 : Math.max(0, Math.round((currentRd - rdMinBalance) * 100) / 100);
+        const otherLocks = await this.dataSource.query(
+            `SELECT COALESCE(SUM(lien_amount), 0) AS total FROM rd_lien
+              WHERE mbno = $1 AND status = 'ACTIVE' AND loancaseno <> $2`,
+            [memberNo, String(excludeLoanCaseNo ?? '')],
+        );
+        const lockedElsewhere = Number(otherLocks[0]?.total || 0);
+
+        const rdAvailable = rdYearClosed ? 0 : Math.max(0, Math.round((currentRd - lockedElsewhere - rdMinBalance) * 100) / 100);
         const shareAvailable = Math.max(0, Math.round((currentShare - shareMinBalance) * 100) / 100);
         const appliedFromRdShare = Math.min(finalClosureAmount, Math.round((rdAvailable + shareAvailable) * 100) / 100);
         // RD before Share, per the user's explicit instruction.

@@ -581,7 +581,7 @@ export class LoanReportsService {
         CASE 
           WHEN loantype = 'RLN' THEN 'Regular Loan'
           WHEN loantype = 'ALN' THEN 'Emergency Loan'
-          WHEN loantype = 'ELN' THEN 'Loan Against Recovery'
+          WHEN loantype = 'ELN' THEN 'Loan Against RD'
           ELSE loantype
         END as name
       FROM loan_master
@@ -656,7 +656,7 @@ export class LoanReportsService {
         EXTRACT(YEAR FROM trans_date) as year,
         SUM(CASE WHEN trans_type = 'CR' THEN COALESCE(trans_amt, 0) ELSE -COALESCE(trans_amt, 0) END) as received
       FROM ledger
-      WHERE code IN ('I1002', 'I1008')
+      WHERE code IN ('I1002', 'I1013', 'I1014', 'I1008')
         AND trans_date >= $1 AND trans_date <= $2
     `;
 
@@ -748,7 +748,7 @@ export class LoanReportsService {
         outstandingLoans: activeLoans.map((l: any) => ({
           headName: l.head_name === 'RLN' ? 'Regular Loan' :
             l.head_name === 'ALN' ? 'Emergency Loan' :
-              l.head_name === 'ELN' ? 'Loan Against Recovery' : l.head_name,
+              l.head_name === 'ELN' ? 'Loan Against RD' : l.head_name,
           headCode: l.head_code,
           balance: parseFloat(l.balance) || 0
         }))

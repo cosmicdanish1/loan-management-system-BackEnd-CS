@@ -1,3 +1,4 @@
+require('dotenv').config();
 // Script to reset admin password with proper bcrypt hashing
 const bcrypt = require('bcrypt');
 const { Client } = require('pg');
@@ -8,7 +9,7 @@ async function resetAdminPassword() {
     port: 5432,
     database: 'EMP_Espat_Society',
     user: 'postgres',
-    password: 'Test@1212',
+    password: process.env.DB_PASSWORD,
   });
 
   try {

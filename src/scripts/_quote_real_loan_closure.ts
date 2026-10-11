@@ -1,3 +1,4 @@
+import 'dotenv/config';
 // READ-ONLY early-closure quote for one real (non-test) active loan, using the real
 // LoanRepaymentService.calculateEarlyClosure. Nothing is closed or written.
 // Usage: npx ts-node --transpile-only src/scripts/_quote_real_loan_closure.ts <mbno> <loancaseno> [yyyy-mm-dd]
@@ -9,7 +10,7 @@ import { RdBalanceEventsService } from '../modules/rd/services/rd-balance-events
 
 const ds = new DataSource({
     type: 'postgres', host: 'localhost', port: 5432, database: 'EMP_Espat_Society',
-    username: 'postgres', password: 'Test@1212',
+    username: 'postgres', password: process.env.DB_PASSWORD,
     entities: [__dirname + '/../**/*.entity{.ts,.js}'], synchronize: false, logging: false,
 });
 

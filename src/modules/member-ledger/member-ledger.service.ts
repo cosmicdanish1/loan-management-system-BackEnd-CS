@@ -63,8 +63,15 @@ export class MemberLedgerService {
 
       // Get ledger entries for the member, head, and date range
       // FIX: Use string comparison for numeric mbno column
-      const ledgerEntries = await this.ledgerRepository
+      // ES-47: raw rows — the Ledger entity's key (trans_no) is not unique, so getMany() merged
+      // rows that share a trans_no and silently dropped them from the report.
+      const ledgerEntries = (await this.ledgerRepository
         .createQueryBuilder('l')
+        .select([
+          'l.trans_no AS trans_no', 'l.trans_date AS trans_date', 'l.trans_type AS trans_type',
+          'l.trans_amt AS trans_amt', 'l.receipt_vchr_no AS receipt_vchr_no', 'l.narration AS narration',
+          'l.username AS username',
+        ])
         .where('l.mbno = :memberNumber', { memberNumber: memberNumberStr })
         .andWhere('l.code = :headCode', { headCode: dto.headCode })
         .andWhere('l.trans_date >= :startDate AND l.trans_date <= :endDate', {
@@ -73,7 +80,11 @@ export class MemberLedgerService {
         })
         .orderBy('l.trans_date', 'ASC')
         .addOrderBy('l.trans_no', 'ASC')
-        .getMany();
+        .addOrderBy('l.ledgerid', 'ASC')
+        .getRawMany()) as Array<{
+          trans_no: any; trans_date: Date; trans_type: string; trans_amt: any;
+          receipt_vchr_no: string; narration: string; username: string;
+        }>;
 
       // Calculate opening balance (transactions before the from date)
       const openingBalance = await this.calculateOpeningBalance(
@@ -440,12 +451,14 @@ export class MemberLedgerService {
     beforeDate: Date
   ): Promise<number> {
     // Fail the report rather than presenting a failed opening-balance query as zero.
+    // ES-47: raw rows — getMany() on this entity merged rows sharing a trans_no, understating the balance.
     const entries = await this.ledgerRepository
       .createQueryBuilder('l')
+      .select(['l.trans_type AS trans_type', 'l.trans_amt AS trans_amt'])
       .where('l.mbno = :memberNumber', { memberNumber: memberNumberStr })
       .andWhere('l.code = :headCode', { headCode })
       .andWhere('l.trans_date < :beforeDate', { beforeDate })
-      .getMany();
+      .getRawMany() as Array<{ trans_type: string; trans_amt: any }>;
 
     let balance = 0;
     for (const entry of entries) {

@@ -1,3 +1,4 @@
+require('dotenv').config();
 const { Client } = require('pg');
 
 async function verifyPopulatedData() {
@@ -8,7 +9,7 @@ async function verifyPopulatedData() {
         port: 5432,
         database: 'EMP_Espat_Society',
         user: 'postgres',
-        password: 'Test@1212'
+        password: process.env.DB_PASSWORD
     });
 
     try {

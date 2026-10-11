@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { HEAD_BALANCES_SELECT } from '../../utilities/head-balances.sql';
 
 @Injectable()
 export class FinancialStatementsService {
@@ -229,7 +230,7 @@ export class FinancialStatementsService {
                 credit,
                 closingbalance,
                 maincd
-            FROM balancesheet 
+            FROM (${HEAD_BALANCES_SELECT}) live
             ORDER BY maincd, head_code
         `;
         

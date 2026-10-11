@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { DataSource } from 'typeorm';
 import { PassTransactionService } from '../modules/transaction/services-v2/pass-transaction.service';
 import { SystemConfigService } from '../modules/admin/services/system-config.service';
@@ -16,7 +17,7 @@ import { RdBalanceEventsService } from '../modules/rd/services/rd-balance-events
 
 const AppDataSource = new DataSource({
     type: 'postgres', host: 'localhost', port: 5432, database: 'EMP_Espat_Society',
-    username: 'postgres', password: 'Test@1212',
+    username: 'postgres', password: process.env.DB_PASSWORD,
     entities: [__dirname + '/../**/*.entity{.ts,.js}'], synchronize: false, logging: false,
 });
 

@@ -2,6 +2,8 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { DataSource, QueryRunner } from 'typeorm';
 import { LoanEligibilityService } from './loan-eligibility.service';
 import { RdBalanceEventsService } from '../../rd/services/rd-balance-events.service';
+import { RdLienService } from '../../rd/services/rd-lien.service';
+import { RdRulesService } from '../../rd/rd-rules.service';
 import { LoanPaymentFlagService, LoanPaymentFlag } from './loan-payment-flag.service';
 import { LoanRoundingMode, LOAN_ROUNDING_MODES, applyLoanRounding, installmentDueMonth, round2 } from './loan-rb-schedule.util';
 
@@ -193,6 +195,31 @@ export class LoanRepaymentService {
         return this._flagService ??= new LoanPaymentFlagService(this.dataSource);
     }
 
+    // Same reason: built on demand so hand-constructed scripts keep working.
+    private _rdLienService?: RdLienService;
+    private get rdLien(): RdLienService {
+        return this._rdLienService ??= new RdLienService(this.dataSource, this.rdBalanceEvents, new RdRulesService(this.dataSource));
+    }
+
+    /**
+     * Loan Against RD (ELN): free the RD lock once the loan has really ended, in
+     * the same transaction as the repayment/closure. Reads the balance as just
+     * written, so a partial payment keeps the lock and the payment that clears
+     * the loan releases it. A no-op for every other loan type.
+     */
+    private async releaseRdLienIfClosed(
+        queryRunner: QueryRunner, loancaseno: string, mbno: any, loantype: string, by: string, reason: string,
+    ): Promise<void> {
+        if ((loantype || '').toUpperCase() !== 'ELN') return;
+        const rows = await queryRunner.query(
+            `SELECT balance FROM loan_master WHERE loancaseno::text = $1 AND mbno = $2 AND loantype = $3`,
+            [String(loancaseno), mbno, loantype],
+        );
+        if (rows[0] && Number(rows[0].balance) <= 0) {
+            await this.rdLien.release(String(loancaseno), by, reason, queryRunner);
+        }
+    }
+
     private async getLoanPenaltyPolicy(runner: DataSource | QueryRunner, loantype?: string): Promise<LoanPenaltyPolicy> {
         const configRows = await runner.query(
             `SELECT key, value FROM system_configs
@@ -210,7 +237,7 @@ export class LoanRepaymentService {
         // The Tier 2 (monthly) penal rate is set PER LOAN TYPE on Modify Business Rules:
         //   RLN -> busrules.rlnpenalrate (Regular Loan card, RULE_PENAL_RATE)
         //   ALN -> busrules.alnpenalrate (Emergency Loan card, RULE_LOAN_ADD_PENAL_RATE)
-        //   ELN -> busrules.elnpenalrate (Loan Against Recovery card, RULE_LOAN_EMG_PENAL_RATE)
+        //   ELN -> busrules.elnpenalrate (Loan Against RD card, RULE_LOAN_EMG_PENAL_RATE)
         // Any other type, or a type whose rate was never stored, uses the regular-loan rate. loan_master's
         // penalrate remains a historical origination-time snapshot and is not read here.
         const row = businessRuleRows[0] || {};
@@ -812,6 +839,7 @@ export class LoanRepaymentService {
                     [newBalance, dto.loancaseno, dto.mbno, loan.loantype]
                 );
             }
+            await this.releaseRdLienIfClosed(queryRunner, dto.loancaseno, loan.mbno, loan.loantype, dto.username || 'system', 'LOAN FULLY REPAID');
             await queryRunner.commitTransaction();
             return {
                 success: true,
@@ -865,6 +893,7 @@ export class LoanRepaymentService {
                             `UPDATE loan_master SET balance = GREATEST(0, COALESCE(balance, 0) - $1) WHERE loancaseno::text = $2 AND mbno = $3 AND loantype = $4`,
                             [oldPrincipal, dto.loancaseno, dto.mbno, loan.loantype]
                         );
+                        await this.releaseRdLienIfClosed(queryRunner, dto.loancaseno, loan.mbno, loan.loantype, dto.username || 'system', 'LOAN FULLY REPAID');
                         const savedFlag = await saveFlag();
                         await queryRunner.commitTransaction();
                         return {
@@ -1036,6 +1065,7 @@ export class LoanRepaymentService {
                 `UPDATE loan_master SET balance = $1 WHERE loancaseno::text = $2 AND mbno = $3 AND loantype = $4`,
                 [newBalance, dto.loancaseno, dto.mbno, loan.loantype]
             );
+            await this.releaseRdLienIfClosed(queryRunner, dto.loancaseno, loan.mbno, loan.loantype, dto.username || 'system', 'LOAN FULLY REPAID');
 
             // BUG FIX 39 (same defect as pass-transaction.service.ts BUG FIX 37, found separately
             // here since this service never shared that fix): tested only 'ELN', but ALN is the
@@ -1551,7 +1581,7 @@ export class LoanRepaymentService {
             );
 
             const rdShareAdjustment = applyRdShare
-                ? await this.loanEligibility.getRdShareClosureAdjustment(loan.mbno, finalClosureAmount)
+                ? await this.loanEligibility.getRdShareClosureAdjustment(loan.mbno, finalClosureAmount, loancaseno)
                 : null;
             const payableByMember = rdShareAdjustment ? rdShareAdjustment.payableByMember : finalClosureAmount;
 
@@ -1889,6 +1919,10 @@ export class LoanRepaymentService {
                 `UPDATE loan_master SET balance = 0 WHERE loancaseno::text = $1 AND mbno = $2 AND loantype = $3`,
                 [loancaseno, loan.mbno, loan.loantype]
             );
+            // Loan Against RD: release the lock now, BEFORE the RD adjustment
+            // below, so the loan's own lock can't block the RD being used to
+            // settle it.
+            await this.releaseRdLienIfClosed(queryRunner, loancaseno, loan.mbno, loan.loantype, postedBy, 'EARLY CLOSURE');
 
             // BUG FIX 39 (same defect as pass-transaction.service.ts BUG FIX 37, found separately
             // here since this service never shared that fix): tested only 'ELN', but ALN is the
@@ -1958,7 +1992,7 @@ export class LoanRepaymentService {
             let fromRd = 0;
             let fromShare = 0;
             if (applyRdShare) {
-                const rdShareAdjustment = await this.loanEligibility.getRdShareClosureAdjustment(loan.mbno, finalClosureAmount);
+                const rdShareAdjustment = await this.loanEligibility.getRdShareClosureAdjustment(loan.mbno, finalClosureAmount, loancaseno);
                 fromRd = rdShareAdjustment.fromRd;
                 fromShare = rdShareAdjustment.fromShare;
 

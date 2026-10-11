@@ -118,3 +118,7 @@ public
 # Temporary folders
 tmp/
 temp/
+# Local secrets / credentials (never commit)
+.env.backup
+db-config.json
+scripts/load-test/.credentials.json

@@ -1,3 +1,4 @@
+require('dotenv').config();
 const { Client } = require('pg');
 const fs = require('fs');
 
@@ -7,7 +8,7 @@ async function checkMemberLedgerData() {
         port: 5432,
         database: 'EMP_Espat_Society',
         user: 'postgres',
-        password: 'Test@1212'
+        password: process.env.DB_PASSWORD
     });
 
     const output = [];

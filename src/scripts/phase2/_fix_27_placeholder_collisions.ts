@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { DataSource } from 'typeorm';
 
 // Fixes the 27 placeholder (loan_amt=0) RLN rows whose balance was silently
@@ -8,7 +9,7 @@ import { DataSource } from 'typeorm';
 // accidentally touch a real loan even if the pair list has an error.
 const AppDataSource = new DataSource({
     type: 'postgres', host: 'localhost', port: 5432, database: 'EMP_Espat_Society',
-    username: 'postgres', password: 'Test@1212',
+    username: 'postgres', password: process.env.DB_PASSWORD,
     entities: [__dirname + '/../../**/*.entity{.ts,.js}'], synchronize: false, logging: false,
 });
 

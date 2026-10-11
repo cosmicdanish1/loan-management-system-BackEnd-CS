@@ -305,10 +305,29 @@ export class DayEndService {
     }));
   }
 
-  // Automated day-end processing (runs at 11:30 PM daily)
+  /** The "Auto Day-End (Nightly Close, 11:30 PM)" switch on Modify Business Rules.
+   *  OFF unless it has been turned on (the screen shows it OFF by default). */
+  private async isAutoDayEndEnabled(): Promise<boolean> {
+    try {
+      const rows = await this.dataSource.query(
+        `SELECT value FROM system_configs WHERE key = 'SYS_DAYEND_AUTO_CLOSE' AND "isActive" IS NOT FALSE ORDER BY id DESC LIMIT 1`,
+      );
+      return ['true', '1', 'y'].includes(String(rows[0]?.value ?? '').toLowerCase());
+    } catch (error) {
+      this.logger.warn(`Could not read the Auto Day-End switch, treating it as OFF: ${error instanceof Error ? error.message : error}`);
+      return false;
+    }
+  }
+
+  // Automated day-end processing (scheduled for 11:30 PM daily; runs only if the Auto Day-End switch is ON)
   @Cron('30 23 * * *')
   async automaticDayEndProcessing() {
     try {
+      if (!(await this.isAutoDayEndEnabled())) {
+        this.logger.log('Automatic day-end skipped: the Auto Day-End switch is OFF in Modify Business Rules');
+        return;
+      }
+
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 

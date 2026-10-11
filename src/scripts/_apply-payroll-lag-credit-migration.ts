@@ -9,7 +9,7 @@ import { AddPayrollLagCredit1758900000000 } from '../migrations/1758900000000-Ad
 // session (matches backend/.env).
 const AppDataSource = new DataSource({
     type: 'postgres', host: 'localhost', port: 5432, database: 'EMP_Espat_Society',
-    username: 'postgres', password: 'Test@1212',
+    username: 'postgres', password: process.env.DB_PASSWORD,
     entities: [__dirname + '/../**/*.entity{.ts,.js}'], synchronize: false, logging: false,
 });
 

@@ -1,3 +1,4 @@
+require('dotenv').config();
 // Simple test script to verify backup functionality
 const { exec } = require('child_process');
 const fs = require('fs');
@@ -9,7 +10,7 @@ const testConfig = {
   host: 'localhost',
   port: 5432,
   username: 'postgres',
-  password: 'Test@1212',
+  password: process.env.DB_PASSWORD,
   database: 'EMP_Espat_Society',
   testPath: './test-backup'
 };

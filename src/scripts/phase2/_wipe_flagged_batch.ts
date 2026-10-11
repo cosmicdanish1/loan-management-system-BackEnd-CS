@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { execFileSync } from 'child_process';
 import { readFileSync } from 'fs';
 import { DataSource } from 'typeorm';
@@ -23,7 +24,7 @@ import { DataSource } from 'typeorm';
 
 const AppDataSource = new DataSource({
     type: 'postgres', host: 'localhost', port: 5432, database: 'EMP_Espat_Society',
-    username: 'postgres', password: 'Test@1212',
+    username: 'postgres', password: process.env.DB_PASSWORD,
     entities: [__dirname + '/../../**/*.entity{.ts,.js}'], synchronize: false, logging: false,
 });
 

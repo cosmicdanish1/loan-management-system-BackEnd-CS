@@ -87,6 +87,11 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         alerts.loginFailed({ username: String((request.body as any)?.username ?? ''), client: clientInfoOf(request) });
         return;
       }
+      // Errors from Express/body-parser (e.g. 413 payload too large) carry their own 4xx status
+      // but are not HttpExceptions, so this filter maps them to 500. They are the caller's
+      // fault, not a server failure, so they are not alerted.
+      const ownStatus = (exception as any)?.status ?? (exception as any)?.statusCode;
+      if (typeof ownStatus === 'number' && ownStatus >= 400 && ownStatus < 500) return;
       if (exception instanceof QueryFailedError) {
         // Duplicate/foreign-key errors are normal business rejections and can echo record values.
         if (/duplicate key|foreign key/i.test(exception.message)) return;

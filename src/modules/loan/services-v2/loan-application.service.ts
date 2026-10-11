@@ -82,7 +82,7 @@ export class LoanApplicationService {
         const loanTypeMapping: Record<string, string> = {
             'EMERGENCY': 'ALN', 'EMERGENCY LOAN': 'ALN', 'Emergency': 'ALN', 'ALN': 'ALN',
             'REGULAR': 'RLN', 'REGULAR LOAN': 'RLN', 'Regular': 'RLN', 'RLN': 'RLN',
-            'AGAINST': 'ELN', 'LOAN AGAINST RECOVERY': 'ELN', 'Against': 'ELN', 'ELN': 'ELN',
+            'AGAINST': 'ELN', 'LOAN AGAINST RECOVERY': 'ELN', 'LOAN AGAINST RD': 'ELN', 'Against': 'ELN', 'ELN': 'ELN',
         };
         const lookupKey = (loanData.loanType || '').toString();
         const mappedLoanType = loanTypeMapping[lookupKey]
@@ -341,17 +341,46 @@ export class LoanApplicationService {
         console.log(`[LoanApplication] Validating eligibility for ${loanType} loan...`);
 
         // 1. Determine which rules to use based on loan type
-        // Legacy codes: ALN = Emergency Loan, RLN = Regular Loan, ELN = Loan Against Recovery
+        // Legacy codes: ALN = Emergency Loan, RLN = Regular Loan, ELN = Loan Against RD
+        // (shown as "Loan Against Recovery" in older data/screens)
         const isEmergency = (loanType === 'ALN' || loanType?.toUpperCase().includes('EMERGENCY'));
-        const isRecovery  = (loanType === 'ELN' || loanType?.toUpperCase().includes('RECOVERY'));
+        const isRecovery  = (loanType === 'ELN' || loanType?.toUpperCase().includes('RECOVERY') || loanType?.toUpperCase().includes('AGAINST RD'));
         // ELN uses its own config keys; ALN → EL prefix; RLN → LT prefix
         const typePrefix = isEmergency ? 'EL' : isRecovery ? 'EL' : 'LT';
+        const typeLabel = isRecovery ? 'Loan Against RD' : isEmergency ? 'Emergency' : 'Regular';
         const maxAmtKey = isRecovery ? 'RULE_LOAN_ELN_MAX_AMT' : `RULE_LOAN_${typePrefix}_MAX_AMT`;
         const maxTenureKey = isRecovery ? 'RULE_LOAN_ELN_MAX_TENURE' : `RULE_LOAN_${typePrefix}_MAX_TENURE`;
 
-        // 2. Fetch configured limits (generous defaults so a missing key never hard-blocks)
-        const maxLoanLimit = await this.systemConfigService.getConfigValue(maxAmtKey).catch(() => isRecovery ? 1000000 : 500000);
-        const maxTenure = await this.systemConfigService.getConfigValue(maxTenureKey).catch(() => isRecovery ? 120 : 60);
+        // 2. Fetch the limits. The Max Amount and No. of Instalments on the loan type's own card in
+        // "Modify Business Rules" (busrules.{rln|aln|eln}maxloanamt / maxnoinst) are the limits in force.
+        // They used to be ignored in favour of hidden system_configs values, so editing a card changed
+        // nothing. A card left empty/zero falls back to those older values (generous defaults so a
+        // missing key never hard-blocks), so a blank card can't refuse every application.
+        const cardColumns: Record<string, { amt: string; inst: string }> = {
+            RLN: { amt: 'rlnmaxloanamt', inst: 'rlnmaxnoinst' },
+            ALN: { amt: 'alnmaxloanamt', inst: 'alnmaxnoinst' },
+            ELN: { amt: 'elnmaxloanamt', inst: 'elnmaxnoinst' },
+        };
+        const cardType = isRecovery ? 'ELN' : isEmergency ? 'ALN' : (loanType || '').toUpperCase() === 'RLN' ? 'RLN' : null;
+        let cardMaxAmt = 0;
+        let cardMaxInst = 0;
+        if (cardType) {
+            try {
+                const cardRows = await this.dataSource.query(
+                    `SELECT ${cardColumns[cardType].amt} AS max_amt, ${cardColumns[cardType].inst} AS max_inst FROM busrules ORDER BY appdate DESC LIMIT 1`,
+                );
+                cardMaxAmt = Number(cardRows[0]?.max_amt) || 0;
+                cardMaxInst = Number(cardRows[0]?.max_inst) || 0;
+            } catch (e: any) {
+                console.warn(`[LoanApplication] Could not read the ${cardType} limits from Business Rules, using older defaults: ${e.message}`);
+            }
+        }
+        const maxLoanLimit = cardMaxAmt > 0
+            ? cardMaxAmt
+            : await this.systemConfigService.getConfigValue(maxAmtKey).catch(() => isRecovery ? 1000000 : 500000);
+        const maxTenure = cardMaxInst > 0
+            ? cardMaxInst
+            : await this.systemConfigService.getConfigValue(maxTenureKey).catch(() => isRecovery ? 120 : 60);
 
         // 3. Check outstanding balance from member_balances (kept current by repayment processing)
         //    Do NOT use loan_master.balance — it is set once at disbursement and never reduced.
@@ -371,17 +400,20 @@ export class LoanApplicationService {
         console.log(`[LoanApplication] Total would be: ₹${(totalOutstanding + amount).toLocaleString()}`);
         console.log(`[LoanApplication] Maximum limit: ₹${maxLoanLimit.toLocaleString()}`);
 
-        if (totalOutstanding + amount > maxLoanLimit) {
+        // A Loan Against RD is limited by the member's RD and the per-member ceiling, checked by
+        // LoanEligibilityService.checkLoanAgainstRd(); the balance read above is the regular-loan
+        // balance for this type, so comparing it here would be wrong.
+        if (!isRecovery && totalOutstanding + amount > maxLoanLimit) {
             throw new BadRequestException(
-                `Total loan amount exceeds maximum limit of ₹${maxLoanLimit.toLocaleString()} for ${typePrefix === 'EL' ? 'Emergency' : 'Regular'} loans. ` +
-                `Current ${typePrefix === 'EL' ? 'Emergency' : 'Regular'} loan balance: ₹${totalOutstanding.toLocaleString()}, Applied: ₹${amount.toLocaleString()}`
+                `Total loan amount exceeds maximum limit of ₹${maxLoanLimit.toLocaleString()} for ${typeLabel} loans. ` +
+                `Current ${typeLabel} loan balance: ₹${totalOutstanding.toLocaleString()}, Applied: ₹${amount.toLocaleString()}`
             );
         }
 
         // 4. Check installments (tenure)
         if (installments > maxTenure) {
             throw new BadRequestException(
-                `Requested tenure (${installments} months) exceeds maximum allowed tenure of ${maxTenure} months for ${typePrefix === 'EL' ? 'Emergency' : 'Regular'} loans.`
+                `Requested tenure (${installments} months) exceeds maximum allowed tenure of ${maxTenure} months for ${typeLabel} loans.`
             );
         }
 

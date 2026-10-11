@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { DataSource } from 'typeorm';
 import { PassTransactionService } from '../modules/transaction/services-v2/pass-transaction.service';
 import { SystemConfigService } from '../modules/admin/services/system-config.service';
@@ -23,7 +24,7 @@ const AppDataSource = new DataSource({
     port: 5432,
     database: 'EMP_Espat_Society',
     username: 'postgres',
-    password: 'Test@1212',
+    password: process.env.DB_PASSWORD,
     entities: [__dirname + '/../**/*.entity{.ts,.js}'],
     synchronize: false,
     logging: false,
@@ -108,7 +109,7 @@ async function main() {
         [EXISTING_CASE]
     ))[0];
     const closureInterestLedgerRow = (await AppDataSource.query(
-        `SELECT trans_amt, trans_type, narration FROM ledger WHERE code = 'I1002' AND acc_no::text = $1 ORDER BY ledgerid DESC LIMIT 1`,
+        `SELECT trans_amt, trans_type, narration FROM ledger WHERE code = 'I1013' AND acc_no::text = $1 ORDER BY ledgerid DESC LIMIT 1`,
         [NEW_CASE]
     ))[0];
     const cashLeg = (await AppDataSource.query(
@@ -118,7 +119,7 @@ async function main() {
 
     console.log(`New case loan_amt=${newLoan?.loan_amt} (expect 60000), balance=${newLoan?.balance} (expect 60000)`);
     console.log(`Old case loan_repayment_ledger row:`, oldClosureRow);
-    console.log(`I1002 closure-interest ledger row:`, closureInterestLedgerRow);
+    console.log(`I1013 (Regular-loan interest) closure-interest ledger row:`, closureInterestLedgerRow);
     console.log(`Disbursement cash leg:`, cashLeg);
 
     let allPass = true;
@@ -139,9 +140,9 @@ async function main() {
         `old-case payment_amount = principal + interest + penal (no silent netting): got ${oldClosureRow?.payment_amount}`,
         oldClosureRow && Math.abs(parseFloat(oldClosureRow.payment_amount) - (40000 + expectedOldClosureInterest)) < 0.01
     );
-    check('I1002 closure-interest ledger row exists (auditable posting, not hidden)', !!closureInterestLedgerRow);
+    check('I1013 (Regular-loan interest) closure-interest ledger row exists (auditable posting, not hidden)', !!closureInterestLedgerRow);
     check(
-        `I1002 amount ≈ expectedOldClosureInterest: got ${closureInterestLedgerRow?.trans_amt}`,
+        `I1013 amount ≈ expectedOldClosureInterest: got ${closureInterestLedgerRow?.trans_amt}`,
         closureInterestLedgerRow && Math.abs(parseFloat(closureInterestLedgerRow.trans_amt) - expectedOldClosureInterest) < 0.01
     );
     check(

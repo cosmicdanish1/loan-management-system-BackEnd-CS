@@ -1,3 +1,4 @@
+import 'dotenv/config';
 // Prints the Loan Position (read-only) for one loan, exactly what the new panel shows.
 // Usage: npx ts-node --transpile-only src/scripts/_show_loan_position.ts <mbno> <loancaseno> [yyyy-mm-dd]
 import { DataSource } from 'typeorm';
@@ -9,7 +10,7 @@ import { RdBalanceEventsService } from '../modules/rd/services/rd-balance-events
 
 const ds = new DataSource({
     type: 'postgres', host: 'localhost', port: 5432, database: 'EMP_Espat_Society',
-    username: 'postgres', password: 'Test@1212',
+    username: 'postgres', password: process.env.DB_PASSWORD,
     entities: [__dirname + '/../**/*.entity{.ts,.js}'], synchronize: false, logging: false,
 });
 

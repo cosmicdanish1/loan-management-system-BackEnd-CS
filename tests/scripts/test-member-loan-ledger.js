@@ -1,3 +1,4 @@
+require('dotenv').config();
 const fetch = require('node-fetch');
 const { Client } = require('pg');
 
@@ -7,7 +8,7 @@ async function testMemberLoanLedger() {
         port: 5432,
         database: 'EMP_Espat_Society',
         user: 'postgres',
-        password: 'Test@1212'
+        password: process.env.DB_PASSWORD
     });
 
     console.log('=== MEMBER LOAN LEDGER TEST ===\n');

@@ -3,6 +3,7 @@ import { RdRulesService } from './rd-rules.service';
 import { RdMemberConfigService } from './services/rd-member-config.service';
 import { RdMemberConfigController } from './controllers/rd-member-config.controller';
 import { RdBalanceEventsService } from './services/rd-balance-events.service';
+import { RdLienService } from './services/rd-lien.service';
 import { RdBalanceEventsController } from './controllers/rd-balance-events.controller';
 import { RdPatternEligibilityService } from './services/rd-pattern-eligibility.service';
 import { RdPatternEligibilityController } from './controllers/rd-pattern-eligibility.controller';
@@ -31,6 +32,7 @@ import { RdRepaymentController } from './controllers/rd-repayment.controller';
         RdInterestCalculationService,
         RdFinancialYearClosingService,
         RdRepaymentService,
+        RdLienService,
     ],
     controllers: [
         RdMemberConfigController,
@@ -48,6 +50,7 @@ import { RdRepaymentController } from './controllers/rd-repayment.controller';
         RdInterestCalculationService,
         RdFinancialYearClosingService,
         RdRepaymentService,
+        RdLienService,
     ],
 })
 export class RdModule { }

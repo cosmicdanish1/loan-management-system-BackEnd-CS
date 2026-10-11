@@ -106,6 +106,35 @@ export class VoucherService {
                 ]);
             }
 
+            // ES-50: add the balancing cash/bank leg. Only the operator's lines were staged before, so
+            // Cash in Hand / the bank head never moved. Receipt: DR cash/bank. Payment: CR cash/bank.
+            const isCashMode = dto.paymentMethod === 'CASH';
+            const counterCode = isCashMode ? 'A1001' : (dto.bankCode || dto.receiveIntoCode);
+            if (!counterCode) {
+                throw new Error('Bank mode requires bankCode (the bank head to debit/credit).');
+            }
+            const isReceipt = dto.voucherType !== 'PAYMENT';
+            const counterTransNo = await this.getNextId('transactions');
+            await queryRunner.query(`
+                INSERT INTO transactions (
+                    trans_no, trans_type, trans_date, mbno, trans_amt,
+                    receipt_vchr_no, vchr_type, modeofpay, pass_flag, cashier_flag,
+                    narration, code, username, cheq_amt, acc_type
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'N', 'N', $9, $10, 'admin', 0, $11)
+            `, [
+                counterTransNo,
+                isReceipt ? 'DR' : 'CR',
+                dto.voucherDate || new Date(),
+                dto.memberId || null,
+                totalAmount,
+                voucherNumber,
+                isReceipt ? 'RV' : 'PV',
+                isCashMode ? 'C' : 'B',
+                dto.description,
+                counterCode,
+                counterCode === 'A1001' ? 'CINH' : 'BANK',
+            ]);
+
             await queryRunner.commitTransaction();
             console.log(`[Voucher] ✅ Generic voucher ${voucherNumber} created successfully`);
 

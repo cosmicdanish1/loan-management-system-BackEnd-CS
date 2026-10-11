@@ -6,7 +6,7 @@ const client = new Client({
   port: process.env.DB_PORT || 5432,
   database: process.env.DB_DATABASE || 'EMP_Espat_Society',
   user: process.env.DB_USERNAME || 'postgres',
-  password: process.env.DB_PASSWORD || 'Test@1212',
+  password: process.env.DB_PASSWORD,
 });
 
 async function checkTableStructure() {

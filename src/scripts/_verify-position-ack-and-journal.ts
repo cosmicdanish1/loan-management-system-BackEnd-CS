@@ -1,3 +1,4 @@
+import 'dotenv/config';
 // Live check of (1) "Mark as checked" on a Loan Position notice and (2) a manual journal on a loan head showing up in
 // the position. Uses test members only. Leaves a ₹500 journal credit on V5_F2 and one checked notice on V5_F1.
 import { DataSource } from 'typeorm';
@@ -10,7 +11,7 @@ import { RdBalanceEventsService } from '../modules/rd/services/rd-balance-events
 
 const ds = new DataSource({
     type: 'postgres', host: 'localhost', port: 5432, database: 'EMP_Espat_Society',
-    username: 'postgres', password: 'Test@1212',
+    username: 'postgres', password: process.env.DB_PASSWORD,
     entities: [__dirname + '/../**/*.entity{.ts,.js}'], synchronize: false, logging: false,
 });
 

@@ -3,7 +3,7 @@ require('dotenv').config();
 
 async function checkData() {
     const client = new Client({
-        connectionString: process.env.DATABASE_URL || 'postgresql://postgres:Test@1212@localhost:5432/employeesociety_new'
+        connectionString: process.env.DATABASE_URL || `postgresql://${process.env.DB_USERNAME || 'postgres'}:${encodeURIComponent(process.env.DB_PASSWORD || '')}@${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 5432}/${process.env.DB_DATABASE || 'employeesociety_new'}`
     });
 
     try {

@@ -237,12 +237,23 @@ export class RdBalanceEventsService {
 
         const totalHoldings = await this.getTotalCurrentHoldings(mbno, yearcode);
         const minBalance = await this.rdRules.getRule('RULE_RD_MIN_BALANCE_AFTER_WITHDRAWAL');
+        // RD locked as security for a Loan Against RD can't be taken out, and the
+        // minimum balance applies to what is left over once it is set aside.
+        // Read through the caller's own transaction when there is one, so a lock
+        // released earlier in that same transaction (the loan being closed) counts.
+        const locked = await this.getLockedAmount(mbno, externalQueryRunner);
         const holdingsAfter = totalHoldings - amount;
-        if (holdingsAfter < minBalance) {
+        if (holdingsAfter < minBalance + locked) {
+            const maxNow = Math.max(0, totalHoldings - locked - minBalance);
             throw new BadRequestException(
-                `Withdrawal would leave ₹${holdingsAfter.toLocaleString('en-IN')}, below the required minimum of ` +
-                `₹${minBalance.toLocaleString('en-IN')}. Maximum withdrawable right now: ` +
-                `₹${Math.max(0, totalHoldings - minBalance).toLocaleString('en-IN')}.`,
+                locked > 0
+                    ? `₹${locked.toLocaleString('en-IN')} of this member's RD is locked as security for a Loan Against RD ` +
+                      `and cannot be withdrawn. Withdrawal would leave ₹${(holdingsAfter - locked).toLocaleString('en-IN')} ` +
+                      `of free RD, below the required minimum of ₹${minBalance.toLocaleString('en-IN')}. ` +
+                      `Maximum withdrawable right now: ₹${maxNow.toLocaleString('en-IN')}.`
+                    : `Withdrawal would leave ₹${holdingsAfter.toLocaleString('en-IN')}, below the required minimum of ` +
+                      `₹${minBalance.toLocaleString('en-IN')}. Maximum withdrawable right now: ` +
+                      `₹${maxNow.toLocaleString('en-IN')}.`,
             );
         }
 
@@ -257,6 +268,22 @@ export class RdBalanceEventsService {
                 `SELECT pg_advisory_xact_lock(hashtext('rd_balance_' || $1 || '_' || $2))`,
                 [mbno, String(yearcode)],
             );
+
+            // Re-check the lock now that this member's RD is serialised: a lock
+            // placed between the check above and this point (a loan being
+            // disbursed at the same moment) is now visible, and the withdrawal
+            // must not slip past it.
+            const lockedNow = await this.getLockedAmount(mbno, queryRunner);
+            if (lockedNow > locked) {
+                const holdingsNow = await this.getTotalCurrentHoldings(mbno, yearcode);
+                if (holdingsNow - amount < minBalance + lockedNow) {
+                    throw new BadRequestException(
+                        `₹${lockedNow.toLocaleString('en-IN')} of this member's RD was just locked as security for a Loan Against RD, ` +
+                        `so this withdrawal can no longer be made. Maximum withdrawable now: ` +
+                        `₹${Math.max(0, holdingsNow - lockedNow - minBalance).toLocaleString('en-IN')}.`,
+                    );
+                }
+            }
 
             const openingPotRows = await queryRunner.query(
                 `SELECT resulting_balance FROM rd_balance_events
@@ -366,6 +393,18 @@ export class RdBalanceEventsService {
     async getMaxWithdrawable(mbno: string, yearcode: number): Promise<number> {
         const totalHoldings = await this.getTotalCurrentHoldings(mbno, yearcode);
         const minBalance = await this.rdRules.getRule('RULE_RD_MIN_BALANCE_AFTER_WITHDRAWAL');
-        return Math.max(0, Math.round((totalHoldings - minBalance) * 100) / 100);
+        const locked = await this.getLockedAmount(mbno);
+        return Math.max(0, Math.round((totalHoldings - locked - minBalance) * 100) / 100);
+    }
+
+    /** RD currently locked for this member as security for Loan Against RD
+     *  loans (rd_lien, ACTIVE rows). Pass the caller's open transaction to see
+     *  locks it has placed or released but not yet committed. */
+    async getLockedAmount(mbno: string, queryRunner?: QueryRunner): Promise<number> {
+        const rows = await (queryRunner ?? this.dataSource).query(
+            `SELECT COALESCE(SUM(lien_amount), 0) AS total FROM rd_lien WHERE mbno = $1 AND status = 'ACTIVE'`,
+            [mbno],
+        );
+        return Number(rows[0]?.total || 0);
     }
 }

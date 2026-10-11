@@ -18,6 +18,7 @@ import {
     LoanRepaymentService,
     LoanMonthEndService,
     LoanPositionService,
+    LoanEligibilityService,
 } from './services-v2';
 
 /**
@@ -39,9 +40,29 @@ export class LoanV2Controller {
         private readonly loanRepaymentService: LoanRepaymentService,
         private readonly loanMonthEndService: LoanMonthEndService,
         private readonly loanPositionService: LoanPositionService,
+        private readonly loanEligibilityService: LoanEligibilityService,
     ) { }
 
     // ==================== Application Operations ====================
+
+    @Get('eligibility/:memberNo')
+    @ApiOperation({
+        summary: 'Loan eligibility for a member, loan type and amount (read-only)',
+        description: 'Same check the application save enforces. For Loan Against RD (ELN) it also returns the ' +
+            "member's total / locked / free RD and the largest loan they can take; amount may be 0 to just read the limit.",
+    })
+    async getLoanEligibility(
+        @Param('memberNo') memberNo: string,
+        @Query('amount') amount?: string,
+        @Query('loanType') loanType?: string,
+    ) {
+        const parsed = Number(amount);
+        return this.loanEligibilityService.checkEligibility(
+            memberNo,
+            Number.isFinite(parsed) && parsed > 0 ? parsed : 0,
+            loanType,
+        );
+    }
 
     @Get('cases')
     @ApiOperation({ summary: 'Get all loan cases for processing' })

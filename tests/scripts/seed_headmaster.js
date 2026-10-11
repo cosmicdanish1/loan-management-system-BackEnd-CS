@@ -1,3 +1,4 @@
+require('dotenv').config();
 const { Client } = require('pg');
 
 const headData = [
@@ -133,7 +134,7 @@ const client = new Client({
     user: 'postgres',
     host: 'localhost',
     database: 'EMP_Espat_Society',
-    password: 'Test@1212',
+    password: process.env.DB_PASSWORD,
     port: 5432,
 });
 

@@ -1,3 +1,4 @@
+import 'dotenv/config';
 // Adds loan_repayment_ledger.payment_source (migration 1790726400000) and tags migrated history:
 // a replayed repayment whose date + principal match a DEMAND voucher ('D') on the member's loan head in `ledger`
 // is tagged 'DEMAND'. Everything else stays 'CASH' (the old, pooled behaviour). Safe to re-run.
@@ -6,7 +7,7 @@ import { AddLoanRepaymentPaymentSource1790726400000 } from '../migrations/179072
 
 const ds = new DataSource({
     type: 'postgres', host: 'localhost', port: 5432, database: 'EMP_Espat_Society',
-    username: 'postgres', password: 'Test@1212', entities: [], synchronize: false, logging: false,
+    username: 'postgres', password: process.env.DB_PASSWORD, entities: [], synchronize: false, logging: false,
 });
 
 async function main() {

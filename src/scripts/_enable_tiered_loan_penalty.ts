@@ -1,3 +1,4 @@
+import 'dotenv/config';
 // One-off: switches the tiered late-payment penalty ON for all loans, the same two settings the
 // Modify Business Rules screen writes when "Enable tiered penalties for all loans" is saved:
 //   RULE_TIERED_LOAN_PENALTY_ENABLED = true
@@ -8,7 +9,7 @@ import { DataSource } from 'typeorm';
 
 const ds = new DataSource({
     type: 'postgres', host: 'localhost', port: 5432, database: 'EMP_Espat_Society',
-    username: 'postgres', password: 'Test@1212', entities: [], synchronize: false, logging: false,
+    username: 'postgres', password: process.env.DB_PASSWORD, entities: [], synchronize: false, logging: false,
 });
 
 async function upsert(key: string, value: string, dataType: string) {

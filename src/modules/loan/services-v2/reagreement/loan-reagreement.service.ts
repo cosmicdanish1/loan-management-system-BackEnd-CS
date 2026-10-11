@@ -4,7 +4,11 @@ import { SequenceGeneratorService } from '../../../shared/services';
 import { SystemConfigService } from '../../../admin/services/system-config.service';
 import { isDebitNormal } from '../../../shared/utils/balance-direction';
 import { LoanRepaymentService } from '../loan-repayment.service';
+import { RdLienService } from '../../../rd/services/rd-lien.service';
+import { RdBalanceEventsService } from '../../../rd/services/rd-balance-events.service';
+import { RdRulesService } from '../../../rd/rd-rules.service';
 import { LOAN_INTEREST_METHOD } from '../loan-payment-model';
+import { interestHeadForLoanType } from '../../loan-interest-heads';
 import {
     calculateConstantEmi,
     ConstantEmiResult,
@@ -21,13 +25,13 @@ import { ReagreementDocumentService } from './reagreement-document.service';
 
 // ------------------------------------------------------------------ constants
 export const OPEN_STATUSES = ['APPLIED', 'SANCTIONED', 'VOUCHERED'] as const;
-const INTEREST_HEAD = 'I1002'; // "INTT FROM MEMBER" — the loan-interest income head
+// ES-46: the loan-interest income head is now per loan type (children of I1002 "INTT FROM MEMBER"); see interestHeadForLoanType.
 const VOUCHER_TYPE_CODE = 'RA'; // transactions.vchr_type / ledger.vchr_type (varchar(2))
 export const REAGREEMENT_SOURCE_MODULE = 'LOAN_REAGREEMENT';
 const MONEY_TOLERANCE = 0.01;
 
 const LOAN_TYPE_NAMES: Record<string, string> = {
-    RLN: 'REGULAR LOAN', ALN: 'EMERGENCY LOAN', ELN: 'LOAN AGAINST RECOVERY',
+    RLN: 'REGULAR LOAN', ALN: 'EMERGENCY LOAN', ELN: 'LOAN AGAINST RD',
 };
 
 // ---------------------------------------------------------------------- types
@@ -124,6 +128,16 @@ export class LoanReagreementService {
         private readonly loanRepaymentService: LoanRepaymentService,
         private readonly documents: ReagreementDocumentService,
     ) { }
+
+    // Built on demand (not injected) so scripts that construct this service by hand keep working.
+    private _rdLienService?: RdLienService;
+    private get rdLien(): RdLienService {
+        if (!this._rdLienService) {
+            const rules = new RdRulesService(this.dataSource);
+            this._rdLienService = new RdLienService(this.dataSource, new RdBalanceEventsService(this.dataSource, rules), rules);
+        }
+        return this._rdLienService;
+    }
 
     // ======================================================================
     // Configuration (Business Rules) — every rule defaults to permissive
@@ -626,6 +640,7 @@ export class LoanReagreementService {
 
         const mode = String(dto.paymentMode || 'CASH').toUpperCase() === 'BANK' ? 'BANK' : 'CASH';
         const lines: Array<{ code: string; name: string; amount: number }> = [];
+        const INTEREST_HEAD = interestHeadForLoanType(ra.loantype);
         if (quote.collect.nrInterest > 0) lines.push({ code: INTEREST_HEAD, name: `NR interest recovered - re-agreement of case ${ra.old_loancaseno}`, amount: quote.collect.nrInterest });
         if (quote.collect.penalty > 0) lines.push({ code: INTEREST_HEAD, name: `Penalty recovered - re-agreement of case ${ra.old_loancaseno}`, amount: quote.collect.penalty });
         const total = round2(quote.collect.total);
@@ -746,7 +761,7 @@ export class LoanReagreementService {
         for (const d of details) {
             const amt = round2(num(d.trans_amt));
             if (amt <= 0) continue;
-            const code = d.code || INTEREST_HEAD;
+            const code = d.code || interestHeadForLoanType(ra.loantype);
             const dir = await this.increaseDirection(qr, code);
             await qr.query(
                 `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type,
@@ -799,6 +814,14 @@ export class LoanReagreementService {
                 voucherNo,
                 `Re-agreed into loan case ${newCase} (principal Rs. ${pos.outstandingPrincipal} carried; NR Rs. ${pos.nrInterest} + penalty Rs. ${pos.penaltyDue} recovered; closure interest Rs. ${pos.apInterest} carried into the new installments) - ${ra.reagreement_no}`,
                 postedBy]);
+
+        // Loan Against RD (ELN): the RD lock follows the loan to the new case.
+        // (A loan that never had a lock — legacy — is left as it is.)
+        if ((ra.loantype || '').toUpperCase() === 'ELN') {
+            await this.rdLien.transfer(
+                { mbno, oldCaseNo: oldCase, newCaseNo: newCase, amount: pos.outstandingPrincipal, by: postedBy }, qr,
+            );
+        }
 
         await qr.query(`UPDATE loan_pending SET flg_paid = 'Y' WHERE loancaseno::text = $1 AND application_kind = 'REAGREEMENT'`, [newCase]);
 
@@ -857,6 +880,10 @@ export class LoanReagreementService {
             `UPDATE loan_master SET balance = $4, consolidated_into_loancaseno = NULL WHERE loancaseno::text = $1 AND mbno = $2 AND loantype = $3`,
             [oldCase, mbno, ra.loantype, oldBalanceBefore]);
         await qr.query(`DELETE FROM loan_repayment_ledger WHERE mbno = $1 AND loancaseno = $2 AND loantype = $3 AND receipt_no = $4`, [mbno, oldCase, ra.loantype, voucherNo]);
+        // Loan Against RD (ELN): the lock goes back from the new case to the old one.
+        if ((ra.loantype || '').toUpperCase() === 'ELN') {
+            await this.rdLien.reinstate({ oldCaseNo: oldCase, newCaseNo: newCase, by: reversedBy }, qr);
+        }
         // money postings out
         await qr.query(`DELETE FROM ledger WHERE receipt_vchr_no = $1`, [voucherNo]);
         await qr.query(`DELETE FROM tblcashbook WHERE voucher_no = $1`, [voucherNo]);
