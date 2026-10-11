@@ -1,3 +1,4 @@
+import { AlertBridge } from '../../alerts/alert-bridge';
 import {
   Injectable,
   BadRequestException,
@@ -338,6 +339,7 @@ export class DayEndService {
   }
 
   private async executeDayEndProcess(processId: number): Promise<void> {
+    const dayEndStartedAt = Date.now();
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -448,6 +450,12 @@ export class DayEndService {
       // Everything succeeded — commit the whole unit atomically
       await queryRunner.commitTransaction();
       this.logger.log(`Day-end process ${processId} completed successfully`);
+      try {
+        AlertBridge.get()?.dayEndDone({
+          date: new Date(process.processDate).toISOString().split('T')[0],
+          seconds: Math.round((Date.now() - dayEndStartedAt) / 1000),
+        });
+      } catch { /* alerting must never affect day-end */ }
 
     } catch (error) {
       // Roll back ALL DB changes (process status, interest postings, loan balances,
@@ -465,6 +473,13 @@ export class DayEndService {
         failedProcess.errorMessage = error.message;
         await this.dayEndProcessRepository.save(failedProcess);
       }
+
+      try {
+        AlertBridge.get()?.dayEndFailed({
+          date: failedProcess?.processDate ? new Date(failedProcess.processDate).toISOString().split('T')[0] : `process ${processId}`,
+          error: String(error?.message ?? error),
+        });
+      } catch { /* alerting must never mask the real day-end error */ }
 
       this.logger.error(`Day-end process ${processId} failed:`, error);
       throw error;

@@ -8,6 +8,8 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { QueryFailedError } from 'typeorm';
+import { AlertBridge } from '../../modules/alerts/alert-bridge';
+import { clientInfoOf } from '../../modules/alerts/client-info';
 
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
@@ -51,6 +53,8 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       error = exception.name;
     }
 
+    this.alertTelegram(exception, request, status);
+
     // Log the error
     this.logger.error(
       `${request.method} ${request.url} - ${status} - ${message}`,
@@ -67,5 +71,37 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     };
 
     response.status(status).json(errorResponse);
+  }
+
+  /** Telegram alerts for failed logins and server-side errors. Never throws. */
+  private alertTelegram(exception: unknown, request: Request, status: number): void {
+    try {
+      const alerts = AlertBridge.get();
+      if (!alerts) return;
+      const url = (request.originalUrl || request.url || '').split('?')[0];
+      const route = (request as any).route?.path || url.replace(/\/\d+(?=\/|$)/g, '/:id');
+      const user = (request as any).user?.username;
+      const requestId = (request as any).requestId;
+
+      if (status === HttpStatus.UNAUTHORIZED && request.method === 'POST' && /\/auth\/login$/.test(url)) {
+        alerts.loginFailed({ username: String((request.body as any)?.username ?? ''), client: clientInfoOf(request) });
+        return;
+      }
+      if (exception instanceof QueryFailedError) {
+        // Duplicate/foreign-key errors are normal business rejections and can echo record values.
+        if (/duplicate key|foreign key/i.test(exception.message)) return;
+        alerts.reportServerError({
+          method: request.method, route, status: 500, user, requestId,
+          message: exception.message.replace(/Key \(.*?\)=\(.*?\)/g, 'Key (…)'),
+        });
+        return;
+      }
+      if (status >= 500) {
+        alerts.reportServerError({
+          method: request.method, route, status, user, requestId,
+          message: exception instanceof Error ? exception.message : String(exception),
+        });
+      }
+    } catch { /* alerting must never break error handling */ }
   }
 }

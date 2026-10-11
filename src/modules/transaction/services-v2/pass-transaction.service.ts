@@ -5,6 +5,7 @@ import { calculateConstantEmi, firstDueMonthFromDisbursement, persistRbSchedule,
 import { LOAN_INTEREST_METHOD } from '../../loan/services-v2/loan-payment-model';
 import { LoanEligibilityService } from '../../loan/services-v2/loan-eligibility.service';
 import { LoanRepaymentService } from '../../loan/services-v2/loan-repayment.service';
+import { LoanReagreementService } from '../../loan/services-v2/reagreement/loan-reagreement.service';
 import { RdBalanceEventsService } from '../../rd/services/rd-balance-events.service';
 import { isDebitNormal } from '../../shared/utils/balance-direction';
 
@@ -21,6 +22,9 @@ export class PassTransactionService {
         private readonly loanEligibilityService: LoanEligibilityService,
         private readonly rdBalanceEventsService: RdBalanceEventsService,
         private readonly loanRepaymentService: LoanRepaymentService,
+        // Optional only so existing maintenance scripts that build this service by hand (5 arguments) keep compiling;
+        // Nest always injects it.
+        private readonly reagreementService?: LoanReagreementService,
     ) { }
 
     /** Current financial year per the real yearend table, read within the
@@ -70,6 +74,10 @@ export class PassTransactionService {
             // 2. Determine if this is a Loan Disbursement or Generic Voucher
             const remarksMatch = (header.remarks || '').match(/LOAN_CASE:([^|]+)/);
             const isLoanVoucher = !!remarksMatch;
+            // A loan re-agreement voucher is a RECEIPT (NR interest + penalty); it carries its own marker and
+            // must never be mistaken for a disbursement, so it is routed first.
+            const isReagreement = header.sourceModule === 'LOAN_REAGREEMENT' || /REAGREEMENT:\d+/.test(header.remarks || '');
+            let reagreementSummary: any = null;
             const loanCaseNo = remarksMatch ? remarksMatch[1] : null;
 
             // 3. Fetch breakdown details from transactions table
@@ -134,7 +142,11 @@ export class PassTransactionService {
                 }>;
             } | null = null;
 
-            if (isLoanVoucher) {
+            if (isReagreement) {
+                // ==================== LOAN RE-AGREEMENT ====================
+                console.log(`[PassTransaction] Processing LOAN RE-AGREEMENT voucher: ${voucherNo}`);
+                reagreementSummary = await this.reagreementService!.passInTransaction(queryRunner, voucherNo, header, details, postedBy);
+            } else if (isLoanVoucher) {
                 // ==================== LOAN SPECIFIC LOGIC ====================
                 console.log(`[PassTransaction] 🏦 Processing LOAN voucher for case: ${loanCaseNo}`);
                 const lpQuery = `SELECT * FROM loan_pending WHERE loancaseno::text = $1`;
@@ -879,6 +891,7 @@ export class PassTransactionService {
                 success: true,
                 message: 'Transaction posted successfully',
                 ...(consolidationSummary ? { consolidation: consolidationSummary } : {}),
+                ...(reagreementSummary ? { reagreement: reagreementSummary } : {}),
             };
 
         } catch (error: any) {
@@ -909,6 +922,16 @@ export class PassTransactionService {
                 throw new Error('Voucher header not found or is not in POSTED status');
             }
             const header = headerResult[0];
+
+            // Re-agreement vouchers are undone by the re-agreement service (new case out, old case back).
+            if (header.sourceModule === 'LOAN_REAGREEMENT' || /REAGREEMENT:\d+/.test(header.remarks || '')) {
+                const undone = await this.reagreementService!.reverseInTransaction(queryRunner, voucherNo, reversedBy);
+                await queryRunner.query(`UPDATE vouchers SET status = 'PENDING', "authorizedAt" = NULL WHERE "voucherNumber" = $1`, [voucherNo]);
+                await queryRunner.query(`UPDATE transactions SET pass_flag = 'N' WHERE receipt_vchr_no = $1`, [voucherNo]);
+                await queryRunner.commitTransaction();
+                console.log(`[PassTransaction] Re-agreement reversed: ${voucherNo}`);
+                return { success: true, message: 'Re-agreement reversed and moved back to pending status', reagreement: undone };
+            }
 
             // 2. Extract loan case no
             const remarksMatch = (header.remarks || '').match(/LOAN_CASE:([^|]+)/);

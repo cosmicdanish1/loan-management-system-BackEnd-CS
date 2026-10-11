@@ -136,11 +136,16 @@ export class JournalTransferService {
                     // Insert Ledger Record
                     // BUG FIX: added trans_no to INSERT — it was previously absent, causing
                     // a NOT NULL constraint violation or NULL trans_no on every journal ledger row.
+                    // Loan heads carry their loan account type (RLN / ALN) like every other loan posting, otherwise the
+                    // Member Ledger's loan balance and the Loan Position panel would not see this journal.
+                    // Other heads keep a blank account type exactly as before.
+                    const journalAccType = (row.code || '').toUpperCase() === 'A1002' ? 'RLN'
+                        : (row.code || '').toUpperCase() === 'A1047' ? 'ALN' : null;
                     await queryRunner.query(`
                         INSERT INTO ledger (
                             trans_no, trans_date, trans_type, mbno, trans_amt, receipt_vchr_no,
-                            vchr_type, pl_balance, narration, username, ledgerid, code
-                        ) VALUES ($1, NOW(), $2, $3, $4, $5, 'JV', $6, $7, $8, $9, $10)
+                            vchr_type, pl_balance, narration, username, ledgerid, code, acc_type
+                        ) VALUES ($1, NOW(), $2, $3, $4, $5, 'JV', $6, $7, $8, $9, $10, $11)
                     `, [
                         ledgerTransNo,
                         type,
@@ -151,7 +156,8 @@ export class JournalTransferService {
                         row.narration || dto.narration,
                         username,
                         ledgerId,
-                        row.code
+                        row.code,
+                        journalAccType
                     ]);
                 }
             }

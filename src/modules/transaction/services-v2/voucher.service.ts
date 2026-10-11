@@ -3,6 +3,7 @@ import { DataSource } from 'typeorm';
 import { SequenceGeneratorService } from '../../shared/services';
 import { NotificationService } from '../../notification/services/notification.service';
 import { NotificationChannel } from '../../notification/entities/notification-log.entity';
+import { LoanReagreementService } from '../../loan/services-v2/reagreement/loan-reagreement.service';
 
 /**
  * Voucher Service - Handles voucher generation and staging.
@@ -16,6 +17,7 @@ export class VoucherService {
         private readonly dataSource: DataSource,
         private readonly sequenceGenerator: SequenceGeneratorService,
         private readonly notificationService: NotificationService,
+        private readonly reagreementService: LoanReagreementService,
     ) { }
 
     /**
@@ -138,6 +140,13 @@ export class VoucherService {
      * Uses 'vouchers' table and 'transactions' table (pending)
      */
     async generateLoanVoucher(voucherData: any) {
+        // A re-agreement is not a disbursement: it collects NR interest + penalty and moves no principal.
+        if (await this.reagreementService.isReagreementCase(this.dataSource, voucherData.loanCaseNo)) {
+            return this.reagreementService.createVoucher(String(voucherData.loanCaseNo), {
+                paymentMode: voucherData.paymentMode, bankName: voucherData.bankName,
+                chequeNo: voucherData.chequeNo, chequeDate: voucherData.chequeDate, narration: voucherData.narration,
+            }, { actor: voucherData.createdBy || 'admin' });
+        }
         const queryRunner = this.dataSource.createQueryRunner();
 
         try {
@@ -272,6 +281,10 @@ export class VoucherService {
                 throw new Error(`Cannot delete voucher ${voucherNo} - status is ${voucherResult[0].status}. Only PENDING vouchers can be deleted.`);
             }
 
+            if (voucherResult[0].sourceModule === 'LOAN_REAGREEMENT') {
+                await this.reagreementService.onVoucherRejected(queryRunner, voucherNo, { actor: 'admin' });
+            }
+
             // 2. Delete transaction rows linked to this voucher
             const deletedTrans = await queryRunner.query(
                 `DELETE FROM transactions WHERE receipt_vchr_no = $1`, [voucherNo]
@@ -330,17 +343,24 @@ export class VoucherService {
                 const transQuery = `SELECT * FROM transactions WHERE receipt_vchr_no = $1 AND pass_flag = 'N'`;
                 const trans = await this.dataSource.query(transQuery, [row.voucherNumber]);
 
+                let reagreement: any = null;
+                if (row.sourceModule === 'LOAN_REAGREEMENT' && row.sourceId) {
+                    reagreement = await this.reagreementService.getById(row.sourceId).catch(() => null);
+                }
+
                 vouchersWithDetails.push({
                     id: row.id,
                     voucherNo: row.voucherNumber,
                     memberNo: row.memberId,
                     memberName: `${row.f_name || ''} ${row.m_name || ''} ${row.l_name || ''}`.trim(),
                     amount: parseFloat(row.totalAmount),
-                    vchrType: row.voucherType || 'Loan Disbursement',
-                    loanType: loanType,
+                    vchrType: reagreement ? 'Loan Re-agreement' : (row.voucherType || 'Loan Disbursement'),
+                    loanType: reagreement ? reagreement.loantype : loanType,
+                    kind: reagreement ? 'REAGREEMENT' : 'VOUCHER',
+                    reagreement,
                     status: row.status,
                     narration: row.description,
-                    loanCaseNo: loanCaseNo,
+                    loanCaseNo: reagreement ? reagreement.newLoanCaseNo : loanCaseNo,
                     paymentMode: row.bankName || row.chequeNumber ? 'bank' : 'cash',
                     chequeNo: row.chequeNumber,
                     chequeDate: row.chequeDate,
@@ -350,7 +370,7 @@ export class VoucherService {
                         srNo: (idx + 1).toString(),
                         code: t.code || '',
                         name: t.narration || t.particulars,
-                        rp: 'P',
+                        rp: reagreement ? 'R' : 'P',
                         amount: parseFloat(t.trans_amt)
                     }))
                 });

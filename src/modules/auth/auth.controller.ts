@@ -31,6 +31,8 @@ import {
 } from './decorators';
 import { RoleGuard } from './guards';
 import { UserRole, UserPermission, User } from './entities/user.entity';
+import { AlertBridge } from '../alerts/alert-bridge';
+import { clientInfoOf } from '../alerts/client-info';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -49,7 +51,17 @@ export class AuthController {
   })
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
   async login(@Body() loginDto: LoginDto, @Request() req): Promise<AuthResponseDto> {
-    return this.authService.login(loginDto);
+    const result = await this.authService.login(loginDto);
+    try {
+      const u: any = (result as any)?.user;
+      AlertBridge.get()?.loginOk({
+        userId: u?.id ?? loginDto.username,
+        username: u?.username ?? loginDto.username,
+        role: u?.role,
+        client: clientInfoOf(req),
+      });
+    } catch { /* alerting must never affect login */ }
+    return result;
   }
 
   // BUG FIX 4: Removed @Public() — it conflicts with @UseGuards(AuthGuard('jwt'))
@@ -92,8 +104,12 @@ export class AuthController {
   @ApiOperation({ summary: 'User logout' })
   @ApiResponse({ status: 200, description: 'Logout successful' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async logout(@CurrentUser() user: User): Promise<{ message: string }> {
-    return this.authService.logout(user.id);
+  async logout(@CurrentUser() user: User, @Request() req): Promise<{ message: string }> {
+    const result = await this.authService.logout(user.id);
+    try {
+      AlertBridge.get()?.logout({ userId: user.id, username: (user as any).username, client: clientInfoOf(req) });
+    } catch { /* alerting must never affect logout */ }
+    return result;
   }
 
   @Get('me')

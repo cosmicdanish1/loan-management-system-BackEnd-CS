@@ -1653,6 +1653,14 @@ export class UtilitiesService {
       // society's manual whole-rupee worksheets; applied once and frozen into
       // loan_master.instal_amt, never re-applied downstream.
       'RULE_LOAN_ROUNDING_MODE',
+      // "Close to the old EMI" range in rupees for the check-this flags on consolidated loans
+      // (loan-payment-flag.service.ts) — an amount within this of the old EMI, but not equal, is flagged.
+      'RULE_LOAN_OLD_EMI_FLAG_TOLERANCE',
+      // Loan re-agreement (restructure) limits. Every one defaults to permissive: the member already
+      // holds the loan and the sanctioning authority decides, so these only add optional guard-rails.
+      'RULE_REAGREEMENT_MIN_INSTALLMENTS_PAID', 'RULE_REAGREEMENT_MIN_OUTSTANDING', 'RULE_REAGREEMENT_MAX_TENURE',
+      'RULE_REAGREEMENT_MIN_RATE', 'RULE_REAGREEMENT_MAX_RATE', 'RULE_REAGREEMENT_ALLOW_RATE_INCREASE',
+      'RULE_REAGREEMENT_MAX_PER_LOAN', 'RULE_REAGREEMENT_ALLOW_BACKDATE',
       // One switch controls the tiered penal system for every active loan.
       // Activation date is maintained server-side so existing arrears are
       // never charged penalties for periods before the policy was enabled.
@@ -1687,6 +1695,15 @@ export class UtilitiesService {
       RULE_LOAN_SLOT1_START_DAY: 25,
       RULE_LOAN_SLOT1_END_DAY: 5,
       RULE_LOAN_ROUNDING_MODE: 'NEAREST',
+      RULE_LOAN_OLD_EMI_FLAG_TOLERANCE: 10,
+      RULE_REAGREEMENT_MIN_INSTALLMENTS_PAID: 0,
+      RULE_REAGREEMENT_MIN_OUTSTANDING: 0,
+      RULE_REAGREEMENT_MAX_TENURE: 0,
+      RULE_REAGREEMENT_MIN_RATE: 0,
+      RULE_REAGREEMENT_MAX_RATE: 0,
+      RULE_REAGREEMENT_ALLOW_RATE_INCREASE: true,
+      RULE_REAGREEMENT_MAX_PER_LOAN: 0,
+      RULE_REAGREEMENT_ALLOW_BACKDATE: false,
       RULE_TIERED_LOAN_PENALTY_ENABLED: false,
       RULE_TIERED_LOAN_PENALTY_ACTIVATION_DATE: '',
       ...RD_RULE_DEFAULTS,
@@ -1855,6 +1872,14 @@ export class UtilitiesService {
         { key: 'RULE_LOAN_SLOT1_START_DAY', value: String(clampDayOfMonth(data.RULE_LOAN_SLOT1_START_DAY, 25)), dataType: 'number' },
         { key: 'RULE_LOAN_SLOT1_END_DAY', value: String(clampDayOfMonth(data.RULE_LOAN_SLOT1_END_DAY, 5)), dataType: 'number' },
         { key: 'RULE_LOAN_ROUNDING_MODE', value: ['NONE', 'NEAREST', 'UP', 'DOWN'].includes(data.RULE_LOAN_ROUNDING_MODE) ? data.RULE_LOAN_ROUNDING_MODE : 'NEAREST', dataType: 'string' },
+        { key: 'RULE_LOAN_OLD_EMI_FLAG_TOLERANCE', value: String(Math.min(100000, Math.max(0, Number(data.RULE_LOAN_OLD_EMI_FLAG_TOLERANCE ?? 10) || 0))), dataType: 'number' },
+        // Loan re-agreement limits (0 = no limit).
+        ...['RULE_REAGREEMENT_MIN_INSTALLMENTS_PAID', 'RULE_REAGREEMENT_MIN_OUTSTANDING', 'RULE_REAGREEMENT_MAX_TENURE',
+          'RULE_REAGREEMENT_MIN_RATE', 'RULE_REAGREEMENT_MAX_RATE', 'RULE_REAGREEMENT_MAX_PER_LOAN'].map((key) => ({
+          key, value: String(Math.max(0, Number(data[key] ?? 0) || 0)), dataType: 'number' as const,
+        })),
+        { key: 'RULE_REAGREEMENT_ALLOW_RATE_INCREASE', value: data.RULE_REAGREEMENT_ALLOW_RATE_INCREASE === false ? 'false' : 'true', dataType: 'boolean' },
+        { key: 'RULE_REAGREEMENT_ALLOW_BACKDATE', value: data.RULE_REAGREEMENT_ALLOW_BACKDATE === true ? 'true' : 'false', dataType: 'boolean' },
         // RD system rules — new dedicated tab in Modify Business Rules.
         ...RD_RULE_KEYS.map((key) => ({
           key,

@@ -17,6 +17,7 @@ import {
     LoanQueryService,
     LoanRepaymentService,
     LoanMonthEndService,
+    LoanPositionService,
 } from './services-v2';
 
 /**
@@ -37,6 +38,7 @@ export class LoanV2Controller {
         private readonly loanQueryService: LoanQueryService,
         private readonly loanRepaymentService: LoanRepaymentService,
         private readonly loanMonthEndService: LoanMonthEndService,
+        private readonly loanPositionService: LoanPositionService,
     ) { }
 
     // ==================== Application Operations ====================
@@ -92,7 +94,7 @@ export class LoanV2Controller {
         @Param('caseNo') caseNo: string,
         @Body() sanctionData: any
     ) {
-        return this.loanSanctionService.updateLoanSanction(caseNo, sanctionData);
+        return this.loanSanctionService.updateLoanSanction(caseNo, sanctionData, sanctionData?.sanctionedBy || 'system');
     }
 
     // ==================== Surety Operations ⭐ ====================
@@ -231,6 +233,31 @@ export class LoanV2Controller {
             ...body,
             asOfDate: process.env.NODE_ENV === 'production' ? undefined : parseSafeDate(body.asOfDate),
         });
+    }
+
+    @Get('position/:mbno/:caseNo')
+    @ApiOperation({ summary: 'Loan Position: ledger vs loan record, schedule position, closure and notices — worked out now, nothing stored' })
+    async getLoanPosition(
+        @Param('mbno') mbno: string,
+        @Param('caseNo') caseNo: string,
+        @Query('loantype') loantype?: string,
+        @Query('asOfDate') asOfDate?: string,
+    ) {
+        return this.loanPositionService.getPosition(
+            mbno, caseNo, loantype,
+            process.env.NODE_ENV === 'production' ? undefined : parseSafeDate(asOfDate),
+        );
+    }
+
+    @Post('position/acknowledge')
+    @ApiOperation({ summary: 'Save a "checked" confirmation for a Loan Position notice' })
+    async acknowledgePositionNotice(
+        @Body() body: { mbno: string; loancaseno: string; loantype?: string; code: string; date: string; amount: number; message?: string; username?: string; note?: string },
+    ) {
+        if (!body?.mbno || !body?.loancaseno || !body?.code || !body?.date || !Number.isFinite(Number(body.amount))) {
+            throw new BadRequestException('mbno, loancaseno, code, date and amount are required');
+        }
+        return this.loanPositionService.acknowledge({ ...body, amount: Number(body.amount) });
     }
 
     @Get('due-status/:caseNo')

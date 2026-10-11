@@ -45,6 +45,7 @@ export class LoanApplicationService {
         FROM loan_pending
         WHERE mbno = $1
           AND flg_paid = 'N'
+          AND COALESCE(application_kind, 'NEW') = 'NEW'
         ORDER BY loancaseno DESC
       `;
 
@@ -268,10 +269,15 @@ export class LoanApplicationService {
           lp.sanctioned_amt,
           lp.flg_sanctioned,
           lp.flg_paid,
+          lp.application_kind,
           lp.app_date as application_date
         FROM loan_pending lp
         JOIN member_master mm ON lp.mbno = mm.mbno
         WHERE lp.flg_paid = 'N'
+          AND NOT EXISTS (
+              SELECT 1 FROM loan_reagreements r
+              WHERE r.new_loancaseno = lp.loancaseno AND r.status = 'VOUCHERED'
+          )
         ORDER BY lp.app_date DESC
       `;
 
@@ -285,7 +291,8 @@ export class LoanApplicationService {
                 appliedAmount: loan.applied_amt,
                 sanctionedAmount: loan.sanctioned_amt,
                 applicationDate: loan.application_date,
-                sanctioned: loan.flg_sanctioned === 'Y'
+                sanctioned: loan.flg_sanctioned === 'Y',
+                applicationKind: loan.application_kind || 'NEW',
             }));
         } catch (error) {
             console.error('[LoanApplication] Error getting loan cases:', error);

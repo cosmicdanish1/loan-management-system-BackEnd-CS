@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { loanHeadOpeningSql } from '../loan-opening-balance';
 import { DataSource } from 'typeorm';
 import { CalculationService } from '../../utility/services/calculation.service';
 import { installmentDueMonth } from './loan-rb-schedule.util';
@@ -130,6 +131,15 @@ export class LoanQueryService {
                 AND own.payment_date >= schedule.effective_date
                 AND own.payment_date <= CURRENT_DATE
                 AND own.is_payroll_lag_credit = false
+            ), 0) - COALESCE((
+              SELECT SUM(lagp.principal_amount)
+              FROM loan_repayment_ledger lagp
+              WHERE lagp.mbno = lm.mbno
+                AND lagp.loancaseno::text = lm.loancaseno::text
+                AND lagp.loantype = lm.loantype
+                AND lagp.payment_date >= schedule.effective_date
+                AND lagp.payment_date <= CURRENT_DATE
+                AND lagp.is_payroll_lag_credit = true
             ), 0)
           ) WHEN EXISTS (
             SELECT 1 FROM loan_repayment_ledger lag
@@ -144,6 +154,14 @@ export class LoanQueryService {
               AND own.loancaseno::text = lm.loancaseno::text
               AND own.loantype = lm.loantype
               AND own.is_payroll_lag_credit = false
+          ), 0) - COALESCE((
+            SELECT SUM(lagp.principal_amount)
+            FROM loan_repayment_ledger lagp
+            WHERE lagp.mbno = lm.mbno
+              AND lagp.loancaseno::text = lm.loancaseno::text
+              AND lagp.loantype = lm.loantype
+              AND lagp.payment_date >= lm.payment_date
+              AND lagp.is_payroll_lag_credit = true
           ), 0)) ELSE lm.balance::numeric END as balance,
           lm.rate,
           lm.no_of_instal,
@@ -167,6 +185,20 @@ export class LoanQueryService {
 
             const result = await this.dataSource.query(query, [memberNo]);
 
+            // What the member's own loan account in the ledger says is owed (same account the Member Ledger shows).
+            // A case the loan record still lists as open while the ledger says the account is repaid is flagged, so
+            // nobody quotes or collects a closure on a loan that is already paid.
+            const ledgerOwed = async (isRegular: boolean): Promise<number> => {
+                const r = await this.dataSource.query(
+                    `SELECT COALESCE(${loanHeadOpeningSql('$1::numeric', '$3::boolean')}, 0)
+                          + COALESCE((SELECT SUM(CASE WHEN trans_type IN ('DR','P') THEN trans_amt WHEN trans_type IN ('CR','R') THEN -trans_amt ELSE 0 END)
+                                        FROM ledger WHERE mbno = $1 AND code = $2), 0) AS owed`,
+                    [memberNo, isRegular ? 'A1002' : 'A1047', isRegular],
+                );
+                return parseFloat(r[0]?.owed) || 0;
+            };
+            const ledgerByClass = { RLN: await ledgerOwed(true), OTHER: await ledgerOwed(false) };
+
             // Field names match the LoanStatement report screen's ActiveLoan
             // interface (Frontend/.../LoanStatement/hooks/useLoanStatement.ts),
             // which reads snake_case keys straight off the raw loan_master row.
@@ -183,6 +215,9 @@ export class LoanQueryService {
                 no_of_instal: loan.no_of_instal,
                 instal_amt: parseFloat(loan.instal_amt) || 0,
                 consolidatedIntoLoancaseno: loan.consolidated_into_loancaseno || null,
+                ledgerBalance: Math.round((loan.loantype === 'RLN' ? ledgerByClass.RLN : ledgerByClass.OTHER) * 100) / 100,
+                ledgerShowsRepaid: (parseFloat(loan.balance) || 0) > 0
+                    && (loan.loantype === 'RLN' ? ledgerByClass.RLN : ledgerByClass.OTHER) <= 100,
             }));
         } catch (error) {
             console.error('[LoanQuery] Error getting member loans from master:', error);

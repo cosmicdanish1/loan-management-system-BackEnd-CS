@@ -1,0 +1,20 @@
+[
+  {
+    "mbno": "610027176",
+    "voucher": "J21708",
+    "date": "2022-12-19",
+    "code": "A1047",
+    "amount": 17000,
+    "toCode": "A1002",
+    "reason": "Settlement voucher J21708 credited Rs 17,000 principal (and Rs 5,120 interest) to the EMERGENCY loan account A1047, but the member's loan is REGULAR (case 1566, Rs 17,000; legacy Member_Balances RegularLoan 17,000, Emergency 0). The credit is applied to the regular loan. Legacy ledger rows stay as they are."
+  },
+  {
+    "mbno": "610031768",
+    "voucher": "D00515",
+    "date": "2022-09-15",
+    "code": "A1002",
+    "amount": 750,
+    "toCode": "A1047",
+    "reason": "Demand deduction D00515 credited Rs 750 principal (and Rs 169 interest) to the REGULAR loan account A1002, but the member has no regular loan (case 3334 amount 0) - the loan is EMERGENCY (case 4267, Rs 25,250, legacy Member_Balances Emergency 25,250). The credit is applied to the emergency loan. Legacy ledger rows stay as they are."
+  }
+]

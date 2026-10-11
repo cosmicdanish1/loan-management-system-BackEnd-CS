@@ -1,0 +1,74 @@
+{
+ "P01": {
+  "status": "In progress - sample round 1",
+  "can_migration_fix": "Partly (open fixes listed in migration.md)",
+  "finding": "Sample of 50 members: 6 of 25 active loans match the ledger. Round 3: closing balance matches 69/70 on the sample; remaining credit gaps tracked in migration.md.",
+  "checked_on": "2026-10-06"
+ },
+ "P02": {
+  "status": "In progress - sample round 1",
+  "can_migration_fix": "Partly (open fixes listed in migration.md)",
+  "finding": "Sample of 50 members: 2 of 5 active loans match the ledger. Round 3: closing balance matches 69/70 on the sample; remaining credit gaps tracked in migration.md.",
+  "checked_on": "2026-10-06"
+ },
+ "P03": {
+  "status": "In progress - sample round 1",
+  "can_migration_fix": "Partly (open fixes listed in migration.md)",
+  "finding": "Sample of 50 members: 1 of 5 active loans match the ledger. Round 3: closing balance matches 69/70 on the sample; remaining credit gaps tracked in migration.md.",
+  "checked_on": "2026-10-06"
+ },
+ "P04": {
+  "status": "In progress - sample round 1",
+  "can_migration_fix": "Partly (open fixes listed in migration.md)",
+  "finding": "Sample of 50 members: 3 of 20 active loans match the ledger. Worst pattern: every mismatch is a top-up/consolidation where the legacy loan amount is cumulative or the old case is not closed; needs consolidation detection without a journal pair (open fix). Round 3: closing balance matches 69/70 on the sample; remaining credit gaps tracked in migration.md.",
+  "checked_on": "2026-10-06"
+ },
+ "P05": {
+  "status": "In progress - sample round 1",
+  "can_migration_fix": "Partly (open fixes listed in migration.md)",
+  "finding": "Sample of 50 members: 1 of 4 active loans match the ledger. Round 3: closing balance matches 69/70 on the sample; remaining credit gaps tracked in migration.md.",
+  "checked_on": "2026-10-06"
+ },
+ "P06": {
+  "status": "In progress - sample round 1",
+  "can_migration_fix": "Partly (open fixes listed in migration.md)",
+  "finding": "Sample of 50 members: 1 of 11 active loans match the ledger. Round 3: closing balance matches 69/70 on the sample; remaining credit gaps tracked in migration.md.",
+  "checked_on": "2026-10-06"
+ },
+ "P07": {
+  "status": "In progress - sample round 1",
+  "can_migration_fix": "Partly (open fixes listed in migration.md)",
+  "finding": "Sample of 50 members: 8 of 33 active loans match the ledger. Round 3: closing balance matches 69/70 on the sample; remaining credit gaps tracked in migration.md.",
+  "checked_on": "2026-10-06"
+ },
+ "P08": {
+  "status": "In progress - sample round 1",
+  "can_migration_fix": "Partly (open fixes listed in migration.md)",
+  "finding": "Sample of 50 members: 2 of 18 active loans match the ledger. Round 3: closing balance matches 69/70 on the sample; remaining credit gaps tracked in migration.md.",
+  "checked_on": "2026-10-06"
+ },
+ "P09": {
+  "status": "In progress - sample round 1",
+  "can_migration_fix": "Partly (open fixes listed in migration.md)",
+  "finding": "Sample of 50 members: 10 of 52 active loans match the ledger. By-design old-EMI difference plus the same attribution faults as P04. Round 3: closing balance matches 69/70 on the sample; remaining credit gaps tracked in migration.md.",
+  "checked_on": "2026-10-06"
+ },
+ "P10": {
+  "status": "In progress - sample round 1",
+  "can_migration_fix": "Partly (open fixes listed in migration.md)",
+  "finding": "Sample of 50 members: 3 of 8 active loans match the ledger. Loans never paid: record = loan amount, ledger agrees unless a placeholder/negative legacy loan row exists (manual). Round 3: closing balance matches 69/70 on the sample; remaining credit gaps tracked in migration.md.",
+  "checked_on": "2026-10-06"
+ },
+ "P11": {
+  "status": "In progress - sample round 1",
+  "can_migration_fix": "Partly (open fixes listed in migration.md)",
+  "finding": "Sample of 50 members: 4 of 22 active loans match the ledger. Round 3: closing balance matches 69/70 on the sample; remaining credit gaps tracked in migration.md.",
+  "checked_on": "2026-10-06"
+ },
+ "P12": {
+  "status": "In progress - sample round 1",
+  "can_migration_fix": "Partly (open fixes listed in migration.md)",
+  "finding": "Sample of 50 members: 2 of 10 active loans match the ledger. Round 3: closing balance matches 69/70 on the sample; remaining credit gaps tracked in migration.md.",
+  "checked_on": "2026-10-06"
+ }
+}

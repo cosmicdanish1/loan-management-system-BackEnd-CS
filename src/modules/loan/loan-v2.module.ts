@@ -11,8 +11,13 @@ import {
     LoanRepaymentService,
     LoanEligibilityService,
     LoanMonthEndService,
+    LoanPaymentFlagService,
+    LoanPositionService,
+    LoanReagreementService,
+    ReagreementDocumentService,
 } from './services-v2';
 import { LoanV2Controller } from './loan-v2.controller';
+import { LoanReagreementController } from './loan-reagreement.controller';
 
 import { AdminModule } from '../admin/admin.module';
 import { UtilityModule } from '../utility/utility.module';
@@ -31,7 +36,7 @@ import { RdModule } from '../rd/rd.module';
         UtilityModule,
         RdModule,
     ],
-    controllers: [LoanV2Controller],
+    controllers: [LoanV2Controller, LoanReagreementController],
     providers: [
         LoanApplicationService,
         LoanSanctionService,
@@ -40,6 +45,10 @@ import { RdModule } from '../rd/rd.module';
         LoanRepaymentService,
         LoanEligibilityService,
         LoanMonthEndService,
+        LoanPaymentFlagService,
+        LoanPositionService,
+        LoanReagreementService,
+        ReagreementDocumentService,
     ],
     exports: [
         LoanApplicationService,
@@ -49,6 +58,8 @@ import { RdModule } from '../rd/rd.module';
         LoanRepaymentService,
         LoanEligibilityService,
         LoanMonthEndService,
+        LoanReagreementService,
+        ReagreementDocumentService,
     ],
 })
 export class LoanV2Module { }

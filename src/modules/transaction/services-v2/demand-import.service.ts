@@ -2,6 +2,7 @@ import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { DataSource, QueryRunner } from 'typeorm';
 import * as XLSX from 'xlsx';
 import { toDateOnlyString } from '../../rd/rd-date-math';
+import { LoanPaymentFlagService, LoanPaymentFlag } from '../../loan/services-v2/loan-payment-flag.service';
 
 /**
  * Real Excel/CSV parsing for "Import Demand List" — replaces the previous
@@ -84,6 +85,8 @@ export interface DemandImportPreviewRow {
     fileTotal: number;
     status: 'Valid' | 'Error';
     remarks: string;
+    /** "Check this" flags (possible old-EMI / new-EMI mix-up) — see loan-payment-flag.service.ts. Never blocks a save. */
+    flags?: LoanPaymentFlag[];
 }
 
 export interface DemandImportPreviewResult {
@@ -92,6 +95,7 @@ export interface DemandImportPreviewResult {
     totalRows: number;
     validCount: number;
     errorCount: number;
+    flaggedCount: number;
     columnsDetected: string[];
     rows: DemandImportPreviewRow[];
 }
@@ -100,9 +104,24 @@ export interface DemandImportPreviewResult {
 export class DemandImportService {
     private readonly logger = new Logger(DemandImportService.name);
 
-    constructor(private readonly dataSource: DataSource) { }
+    // Built from the DataSource (not injected) — same reason as in LoanRepaymentService.
+    private readonly flagService: LoanPaymentFlagService;
 
-    async previewFromBuffer(buffer: Buffer, requestedBranch?: string): Promise<DemandImportPreviewResult> {
+    constructor(private readonly dataSource: DataSource) {
+        this.flagService = new LoanPaymentFlagService(dataSource);
+    }
+
+    /** The loan columns of a file row, as (loan type, principal, interest) pairs the flag rules understand.
+     *  The file has ONE INTT column, so it is only assigned to a loan type when that is unambiguous
+     *  (same rule saveRows uses to split it into rln_interest / aln_interest). */
+    private loanItems(row: DemandImportPreviewRow): Array<{ mbno: string; loantype: 'RLN' | 'ALN'; principal: number; interest: number }> {
+        const items: Array<{ mbno: string; loantype: 'RLN' | 'ALN'; principal: number; interest: number }> = [];
+        if (row.rlnAmount > 0) items.push({ mbno: String(row.memberId), loantype: 'RLN', principal: row.rlnAmount, interest: row.interest });
+        if (row.alnAmount > 0 && row.rlnAmount <= 0) items.push({ mbno: String(row.memberId), loantype: 'ALN', principal: row.alnAmount, interest: row.interest });
+        return items;
+    }
+
+    async previewFromBuffer(buffer: Buffer, requestedBranch?: string, month?: number, year?: number): Promise<DemandImportPreviewResult> {
         let workbook: XLSX.WorkBook;
         try {
             workbook = XLSX.read(buffer, { type: 'buffer' });
@@ -224,12 +243,23 @@ export class DemandImportService {
             };
         });
 
+        // Flags need the demand month the operator selected; without it nothing is checked.
+        if (month && year) {
+            const validRows = rows.filter((r) => r.status === 'Valid');
+            const flagMap = await this.flagService.checkDemandRows(this.dataSource, validRows.flatMap((r) => this.loanItems(r)), month, year);
+            for (const r of validRows) {
+                const found = this.loanItems(r).map((it) => flagMap.get(`${it.mbno}|${it.loantype}`)).filter((f): f is LoanPaymentFlag => !!f);
+                if (found.length > 0) r.flags = found;
+            }
+        }
+
         return {
             sheetName,
             availableSheets,
             totalRows: rows.length,
             validCount: rows.filter((r) => r.status === 'Valid').length,
             errorCount: rows.filter((r) => r.status === 'Error').length,
+            flaggedCount: rows.filter((r) => (r.flags?.length ?? 0) > 0).length,
             columnsDetected: headerRow.filter(Boolean),
             rows,
         };
@@ -243,7 +273,7 @@ export class DemandImportService {
         year: number,
         rows: DemandImportPreviewRow[],
         requestedBranch?: string,
-    ): Promise<{ saved: number; skipped: number }> {
+    ): Promise<{ saved: number; skipped: number; flagged: number }> {
         const queryRunner = this.dataSource.createQueryRunner();
         await queryRunner.connect();
         await queryRunner.startTransaction();
@@ -259,6 +289,7 @@ export class DemandImportService {
             const seenMembers = new Set<string>();
             let saved = 0;
             let skipped = 0;
+            const savedRows: DemandImportPreviewRow[] = [];
             for (const row of rows) {
                 if (row.status !== 'Valid') { skipped++; continue; }
                 if (seenMembers.has(String(row.memberId))) {
@@ -343,9 +374,16 @@ export class DemandImportService {
                     await this.recordRdInstallmentFromImport(queryRunner, row.memberId, month, year, row.rdAmount);
                 }
                 saved++;
+                savedRows.push(row);
             }
+
+            // Re-check on the server (never trust flags sent back by the client) only to report how many rows
+            // need checking. Nothing is stored for them: the Loan Position panel works the same notice out
+            // again from the saved demand rows. Flags never block or change what was saved above.
+            const flagMap = await this.flagService.checkDemandRows(queryRunner, savedRows.flatMap((r) => this.loanItems(r)), month, year);
+            const flagged = savedRows.filter((r) => this.loanItems(r).some((it) => flagMap.has(`${it.mbno}|${it.loantype}`))).length;
             await queryRunner.commitTransaction();
-            return { saved, skipped };
+            return { saved, skipped, flagged };
         } catch (error: any) {
             await queryRunner.rollbackTransaction();
             this.logger.error('Demand import save failed', error);

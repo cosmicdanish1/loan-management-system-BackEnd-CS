@@ -215,6 +215,8 @@ export interface ConstantEmiResult {
     totalInterestForEMI: number;
     monthlyInterestForEMI: number;
     constantEMI: number;
+    /** Closure interest of a previous agreement carried into this one (re-agreement only; 0 for a new loan). */
+    carriedInterest: number;
     rbSchedule: RbScheduleRow[];
 }
 
@@ -233,6 +235,7 @@ export function calculateConstantEmi(
     roundingMode: LoanRoundingMode = 'NONE',
     slot1StartDay: number = DEFAULT_SLOT1_START_DAY,
     slot1EndDay: number = DEFAULT_SLOT1_END_DAY,
+    carriedInterest: number = 0,
 ): ConstantEmiResult {
     const { slot, subSlot, interestDelayMonths, firstDueDelayMonths, delayMonths } = determineLoanSlot(
         applicationDate, slot1DelayMonths, slot2DelayMonths, slot1StartDay, slot1EndDay,
@@ -244,7 +247,11 @@ export function calculateConstantEmi(
     // declining balance — because it represents the period before any
     // deduction (and therefore any principal reduction) has started at all.
     const delayInterest = round2(loanAmt * monthlyRate * interestDelayMonths);
-    const totalInterestForEMI = round2(totalRBInterest + delayInterest);
+    // A re-agreement spreads the previous loan's left-over closure interest (AP) over the new
+    // installments, exactly like delay interest: it is added to the total before dividing by n.
+    // For a new loan carriedInterest is 0, so nothing changes.
+    const carried = round2(Math.max(0, carriedInterest));
+    const totalInterestForEMI = round2(totalRBInterest + delayInterest + carried);
     const monthlyPrincipal = round2(loanAmt / n);
     // Rounded ONCE here, never again downstream: instal_amt below carries this
     // value permanently, and both getInstallmentStatus (monthlyInterest) and
@@ -257,7 +264,7 @@ export function calculateConstantEmi(
         slot, subSlot, interestDelayMonths, firstDueDelayMonths, delayMonths,
         monthlyRate, monthlyPrincipal,
         totalRBInterest, delayInterest, totalInterestForEMI, monthlyInterestForEMI,
-        constantEMI, rbSchedule: schedule,
+        constantEMI, carriedInterest: carried, rbSchedule: schedule,
     };
 }
 

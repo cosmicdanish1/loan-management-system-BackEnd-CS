@@ -43,7 +43,9 @@ export class DemandGenerationController {
         if (!file || !file.buffer) {
             throw new BadRequestException('No file was uploaded.');
         }
-        const preview = await this.importService.previewFromBuffer(file.buffer, body.branch);
+        const monthNum = MONTH_MAP[(body.month || '').toUpperCase()] || undefined;
+        const yearNum = parseInt(body.year || '', 10) || undefined;
+        const preview = await this.importService.previewFromBuffer(file.buffer, body.branch, monthNum, yearNum);
         return {
             rows: preview.rows,
             summary: {
@@ -52,6 +54,7 @@ export class DemandGenerationController {
                 total: preview.totalRows,
                 valid: preview.validCount,
                 errors: preview.errorCount,
+                flagged: preview.flaggedCount,
                 columns: preview.columnsDetected,
             },
         };
@@ -73,7 +76,8 @@ export class DemandGenerationController {
             success: true,
             recordCount: result.saved,
             skipped: result.skipped,
-            message: `Saved ${result.saved} record(s)${result.skipped > 0 ? `, skipped ${result.skipped} invalid row(s)` : ''}.`,
+            flagged: result.flagged,
+            message: `Saved ${result.saved} record(s)${result.skipped > 0 ? `, skipped ${result.skipped} invalid row(s)` : ''}${result.flagged > 0 ? `; ${result.flagged} row(s) need checking (possible old/new EMI mix-up)` : ''}.`,
         };
     }
 }

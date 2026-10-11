@@ -26,6 +26,8 @@ import {
 import { DemandImportService } from './services-v2/demand-import.service';
 import { LoanEligibilityService } from '../loan/services-v2/loan-eligibility.service';
 import { LoanRepaymentService } from '../loan/services-v2/loan-repayment.service';
+import { LoanReagreementService } from '../loan/services-v2/reagreement/loan-reagreement.service';
+import { ReagreementDocumentService } from '../loan/services-v2/reagreement/reagreement-document.service';
 import { RdModule } from '../rd/rd.module';
 import { CompulsoryDepositController } from './compulsory-deposit.controller';
 import { JournalTransferController } from './journal-transfer.controller';
@@ -74,6 +76,10 @@ import { DividendPaymentController } from './dividend-payment.controller';
         // (DataSource, LoanEligibilityService, RdBalanceEventsService) are
         // already available in this module.
         LoanRepaymentService,
+        // Re-agreement: Pass Transactions / Loan Payment hooks call into it (same duplicated-provider
+        // pattern as LoanRepaymentService above, so this module does not need to import LoanV2Module).
+        LoanReagreementService,
+        ReagreementDocumentService,
     ],
     exports: [
         VoucherService,

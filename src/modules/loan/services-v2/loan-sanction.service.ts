@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { parseSafeDate } from '../../shared/utils/date-utils';
+import { LoanReagreementService } from './reagreement/loan-reagreement.service';
 
 /**
  * Loan Sanction Service - Handles loan sanction and approval operations.
@@ -10,7 +11,10 @@ import { parseSafeDate } from '../../shared/utils/date-utils';
  */
 @Injectable()
 export class LoanSanctionService {
-    constructor(private readonly dataSource: DataSource) { }
+    constructor(
+        private readonly dataSource: DataSource,
+        private readonly reagreementService: LoanReagreementService,
+    ) { }
 
     /**
      * Get all sanctioned loan cases ready for disbursement
@@ -27,6 +31,8 @@ export class LoanSanctionService {
           lp.sanctioned_amt,
           lp.flg_sanctioned,
           lp.flg_paid,
+          lp.application_kind,
+          lp.reagreement_id,
           lp.app_date as application_date
         FROM loan_pending lp
         JOIN member_master mm ON lp.mbno = mm.mbno
@@ -41,6 +47,10 @@ export class LoanSanctionService {
               SELECT 1 FROM loan_master lm
               WHERE lm.loancaseno::text = lp.loancaseno::text
           )
+          AND NOT EXISTS (
+              SELECT 1 FROM loan_reagreements r
+              WHERE r.new_loancaseno = lp.loancaseno AND r.status <> 'SANCTIONED'
+          )
         ORDER BY lp.loancaseno, lp.app_date ASC
       `;
 
@@ -54,7 +64,9 @@ export class LoanSanctionService {
                 appliedAmount: loan.applied_amt,
                 sanctionedAmount: loan.sanctioned_amt,
                 applicationDate: loan.application_date,
-                sanctioned: true
+                sanctioned: true,
+                applicationKind: loan.application_kind || 'NEW',
+                reagreementId: loan.reagreement_id ?? null,
             }));
         } catch (error) {
             console.error('[LoanSanction] Error getting sanctioned loan cases:', error);
@@ -128,7 +140,15 @@ export class LoanSanctionService {
             const loan = result[0];
             console.log('[LoanSanction] Fetched Loan Details for Case:', caseNo);
 
+            const reagreement = loan.application_kind === 'REAGREEMENT'
+                ? await this.reagreementService.getByNewCase(String(loan.loancaseno), String(loan.mbno))
+                : null;
+
             return {
+                applicationKind: loan.application_kind || 'NEW',
+                reagreement,
+                rate: loan.rate !== null && loan.rate !== undefined ? loan.rate : undefined,
+                penalRate: loan.penalrate !== null && loan.penalrate !== undefined ? loan.penalrate : undefined,
                 loanCaseNo: loan.loancaseno,
                 memberNo: loan.mbno,
                 memberName: loan.member_name,
@@ -169,7 +189,15 @@ export class LoanSanctionService {
     /**
      * Update loan with sanction details
      */
-    async updateLoanSanction(caseNo: string, sanctionData: any) {
+    async updateLoanSanction(caseNo: string, sanctionData: any, actor: string = 'system') {
+        // A re-agreement is sanctioned like a normal loan, but its principal is locked to the outstanding
+        // principal and the figures are recalculated by the re-agreement service.
+        if (await this.reagreementService.isReagreementCase(this.dataSource, caseNo)) {
+            return this.reagreementService.sanction(caseNo, {
+                noOfInstallments: sanctionData.noOfInstallments, rate: sanctionData.rate,
+                sanctionDate: sanctionData.sanctionDate, sanctionedAmount: sanctionData.sanctionedAmount,
+            }, { actor });
+        }
         try {
             const updateQuery = `
         UPDATE loan_pending SET

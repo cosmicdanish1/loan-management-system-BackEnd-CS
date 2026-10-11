@@ -35,6 +35,8 @@ import { NotificationModule } from './modules/notification/notification.module';
 import { LicenseModule } from './modules/license/license.module';
 import { ClientLogsModule } from './modules/client-logs/client-logs.module';
 import { NoticeModule } from './modules/notice/notice.module';
+import { SupportModule } from './modules/support/support.module';
+import { AlertsModule } from './modules/alerts/alerts.module';
 import { LoggingModule } from './common/logging/logging.module';
 
 @Module({
@@ -161,6 +163,8 @@ import { LoggingModule } from './common/logging/logging.module';
     LicenseModule,
     ClientLogsModule,
     NoticeModule,
+    AlertsModule, // Telegram alerts: errors, logins, backups, licence, daily digest
+    SupportModule, // Raise a Query desk (Jira + Telegram)
   ],
   controllers: [AppController],
   providers: [AppService],

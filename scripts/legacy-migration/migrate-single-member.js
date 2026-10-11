@@ -22,6 +22,11 @@
  * Usage:
  *   node migrate-single-member.js 610033194            (dry run)
  *   node migrate-single-member.js 610033194 --execute  (commit)
+ *
+ * Optional --tables=ledger,demand_master restricts the copy to those target tables (default: all 15).
+ * Use it to refresh only the tables that moved in the live legacy system, e.g. the ledger, WITHOUT
+ * overwriting loan_master / member_balances rows that Phase 2 has already replayed for this member.
+ *   node migrate-single-member.js 610032487 --tables=ledger --execute
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -59,6 +64,15 @@ const COPY_TABLES = [
   { source: 'member_master', target: 'member_master', member: 'MBNO' },
   { source: 'MemberCategory', target: 'membercategory', member: 'MBNO' },
 ];
+
+// --tables=a,b limits the copy to the named target tables; every other table is left untouched.
+const TABLES_ARG = process.argv.find(a => a.startsWith('--tables='));
+const ONLY_TABLES = TABLES_ARG ? TABLES_ARG.split('=')[1].split(',').map(t => t.trim().toLowerCase()).filter(Boolean) : null;
+if (ONLY_TABLES) {
+  const unknown = ONLY_TABLES.filter(t => !COPY_TABLES.some(c => c.target === t));
+  if (unknown.length) throw new Error(`Unknown table(s) for --tables: ${unknown.join(', ')}. Allowed: ${COPY_TABLES.map(c => c.target).join(', ')}`);
+}
+const SELECTED_TABLES = ONLY_TABLES ? COPY_TABLES.filter(c => ONLY_TABLES.includes(c.target)) : COPY_TABLES;
 
 function effectiveEnv() {
   const file = path.join(BACKEND, '.env');
@@ -169,7 +183,7 @@ function assertValidMember() {
 }
 
 function existsInLegacy() {
-  for (const spec of COPY_TABLES) {
+  for (const spec of SELECTED_TABLES) {
     const n = sourceQuery(`SELECT COUNT_BIG(*) AS n FROM ${msQuote('dbo')}.${msQuote(spec.source)}
       WHERE TRY_CAST(${msQuote(spec.member)} AS bigint) = ${MEMBER} FOR JSON PATH`)[0].n;
     if (Number(n) > 0) return true;
@@ -200,7 +214,7 @@ async function main() {
     await pg.query("SET LOCAL lock_timeout='10s'; SET LOCAL statement_timeout='2min'");
     await pg.query("SELECT pg_advisory_xact_lock(hashtext('legacy-all-member-migration'))");
 
-    for (const spec of COPY_TABLES) {
+    for (const spec of SELECTED_TABLES) {
       const columns = await metadata(pg, spec);
       const ownerCol = ownerColumn(columns, spec);
       const sourceRows = extractRows(spec, columns);
@@ -226,7 +240,9 @@ async function main() {
       console.log(`${spec.target}: deleted ${deleted}, inserted and verified ${sourceRows.length}`);
     }
 
-    await pg.query(`UPDATE member_master SET full_name=trim(concat_ws(' ',f_name,m_name,l_name)) WHERE mbno::text = $1`, [MEMBER]);
+    if (SELECTED_TABLES.some(t => t.target === 'member_master')) {
+      await pg.query(`UPDATE member_master SET full_name=trim(concat_ws(' ',f_name,m_name,l_name)) WHERE mbno::text = $1`, [MEMBER]);
+    }
 
     report.finishedAt = new Date().toISOString();
     fs.mkdirSync(OUT, { recursive: true });

@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { loanHeadOpeningSql } from '../loan/loan-opening-balance';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { DataSource } from 'typeorm';
@@ -291,12 +292,11 @@ export class MemberLedgerService {
     // row. Seed that account-level opening amount before replaying posted
     // movements; without it, repayments can drive the running balance below
     // zero and make the displayed balance appear to grow with each EMI.
+    // One opening per loan type, counted once (see loan-opening-balance.ts): legacy repeats the carried-forward balance on every
+    // year-end case, so adding all cases counted the same debt twice.
     const openingBalances = await this.dataSource.query(`
-      SELECT
-        COALESCE(SUM(openbalance) FILTER (WHERE loantype = 'RLN'), 0) AS ltl,
-        COALESCE(SUM(openbalance) FILTER (WHERE loantype IN ('ALN', 'ELN')), 0) AS emer
-      FROM loan_master
-      WHERE CAST(mbno AS text) = $1
+      SELECT ${loanHeadOpeningSql('$1::numeric', 'true')} AS ltl,
+             ${loanHeadOpeningSql('$1::numeric', 'false')} AS emer
     `, [memberNo]);
     const openingLoan = {
       ltl: Number(openingBalances[0]?.ltl) || 0,

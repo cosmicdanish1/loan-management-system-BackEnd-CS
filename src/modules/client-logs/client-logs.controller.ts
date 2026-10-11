@@ -4,6 +4,8 @@ import { Request } from 'express';
 import { Type } from 'class-transformer';
 import { IsArray, IsOptional, IsString, ValidateNested } from 'class-validator';
 import { ClientLogsService } from './client-logs.service';
+import { AlertBridge } from '../alerts/alert-bridge';
+import { clientInfoOf } from '../alerts/client-info';
 
 class ClientLogEntryDto {
   @IsString()
@@ -55,6 +57,20 @@ export class ClientLogsController {
 
     this.logger.debug(`Received ${entries.length} log entries from ${hostname}`);
     await this.clientLogsService.writeClientLogs(hostname, entries);
+
+    // Desktop-app errors → Telegram (grouped; the alert service never throws).
+    try {
+      const info = clientInfoOf(req);
+      for (const e of entries) {
+        if (String(e.level).toLowerCase() !== 'error') continue;
+        AlertBridge.get()?.reportClientCrash({
+          host: info.host || hostname,
+          route: e.route,
+          message: e.message,
+          version: info.version,
+        });
+      }
+    } catch { /* never break log ingestion */ }
 
     return { received: entries.length };
   }

@@ -31,18 +31,26 @@ import { LoanRepaymentService } from '../modules/loan/services-v2/loan-repayment
 import { VoucherService } from '../modules/transaction/services-v2/voucher.service';
 import { PassTransactionService } from '../modules/transaction/services-v2/pass-transaction.service';
 import { RdBalanceEventsService } from '../modules/rd/services/rd-balance-events.service';
+import { DemandImportService } from '../modules/transaction/services-v2/demand-import.service';
+import * as XLSX from 'xlsx';
 
 type D = [number, number, number]; // y, m(1-12), d
 interface Loan { date: D; amt: number; n: number; }
-interface Step { kind: 'repay' | 'lag' | 'probe'; date: D; }
+interface Step { kind: 'repay' | 'lag' | 'probe' | 'raw'; date: D; amount?: number; }
+interface DemandRow { month: number; year: number; rln: number; intt: number; }
 interface Plan {
     id: number; label: string; loans: Loan[];
+    /** member last name (default V4_M<id>) */
+    name?: string;
+    /** Excel demand rows previewed + saved after all payments (month 1-12) */
+    demand?: DemandRow[];
     // events after loan index i (0-based) is disbursed, until the next loan
     after: Step[][];
 }
 const rep = (y: number, m: number): Step => ({ kind: 'repay', date: [y, m, 14] });
 const lag = (y: number, m: number): Step => ({ kind: 'lag', date: [y, m, 14] });
 const probe = (y: number, m: number): Step => ({ kind: 'probe', date: [y, m, 14] });
+const raw = (y: number, m: number, d: number, amount: number): Step => ({ kind: 'raw', date: [y, m, d], amount });
 const reps = (y: number, m: number, count: number): Step[] => {
     const out: Step[] = [];
     for (let i = 0; i < count; i++) { out.push(rep(y + Math.floor((m - 1 + i) / 12), ((m - 1 + i) % 12) + 1)); }
@@ -70,6 +78,35 @@ const PLANS: Plan[] = [
         after: [reps(2025, 7, 6), [lag(2026, 3), ...reps(2026, 4, 4)], [lag(2026, 8), ...reps(2026, 9, 1)]] },
     { id: 10, label: 'S2 12m -> LATE 10m -> EARLY 6m (chained, no payroll-lag payments)', loans: [{ date: [2025, 3, 12], amt: 120000, n: 12 }, { date: [2025, 8, 26], amt: 60000, n: 10 }, { date: [2026, 1, 3], amt: 40000, n: 6 }],
         after: [reps(2025, 5, 3), reps(2025, 10, 3), reps(2026, 2, 3)] },
+    // ---- check-this flag scenarios (V5_F#) ----
+    { id: 11, name: 'V5_F1', label: 'FLAGS payment: second old-EMI-sized, near old EMI, old EMI after the wait',
+        loans: [{ date: [2025, 1, 28], amt: 60000, n: 6 }, { date: [2025, 6, 3], amt: 40000, n: 10 }],
+        after: [reps(2025, 3, 3), [raw(2025, 6, 14, 10450), raw(2025, 6, 20, 10450), raw(2025, 6, 27, 10442), raw(2025, 8, 14, 10450)]] },
+    { id: 12, name: 'V5_F2', label: 'FLAGS payment+demand: near old EMI, old+new together',
+        loans: [{ date: [2025, 2, 3], amt: 100000, n: 10 }, { date: [2025, 8, 27], amt: 50000, n: 12 }],
+        after: [reps(2025, 3, 5), [raw(2025, 9, 14, 10645), raw(2025, 10, 14, 19608.33)]],
+        demand: [{ month: 10, year: 2025, rln: 18333.33, intt: 1275 }] },
+    { id: 13, name: 'V5_F3', label: 'FLAGS payment: identical old and new EMI',
+        loans: [{ date: [2025, 2, 3], amt: 100000, n: 10 }, { date: [2025, 8, 3], amt: 50000, n: 10 }],
+        after: [reps(2025, 3, 5), [raw(2025, 8, 14, 10650), raw(2025, 9, 14, 10650)]] },
+    { id: 14, name: 'V5_F4', label: 'FLAGS demand import: old EMI repeated / after the wait',
+        loans: [{ date: [2025, 1, 28], amt: 60000, n: 6 }, { date: [2025, 6, 3], amt: 40000, n: 10 }],
+        after: [reps(2025, 3, 3), []],
+        demand: [
+            { month: 5, year: 2025, rln: 10000, intt: 450 },
+            { month: 6, year: 2025, rln: 10000, intt: 450 },
+            { month: 7, year: 2025, rln: 10000, intt: 450 },
+            { month: 8, year: 2025, rln: 10000, intt: 450 },
+            { month: 9, year: 2025, rln: 7000, intt: 455 },
+        ] },
+    { id: 15, name: 'V5_F5', label: 'FLAGS demand import: identical old and new EMI',
+        loans: [{ date: [2025, 2, 3], amt: 100000, n: 10 }, { date: [2025, 8, 3], amt: 50000, n: 10 }],
+        after: [reps(2025, 3, 5), []],
+        demand: [
+            { month: 8, year: 2025, rln: 10000, intt: 650 },
+            { month: 9, year: 2025, rln: 10000, intt: 650 },
+            { month: 10, year: 2025, rln: 10000, intt: 650 },
+        ] },
 ];
 
 const MBNO_OFFICE = { officeno: 2, branchmsno: '1-POWERHOUSE-POWERHOUSE-94' };
@@ -93,6 +130,7 @@ async function main() {
         const voucherSvc = app.get(VoucherService);
         const passSvc = app.get(PassTransactionService);
         const rdEvents = app.get(RdBalanceEventsService);
+        const demandImport = app.get(DemandImportService);
         const ds = app.get(DataSource);
         // Make sure the voucher counter is never behind the highest existing voucher.
         await ds.query(`UPDATE sequence_master SET last_value = GREATEST(last_value, (SELECT COALESCE(MAX(substring("voucherNumber" from 4)::int),0) FROM vouchers WHERE "voucherNumber" ~ '^VCH[0-9]+$')) WHERE sequence_key = 'VOUCHER_NO'`);
@@ -152,7 +190,7 @@ async function main() {
             virtualNow = null;
             if (RESUME_MBNO) { /* continue existing member, skip creation + seeding */ }
             const member = RESUME_MBNO ? { mbno: RESUME_MBNO } : await memberCrud.saveMemberMaster({
-                mbno: 'auto', f_name: 'SLOTMATRIX', l_name: `V4_M${plan.id}`, ...MBNO_OFFICE, isactive: 'Y', memb_date: new RealDate(2024, 0, 1),
+                mbno: 'auto', f_name: 'SLOTMATRIX', l_name: plan.name ?? `V4_M${plan.id}`, ...MBNO_OFFICE, isactive: 'Y', memb_date: new RealDate(2024, 0, 1),
             });
             const mbno = String(member.mbno);
             const mrep: any = { plan: plan.id, label: plan.label, mbno, events: [] };
@@ -179,7 +217,9 @@ async function main() {
                         setNow(s.date);
                         const asOf = new Date();
                         let amount = 0;
-                        if (s.kind === 'repay') {
+                        if (s.kind === 'raw') {
+                            amount = s.amount!;
+                        } else if (s.kind === 'repay') {
                             const due: any = await loanRepay.getDueStatus(caseNo, asOf as any);
                             amount = Number(due?.totalDue || 0);
                         } else {
@@ -197,7 +237,8 @@ async function main() {
                             const rows = await ds.query(`SELECT * FROM loan_repayment_ledger WHERE id > $1 AND mbno=$2 ORDER BY id`, [before, mbno]);
                             await mirrorToLedger(mbno, caseNo, rows, s.date);
                             console.log(`    ${fmt(s.date)} ${s.kind} ₹${amount}: ${r.message}`);
-                            mrep.events.push({ type: s.kind, date: fmt(s.date), amount, message: r.message });
+                            if ((r as any).flag) console.log(`      >>> FLAG ${(r as any).flag.code}: ${(r as any).flag.message}`);
+                            mrep.events.push({ type: s.kind, date: fmt(s.date), amount, message: r.message, flag: (r as any).flag ?? null });
                         } catch (e: any) {
                             console.log(`    ${fmt(s.date)} ${s.kind} ₹${amount}: REJECTED -> ${e.message}`);
                             mrep.events.push({ type: s.kind, date: fmt(s.date), amount, rejected: e.message });
@@ -207,6 +248,21 @@ async function main() {
             } catch (e: any) {
                 console.error(`  !! member ${plan.id} aborted: ${e.message}`);
                 mrep.error = e.message;
+            }
+
+            // Demand import (Excel) for this member: real preview + save through the service.
+            for (const d of plan.demand ?? []) {
+                const total = Math.round((d.rln + d.intt) * 100) / 100;
+                const wb = XLSX.utils.book_new();
+                const header = ['S.NO.', 'YYMM', 'CODE', 'MS.NO.', 'PS.NO.', 'NAME', 'TOTAL', 'R/D', 'R/LOAN', 'E/LOAN', 'INTT'];
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([header, [1, `${String(d.year).slice(2)}${String(d.month).padStart(2, '0')}`, '', mbno, '', 'SLOTMATRIX', total, 0, d.rln, 0, d.intt]]), 'Sheet1');
+                const buf: Buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+                const preview = await demandImport.previewFromBuffer(buf, undefined, d.month, d.year);
+                const prow: any = preview.rows[0];
+                const saved = await demandImport.saveRows(d.month, d.year, preview.rows as any, undefined);
+                const flagTxt = prow?.flags?.length ? prow.flags.map((f: any) => f.code).join(',') : 'no flag';
+                console.log(`    DEMAND ${String(d.month).padStart(2, '0')}-${d.year} R/LOAN ${d.rln} INTT ${d.intt}: status ${prow?.status}, ${flagTxt}, saved ${saved.saved}, flagged ${saved.flagged}`);
+                mrep.events.push({ type: 'demand', month: d.month, year: d.year, rln: d.rln, intt: d.intt, status: prow?.status, flags: prow?.flags ?? [], saved });
             }
         }
     } finally {

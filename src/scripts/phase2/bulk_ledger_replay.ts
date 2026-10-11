@@ -56,7 +56,9 @@
  */
 
 import { execFileSync } from 'child_process';
+import { loanHeadOpeningSql } from '../../modules/loan/loan-opening-balance';
 import { readFileSync } from 'fs';
+import { closingAdjustment, correctionsFor, typeOfCode } from './manual-corrections';
 import { DataSource } from 'typeorm';
 import { LoanRepaymentService } from '../../modules/loan/services-v2/loan-repayment.service';
 import { LoanEligibilityService } from '../../modules/loan/services-v2/loan-eligibility.service';
@@ -115,6 +117,8 @@ interface LegacyCase {
     noOfInstal: number;
     instalAmt: number;
     paymentDate: string; // origination date
+    /** Loan type as stored in loan_master when it differs from the head used for attribution (ELN is an emergency loan on the ALN head). */
+    dbType?: string;
 }
 
 interface LegacyEvent {
@@ -134,6 +138,10 @@ interface LegacyEvent {
      *  case actually absorbed. */
     interestAmt: number;
     interestAllocationWarning?: string;
+    /** Total I1002 of a mixed RLN/ALN voucher that has no RLN-only baseline; split later by outstanding balance (see splitMixedInterest). */
+    mixedInterestTotal?: number;
+    /** Set when a manual correction (see manual-corrections.ts) moved this credit to another loan type. */
+    correctionNote?: string;
     interestAllocationInfo?: string;
     receiptVchrNo: string;
     vchrType: string;
@@ -144,6 +152,9 @@ interface LegacyEvent {
 }
 
 interface ConsolidationEvent {
+    /** transNo + date + voucher of the CR leg. TRANS_NO alone is NOT unique (repeats across vouchers of one member), so keying on it
+     *  silently dropped unrelated repayments (610031733: an ALN cash receipt shared TRANS_NO 35 with a journal leg). */
+    crKey?: string;
     date: string;
     receiptVchrNo: string;
     amt: number;
@@ -165,7 +176,7 @@ function getMembersInScope(): string[] {
     let query = `
         SET NOCOUNT ON;
         SELECT DISTINCT MBNO FROM LEDGER
-        WHERE ACC_TYPE IN ('RLN','ALN') AND TRANS_TYPE='CR'
+        WHERE ACC_TYPE IN ('RLN','ALN')
           AND MBNO NOT IN ('0')
         ORDER BY MBNO;
     `;
@@ -194,11 +205,11 @@ function getLegacyCases(mbno: string): LegacyCase[] {
     const rows = sqlcmd(`
         SET NOCOUNT ON;
         SELECT LOANCASENO, LOANTYPE, LOAN_AMT, BALANCE, NO_OF_INSTAL, INSTAL_AMT, CONVERT(varchar, PAYMENT_DATE, 120)
-        FROM LOAN_MASTER WHERE MBNO='${mbno}' AND LOANTYPE IN ('RLN','ALN')
+        FROM LOAN_MASTER WHERE MBNO='${mbno}' AND LOANTYPE IN ('RLN','ALN','ELN')
         ORDER BY PAYMENT_DATE;
     `);
     return rows.map(r => ({
-        loancaseno: r[0], loantype: r[1] as any,
+        loancaseno: r[0], loantype: (r[1] === 'ELN' ? 'ALN' : r[1]) as any, dbType: r[1],
         loanAmt: parseFloat(r[2]), balance: parseFloat(r[3]),
         noOfInstal: parseInt(r[4], 10), instalAmt: parseFloat(r[5]),
         paymentDate: r[6],
@@ -284,6 +295,7 @@ function getLegacyEvents(mbno: string): LegacyEvent[] {
         if (hasRln && hasAln && !(fixedRlnInterest && fixedRlnInterest > 0)) {
             for (const m of matches) {
                 m.interestAllocationWarning = `Mixed RLN/ALN voucher ${leg.receiptVchrNo} on ${leg.transDate} has no RLN-only interest baseline; I1002 ₹${leg.amt} was not guessed into either loan`;
+                m.mixedInterestTotal = round2(leg.amt);
             }
             continue;
         }
@@ -338,7 +350,7 @@ function findConsolidationEvents(events: LegacyEvent[]): ConsolidationEvent[] {
         // DR = balance increases (top-up), CR = balance decreases (paid down/closed) —
         // same direction as an ordinary disbursement (DR) vs repayment (CR) elsewhere
         // in this ledger. fromHead is the CR leg (closes), toHead is the DR leg (tops up).
-        result.push({ date: dr.transDate, receiptVchrNo: dr.receiptVchrNo, amt: round2(dr.amt), fromHead: cr.accType, toHead: dr.accType, crTransNo: cr.transNo });
+        result.push({ date: dr.transDate, receiptVchrNo: dr.receiptVchrNo, amt: round2(dr.amt), fromHead: cr.accType, toHead: dr.accType, crTransNo: cr.transNo, crKey: `${cr.transNo}|${cr.transDate}|${cr.receiptVchrNo}` });
     }
     return result.sort((a, b) => a.date.localeCompare(b.date));
 }
@@ -440,8 +452,20 @@ interface CaseState {
     closed: boolean;
     closedDate?: string;
     consolidatedInto?: string;
-    repaymentsToReplay: { date: string; amount: number; principalAmount: number; interestAmount: number }[];
+    /** vchrType = the legacy ledger voucher type ('D' demand receipt, 'R' cash receipt, ...): decides payment_source. */
+    repaymentsToReplay: { date: string; amount: number; principalAmount: number; interestAmount: number; vchrType?: string; note?: string }[];
     toppedUpBy: number; // sum of consolidation amounts credited INTO this case
+    exhausted?: boolean; // principal fully recovered by ordinary payments (set during attribution)
+    /** Opening principal = the LEDGER balance of the loan head right after the disbursal day (carried older balance included). */
+    startPrincipal?: number;
+    /** Ledger balance after each debit day that starts / tops up this loan: opening principal of the schedule version from that date. */
+    boundary?: Record<string, number>;
+    /** Debits added to this loan after it started (journal transfers in), for the loan record. */
+    laterTopups?: number;
+    /** Same-day, same-amount duplicate legacy row: not the real loan (its terms do not explain the payments). */
+    ignoredDuplicate?: boolean;
+    /** Older carried-forward year-end case: the debt lives on the newest carried case. */
+    supersededCarry?: boolean;
     /** Final principal-only remaining balance after the whole attribution
      *  walk — set once per type-group is fully processed (see buildAttribution's
      *  end-of-loop). Used by analysis tooling that needs "is this case still
@@ -468,7 +492,189 @@ function computeOldEmiSplit(legacyCase: LegacyCase): { principal: number; intere
     return { principal, interest };
 }
 
-function buildAttribution(cases: LegacyCase[], events: LegacyEvent[], consolidations: ConsolidationEvent[]) {
+/** The recurring monthly principal of a loan (most frequent amount among its last payments), 0 when there is none. */
+function modePrincipal(rows: { principalAmount: number; vchrType?: string }[]): number {
+    const last = rows.filter(r => r.principalAmount > 0 && r.vchrType !== 'J' && r.vchrType !== 'INT').slice(-12);
+    const freq = new Map<number, number>();
+    for (const r of last) freq.set(round2(r.principalAmount), (freq.get(round2(r.principalAmount)) || 0) + 1);
+    const best = [...freq.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0];
+    return best && best[1] >= 2 ? best[0] : 0;
+}
+
+// ---------------------------------------------------------------------
+// LEDGER-DRIVEN ATTRIBUTION (2026-10-07). The ledger is the truth for what a member owes on each loan head, and the principal of every
+// consolidated / new loan was already worked out by the society's employees (it is the ledger balance right after the disbursal day).
+// So: one current loan per head; a disbursal day starts a new loan whose opening principal IS the ledger head balance after that day's
+// debits (the older open loan of that head ends that day and its balance is carried into the new one - its history is not re-checked);
+// credits go to the current loan until the ledger balance reaches zero. The legacy loan_amt / PL_BALANCE / top-up arithmetic is no longer
+// used to decide principals or when a loan is finished.
+// ---------------------------------------------------------------------
+function buildLedgerAttribution(cases: LegacyCase[], events: LegacyEvent[], jpairs: ConsolidationEvent[],
+    owedBefore: (type: string, date: string) => number) {
+    const EPS = 0.5;
+    const flags: string[] = [];
+    const consolidations: ConsolidationEvent[] = [...jpairs];
+    const byType: Record<string, CaseState[]> = { RLN: [], ALN: [] };
+    for (const c of cases) {
+        if (!byType[c.loantype]) byType[c.loantype] = [];
+        byType[c.loantype].push({ legacyCase: c, closed: false, repaymentsToReplay: [], toppedUpBy: 0 });
+    }
+    const day10 = (s: string) => s.slice(0, 10);
+    const caseNo = (cs: CaseState) => cs.legacyCase.loancaseno;
+
+    for (const type of Object.keys(byType)) {
+        const queue = byType[type];
+        queue.sort((a, b) => a.legacyCase.paymentDate.localeCompare(b.legacyCase.paymentDate) || (Number(a.legacyCase.loancaseno) - Number(b.legacyCase.loancaseno)));
+        const typeEvents = events.filter(e => e.accType === type)
+            .sort((a, b) => a.transDate.localeCompare(b.transDate) || (a.transType === b.transType ? 0 : a.transType === 'DR' ? -1 : 1));
+        const real = queue.filter(c => c.legacyCase.loanAmt > 0);
+        for (const c of queue.filter(c => c.legacyCase.loanAmt <= 0)) {
+            flags.push(`Case ${caseNo(c)} (${type}) has invalid loan_amt (₹${c.legacyCase.loanAmt}) in the legacy source — excluded, not a real loan to replay`);
+        }
+
+        // Duplicate legacy rows: several rows for the same disbursal (same member, loan type, day and amount). Only one is the real loan:
+        // the one whose own instalment terms explain the payments that actually came in.
+        const groups = new Map<string, CaseState[]>();
+        for (const c of real) {
+            const key = `${day10(c.legacyCase.paymentDate)}|${c.legacyCase.loanAmt}`;
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key)!.push(c);
+        }
+        for (const [key, g] of groups) {
+            if (g.length < 2) continue;
+            const day = key.split('|')[0];
+            const observed = typeEvents.filter(e => e.transType === 'CR' && day10(e.transDate) >= day).map(e => e.amt);
+            const scored = g.map(c => {
+                const pEmi = c.legacyCase.noOfInstal > 0 ? c.legacyCase.loanAmt / c.legacyCase.noOfInstal : 0;
+                return { c, pEmi, score: pEmi > 0 ? observed.filter(a => Math.abs(a - pEmi) < 1).length : 0 };
+            }).sort((a, b) => b.score - a.score || Number(a.c.legacyCase.loancaseno) - Number(b.c.legacyCase.loancaseno));
+            for (let i = 1; i < scored.length; i++) {
+                scored[i].c.ignoredDuplicate = true;
+                flags.push(`INFO duplicate legacy loan row ignored: case ${caseNo(scored[i].c)} (${type}, ₹${scored[i].c.legacyCase.loanAmt}, ${scored[i].c.legacyCase.noOfInstal} instalments) `
+                    + `has the same date and amount as case ${caseNo(scored[0].c)} (${scored[0].c.legacyCase.noOfInstal} instalments); the payments fit case ${caseNo(scored[0].c)} (${scored[0].score} payments of ₹${round2(scored[0].pEmi)})`);
+            }
+        }
+        const active = real.filter(c => !c.ignoredDuplicate);
+
+        const firstEvent = typeEvents.length ? day10(typeEvents[0].transDate) : '9999-12-31';
+        const carried = active.filter(c => day10(c.legacyCase.paymentDate) < firstEvent);
+        const remaining = new Map<CaseState, number>();
+        let B = owedBefore(type, '1900-01-01');           // ledger balance of this loan head (opening counted once)
+        let cur: CaseState | undefined;
+
+        const startCase = (cs: CaseState, principal: number, date: string) => {
+            cs.startPrincipal = Math.max(0, round2(principal));
+            cs.boundary = { ...(cs.boundary || {}), [date]: Math.max(0, round2(principal)) };
+        };
+        const newestOnOrBefore = (day: string): CaseState | undefined => {
+            for (let i = active.length - 1; i >= 0; i--) if (day10(active[i].legacyCase.paymentDate) <= day && !active[i].supersededCarry) return active[i];
+            return undefined;
+        };
+
+        if (carried.length) {
+            for (let i = 0; i < carried.length - 1; i++) { carried[i].supersededCarry = true; remaining.set(carried[i], 0); }
+            cur = carried[carried.length - 1];
+            startCase(cur, B, day10(cur.legacyCase.paymentDate));
+            remaining.set(cur, Math.max(0, B));
+        }
+
+        // walk the ledger day by day: debits first, then credits
+        const days = [...new Set(typeEvents.map(e => day10(e.transDate)))];
+        for (const day of days) {
+            const dayEvents = typeEvents.filter(e => day10(e.transDate) === day);
+            const drs = dayEvents.filter(e => e.transType === 'DR');
+            const crs = dayEvents.filter(e => e.transType === 'CR');
+
+            if (drs.length) {
+                const total = round2(drs.reduce((s, e) => s + e.amt, 0));
+                const starting = active.find(c => !c.supersededCarry && day10(c.legacyCase.paymentDate) === day && c.startPrincipal === undefined);
+                const balanceBefore = B;
+                B = round2(B + total);
+                if (starting) {
+                    const prev = cur;
+                    const carry = prev ? Math.max(0, remaining.get(prev) || 0) : 0;
+                    if (prev && prev !== starting && carry > EPS) {
+                        prev.closed = true; prev.closedDate = day;
+                        remaining.set(prev, 0);
+                        starting.toppedUpBy = carry;
+                        consolidations.push({ date: day, receiptVchrNo: drs[0].receiptVchrNo, amt: carry, fromHead: type as any, toHead: type as any, crTransNo: '',
+                            resolvedFromCase: caseNo(prev), resolvedToCase: caseNo(starting) });
+                    }
+                    startCase(starting, B, day);
+                    remaining.set(starting, Math.max(0, B));
+                    cur = starting;
+                } else if (cur && round2(B) > EPS && total > EPS) {
+                    // A debit with no new loan that day: a top-up / transfer in. When it only pays back an earlier credit balance, just the part
+                    // above zero is new debt.
+                    const newDebt = balanceBefore >= -EPS ? total : round2(Math.max(0, B));
+                    if (newDebt > EPS) {
+                        cur.boundary = { ...(cur.boundary || {}), [day]: Math.max(0, B) };
+                        cur.toppedUpBy = round2(cur.toppedUpBy + newDebt);
+                        cur.laterTopups = round2((cur.laterTopups || 0) + newDebt);
+                        let linked = false;
+                        for (const e of drs.filter(x => x.vchrType === 'J')) {
+                            const jp = jpairs.find(p => p.date.slice(0, 10) === day && p.receiptVchrNo === e.receiptVchrNo && p.toHead === type);
+                            if (jp) { jp.resolvedToCase = caseNo(cur); linked = true; }
+                        }
+                        // every top-up is a new agreement boundary: the schedule continues from the ledger balance after it
+                        if (!linked) consolidations.push({ date: day, receiptVchrNo: drs[0].receiptVchrNo, amt: newDebt, fromHead: type as any, toHead: type as any, crTransNo: '', resolvedToCase: caseNo(cur) });
+                    }
+                    remaining.set(cur, Math.max(0, B));
+                } else if (!cur && B > EPS) {
+                    const re = newestOnOrBefore(day) || active[0];
+                    if (re) {
+                        cur = re; if (re.startPrincipal === undefined) startCase(re, B, day);
+                        remaining.set(re, Math.max(0, B));
+                        flags.push(`INFO ledger-based: debit ₹${total} on ${day} (${type}) applied to case ${caseNo(re)} (no loan started that day)`);
+                    }
+                } else if (cur) {
+                    remaining.set(cur, Math.max(0, B));   // refund of an earlier credit balance
+                }
+            }
+
+            for (const e of crs) {
+                if (!cur && B > EPS) {
+                    const re = newestOnOrBefore(day) || active[0];
+                    if (re) {
+                        cur = re; if (re.startPrincipal === undefined) startCase(re, B, day);
+                        remaining.set(re, Math.max(0, B));
+                        flags.push(`INFO ledger-based: case ${caseNo(re)} (${type}) opened by the ledger on ${day} (balance ₹${round2(B)} but no loan started)`);
+                    }
+                }
+                const owed = cur ? Math.max(0, B) : 0;
+                const applied = round2(Math.min(e.amt, owed));
+                if (cur && applied > EPS) {
+                    const interest = e.amt > 0 ? round2(e.interestAmt * (applied / e.amt)) : 0;
+                    cur.repaymentsToReplay.push({ date: e.transDate, amount: round2(applied + interest), principalAmount: applied, interestAmount: interest, vchrType: e.vchrType, note: e.correctionNote });
+                }
+                if (e.amt - applied > EPS) {
+                    flags.push(`Overpayment ₹${round2(e.amt - applied)} on ${e.transDate} (${type}) — the ledger balance was already ₹${round2(Math.max(0, B))}; not applied to any loan (check for a refund voucher)`);
+                }
+                B = round2(B - e.amt);
+                if (cur) remaining.set(cur, Math.max(0, B));
+                if (e.vchrType === 'J' && cur && B <= EPS) {
+                    const jp = jpairs.find(p => p.date.slice(0, 10) === day && p.receiptVchrNo === e.receiptVchrNo && p.fromHead === type);
+                    if (jp) jp.resolvedFromCase = caseNo(cur);
+                }
+            }
+        }
+
+        if (B > EPS && !cur) flags.push(`LEDGER_OWES_NO_OPEN_CASE (${type}): ledger balance ₹${round2(B)} but no loan row of this type explains it — manual`);
+        for (const cs of queue) {
+            const rem = round2(remaining.get(cs) || 0);
+            cs.finalRemainingPrincipal = rem;
+            cs.exhausted = !cs.closed && !cs.ignoredDuplicate && !cs.supersededCarry && cs.legacyCase.loanAmt > 0 && cs.startPrincipal !== undefined && rem <= EPS;
+        }
+    }
+    consolidations.sort((a, b) => a.date.localeCompare(b.date));
+    return { byType, flags, consolidations };
+}
+
+
+/** owedBefore(type, date): what the LEDGER says is owed on that loan head at the start of the credit's day (opening + debits up to the
+ *  day - credits before it). The ledger, not the legacy loan_amt arithmetic, decides whether a loan is really finished. */
+function buildAttribution(cases: LegacyCase[], events: LegacyEvent[], consolidations: ConsolidationEvent[],
+    owedBefore: (type: string, date: string) => number = () => 0) {
     const byType: Record<string, CaseState[]> = { RLN: [], ALN: [] };
     for (const c of cases) {
         if (!byType[c.loantype]) byType[c.loantype] = [];
@@ -485,17 +691,17 @@ function buildAttribution(cases: LegacyCase[], events: LegacyEvent[], consolidat
     // of its successor. Consolidation CR legs are consumed by the close event below,
     // not replayed again here as an ordinary repayment (they're an internal transfer,
     // not member cash).
-    const consumedCrTransNos = new Set(consolidations.map(c => c.crTransNo));
+    const consumedCrTransNos = new Set(consolidations.map(c => c.crKey).filter(Boolean) as string[]);
     const flags: string[] = [];
 
-    type Tick = { date: string; kind: 'repay' | 'close' | 'topup'; amount: number; interestAmt: number; priority: number; source?: ConsolidationEvent };
+    type Tick = { date: string; kind: 'repay' | 'close' | 'topup'; amount: number; interestAmt: number; priority: number; source?: ConsolidationEvent; vchrType?: string; note?: string };
 
     for (const type of Object.keys(byType)) {
         const activeQueue = byType[type];
 
         const repayTicks: Tick[] = events
-            .filter(e => e.accType === type && e.transType === 'CR' && !consumedCrTransNos.has(e.transNo))
-            .map(e => ({ date: e.transDate, kind: 'repay' as const, amount: round2(e.amt), interestAmt: e.interestAmt, priority: 1 }));
+            .filter(e => e.accType === type && e.transType === 'CR' && !consumedCrTransNos.has(`${e.transNo}|${e.transDate}|${e.receiptVchrNo}`))
+            .map(e => ({ date: e.transDate, kind: 'repay' as const, amount: round2(e.amt), interestAmt: e.interestAmt, priority: 1, vchrType: e.vchrType, note: e.correctionNote }));
         const closeTicks: Tick[] = consolidations
             .filter(c => c.fromHead === type)
             .map(c => ({ date: c.date, kind: 'close' as const, amount: c.amt, interestAmt: 0, priority: 0, source: c }));
@@ -568,14 +774,37 @@ function buildAttribution(cases: LegacyCase[], events: LegacyEvent[], consolidat
                 const interestPerRupee = tick.amount > 0 ? tick.interestAmt / tick.amount : 0;
                 while (amountLeft > EPS) {
                     advancePastExhausted();
+                    if (cursor >= activeQueue.length && owedBefore(type, tick.date) > 0.5) {
+                        // Every case reads "used up" on loan_amt arithmetic (legacy loan_amt is cumulative / topups double counted) but the
+                        // LEDGER says the head still owes: the newest real case carries it, so reopen it by what the ledger says is owed.
+                        let idx = -1;
+                        for (let i = activeQueue.length - 1; i >= 0; i--) {
+                            if (!activeQueue[i].closed && activeQueue[i].legacyCase.loanAmt > 0 && activeQueue[i].legacyCase.paymentDate <= tick.date) { idx = i; break; }
+                        }
+                        if (idx >= 0) {
+                            const grow = round2(Math.min(owedBefore(type, tick.date), amountLeft));
+                            remaining[idx] += grow;
+                            naturallyExhausted[idx] = false;
+                            cursor = Math.min(cursor, idx);
+                            flags.push(`INFO ledger-based: case ${activeQueue[idx].legacyCase.loancaseno} (${type}) reopened by ₹${grow} on ${tick.date} — the ledger still owed ₹${round2(owedBefore(type, tick.date))} `
+                                + `while the legacy loan amount read as fully repaid`);
+                            continue;
+                        }
+                    }
                     if (cursor >= activeQueue.length) {
-                        flags.push(`Unattributed CR ₹${round2(amountLeft)} on ${tick.date} (${type}) — no active case left to assign it to`);
+                        // Money received after the last case was fully repaid is an OVERPAYMENT (payroll kept deducting); the
+                        // Loan Position panel shows it, and any refund voucher, from the ledger. Not a data exception.
+                        flags.push(naturallyExhausted.some((x, i) => x && activeQueue[i].legacyCase.loanAmt > 0) || owedBefore(type, tick.date) <= 0.5
+                            ? `Overpayment ₹${round2(amountLeft)} on ${tick.date} (${type}) — loan already fully repaid; not applied to any case (check for a refund voucher)`
+                            : `Unattributed CR ₹${round2(amountLeft)} on ${tick.date} (${type}) — no active case left to assign it to`);
                         break;
                     }
                     if (activeQueue[cursor].legacyCase.paymentDate > tick.date) {
-                        flags.push(`Unattributed CR ₹${round2(amountLeft)} on ${tick.date} (${type}) — next case (${activeQueue[cursor].legacyCase.loancaseno}) `
-                            + `not disbursed until ${activeQueue[cursor].legacyCase.paymentDate}, nothing open yet to receive it`);
-                        break;
+                        // Money received on this loan head before the next loan on it exists (typically the old loan's EMI still
+                        // coming off payroll after a cross-type consolidation closed it). The ledger carries it as a credit on
+                        // the head, so it reduces the next loan; dropping it left the record higher than the ledger.
+                        flags.push(`INFO credit ₹${round2(amountLeft)} on ${tick.date} (${type}) arrived before the next case (${activeQueue[cursor].legacyCase.loancaseno}) `
+                            + `was disbursed (${activeQueue[cursor].legacyCase.paymentDate}); applied to that case as an earlier credit`);
                     }
                     // applied/remaining[cursor]/amountLeft all stay PRINCIPAL-ONLY —
                     // this is the exhaustion bookkeeping that decides when a case's
@@ -591,6 +820,8 @@ function buildAttribution(cases: LegacyCase[], events: LegacyEvent[], consolidat
                             amount: round2(applied + appliedInterest),
                             principalAmount: round2(applied),
                             interestAmount: appliedInterest,
+                            vchrType: tick.vchrType,
+                            note: tick.note,
                         });
                         remaining[cursor] -= applied;
                         amountLeft -= applied;
@@ -623,6 +854,20 @@ function buildAttribution(cases: LegacyCase[], events: LegacyEvent[], consolidat
                         + `predecessor was already fully repaid before this date; skipping the close, topup still applies`);
                     continue;
                 }
+                // A journal transfer smaller than what the case still owes is a PARTIAL transfer (RLN<->ALN reclassification
+                // of part of the debt), not a closure. Closing the whole case here orphaned every later payment (610030031: a
+                // Rs 7,500 journal closed a Rs 11 lakh loan and 38 later payments had nowhere to go). Apply it as a principal
+                // credit on the case and keep the case open; the other leg still tops up the receiving case.
+                const owed = remaining[cursor];
+                if (owed - tick.amount > Math.max(1000, owed * 0.05)) {
+                    activeQueue[cursor].repaymentsToReplay.push({
+                        date: tick.date, amount: round2(tick.amount), principalAmount: round2(tick.amount), interestAmount: 0, vchrType: 'J',
+                    });
+                    remaining[cursor] -= tick.amount;
+                    flags.push(`INFO partial journal transfer ₹${round2(tick.amount)} on ${tick.date} (${type}) applied to case ${activeQueue[cursor].legacyCase.loancaseno} `
+                        + `(still owes ₹${round2(remaining[cursor])}); not a closure`);
+                    continue;
+                }
                 activeQueue[cursor].closed = true;
                 activeQueue[cursor].closedDate = tick.date;
                 if (tick.source) tick.source.resolvedFromCase = activeQueue[cursor].legacyCase.loancaseno;
@@ -636,7 +881,21 @@ function buildAttribution(cases: LegacyCase[], events: LegacyEvent[], consolidat
                     .filter(i => isOpen(i) && activeQueue[i].legacyCase.paymentDate <= tick.date);
                 const receivingIdx = candidateIdxs[candidateIdxs.length - 1];
                 if (receivingIdx === undefined) {
-                    flags.push(`Consolidation-topup ₹${tick.amount} on ${tick.date} (${type}) — no open case found to receive it`);
+                    // No open case, but the ledger carries this debit: the newest real case on/before the date takes it (reopened).
+                    let fb = -1;
+                    for (let i = activeQueue.length - 1; i >= 0; i--) {
+                        if (!activeQueue[i].closed && activeQueue[i].legacyCase.loanAmt > 0 && activeQueue[i].legacyCase.paymentDate <= tick.date) { fb = i; break; }
+                    }
+                    if (fb < 0) {
+                        flags.push(`Consolidation-topup ₹${tick.amount} on ${tick.date} (${type}) — no case found to receive it`);
+                        continue;
+                    }
+                    naturallyExhausted[fb] = false;
+                    cursor = Math.min(cursor, fb);
+                    activeQueue[fb].toppedUpBy += tick.amount;
+                    remaining[fb] += tick.amount;
+                    if (tick.source) tick.source.resolvedToCase = activeQueue[fb].legacyCase.loancaseno;
+                    flags.push(`INFO ledger-based: top-up ₹${tick.amount} on ${tick.date} (${type}) applied to case ${activeQueue[fb].legacyCase.loancaseno}, reopened`);
                     continue;
                 }
                 activeQueue[receivingIdx].toppedUpBy += tick.amount;
@@ -654,6 +913,8 @@ function buildAttribution(cases: LegacyCase[], events: LegacyEvent[], consolidat
                 flags.push(`Case ${activeQueue[i].legacyCase.loancaseno} (${type}) ran ₹${round2(-remaining[i])} negative after attribution — real repayments exceed loanAmt+topups, needs manual review`);
             }
             activeQueue[i].finalRemainingPrincipal = round2(remaining[i]);
+            // "Used up" is decided at the END of the walk (a case reopened by the ledger is not used up).
+            activeQueue[i].exhausted = !activeQueue[i].closed && activeQueue[i].legacyCase.loanAmt > 0 && remaining[i] <= EPS;
         }
     }
 
@@ -664,20 +925,152 @@ function buildAttribution(cases: LegacyCase[], events: LegacyEvent[], consolidat
 // Replay execution
 // ---------------------------------------------------------------------
 
+/** Ledger running balance per loan head from the migrated ledger (opening balances + debits - credits). */
+async function buildOwedBefore(mbno: string): Promise<(type: string, date: string) => number> {
+    const corr = correctionsFor(mbno);
+    const opening = await AppDataSource.query(
+        `SELECT true AS reg, ${loanHeadOpeningSql('$1::numeric', 'true')}::numeric AS ob UNION ALL SELECT false, ${loanHeadOpeningSql('$1::numeric', 'false')}::numeric`, [mbno]);
+    const rows = await AppDataSource.query(
+        `SELECT code, to_char(trans_date, 'YYYY-MM-DD') AS d, trans_type, trans_amt::numeric AS amt FROM ledger
+          WHERE mbno=$1 AND code IN ('A1002','A1047') ORDER BY trans_date, ledgerid`, [mbno]);
+    // A manual correction treats the credit as posted to the other loan type.
+    for (const c of corr) {
+        const row = rows.find((r: any) => r.code === c.code && r.d === c.date && r.trans_type !== 'DR' && r.trans_type !== 'P' && Math.abs((parseFloat(r.amt) || 0) - c.amount) < 0.5);
+        if (row) row.code = c.toCode;
+    }
+    const ob: Record<string, number> = { RLN: 0, ALN: 0 };
+    for (const r of opening) ob[r.reg ? 'RLN' : 'ALN'] = parseFloat(r.ob) || 0;
+    return (type: string, date: string) => {
+        const code = type === 'RLN' ? 'A1002' : 'A1047';
+        const day = date.slice(0, 10);
+        let bal = ob[type] || 0;
+        for (const r of rows) {
+            if (r.code !== code) continue;
+            const amt = parseFloat(r.amt) || 0;
+            if (r.trans_type === 'DR' || r.trans_type === 'P') { if (r.d <= day) bal += amt; }
+            else if (r.d < day) bal -= amt;
+        }
+        return round2(bal);
+    };
+}
+
+/**
+ * MIXED RLN/ALN VOUCHERS (2026-10-06). One demand voucher carries both loans' principal but a single I1002 interest credit, and the member
+ * has no RLN-only voucher to read a fixed regular-loan interest from. Both loans bill the same reducing-balance interest, so the interest
+ * follows the debt: each head gets its share of the voucher's interest in proportion to what the LEDGER says that head owed before the
+ * payment (if both owe nothing, in proportion to the principal paid). The whole I1002 amount is always placed, never dropped.
+ */
+function splitMixedInterest(events: LegacyEvent[], owedBefore: (type: string, date: string) => number): { vouchers: number; total: number } {
+    const groups = new Map<string, LegacyEvent[]>();
+    for (const e of events) {
+        if (e.mixedInterestTotal === undefined || e.transType !== 'CR') continue;
+        const key = `${e.receiptVchrNo}|${e.transDate}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key)!.push(e);
+    }
+    let vouchers = 0, total = 0;
+    for (const [, legs] of groups) {
+        const t = legs[0].mixedInterestTotal!;
+        const date = legs[0].transDate;
+        const principal: Record<string, number> = { RLN: 0, ALN: 0 };
+        for (const e of legs) principal[e.accType] += e.amt;
+        let wR = Math.max(0, owedBefore('RLN', date)), wA = Math.max(0, owedBefore('ALN', date));
+        if (principal.RLN <= 0) wR = 0;
+        if (principal.ALN <= 0) wA = 0;
+        if (wR + wA <= 0) { wR = principal.RLN; wA = principal.ALN; }
+        if (wR + wA <= 0) continue;
+        const share: Record<string, number> = { RLN: round2(t * wR / (wR + wA)), ALN: 0 };
+        share.ALN = round2(t - share.RLN);
+        for (const type of ['RLN', 'ALN']) {
+            const rows = legs.filter(e => e.accType === type);
+            const sum = rows.reduce((a, e) => a + e.amt, 0);
+            if (rows.length === 0 || sum <= 0) continue;
+            let assigned = 0;
+            rows.forEach((e, i) => {
+                const part = i === rows.length - 1 ? round2(share[type] - assigned) : round2(share[type] * (e.amt / sum));
+                e.interestAmt = round2(e.interestAmt + part); assigned = round2(assigned + part);
+            });
+        }
+        vouchers++; total = round2(total + t);
+    }
+    return { vouchers, total };
+}
+
 async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: string) => void) {
     const cases = getLegacyCases(mbno);
     const events = getLegacyEvents(mbno);
+    const correctionFlags: string[] = [];
+    for (const c of correctionsFor(mbno)) {
+        const ev = events.find(e => e.transType === 'CR' && e.receiptVchrNo === c.voucher && e.transDate.startsWith(c.date)
+            && e.accType === typeOfCode(c.code) && Math.abs(e.amt - c.amount) < 0.5);
+        if (!ev) { correctionFlags.push(`MANUAL_CORRECTION_NOT_APPLIED voucher ${c.voucher} (${c.date}, ₹${c.amount}) was not found in the legacy ledger`); continue; }
+        ev.accType = typeOfCode(c.toCode);
+        ev.correctionNote = `Manual correction: credit posted to the wrong loan type in legacy (voucher ${c.voucher}, ${typeOfCode(c.code)} -> ${typeOfCode(c.toCode)}); applied to the correct loan`;
+        correctionFlags.push(`MANUAL_CORRECTION_APPLIED ${c.reason}`);
+    }
     for (const info of new Set(events.map(e => e.interestAllocationInfo).filter(Boolean))) log(`  ${info}`);
     // Two independent, non-overlapping consolidation mechanisms in this legacy DB —
     // see findConsolidationEvents (cross-type, journal-voucher) and
     // findPvoucherConsolidations (same-type, ordinary disbursement-voucher) for why
     // neither one alone covers both real patterns.
-    const consolidations = [...findConsolidationEvents(events), ...findPvoucherConsolidations(cases, events, log)]
-        .sort((a, b) => a.date.localeCompare(b.date));
-    const { byType, flags } = buildAttribution(cases, events, consolidations);
-    for (const warning of new Set(events.map(e => e.interestAllocationWarning).filter(Boolean))) {
+    const jpairs = findConsolidationEvents(events);
+    const owedBefore = await buildOwedBefore(mbno);
+    const mixed = splitMixedInterest(events, owedBefore);
+    const { byType, flags, consolidations } = buildLedgerAttribution(cases, events, jpairs, owedBefore);
+    flags.push(...correctionFlags);
+    // INTEREST-ONLY VOUCHERS (2026-10-06): an I1002 credit on a voucher with no loan-principal credit (interest collected on its own, or the
+    // closure interest taken when a new loan consolidates the old one). It is a real ledger credit, so it is replayed as an interest-only
+    // repayment row: on the case closed that day if there is one, else the newest case already disbursed; between RLN and ALN in proportion
+    // to what the ledger owed on each (the legacy data holds no per-loan figure).
+    {
+        // Per DAY: whatever part of the day's I1002 credits the attributed repayments did not already carry (voucher without a principal
+        // leg, or a payment whose principal found no case) is the shortfall to place.
+        const legsByDay = new Map<string, { transDate: string; receiptVchrNo: string; amt: number }>();
+        for (const leg of getLegacyInterestLegs(mbno)) {
+            const day = leg.transDate.slice(0, 10);
+            const cur = legsByDay.get(day);
+            if (cur) cur.amt = round2(cur.amt + leg.amt); else legsByDay.set(day, { ...leg });
+        }
+        const replayedByDay = new Map<string, number>();
+        for (const t of Object.keys(byType)) for (const c of byType[t]) for (const r of c.repaymentsToReplay) {
+            const day = r.date.slice(0, 10);
+            replayedByDay.set(day, round2((replayedByDay.get(day) || 0) + r.interestAmount));
+        }
+        const interestOnly = [...legsByDay.entries()]
+            .map(([day, leg]) => ({ ...leg, amt: round2(leg.amt - (replayedByDay.get(day) || 0)) }))
+            .filter(leg => leg.amt > 0.5);
+        let placed = 0, placedTotal = 0;
+        for (const leg of interestOnly) {
+            const day = leg.transDate.slice(0, 10);
+            const pick = (type: string): CaseState | undefined => {
+                const q = byType[type] || [];
+                const live = (c: CaseState) => !c.ignoredDuplicate && !c.supersededCarry && c.startPrincipal !== undefined && c.legacyCase.loanAmt > 0;
+                const closedThatDay = q.filter(c => live(c) && c.closed && c.closedDate?.slice(0, 10) === day);
+                if (closedThatDay.length) return closedThatDay[closedThatDay.length - 1];
+                const before = q.filter(c => live(c) && c.legacyCase.paymentDate.slice(0, 10) <= day);
+                return before[before.length - 1];
+            };
+            const targets = (['RLN', 'ALN'] as const).map(t => ({ t, cs: pick(t), w: Math.max(0, owedBefore(t, leg.transDate)) })).filter(x => x.cs);
+            if (targets.length === 0) { flags.push(`Interest-only credit ₹${leg.amt} on ${day} (voucher ${leg.receiptVchrNo}) has no loan case to be recorded on — manual`); continue; }
+            let wsum = targets.reduce((a, x) => a + x.w, 0);
+            if (wsum <= 0) { targets.forEach(x => { x.w = 1; }); wsum = targets.length; }   // neither loan owed anything that day: share equally between the loans that exist
+            let left = leg.amt;
+            const live = targets.filter(x => x.w > 0);
+            live.forEach((x, i) => {
+                const part = i === live.length - 1 ? round2(left) : round2(leg.amt * x.w / wsum);
+                left = round2(left - part);
+                if (part > 0) x.cs!.repaymentsToReplay.push({ date: leg.transDate, amount: part, principalAmount: 0, interestAmount: part, vchrType: 'INT' });
+            });
+            placed++; placedTotal = round2(placedTotal + leg.amt);
+        }
+        if (placed > 0) for (const t of Object.keys(byType)) for (const c of byType[t]) c.repaymentsToReplay.sort((a, b) => a.date.localeCompare(b.date));
+        if (placed > 0) flags.push(`INFO ${placed} interest-only credit(s) (₹${placedTotal} in all, e.g. closure interest taken at a consolidation) recorded as interest-only repayments on the loan case(s) of that date`);
+    }
+    // Mixed vouchers are now split by outstanding balance (see splitMixedInterest); only vouchers that could not be split stay as warnings.
+    for (const warning of new Set(events.filter(e => e.mixedInterestTotal === undefined).map(e => e.interestAllocationWarning).filter(Boolean))) {
         flags.push(warning!);
     }
+    if (mixed.vouchers > 0) flags.push(`INFO interest of ${mixed.vouchers} mixed RLN/ALN voucher(s) (₹${mixed.total} in all) was split between the two loans in proportion to what the ledger owed on each (no per-loan figure exists in the legacy data)`);
 
     // Arm payroll-lag detection where the stray old-rate payment will actually
     // LAND, not on the consolidation's cross-type "receiving" case. Those are
@@ -720,7 +1113,8 @@ async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: s
         // amount goes to oldPrincipal, 0 to oldInterest — the match gate only
         // cares about the total; the split only feeds a bookkeeping column on
         // the flagged ledger row.
-        const lastReal = closedCase.repaymentsToReplay[closedCase.repaymentsToReplay.length - 1];
+        const regularRows = closedCase.repaymentsToReplay.filter(r => r.principalAmount > 0 && r.vchrType !== 'J' && r.vchrType !== 'INT');
+        const lastReal = regularRows[regularRows.length - 1];
         const realTotal = lastReal ? lastReal.amount : 0;
         const useReal = realTotal > 0 && Math.abs(realTotal - legacyTotal) > 1;
         const split = useReal ? { principal: realTotal, interest: 0 } : legacySplit;
@@ -737,14 +1131,26 @@ async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: s
     let repaymentsReplayed = 0;
     let consolidationsApplied = 0;
 
-    for (const type of Object.keys(byType)) {
-        for (const cs of byType[type]) {
+    for (const groupType of Object.keys(byType)) {
+        for (const cs of byType[groupType]) {
+            const type = cs.legacyCase.dbType ?? groupType;   // the type stored in loan_master (ELN rows sit on the emergency head)
             const { loancaseno } = cs.legacyCase;
 
             // Already flagged and excluded from attribution in buildAttribution (see the
             // invalid-loan_amt check there) — skip entirely rather than computing a
             // meaningless EXPECT preview off the case's own broken source loan_amt.
+            if (cs.ignoredDuplicate || cs.supersededCarry || (cs.startPrincipal === undefined && cs.legacyCase.loanAmt > 0)) {
+                log(`  ${cs.ignoredDuplicate ? 'DUPLICATE_ROW_IGNORED' : cs.supersededCarry ? 'CARRIED_CASE_SUPERSEDED' : 'NO_LEDGER_DISBURSAL'} case=${loancaseno} type=${type} — balance set to 0`);
+                if (cs.startPrincipal === undefined && !cs.ignoredDuplicate && !cs.supersededCarry) flags.push(`INFO case ${loancaseno} (${type}) has no disbursal in the ledger; not a live loan, balance set to 0`);
+                if (!DRY_RUN) {
+                    await AppDataSource.query(`UPDATE loan_master SET balance = 0 WHERE mbno = $1 AND loancaseno::text = $2 AND loantype = $3`, [mbno, loancaseno, type]);
+                }
+                continue;
+            }
             if (cs.legacyCase.loanAmt <= 0) {
+                if (!DRY_RUN) {
+                    await AppDataSource.query(`UPDATE loan_master SET balance = 0 WHERE mbno = $1 AND loancaseno::text = $2 AND loantype = $3 AND COALESCE(balance, 0) <> 0`, [mbno, loancaseno, type]);
+                }
                 log(`  SKIPPED case=${loancaseno} type=${type} — invalid source loan_amt (₹${cs.legacyCase.loanAmt}), not a real loan`);
                 continue;
             }
@@ -869,22 +1275,18 @@ async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: s
                 }
             }
 
-            if (cs.toppedUpBy > 0) {
-                log(`  CONSOLIDATION_APPLIED case=${loancaseno} type=${type} +₹${cs.toppedUpBy} (loan_amt/balance increased)`);
-                if (!DRY_RUN) {
-                    // loantype-scoped — loancaseno collides across types for the same
-                    // member on real data (233 members found this session); an
-                    // unscoped UPDATE here corrupted a same-numbered sibling case's
-                    // balance/loan_amt on every call. Fixed here and in the two
-                    // production services after discovering it live.
-                    await AppDataSource.query(
-                        `UPDATE loan_master
-                         SET balance = COALESCE(balance, 0) + ($1 - COALESCE(loan_amt, 0)), loan_amt = $1
-                         WHERE mbno = $2 AND loancaseno::text = $3 AND loantype = $4`,
-                        [effectiveCapacity, mbno, loancaseno, type]
-                    );
+            // Loan principal = what the ledger says it was on the disbursal day (older balance carried in), not the legacy loan_amt.
+            {
+                const principalNow = round2((cs.startPrincipal || 0) + (cs.laterTopups || 0));
+                if (Math.abs(principalNow - cs.legacyCase.loanAmt) > 0.5) {
+                    log(`  PRINCIPAL_FROM_LEDGER case=${loancaseno} type=${type} legacy loan amount ₹${cs.legacyCase.loanAmt} -> ledger principal ₹${principalNow}`);
                 }
-                consolidationsApplied++;
+                if (!DRY_RUN) {
+                    await AppDataSource.query(
+                        `UPDATE loan_master SET loan_amt = $1, balance = $1 WHERE mbno = $2 AND loancaseno::text = $3 AND loantype = $4`,
+                        [principalNow, mbno, loancaseno, type]);
+                }
+                if (cs.toppedUpBy > 0) { log(`  CONSOLIDATION_APPLIED case=${loancaseno} type=${type} carried ₹${cs.toppedUpBy}`); consolidationsApplied++; }
             }
 
             // Armed independently of toppedUpBy — the case watching for a stray
@@ -1004,24 +1406,86 @@ async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: s
                         .filter(r => r.date.slice(0, 10) < effectiveDate)
                         .filter(r => !payrollLagReplayRows.has(r))
                         .reduce((sum, r) => sum + r.principalAmount, 0);
-                    const boundaryOpeningPrincipal = round2(basePrincipal + priorTopups - priorPrincipalPaid);
+                    const boundaryOpeningPrincipal = cs.boundary && cs.boundary[event.date.slice(0, 10)] !== undefined
+                        ? cs.boundary[event.date.slice(0, 10)]
+                        : round2(basePrincipal + priorTopups - priorPrincipalPaid);
                     const openingPrincipal = boundaryOpeningPrincipal;
                     const eligiblePayments = cs.repaymentsToReplay
                         .filter(r => r.date.slice(0, 7) >= firstDueMonth.slice(0, 7)
                             && (!nextEventDate || r.date.slice(0, 10) < nextEventDate)
                             && !payrollLagReplayRows.has(r) && r.principalAmount > 0)
                         .sort((a, b) => a.date.localeCompare(b.date));
-                    const firstCurrentPayment = selectFirstRecurringPrincipal(eligiblePayments);
+                    let firstCurrentPayment = selectFirstRecurringPrincipal(eligiblePayments);
+                    // OLD EMI STILL BEING DEDUCTED (610030031): after a consolidation payroll can keep taking the OLD loan's EMI for a few
+                    // months. Those payments are real money (they reduce the principal and stay in the history) but they are NOT the new
+                    // loan's EMI: they count as short recovery against it. The new loan's EMI is the first recurring principal that differs
+                    // from the old loan's, provided every old-sized payment came before it.
+                    const predecessor = event.resolvedFromCase ? caseByNo.get(event.resolvedFromCase) : undefined;
+                    const predP = predecessor ? modePrincipal(predecessor.repaymentsToReplay) : 0;
+                    let oldEmiContinuing = 0;
+                    if (predP > 0) {
+                        const nonPred = eligiblePayments.filter(r => Math.abs(r.principalAmount - predP) >= 1);
+                        const predEq = eligiblePayments.filter(r => Math.abs(r.principalAmount - predP) < 1);
+                        if (predEq.length && nonPred.length) {
+                            const realEmi = selectFirstRecurringPrincipal(nonPred);
+                            if (realEmi && predEq.every(r => r.date.localeCompare(realEmi.date) <= 0)) { firstCurrentPayment = realEmi; oldEmiContinuing = predEq.length; }
+                        }
+                    }
                     if (openingPrincipal <= 0) {
                         flags.push(`SCHEDULE_VERSION_NOT_BUILT case=${loancaseno} schedule=${event.date}: opening principal is zero/paid off before first due month (boundary ₹${boundaryOpeningPrincipal}); no future schedule was seeded`);
                         continue;
                     }
-                    if (!firstCurrentPayment) {
-                        const observed = eligiblePayments.map(r => `${r.date.slice(0, 10)}:${round2(r.principalAmount)}`).join(', ');
-                        flags.push(`SCHEDULE_VERSION_NOT_BUILT case=${loancaseno} schedule=${event.date}: no recurring principal payment found after slot delay; refusing to infer a term from a one-off residue or adjustment (observed ${observed || 'none'})`);
+                    // FALLBACK: payments do not reveal the EMI (none yet / irregular), so the CURRENT agreement takes the loan's own legacy terms
+                    // (number of instalments and instalment amount stored on the legacy loan row). Only the current (last) agreement, and only
+                    // when those terms are sane; always reported as INFO so the source of the schedule is never hidden.
+                    let fallback: { monthlyPrincipal: number; monthlyInterest: number; installmentCount: number } | null = null;
+                    if (!firstCurrentPayment && !nextEventDate && effectiveDate > '2018-11-30' && cs.legacyCase.noOfInstal > 0 && cs.legacyCase.instalAmt > 0
+                        && !(predP > 0 && Math.abs(cs.legacyCase.loanAmt / cs.legacyCase.noOfInstal - predP) < 1)) {   // a legacy row that still carries the OLD loan's EMI is not usable   // not for opening-balance cases: their instalment count runs from a start date the data does not hold
+                        const n = cs.legacyCase.noOfInstal;
+                        const mp = round2(openingPrincipal / n);
+                        let mi = round2(cs.legacyCase.instalAmt - mp);
+                        // Legacy "separate interest" loans store the principal-only instalment: the interest is not on the loan row, so it is
+                        // estimated as the reducing-balance average over the term at the loan's own rate (stated in the INFO flag).
+                        const estimated = mi < 0.5;
+                        if (estimated) mi = round2(annualRate / 1200 * openingPrincipal * (n + 1) / (2 * n));
+                        if (mp > 0 && mi >= 0 && mi <= mp * 2) {
+                            fallback = { monthlyPrincipal: mp, monthlyInterest: mi, installmentCount: n };
+                            if (estimated) flags.push(`INFO case ${loancaseno}: monthly interest ₹${mi} is an estimate (reducing-balance average at ${annualRate}%); the legacy loan row holds no interest figure`);
+                        }
+                    }
+                    // A top-up INSIDE the same loan (no older loan closed) does not change the EMI by itself: with no payment yet to show a new
+                    // EMI, the schedule continues at the previous agreement's EMI from the new ledger balance.
+                    if (!firstCurrentPayment && !fallback && !event.resolvedFromCase && scheduleSnapshots.length > 0) {
+                        const prevSnap = scheduleSnapshots[scheduleSnapshots.length - 1];
+                        scheduleSnapshots.push({
+                            source, effectiveDate, firstDueMonth, openingPrincipal,
+                            monthlyPrincipal: prevSnap.monthlyPrincipal, monthlyInterest: prevSnap.monthlyInterest,
+                            installmentCount: Math.max(1, Math.ceil(openingPrincipal / prevSnap.monthlyPrincipal)), delayMonths, sourceCaseNo: null,
+                        });
+                        flags.push(`INFO schedule after top-up case=${loancaseno} on ${effectiveDate}: no new EMI visible yet, the previous EMI (₹${prevSnap.monthlyPrincipal} principal) continues from ₹${openingPrincipal}`);
                         continue;
                     }
+                    if (!firstCurrentPayment && !fallback) {
+                        const observed = eligiblePayments.map(r => `${r.date.slice(0, 10)}:${round2(r.principalAmount)}`).join(', ');
+                        flags.push(`SCHEDULE_VERSION_NOT_BUILT case=${loancaseno} schedule=${event.date}: no recurring principal payment found after slot delay and the legacy loan terms are not usable; refusing to infer a term from a one-off residue or adjustment (observed ${observed || 'none'})`);
+                        continue;
+                    }
+                    if (!firstCurrentPayment && fallback) {
+                        scheduleSnapshots.push({
+                            source, effectiveDate, firstDueMonth, openingPrincipal,
+                            monthlyPrincipal: fallback.monthlyPrincipal, monthlyInterest: fallback.monthlyInterest,
+                            installmentCount: fallback.installmentCount, delayMonths, sourceCaseNo: event.resolvedFromCase ?? null,
+                        });
+                        flags.push(`INFO schedule from legacy loan terms case=${loancaseno}: ${fallback.installmentCount} x ₹${fallback.monthlyPrincipal} principal + ₹${fallback.monthlyInterest} interest `
+                            + `(no recurring payment to infer it from; please confirm the terms)`);
+                        continue;
+                    }
+                    if (!firstCurrentPayment) continue;
                     const monthlyPrincipal = round2(firstCurrentPayment.principalAmount);
+                    if (oldEmiContinuing > 0) {
+                        flags.push(`INFO case ${loancaseno}: the old loan's EMI (₹${predP} principal) was still deducted ${oldEmiContinuing} time(s) after the new loan started; the new loan's EMI is ₹${monthlyPrincipal} `
+                            + `(from ${firstCurrentPayment.date.slice(0, 10)}), so those months are short recovery and attract penalty`);
+                    }
                     const exactTerm = openingPrincipal / monthlyPrincipal;
                     const nearestTerm = Math.round(exactTerm);
                     // Small absolute rounding residues belong in the final
@@ -1196,6 +1660,34 @@ async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: s
                                 log(`    -> Reclassified prior slot-delay payroll as predecessor credit; restored ₹${restoredPrincipal} to current principal.`);
                             }
                         }
+                        // Opposite correction (2026-10-03 first-due-month fix): a receipt an earlier run wrongly flagged as
+                        // predecessor payroll because the schedule's first due month was one month too late is a normal
+                        // repayment of THIS loan. Un-flag it and take its principal off the balance again.
+                        if (!isPayrollLagCredit && existingRow.is_payroll_lag_credit === true) {
+                            const changed = await AppDataSource.query(
+                                `UPDATE loan_repayment_ledger SET is_payroll_lag_credit=false
+                                 WHERE id=$1 AND mbno=$2 AND loantype=$3 AND loancaseno::text=$4
+                                   AND COALESCE(is_payroll_lag_credit, false)=true
+                                 RETURNING principal_amount`,
+                                [existingRow.id, mbno, type, loancaseno],
+                            );
+                            const principal = round2(Number(changed[0]?.principal_amount) || 0);
+                            if (principal > 0 && !cs.closed) {
+                                await AppDataSource.query(
+                                    `UPDATE loan_master SET balance=GREATEST(0, COALESCE(balance, 0)-$1)
+                                     WHERE mbno=$2 AND loancaseno::text=$3 AND loantype=$4`,
+                                    [principal, mbno, loancaseno, type],
+                                );
+                                log(`    -> Un-flagged wrongly classified predecessor credit (first due month corrected); took ₹${principal} off the current balance.`);
+                            }
+                        }
+                        // Payment source: a legacy demand voucher ('D') is demand-master money (tied to its own month, no
+                        // same-month fee); everything else is cash. Heal rows written before the column existed.
+                        await AppDataSource.query(
+                            `UPDATE loan_repayment_ledger SET payment_source=$5
+                             WHERE id=$1 AND mbno=$2 AND loantype=$3 AND loancaseno::text=$4 AND payment_source<>$5`,
+                            [existingRow.id, mbno, type, loancaseno, r.vchrType === 'D' ? 'DEMAND' : 'CASH'],
+                        );
                         log('    -> SKIPPED exact replay receipt already committed by an earlier interrupted run.');
                         continue;
                     }
@@ -1207,12 +1699,13 @@ async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: s
                         // reusing the same receipt_no is harmless.
                         mbno, loancaseno, loantype: type, paymentAmount: r.amount,
                         receiptNo,
-                        narration: 'Legacy ledger replay (Phase 2 bulk migration)',
+                        narration: r.note || 'Legacy ledger replay (Phase 2 bulk migration)',
                         username: 'phase2-replay',
                         asOfDate: new Date(r.date),
                         principalAmount: r.principalAmount,
                         interestAmount: r.interestAmount,
                         isPayrollLagCredit,
+                        source: r.vchrType === 'D' ? 'DEMAND' : 'CASH',
                     });
                     log(`    -> ${result.message}`);
                 }
@@ -1278,19 +1771,31 @@ async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: s
                 }
             }
             const payrollLagPrincipalExcluded = [...payrollLagReplayRows].reduce((sum, r) => sum + r.principalAmount, 0);
-            const expected = separateInterestMode
-                ? round2(cs.legacyCase.loanAmt + cs.toppedUpBy
-                    - cs.repaymentsToReplay.reduce((s, r) => s + r.principalAmount, 0)
-                    + payrollLagPrincipalExcluded)
-                : round2(cs.legacyCase.loanAmt + scheduleExtension + cs.toppedUpBy
-                    - cs.repaymentsToReplay.reduce((s, r) => s + r.amount, 0) + payrollLagExcluded);
-            if (!cs.closed && !DRY_RUN) {
+            const expected = round2(cs.finalRemainingPrincipal ?? 0);
+            // The ledger-driven walk is authoritative for what the loan owes now (it includes top-ups / refunds that happened after the last
+            // replayed payment, which recordLoanRepayment never sees).
+            if (!DRY_RUN && !cs.closed && cs.finalRemainingPrincipal !== undefined) {
+                await AppDataSource.query(
+                    `UPDATE loan_master SET balance = $1 WHERE mbno = $2 AND loancaseno::text = $3 AND loantype = $4`,
+                    [Math.max(0, cs.finalRemainingPrincipal), mbno, loancaseno, type]);
+            }
+            // A case whose principal was fully recovered (normal EMIs plus predecessor payroll) is repaid: the record
+            // balance is the replay's "excluding predecessor payroll" figure, which would leave it open (610016033).
+            if (cs.exhausted && !cs.closed) {
+                if (!DRY_RUN) {
+                    await AppDataSource.query(
+                        `UPDATE loan_master SET balance = 0 WHERE mbno=$1 AND loancaseno::text=$2 AND loantype=$3 AND COALESCE(balance, 0) <> 0`,
+                        [mbno, loancaseno, type],
+                    );
+                }
+                log(`  REPAID case=${loancaseno} type=${type} — principal fully recovered; loan record balance set to 0.`);
+            } else if (!cs.closed && !DRY_RUN) {
                 const after = await AppDataSource.query(
                     `SELECT balance FROM loan_master WHERE mbno = $1 AND loancaseno::text = $2 AND loantype = $3`, [mbno, loancaseno, type]
                 );
                 const actual = round2(parseFloat(after[0]?.balance ?? '0'));
                 if (Math.abs(actual - expected) > BALANCE_TOLERANCE) {
-                    flags.push(`Case ${loancaseno} balance mismatch after replay: expected ~₹${expected}, got ₹${actual} (diff ₹${round2(actual - expected)})`);
+                    flags.push(`INFO Case ${loancaseno} balance differed from the replay's own expectation before ledger reconciliation: expected ~₹${expected}, got ₹${actual} (diff ₹${round2(actual - expected)})`);
                 }
             } else if (!cs.closed) {
                 log(`  EXPECT case=${loancaseno} final balance ~₹${expected} (dry run — not verified against a real write)`);
@@ -1298,7 +1803,104 @@ async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: s
         }
     }
 
+    if (!DRY_RUN) {
+        for (const type of Object.keys(byType)) await reconcileHeadToLedger(mbno, type, flags, log);
+    }
+
     return { repaymentsReplayed, consolidationsApplied, flags, casesProcessed: cases.length };
+}
+
+
+/**
+ * LEDGER-FIRST RECONCILIATION (2026-10-06). The migrated ledger is a straight copy of the legacy ledger, so its closing balance on a loan
+ * head is the truth. After every legacy credit has been replayed onto a case, the loan records of that head must add up to that closing
+ * balance. Differences come from legacy loan_amt being cumulative, consolidations without a journal pair, etc.; they are absorbed by the
+ * NEWEST open case (opening principal of its latest schedule version moves with it) and reported as an INFO flag so nothing is silent.
+ * Record balance = ledger balance, net of old-loan EMI principal that was kept aside (it is a real credit in the ledger).
+ */
+async function reconcileHeadToLedger(mbno: string, type: string, flags: string[], log: (s: string) => void) {
+    const isReg = type === 'RLN';
+    const code = isReg ? 'A1002' : 'A1047';
+    const closingRow = await AppDataSource.query(
+        `SELECT COALESCE(${loanHeadOpeningSql('$1::numeric', '$3::boolean')}, 0)
+              + COALESCE((SELECT SUM(CASE WHEN trans_type IN ('DR','P') THEN trans_amt WHEN trans_type IN ('CR','R') THEN -trans_amt ELSE 0 END)
+                            FROM ledger WHERE mbno=$1 AND code=$2), 0) AS closing`, [mbno, code, isReg]);
+    const closing = round2((parseFloat(closingRow[0]?.closing) || 0) + closingAdjustment(mbno, type as 'RLN' | 'ALN'));
+    const target = Math.max(0, closing);
+    const open: Array<{ c: string; lt: string; bal: number; lag: number }> = (await AppDataSource.query(
+        `SELECT lm.loancaseno::text AS c, lm.loantype AS lt, lm.balance::numeric AS bal,
+                COALESCE((SELECT SUM(r.principal_amount) FROM loan_repayment_ledger r
+                           WHERE r.mbno=lm.mbno AND r.loancaseno::text=lm.loancaseno::text AND r.loantype=lm.loantype AND r.is_payroll_lag_credit
+                             AND r.payment_date >= COALESCE((SELECT MAX(effective_date) FROM loan_schedule_versions s
+                                                              WHERE s.mbno=lm.mbno AND s.loancaseno::text=lm.loancaseno::text AND s.loantype=lm.loantype), lm.payment_date)), 0)::numeric AS lag
+           FROM loan_master lm WHERE lm.mbno=$1 AND ((lm.loantype='RLN') = $2) AND lm.balance > 0
+          ORDER BY lm.payment_date, lm.loancaseno`, [mbno, isReg])).map((r: any) => ({ c: r.c, lt: r.lt, bal: parseFloat(r.bal) || 0, lag: parseFloat(r.lag) || 0 }));
+    const FORCE = process.env.FORCE_RECONCILE === '1';
+    if (!FORCE) {
+        // Safety net only: the ledger-driven replay is expected to tie to the ledger by itself; a difference is reported, never forced.
+        const sumRecord = round2(open.reduce((t, o) => t + Math.max(0, o.bal), 0));
+        if (Math.abs(sumRecord - target) > 1) {
+            flags.push(`LEDGER_MISMATCH_AFTER_REPLAY (${type}): loan records add up to ₹${sumRecord} but the ledger closing balance is ₹${closing} — manual`);
+        }
+        return;
+    }
+    if (open.length === 0) {
+        if (target > 100) {
+            // The ledger still owes but every case reads repaid / invalid. Reopen the newest REAL case (loan_amt > 0) at the ledger balance.
+            const real = await AppDataSource.query(
+                `SELECT loancaseno::text AS c, loantype AS lt FROM loan_master WHERE mbno=$1 AND ((loantype='RLN') = $2) AND loan_amt > 0
+                  ORDER BY payment_date DESC, loancaseno DESC LIMIT 1`, [mbno, isReg]);
+            if (real[0]) {
+                await AppDataSource.query(`UPDATE loan_master SET balance=$4 WHERE mbno=$1 AND loancaseno::text=$2 AND loantype=$3`, [mbno, real[0].c, real[0].lt, target]);
+                flags.push(`INFO reconciled to ledger (${type}): case ${real[0].c} was read as repaid but the ledger still owes ₹${closing}; case reopened at that balance — please verify the loan terms`);
+                log(`  RECONCILED case=${real[0].c} type=${type} reopened at ₹${closing}`);
+            } else {
+                flags.push(`LEDGER_OWES_NO_OPEN_CASE (${type}): ledger closing ₹${closing} but this head has no real loan row in the legacy source — manual`);
+            }
+        }
+        return;
+    }
+    const setBalance = async (c: string, lt: string, bal: number) => AppDataSource.query(
+        `UPDATE loan_master SET balance=$4 WHERE mbno=$1 AND loancaseno::text=$2 AND loantype=$3`, [mbno, c, lt, round2(bal)]);
+    // Newest loan first: the ledger debt is explained by the newest loans (an older open case that the ledger no longer carries was
+    // superseded by a consolidation the legacy data did not mark). Each case keeps at most what the replay says it still owes.
+    let left = target;
+    const alloc = new Map<string, number>();
+    for (let i = open.length - 1; i >= 0; i--) {
+        const eff = Math.max(0, round2(open[i].bal));
+        const take = Math.min(eff, left);
+        alloc.set(open[i].c + '|' + open[i].lt, take);
+        left = round2(left - take);
+    }
+    const newest = open[open.length - 1];
+    if (left > 0.5) {   // the ledger owes more than the cases explain: the newest case carries the difference
+        alloc.set(newest.c + '|' + newest.lt, round2((alloc.get(newest.c + '|' + newest.lt) || 0) + left));
+    }
+    for (const o of open) {
+        const nb = alloc.get(o.c + '|' + o.lt) || 0;
+        const eff = Math.max(0, round2(o.bal));
+        await setBalance(o.c, o.lt, nb);
+        const delta = round2(nb - eff);
+        if (Math.abs(delta) > 1) {
+            if (nb > 0) {
+                const v = await AppDataSource.query(
+                    `SELECT version_no, opening_principal::numeric AS op, monthly_principal::numeric AS mp FROM loan_schedule_versions
+                      WHERE mbno=$1 AND loancaseno::text=$2 AND loantype=$3 ORDER BY version_no DESC LIMIT 1`, [mbno, o.c, o.lt]);
+                if (v[0]) {
+                    const op = round2((parseFloat(v[0].op) || 0) + delta);
+                    const mp = parseFloat(v[0].mp) || 0;
+                    if (op > 0 && mp > 0) {
+                        await AppDataSource.query(
+                            `UPDATE loan_schedule_versions SET opening_principal=$5, installment_count=LEAST(32767, GREATEST(1, CEIL($5::numeric / $6::numeric)))
+                              WHERE mbno=$1 AND loancaseno::text=$2 AND loantype=$3 AND version_no=$4`, [mbno, o.c, o.lt, v[0].version_no, op, mp]);
+                    }
+                }
+            }
+            flags.push(`INFO reconciled to ledger (${type}): case ${o.c} record ₹${eff} -> ₹${nb} so that the loan records add up to the ledger closing balance ₹${closing} (difference ₹${delta}); `
+                + (nb === 0 ? 'the ledger no longer carries this loan (superseded by a newer loan)' : 'legacy loan amount/consolidation did not tie to the ledger'));
+            log(`  RECONCILED case=${o.c} type=${type} record ₹${eff} -> ₹${nb} (ledger closing ₹${closing})`);
+        }
+    }
 }
 
 async function reconcileMemberLoanBalanceSummary(mbno: string): Promise<{ regular: number; emergency: number } | null> {
@@ -1417,6 +2019,18 @@ async function main() {
             }
         } finally {
             await runner.release();
+        }
+    }
+
+    // Members the replay has nothing to replay for (e.g. no receipts): their loan records must still tie to the ledger.
+    if (!DRY_RUN && MBNO_FILE) {
+        const pinned = readFileSync(MBNO_FILE, 'utf-8').split(/\r?\n/).map(m => m.trim()).filter(Boolean);
+        const inScope = new Set(members.map(String));
+        for (const mbno of pinned.filter(m => !inScope.has(m))) {
+            const fl: string[] = [];
+            for (const type of ['RLN', 'ALN']) await reconcileHeadToLedger(mbno, type, fl, (s) => console.log(s));
+            await reconcileMemberLoanBalanceSummary(mbno);
+            for (const f of fl) { allFlags.push({ mbno, flag: f }); totalFlags++; console.log(`  [${mbno}] FLAG: ${f}`); }
         }
     }
 
