@@ -5,7 +5,7 @@ export type SupportQueryType = 'BUG' | 'QUESTION' | 'DATA_CORRECTION' | 'FEATURE
 export type SupportStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
 // PENDING = not delivered yet, SENT = delivered, FAILED = tried and errored,
 // DISABLED = integration not configured (retried automatically once it is).
-export type DeliveryStatus = 'PENDING' | 'SENT' | 'FAILED' | 'DISABLED';
+export type DeliveryStatus = 'PENDING' | 'SENT' | 'FAILED' | 'DISABLED' | 'SKIPPED';
 
 @Entity('support_queries')
 export class SupportQuery {

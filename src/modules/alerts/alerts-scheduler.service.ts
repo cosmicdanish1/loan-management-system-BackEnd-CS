@@ -4,6 +4,7 @@ import { DataSource } from 'typeorm';
 import * as fs from 'fs';
 import * as path from 'path';
 import { AlertService, DigestStats, esc } from './alert.service';
+import { AlertSettingsService } from './alert-settings.service';
 
 interface AlertState {
     lastBackupId?: number;
@@ -31,6 +32,7 @@ export class AlertsSchedulerService implements OnApplicationBootstrap, OnModuleD
         private readonly alerts: AlertService,
         private readonly ds: DataSource,
         private readonly config: ConfigService,
+        private readonly settings: AlertSettingsService,
     ) {
         this.statePath = path.join(this.config.get('LOG_FILE_PATH', './logs'), '.alert-state.json');
     }
@@ -50,6 +52,7 @@ export class AlertsSchedulerService implements OnApplicationBootstrap, OnModuleD
         this.every(120_000, () => this.pollBackups());
         this.every(60 * 60_000, () => this.hourlyChecks(), 5 * 60_000);
         this.every(60_000, () => this.maybeSendDigest());
+        this.every(60_000, async () => this.alerts.sweepPresence());
         this.every(60_000, async () => { this.state.stats = this.alerts.snapshot(); this.saveState(); });
     }
 
@@ -93,8 +96,8 @@ export class AlertsSchedulerService implements OnApplicationBootstrap, OnModuleD
     private startupMessage() {
         let version = process.env.npm_package_version || '';
         try { version = version || JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8')).version; } catch { /* optional */ }
-        if (this.config.get('ALERT_STARTUP') === 'false') return;
-        this.alerts.send('errors', `✅ <b>Backend started</b>${version ? `  ·  v${esc(version)}` : ''}`);
+        if (this.config.get('ALERT_STARTUP') === 'false' || !this.settings.isEnabled('system.started')) return;
+        this.alerts.send('system.started', 'errors', `✅ <b>Backend started</b>${version ? `  ·  v${esc(version)}` : ''}`);
     }
 
     /** Two failed pings in a row = down; one alert on the way down, one on recovery. */
@@ -103,7 +106,7 @@ export class AlertsSchedulerService implements OnApplicationBootstrap, OnModuleD
             await this.ds.query('SELECT 1');
             if (this.dbDownSince) {
                 const mins = Math.max(1, Math.round((Date.now() - this.dbDownSince.getTime()) / 60000));
-                this.alerts.send('errors', `✅ <b>Database reachable again</b>\nIt was down for about ${mins} min.`);
+                if (this.settings.isEnabled('system.db')) this.alerts.send('system.db', 'errors', `✅ <b>Database reachable again</b>\nIt was down for about ${mins} min.`);
             }
             this.dbDownSince = null;
             this.dbFailures = 0;
@@ -111,7 +114,7 @@ export class AlertsSchedulerService implements OnApplicationBootstrap, OnModuleD
             this.dbFailures++;
             if (this.dbFailures === 2 && !this.dbDownSince) {
                 this.dbDownSince = new Date();
-                this.alerts.send('errors', `🚨 <b>Database not reachable</b>\nThe backend cannot talk to PostgreSQL. Users will see errors until it is back.\n<i>${esc(String(e.message).slice(0, 150))}</i>`);
+                if (this.settings.isEnabled('system.db')) this.alerts.send('system.db', 'errors', `🚨 <b>Database not reachable</b>\nThe backend cannot talk to PostgreSQL. Users will see errors until it is back.\n<i>${esc(String(e.message).slice(0, 150))}</i>`);
             }
         }
     }
@@ -139,7 +142,8 @@ export class AlertsSchedulerService implements OnApplicationBootstrap, OnModuleD
         const b = await this.ds.query(
             "SELECT EXTRACT(EPOCH FROM (now() - MAX(created_at))) / 3600 AS hrs FROM backup_log WHERE lower(status) = 'success'");
         const hrs = b[0]?.hrs === null || b[0]?.hrs === undefined ? null : Number(b[0].hrs);
-        if (hrs !== null && hrs > 26 && this.state.noBackupAlertedOn !== this.todayKey()) {
+        const missingAfter = this.settings.param('backup.missing') || 26;
+        if (this.settings.isEnabled('backup.missing') && hrs !== null && hrs > missingAfter && this.state.noBackupAlertedOn !== this.todayKey()) {
             this.alerts.noRecentBackup(Math.floor(hrs));
             this.state.noBackupAlertedOn = this.todayKey();
             this.saveState();
@@ -148,7 +152,7 @@ export class AlertsSchedulerService implements OnApplicationBootstrap, OnModuleD
         // Licence: notify once at 30, 7, 1 days and on expiry.
         const l = await this.ds.query(
             "SELECT expires_at FROM license_keys WHERE lower(status::text) = 'active' ORDER BY expires_at DESC LIMIT 1");
-        if (l[0]?.expires_at) {
+        if (l[0]?.expires_at && this.settings.isEnabled('licence.expiry')) {
             const exp = new Date(l[0].expires_at);
             const days = Math.ceil((exp.getTime() - Date.now()) / 86_400_000);
             const done = new Set(this.state.licenceNotified || []);
@@ -164,9 +168,9 @@ export class AlertsSchedulerService implements OnApplicationBootstrap, OnModuleD
     }
 
     private async maybeSendDigest() {
-        const hour = Number(this.config.get('ALERT_DIGEST_HOUR') ?? 8);
+        const hour = this.settings.param('digest.daily');
         const now = new Date();
-        if (now.getHours() !== hour || this.state.lastDigestDate === this.todayKey() || !this.alerts.enabled) return;
+        if (now.getHours() !== hour || this.state.lastDigestDate === this.todayKey() || !this.alerts.enabled || !this.settings.isEnabled('digest.daily')) return;
         this.state.lastDigestDate = this.todayKey();
         this.saveState();
         await this.sendDigest();
@@ -198,13 +202,13 @@ export class AlertsSchedulerService implements OnApplicationBootstrap, OnModuleD
             `💥 ${st.crashes} app errors reported`,
             '',
             '<b>Usage</b>',
-            `👥 ${st.users.length} different users · ${st.logins} logins${st.failedLogins ? ` · ${st.failedLogins} failed` : ''}${st.logins ? ` · busiest hour ${String(busiest).padStart(2, '0')}:00` : ''}`,
+            `👥 ${st.users.length} different users · ${st.logins} logins${st.failedLogins ? ` · ${st.failedLogins} failed` : ''}${st.peakOnline ? ` · peak ${st.peakOnline} online at once` : ''}${st.logins ? ` · busiest hour ${String(busiest).padStart(2, '0')}:00` : ''}`,
             '',
             '<b>Business</b>',
             `${dayEnd[0] ? (String(dayEnd[0].status).toLowerCase() === 'completed' ? '✅ Last day-end completed' : `⚠️ Last day-end: ${esc(dayEnd[0].status)}`) : '— No day-end yet'}`,
             `💾 Backups: ${n(backup, 'ok')} OK${n(backup, 'bad') ? `, ${n(backup, 'bad')} failed` : ''}`,
             `🚩 ${n(flags)} open EMI flags`,
         ];
-        this.alerts.send('digest', lines.join('\n'));
+        this.alerts.send('digest.daily', 'digest', lines.join('\n'));
     }
 }

@@ -5,6 +5,13 @@ export class Ledger {
   @PrimaryColumn({ name: 'trans_no', type: 'numeric', precision: 18, scale: 0 })
   transactionNumber: string;
 
+  // BUG FIX 53: ledgerid is NOT NULL with no default/sequence (confirmed via
+  // information_schema) and wasn't mapped here at all — every manager.save(Ledger, ...)
+  // in this module was missing a required column and would fail outright. Callers
+  // must now generate and supply this explicitly (see InterestService.getNextId).
+  @Column({ name: 'ledgerid', type: 'numeric', precision: 18, scale: 0 })
+  ledgerId: number;
+
   @Column({ name: 'trans_date', type: 'timestamp' })
   transactionDate: Date;
 

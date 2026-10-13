@@ -6,9 +6,15 @@ import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import * as compression from 'compression';
+import { json, urlencoded } from 'express';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // The default body-parser limit is 100 KB: a desktop client's batched log upload (/client-logs) is
+  // routinely larger and was rejected with "PayloadTooLargeError" (ES-44/ES-71), so those logs were lost.
+  // Parsers are registered explicitly with a higher limit instead of Nest's built-in defaults.
+  const app = await NestFactory.create(AppModule, { bodyParser: false });
+  app.use(json({ limit: '5mb' }));
+  app.use(urlencoded({ extended: true, limit: '5mb' }));
   app.use(compression());
   const configService = app.get(ConfigService);
   const logger = new Logger('Bootstrap');

@@ -140,6 +140,11 @@ export const MENU_ACTION_MAP: MenuActionEntry[] = [
   { action: 'CONTENTS', menuid: 235, title: 'Contents' },
   { action: 'FIN_YEAR_PL_PROCESS', menuid: 236, title: 'P and L Year End Process' },
   { action: 'REPORT_PRO', menuid: 237, title: 'Report Pro' },
+  { action: 'REPORT_HEAD_ORDER', menuid: 238, title: 'Report Head Order' },
+  { action: 'MEMBER_STATUS', menuid: 239, title: 'Member Status (Retired / Inactive)' },
+  { action: 'GROUP_INSURANCE', menuid: 240, title: 'Group Insurance' },
+  { action: 'NOTIFICATION_CENTRE', menuid: 241, title: 'Notification Centre' },
+  { action: 'TWOFA_SETTINGS', menuid: 242, title: 'Two-Factor Authentication' },
 ];
 
 export const MENUID_TO_ACTION: ReadonlyMap<number, string> = new Map(

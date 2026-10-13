@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Transactions } from '../cashbook/entities/transactions.entity';
 import { HeadMaster } from './entities/head-master.entity';
+import { ReportHeadOrderService } from '../report-head-order/report-head-order.service';
 import {
   GetConsolidationDto,
   ConsolidationSummaryDto,
@@ -17,7 +18,8 @@ export class ConsolidationService {
     @InjectRepository(Transactions)
     private transactionsRepository: Repository<Transactions>,
     @InjectRepository(HeadMaster)
-    private headMasterRepository: Repository<HeadMaster>
+    private headMasterRepository: Repository<HeadMaster>,
+    private headOrder: ReportHeadOrderService,
   ) { }
 
   async getConsolidationReport(dto: GetConsolidationDto): Promise<ConsolidationSummaryDto> {
@@ -43,7 +45,7 @@ export class ConsolidationService {
         ORDER BY l.code ASC
       `, [startOfDay, endOfDay]);
 
-      const entries: ConsolidationEntryDto[] = ledgerSummary.map((item: any) => ({
+      const entries: ConsolidationEntryDto[] = (await this.headOrder.sortByHeadOrder(ledgerSummary, (r: any) => r.headCode)).map((item: any) => ({
         headCode: (item.headCode || '').trim(),
         headName: item.headName || `Head ${item.headCode}`,
         receipts: Number(item.receipts) || 0,

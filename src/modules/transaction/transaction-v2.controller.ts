@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { VoucherService, PassTransactionService } from './services-v2';
+import { RequireAuthCode } from '../auth/twofa/require-auth-code';
 
 /**
  * Transaction V2 Controller - Restructured endpoints using separated services.
@@ -62,7 +63,9 @@ export class TransactionV2Controller {
 
     // ==================== Pass Transaction Operations ====================
 
+    // ES-116: each switch (all vouchers / re-agreement only) is independent; one code covers both.
     @Post('pass/:voucherNo')
+    @RequireAuthCode('pass_transactions', async (req, tf) => (await tf.isReagreementVoucher(req.params.voucherNo)) ? 'reagreement_pass' : null)
     @ApiOperation({ summary: 'Pass transaction - final posting to ledger and cashbook' })
     @ApiResponse({ status: 200, description: 'Transaction passed successfully' })
     async passTransaction(
@@ -73,6 +76,7 @@ export class TransactionV2Controller {
     }
 
     @Post('reverse/:voucherNo')
+    @RequireAuthCode('reverse_transactions')
     @ApiOperation({ summary: 'Reverse a posted transaction' })
     @ApiResponse({ status: 200, description: 'Transaction reversed successfully' })
     async reverseTransaction(

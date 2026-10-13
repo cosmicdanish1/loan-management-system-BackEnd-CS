@@ -177,25 +177,34 @@ export class UtilityReportsService {
     const dateObj = new Date(year, month, 0);
     const toDate = parseSafeDate(`${year}-${month.toString().padStart(2, '0')}-${dateObj.getDate()}`);
 
-    // Collect from multiple tables since account_closing_register doesn't exist
+    // Closed FD/RD accounts live in fdmaster (status 'C', closing date in statusdate);
+    // there is no account_closing_register table and recurring_deposits is an unused demo table.
     let results: any[] = [];
 
-    if (!accountType || accountType === 'RD' || accountType === 'ALL') {
-      const rdClosures = await this.dataSource.query(`
-        SELECT 
-          rd."accountNumber" as account_no,
-          rd."memberId" as member_no,
+    if (!accountType || accountType === 'FD' || accountType === 'RD' || accountType === 'ALL') {
+      const flag = accountType === 'FD' ? 'F' : accountType === 'RD' ? 'R' : null;
+      const params: any[] = [fromDate, toDate];
+      let flagClause = '';
+      if (flag) {
+        params.push(flag);
+        flagClause = ` AND f.fdrdflag = $3`;
+      }
+      results = await this.dataSource.query(`
+        SELECT
+          f.account_number as account_no,
+          f.mbno as member_no,
           TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
-          'RD' as account_type,
-          rd."closureDate" as closing_date,
-          CAST(rd."closureAmount" AS numeric) as final_amount,
-          rd."closureReason" as description
-        FROM recurring_deposits rd
-        LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(rd."memberId" AS text)
-        WHERE rd."closureDate" IS NOT NULL
-          AND rd."closureDate" >= $1 AND rd."closureDate" <= $2
-      `, [fromDate, toDate]);
-      results = results.concat(rdClosures);
+          CASE WHEN f.fdrdflag = 'R' THEN 'RD' ELSE 'FD' END as account_type,
+          f.statusdate as closing_date,
+          CAST(f.matamount AS numeric) as final_amount,
+          f.remarks as description
+        FROM fdmaster f
+        LEFT JOIN member_master m ON m.mbno = f.mbno
+        WHERE f.status = 'C'
+          AND f.statusdate IS NOT NULL
+          AND f.statusdate >= $1 AND f.statusdate < ($2::date + INTERVAL '1 day')${flagClause}
+        ORDER BY f.statusdate ASC, f.account_number ASC
+      `, params);
     }
 
     return results.map((r: any, idx: number) => ({

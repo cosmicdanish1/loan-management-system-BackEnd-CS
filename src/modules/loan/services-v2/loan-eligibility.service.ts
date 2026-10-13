@@ -577,11 +577,34 @@ export class LoanEligibilityService {
         memberNo: string,
         loanAmount: number,
         loanType?: string,
-    ): Promise<Array<{ code: string; name: string; amount: number; kind: 'RD' | 'SHARE' }>> {
+    ): Promise<Array<{ code: string; name: string; amount: number; kind: 'RD' | 'SHARE' | 'RD_NEGATIVE' }>> {
         const eligibility = await this.checkEligibility(memberNo, loanAmount, loanType);
-        if (!eligibility.ruleApplies || eligibility.totalShortfall <= 0) return [];
 
-        const deductions: Array<{ code: string; name: string; amount: number; kind: 'RD' | 'SHARE' }> = [];
+        const deductions: Array<{ code: string; name: string; amount: number; kind: 'RD' | 'SHARE' | 'RD_NEGATIVE' }> = [];
+
+        // ES-98: the yearly Group Insurance deduction is allowed to leave a member's RD negative. The whole
+        // negative balance is cleared FIRST out of the next loan's payout, ahead of the RD/Share requirement
+        // below, and it applies whether or not that requirement is switched on for this loan type. The caller
+        // caps it at what the payout can actually cover; whatever is left stays negative for next time.
+        // Read from member_balances.compulsory_deposit: the RD balance every report and CD transaction uses.
+        const negRows = await this.dataSource.query(
+            `SELECT COALESCE(SUM(compulsory_deposit), 0)::float AS cd FROM member_balances WHERE mbno::numeric = $1::numeric`,
+            [memberNo],
+        );
+        const negative = Math.round(Math.max(0, -Number(negRows[0]?.cd || 0)) * 100) / 100;
+        if (negative > 0) {
+            // exempt / Loan-Against-RD results carry no head code, so fall back to the configured RD head
+            const negativeHead = eligibility.rdHeadCode || String(await this.getRule('RULE_LOAN_R_RD_HEAD_CODE')) || 'L1004';
+            deductions.push({
+                code: negativeHead,
+                name: 'RD NEGATIVE BALANCE (GROUP INSURANCE) CLEARED',
+                amount: negative,
+                kind: 'RD_NEGATIVE',
+            });
+        }
+
+        if (!eligibility.ruleApplies || eligibility.totalShortfall <= 0) return deductions;
+
         if (eligibility.shareShortfall > 0) {
             deductions.push({
                 code: eligibility.shareHeadCode,

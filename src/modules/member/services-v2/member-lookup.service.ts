@@ -90,7 +90,7 @@ export class MemberLookupService {
           m.permanent_address,
           m.age,
           TO_CHAR(m.dob::date, 'YYYY-MM-DD') as dob,
-          TO_CHAR(m.dor::date, 'YYYY-MM-DD') as dor,
+          TO_CHAR(m.date_of_retirement::date, 'YYYY-MM-DD') as dor,
           TO_CHAR(m.memb_date::date, 'YYYY-MM-DD') as memb_date,
           TO_CHAR(m.date_of_retirement::date, 'YYYY-MM-DD') as date_of_retirement,
           TO_CHAR(m.declare_date::date, 'YYYY-MM-DD') as declare_date,

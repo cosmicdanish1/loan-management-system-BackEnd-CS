@@ -121,7 +121,7 @@ export class PassTransactionService {
                     code: string;
                     name: string;
                     amount: number;
-                    kind: 'RD' | 'SHARE';
+                    kind: 'RD' | 'SHARE' | 'RD_NEGATIVE';
                 }>;
                 shareRdDeductionTotal: number;
                 totalWithheld: number;
@@ -689,6 +689,15 @@ export class PassTransactionService {
                 const deductions = await this.loanEligibilityService.getDisbursementDeductions(
                     loan.mbno, sanctionedAmt, loan.loantype,
                 );
+                // ES-98: a negative RD (left by the yearly group insurance) is cleared first, but only as far as
+                // the fresh cash left after the old-case closure interest and the RD/Share shortfall can cover —
+                // the payout is never driven negative. Whatever is not covered stays negative until next time.
+                for (const d of deductions) {
+                    if (d.kind !== 'RD_NEGATIVE') continue;
+                    const otherWithheld = deductions.filter(x => x.kind !== 'RD_NEGATIVE').reduce((sum, x) => sum + x.amount, 0);
+                    const room = Math.max(0, round2(sanctionedAmt - oldClosureInterestTotal - otherWithheld));
+                    d.amount = round2(Math.min(d.amount, room));
+                }
                 const shareRdDeductionTotal = round2(deductions.reduce((sum, d) => sum + d.amount, 0));
 
                 // cashAfterOldInterest / netDisbursement guard — oldClosureInterest
@@ -855,6 +864,15 @@ export class PassTransactionService {
                             [deduction.amount, loan.mbno]
                         );
                     }
+
+                    // ES-98: clearing the negative RD adds back to the real RD balance (the same column the group
+                    // insurance run debited). It never touches rd_balance_events, which tracks a different pot.
+                    if (deduction.kind === 'RD_NEGATIVE' && deduction.amount > 0) {
+                        await queryRunner.query(
+                            `UPDATE member_balances SET compulsory_deposit = COALESCE(compulsory_deposit, 0) + $1 WHERE mbno::numeric = $2::numeric`,
+                            [deduction.amount, loan.mbno]
+                        );
+                    }
                 }
 
                 // Post oldClosureInterest to the interest-income head, once per
@@ -900,7 +918,57 @@ export class PassTransactionService {
             } else {
                 // ==================== GENERIC POSTING LOGIC ====================
                 console.log(`[PassTransaction] 📝 Processing GENERIC voucher: ${voucherNo}`);
-                for (const detail of details) {
+
+                // JOURNAL vouchers (Journal Transfer) are created PENDING by JournalTransferService and
+                // posted here. They differ from receipt/payment vouchers: every line carries its OWN
+                // member/head (the voucher header's memberId is only the first member), vchr_type is 'JV',
+                // and no physical cash moves, so they must not write the Cash Book. The staged acc_type
+                // (RLN / ALN for loan heads) is copied onto the ledger row, and a member's balance column
+                // is moved for the loan heads that have one (see getBalanceColumn / reverseTransaction).
+                const isJournalVoucher = String(header.voucherType || '').toUpperCase() === 'JOURNAL';
+                if (isJournalVoucher) {
+                    for (const detail of details) {
+                        const amt = parseMoney(detail.trans_amt);
+                        const headCode = detail.code || 'GL000';
+                        const drcr = (detail.trans_type === 'CR' || detail.trans_type === 'R') ? 'CR' : 'DR';
+                        const lineMbno = detail.mbno || null;
+
+                        await queryRunner.query(`
+                            INSERT INTO ledger (
+                                trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type,
+                                trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance,
+                                narration, username, ledgerid
+                            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'JV', $10, 0, $11, $12, $13)
+                        `, [
+                            nextTransNo++, new Date(), drcr, headCode, lineMbno,
+                            detail.acc_no || 0, detail.acc_type || 'JV',
+                            amt, voucherNo, mode,
+                            detail.narration || header.description, postedBy, nextLedgerId++
+                        ]);
+
+                        if (lineMbno) {
+                            const balCol = this.getBalanceColumn(headCode);
+                            if (balCol) {
+                                const balRes = await queryRunner.query(
+                                    `SELECT COALESCE(${balCol.col}, 0) as bal FROM member_balances WHERE mbno = $1`, [lineMbno]
+                                );
+                                if (balRes.length > 0) {
+                                    const curBal = parseFloat(balRes[0].bal) || 0;
+                                    const newBal = balCol.type === 'LIABILITY'
+                                        ? (drcr === 'CR' ? curBal + amt : curBal - amt)
+                                        : (drcr === 'CR' ? curBal - amt : curBal + amt);
+                                    await queryRunner.query(
+                                        `UPDATE member_balances SET ${balCol.col} = $1 WHERE mbno = $2`,
+                                        [newBal, lineMbno]
+                                    );
+                                    console.log(`[PassTransaction] Journal balance ${balCol.col}: ${curBal} → ${newBal} for mbno ${lineMbno}`);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                for (const detail of (isJournalVoucher ? [] : details)) {
                     const amt = parseMoney(detail.trans_amt);
                     const headCode = detail.code || 'GL000';
                     // BUG FIX: was hardcoded 'P' for all entries — a Receipt entry (trans_type='R')
@@ -1008,10 +1076,14 @@ export class PassTransactionService {
                 return { success: true, message: 'Re-agreement reversed and moved back to pending status', reagreement: undone };
             }
 
-            // 2. Extract loan case no
+            // 2. Extract loan case no, if any.
+            // BUG FIX: this used to throw ('Voucher metadata missing for reversal') whenever the voucher
+            // wasn't a loan disbursement, so every other voucher type posted through Pass Transactions —
+            // Journal Transfer, Receipt/Payment, Saving, Compulsory Deposit — could never be reversed.
+            // LOAN_CASE is only present on loan-disbursement vouchers; the loan-specific rollback below
+            // runs only when it exists, and everything else takes the generic undo.
             const remarksMatch = (header.remarks || '').match(/LOAN_CASE:([^|]+)/);
-            if (!remarksMatch) throw new Error('Voucher metadata missing for reversal');
-            const loanCaseNo = remarksMatch[1];
+            const loanCaseNo = remarksMatch ? remarksMatch[1] : null;
 
             // 3. Remove from Ledger
             await queryRunner.query(`DELETE FROM ledger WHERE "receipt_vchr_no" = $1`, [voucherNo]);
@@ -1058,12 +1130,46 @@ export class PassTransactionService {
                         [parseFloat(loan.loan_amt) || 0, loan.mbno]
                     );
                 }
+            } else {
+                // 5b. Generic / journal voucher — undo the member_balances change the posting applied, by
+                // replaying the same head→column mapping (getBalanceColumn) and inverting the DR/CR delta,
+                // and drop any Cash Book lines this voucher wrote.
+                const staged = await queryRunner.query(
+                    `SELECT mbno, code, trans_type, trans_amt FROM transactions WHERE receipt_vchr_no = $1`,
+                    [voucherNo]
+                );
+                const isJournalReversal = String(header.voucherType || '').toUpperCase() === 'JOURNAL';
+                for (const detail of staged) {
+                    // Only the journal path moves member balances (see passTransaction).
+                    if (!isJournalReversal || !detail.mbno) continue;
+                    const balCol = this.getBalanceColumn(detail.code);
+                    if (!balCol) continue;
+                    const drcr = (detail.trans_type === 'CR' || detail.trans_type === 'R') ? 'CR' : 'DR';
+                    const amt = parseFloat(detail.trans_amt) || 0;
+                    const balRes = await queryRunner.query(
+                        `SELECT COALESCE(${balCol.col}, 0) as bal FROM member_balances WHERE mbno = $1`, [detail.mbno]
+                    );
+                    if (balRes.length === 0) continue;
+                    const curBal = parseFloat(balRes[0].bal) || 0;
+                    // Inverse of passTransaction's forward formula for this balance type.
+                    const newBal = balCol.type === 'LIABILITY'
+                        ? (drcr === 'CR' ? curBal - amt : curBal + amt)
+                        : (drcr === 'CR' ? curBal + amt : curBal - amt);
+                    await queryRunner.query(
+                        `UPDATE member_balances SET ${balCol.col} = $1 WHERE mbno = $2`,
+                        [newBal, detail.mbno]
+                    );
+                    console.log(`[PassTransaction] Reversed ${balCol.col}: ${curBal} → ${newBal} for mbno ${detail.mbno}`);
+                }
+                await queryRunner.query(`DELETE FROM tblcashbook WHERE voucher_no = $1`, [voucherNo]);
             }
 
             // 6. Reset Flags
             await queryRunner.query(`UPDATE vouchers SET status = 'PENDING', "authorizedAt" = NULL WHERE "voucherNumber" = $1`, [voucherNo]);
             await queryRunner.query(`UPDATE transactions SET pass_flag = 'N' WHERE receipt_vchr_no = $1`, [voucherNo]);
-            await queryRunner.query(`UPDATE loan_pending SET flg_paid = 'N' WHERE loancaseno::text = $1`, [loanCaseNo]);
+            if (loanCaseNo) {
+                await queryRunner.query(`UPDATE loan_pending SET flg_paid = 'N' WHERE loancaseno::text = $1`, [loanCaseNo]);
+            }
 
             await queryRunner.commitTransaction();
             console.log(`[PassTransaction] ✅ Transaction reversed: ${voucherNo}`);
@@ -1077,5 +1183,17 @@ export class PassTransactionService {
         } finally {
             await queryRunner.release();
         }
+    }
+
+    /**
+     * Member-balance column moved by a posted journal line, keyed by the head code. Only the two loan
+     * heads have one; every other head moves the ledger only.
+     */
+    private getBalanceColumn(headCode: string): { col: string; type: 'LIABILITY' | 'ASSET' } | null {
+        const map: Record<string, { col: string; type: 'LIABILITY' | 'ASSET' }> = {
+            'A1047': { col: 'emergency_loan_balance', type: 'ASSET' },
+            'A1002': { col: 'regularloan', type: 'ASSET' },
+        };
+        return map[String(headCode || '').trim().toUpperCase()] || null;
     }
 }

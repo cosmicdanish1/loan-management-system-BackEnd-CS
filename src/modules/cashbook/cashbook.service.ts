@@ -6,6 +6,7 @@ import { Transactions } from './entities/transactions.entity';
 import { MemberMaster } from '../member/entities/member-master.entity';
 import { InterestMaster } from '../interest/entities/interest-master.entity';
 import { HeadMaster } from '../print-voucher/entities/head-master.entity';
+import { ReportHeadOrderService } from '../report-head-order/report-head-order.service';
 import {
   GetCashBookDto,
   CashBookSummaryDto,
@@ -34,7 +35,8 @@ export class CashBookService {
     @InjectRepository(InterestMaster)
     private interestMasterRepository: Repository<InterestMaster>,
     @InjectRepository(HeadMaster)
-    private headMasterRepository: Repository<HeadMaster>
+    private headMasterRepository: Repository<HeadMaster>,
+    private headOrder: ReportHeadOrderService,
   ) { }
 
   async getCashBookReport(dto: GetCashBookDto): Promise<CashBookSummaryDto> {
@@ -71,7 +73,10 @@ export class CashBookService {
       }
 
       // Group transactions by code (head code) - using the same logic but with ledger entities
-      const groupedTransactions = this.groupLedgerByCode(ledgerEntries, headMap);
+      const groupedTransactions = await this.headOrder.sortByHeadOrder(
+        this.groupLedgerByCode(ledgerEntries, headMap),
+        (e) => e.code,
+      );
 
       // Calculate opening balance (balance before the selected date)
       const openingBalance = await this.calculateOpeningBalance(reportDate);

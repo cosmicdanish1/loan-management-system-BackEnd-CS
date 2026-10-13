@@ -85,7 +85,7 @@ export class JottingReportService {
       console.log('[DEBUG] getJottingReport params:', params);
       
       let whereClause = `
-        WHERE mm.isactive = '1'
+        WHERE mm.isactive = 'Y'
         AND mm.mbno IS NOT NULL
       `;
       

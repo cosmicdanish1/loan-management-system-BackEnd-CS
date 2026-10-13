@@ -211,7 +211,7 @@ export class ReportV2Controller {
 
     @Post('loans/interest-statement')
     @ApiOperation({ summary: 'Get interest receivable/received statement' })
-    async getInterestStatement(@Body() dto: { fromMonth?: number; fromYear?: number; toMonth?: number; toYear?: number; branch?: string; fromMember?: string; toMember?: string }) {
+    async getInterestStatement(@Body() dto: { fromMonth?: number; fromYear?: number; toMonth?: number; toYear?: number; branch?: string; wingNo?: string; fromMember?: string; toMember?: string }) {
         return this.loanReports.getInterestStatement(dto);
     }
 
@@ -358,8 +358,16 @@ export class ReportV2Controller {
 
     @Get('balance-sheet')
     @ApiOperation({ summary: 'Get Balance Sheet' })
-    async getBalanceSheet(@Query('asOnDate') asOnDate?: string) {
-        return this.financialStatements.getBalanceSheet(asOnDate);
+    async getBalanceSheet(
+        @Query('asOnDate') asOnDate?: string,
+        @Query('includeZeroClosing') includeZeroClosing?: string,
+        @Query('includeZeroTransaction') includeZeroTransaction?: string,
+    ) {
+        return this.financialStatements.getBalanceSheet(
+            asOnDate,
+            includeZeroClosing !== 'false',
+            includeZeroTransaction !== 'false',
+        );
     }
 
     @Post('schedule/execute')

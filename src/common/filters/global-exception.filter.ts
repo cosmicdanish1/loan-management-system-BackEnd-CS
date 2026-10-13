@@ -23,6 +23,8 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let message = 'Internal server error';
     let error = 'Internal Server Error';
+    // Machine-readable extras some exceptions carry (e.g. the authenticator-code guard's AUTH_CODE_REQUIRED)
+    let extra: Record<string, unknown> = {};
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
@@ -31,6 +33,9 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       if (typeof errorResponse === 'object') {
         message = (errorResponse as any).message || exception.message;
         error = (errorResponse as any).error || exception.name;
+        if ((errorResponse as any).code) {
+          extra = { code: (errorResponse as any).code, authAction: (errorResponse as any).authAction, authLabel: (errorResponse as any).authLabel };
+        }
       } else {
         message = errorResponse;
         error = exception.name;
@@ -51,6 +56,12 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     } else if (exception instanceof Error) {
       message = exception.message;
       error = exception.name;
+      // Express/body-parser errors (413 payload too large, 400 malformed JSON) are not HttpExceptions
+      // but carry their own 4xx status; reporting them as 500 hid the real cause from callers.
+      const ownStatus = Number((exception as any).status ?? (exception as any).statusCode);
+      if (Number.isInteger(ownStatus) && ownStatus >= 400 && ownStatus < 500) {
+        status = ownStatus;
+      }
     }
 
     this.alertTelegram(exception, request, status);
@@ -68,6 +79,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       method: request.method,
       error,
       message,
+      ...extra,
     };
 
     response.status(status).json(errorResponse);

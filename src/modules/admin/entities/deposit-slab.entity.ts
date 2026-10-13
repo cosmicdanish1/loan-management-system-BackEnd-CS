@@ -9,6 +9,8 @@ import {
 export enum DepositSlabType {
   FIXED_DEPOSIT = 'fixed_deposit',
   RECURRING_DEPOSIT = 'recurring_deposit',
+  // Loan interest slabs (the Deposit/Loan Slab screen's "Loan" tab). The column is a plain varchar.
+  LOAN = 'loan',
 }
 
 @Entity('deposit_slabs')

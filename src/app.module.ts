@@ -26,6 +26,7 @@ import { MemberLedgerModule } from './modules/member-ledger/member-ledger.module
 import { GeneralLedgerModule } from './modules/general-ledger/general-ledger.module';
 import { PrintVoucherModule } from './modules/print-voucher/print-voucher.module';
 import { JottingReportModule } from './modules/jotting-report/jotting-report.module';
+import { ReportHeadOrderModule } from './modules/report-head-order/report-head-order.module';
 import { SharedModule } from './modules/shared/shared.module';
 import { MemberV2Module } from './modules/member/member-v2.module';
 import { LoanV2Module } from './modules/loan/loan-v2.module';
@@ -36,6 +37,9 @@ import { LicenseModule } from './modules/license/license.module';
 import { ClientLogsModule } from './modules/client-logs/client-logs.module';
 import { NoticeModule } from './modules/notice/notice.module';
 import { SupportModule } from './modules/support/support.module';
+import { MemberStatusModule } from './modules/member-status/member-status.module';
+import { GroupInsuranceModule } from './modules/group-insurance/group-insurance.module';
+import { NotificationCentreModule } from './modules/notification-centre/notification-centre.module';
 import { AlertsModule } from './modules/alerts/alerts.module';
 import { LoggingModule } from './common/logging/logging.module';
 
@@ -159,12 +163,16 @@ import { LoggingModule } from './common/logging/logging.module';
     GeneralLedgerModule,
     PrintVoucherModule,
     JottingReportModule,
+    ReportHeadOrderModule,
     NotificationModule,
     LicenseModule,
     ClientLogsModule,
     NoticeModule,
     AlertsModule, // Telegram alerts: errors, logins, backups, licence, daily digest
     SupportModule, // Raise a Query desk (Jira + Telegram)
+    MemberStatusModule, // ES-100: retired / inactive member flagging
+    GroupInsuranceModule, // ES-98: yearly group insurance deducted from RD
+    NotificationCentreModule, // ES-101: all system notifications in one place
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -239,58 +239,33 @@ export class DepositReportsService {
     async getDepositMaturity(dto: { fromDate: string; toDate: string; depositType?: string }) {
         const { fromDate, toDate, depositType } = dto;
 
-        // Query fixed deposits
-        let fdQuery = `
-      SELECT
-        fd.accountNumber as account_no,
-        fd.memberId as member_no,
-        TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
-        d.name as office_name,
-        'Fixed Deposit' as deposit_type,
-        CAST(fd.principalAmount AS numeric) as amount,
-        fd.maturityDate as due_date,
-        CAST(fd.interestRate AS numeric) as interest_rate,
-        CAST(fd.maturityAmount AS numeric) as maturity_amount
-      FROM fixed_deposits fd
-      LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(fd.memberId AS text)
-      LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
-      WHERE fd.maturityDate >= $1 AND fd.maturityDate <= $2
-        AND fd.status = 'ACTIVE'
-    `;
-
-        // Query recurring deposits
-        let rdQuery = `
-      SELECT
-        rd.accountNumber as account_no,
-        rd.memberId as member_no,
-        TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
-        d.name as office_name,
-        'Recurring Deposit' as deposit_type,
-        CAST(rd.monthlyInstallment AS numeric) as amount,
-        rd.maturityDate as due_date,
-        CAST(rd.interestRate AS numeric) as interest_rate,
-        CAST(rd.maturityAmount AS numeric) as maturity_amount
-      FROM recurring_deposits rd
-      LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(rd.memberId AS text)
-      LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
-      WHERE rd.maturityDate >= $1 AND rd.maturityDate <= $2
-        AND rd.status = 'ACTIVE'
-    `;
-
+        // Real FD/RD accounts live in fdmaster (fdrdflag 'F' = FD, 'R' = RD, status 'C' = closed).
+        // The fixed_deposits / recurring_deposits tables are unused demo tables.
+        const flag = depositType === 'Fixed Deposit' ? 'F' : depositType === 'Recurring Deposit' ? 'R' : null;
         const params: any[] = [parseSafeDate(fromDate), parseSafeDate(toDate)];
-
-        // If deposit type is specified, only query that type
-        let query = '';
-        if (depositType === 'Fixed Deposit') {
-            query = fdQuery + ` ORDER BY fd.maturityDate ASC`;
-        } else if (depositType === 'Recurring Deposit') {
-            query = rdQuery + ` ORDER BY rd.maturityDate ASC`;
-        } else {
-            // Union both queries for all types
-            query = `(${fdQuery}) UNION ALL (${rdQuery}) ORDER BY due_date ASC`;
+        let flagClause = '';
+        if (flag) {
+            params.push(flag);
+            flagClause = ` AND f.fdrdflag = $3`;
         }
 
-        const result = await this.dataSource.query(query, params);
+        const result = await this.dataSource.query(`
+      SELECT
+        f.account_number as account_no,
+        f.mbno as member_no,
+        TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
+        CASE WHEN f.fdrdflag = 'R' THEN 'Recurring Deposit' ELSE 'Fixed Deposit' END as deposit_type,
+        CAST(f.fdamount AS numeric) as amount,
+        f.matdate as due_date,
+        CAST(f.rate AS numeric) as interest_rate,
+        CAST(f.matamount AS numeric) as maturity_amount
+      FROM fdmaster f
+      LEFT JOIN member_master m ON m.mbno = f.mbno
+      WHERE f.matdate IS NOT NULL
+        AND f.matdate >= $1 AND f.matdate <= $2
+        AND COALESCE(f.status, '') <> 'C'${flagClause}
+      ORDER BY f.matdate ASC, f.account_number ASC
+    `, params);
 
         return result.map((r: any, idx: number) => ({
             key: idx.toString(),

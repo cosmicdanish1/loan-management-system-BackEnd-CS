@@ -37,8 +37,23 @@ export async function generateVoucherNo(runner: SqlRunner, type: VoucherType): P
     `SELECT ${col} AS last FROM voucher_master ORDER BY ${col} DESC LIMIT 1 FOR UPDATE`,
   );
   const last: string = rows?.[0]?.last ?? `${type}00000`;
-  const nextNum = (parseInt(String(last).replace(/\D/g, ''), 10) || 0) + 1;
-  const next = `${type}${String(nextNum).padStart(5, '0')}`;
+  let nextNum = (parseInt(String(last).replace(/\D/g, ''), 10) || 0) + 1;
+  let next = `${type}${String(nextNum).padStart(5, '0')}`;
+
+  // ES-56: the counter can lag behind numbers that already exist (migrated vouchers, or numbers
+  // issued elsewhere), and a repeated number makes two vouchers share ledger rows. Skip any number
+  // that is already used in the ledger, staged transactions or voucher headers (all indexed).
+  for (let guard = 0; guard < 100000; guard++) {
+    const used = await runner.query(
+      `SELECT 1 WHERE EXISTS (SELECT 1 FROM ledger WHERE receipt_vchr_no = $1)
+                   OR EXISTS (SELECT 1 FROM transactions WHERE receipt_vchr_no = $1)
+                   OR EXISTS (SELECT 1 FROM vouchers WHERE "voucherNumber" = $1)`,
+      [next],
+    );
+    if (!used || used.length === 0) break;
+    nextNum += 1;
+    next = `${type}${String(nextNum).padStart(5, '0')}`;
+  }
 
   await runner.query(`UPDATE voucher_master SET ${col} = $1`, [next]);
   return next;

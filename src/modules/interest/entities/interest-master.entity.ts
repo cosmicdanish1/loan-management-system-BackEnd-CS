@@ -1,9 +1,14 @@
-import { Entity, Column, PrimaryGeneratedColumn, OneToMany } from 'typeorm';
+import { Entity, Column, PrimaryColumn, OneToMany } from 'typeorm';
 import { InterestPaid } from './interest-paid.entity';
 
 @Entity('interestmaster')
 export class InterestMaster {
-  @PrimaryGeneratedColumn({ name: 'id' })
+  // BUG FIX 53: this was @PrimaryGeneratedColumn, but the real DB column has no
+  // sequence/default (confirmed via information_schema — nullable numeric, no
+  // default) — TypeORM's "generated" behavior was a fiction. An insert relying on
+  // it would leave id NULL, and the very next line in the service that called
+  // `.toString()` on it would throw. Must be generated explicitly before save.
+  @PrimaryColumn({ name: 'id', type: 'numeric', precision: 18, scale: 0 })
   id: number;
 
   @Column({ name: 'inttype', type: 'varchar', length: 3, default: '' })

@@ -617,7 +617,7 @@ export class LoanReportsService {
   /**
    * Get Interest Receivable/Received Statement
    */
-  async getInterestStatement(dto: { fromMonth?: number; fromYear?: number; toMonth?: number; toYear?: number; branch?: string; fromMember?: string; toMember?: string }) {
+  async getInterestStatement(dto: { fromMonth?: number; fromYear?: number; toMonth?: number; toYear?: number; branch?: string; wingNo?: string; fromMember?: string; toMember?: string }) {
     const { fromMonth = 1, fromYear = 2020, toMonth = 12, toYear = 2025 } = dto;
 
     let receivableQuery = `
@@ -645,6 +645,10 @@ export class LoanReportsService {
       receivableQuery += ` AND officeno = $${receivableParams.length + 1}`;
       receivableParams.push(dto.branch);
     }
+    if (dto.wingNo) {
+      receivableQuery += ` AND mbno IN (SELECT mbno FROM member_master WHERE wingno::text = $${receivableParams.length + 1})`;
+      receivableParams.push(String(dto.wingNo));
+    }
 
     receivableQuery += ` GROUP BY demand_for_year, demand_for_month ORDER BY demand_for_year, demand_for_month`;
 
@@ -661,7 +665,9 @@ export class LoanReportsService {
     `;
 
     const startDate = `${fromYear}-${fromMonth.toString().padStart(2, '0')}-01`;
-    const endDate = `${toYear}-${toMonth.toString().padStart(2, '0')}-31`;
+    // real last day of the month ('2026-09-31' is not a date and made Postgres reject the query)
+    const lastDay = new Date(Date.UTC(Number(toYear), Number(toMonth), 0)).getUTCDate();
+    const endDate = `${toYear}-${toMonth.toString().padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
     const receivedParams: any[] = [startDate, endDate];
 
     if (dto.fromMember) {
@@ -671,6 +677,15 @@ export class LoanReportsService {
     if (dto.toMember) {
       receivedQuery += ` AND mbno <= $${receivedParams.length + 1}`;
       receivedParams.push(dto.toMember);
+    }
+    // Wing / Office apply to the member's office, same as the receivable side
+    if (dto.branch) {
+      receivedQuery += ` AND mbno IN (SELECT mbno FROM member_master WHERE officeno::text = $${receivedParams.length + 1})`;
+      receivedParams.push(String(dto.branch));
+    }
+    if (dto.wingNo) {
+      receivedQuery += ` AND mbno IN (SELECT mbno FROM member_master WHERE wingno::text = $${receivedParams.length + 1})`;
+      receivedParams.push(String(dto.wingNo));
     }
 
     receivedQuery += ` GROUP BY EXTRACT(YEAR FROM trans_date), EXTRACT(MONTH FROM trans_date)

@@ -259,6 +259,18 @@ export class SystemConfigController {
   }
 
   // Deposit Slab Endpoints
+
+  // Replace every slab of one type atomically - used by the Deposit/Loan Slab screen's Save.
+  @Post('deposit-slabs/bulk')
+  @Roles(UserRole.ADMIN)
+  @RequirePermissions(UserPermission.MANAGE_SYSTEM_CONFIG)
+  @ApiOperation({ summary: 'Replace all deposit/loan slabs of a type (atomic delete + insert)' })
+  async replaceDepositSlabs(
+    @Body() body: { rows: CreateDepositSlabDto[]; type: string },
+  ): Promise<{ saved: number }> {
+    return this.systemConfigService.replaceDepositSlabs(body?.type, body?.rows);
+  }
+
   @Post('deposit-slabs')
   @Roles(UserRole.ADMIN)
   @RequirePermissions(UserPermission.MANAGE_SYSTEM_CONFIG)

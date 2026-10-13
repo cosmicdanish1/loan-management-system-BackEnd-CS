@@ -15,6 +15,8 @@ describe('MemberLedgerService columnar balance boundaries', () => {
       memberRepository as any,
       {} as any,
       dataSource as any,
+      // head order: keep input order (pass-through)
+      { sortByHeadOrder: async (items: any[]) => items } as any,
     );
     return service;
   };
@@ -31,6 +33,8 @@ describe('MemberLedgerService columnar balance boundaries', () => {
       { findOne: jest.fn().mockResolvedValue({ mbno: '1001', f_name: 'Test', m_name: '', l_name: 'Member' }) } as any,
       {} as any,
       dataSource as any,
+      // head order: keep input order (pass-through)
+      { sortByHeadOrder: async (items: any[]) => items } as any,
     );
 
     const context = await service.getMemberLedgerContext({ memberNumber: '1001' });
@@ -61,6 +65,7 @@ describe('MemberLedgerService columnar balance boundaries', () => {
       { findOne: jest.fn().mockResolvedValue({ mbno: '1001', f_name: 'Test', m_name: '', l_name: 'Member' }) } as any,
       { findOne: jest.fn().mockResolvedValue({ head_name: 'Share' }) } as any,
       {} as any,
+      { sortByHeadOrder: async (items: any[]) => items } as any,
     );
 
     const report = await service.getMemberLedgerReport({

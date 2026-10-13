@@ -21,6 +21,8 @@ import { Roles } from '../../auth/decorators/roles.decorator';
 import { RequirePermissions } from '../../auth/decorators/permissions.decorator';
 import { UserRole, UserPermission } from '../../auth/entities/user.entity';
 import { RoleManagementService } from '../services/role-management.service';
+import { CurrentUser } from '../../auth/decorators/current-user.decorator';
+import { AlertBridge } from '../../alerts/alert-bridge';
 import { UpdateDefaultRightsDto, UserLevelResponseDto, MenuResponseDto } from '../dto/role-management.dto';
 
 @ApiTags('Role Management')
@@ -76,7 +78,23 @@ export class RoleManagementController {
         status: HttpStatus.OK,
         description: 'Default rights updated successfully',
     })
-    async updateDefaultRights(@Body() updateDto: UpdateDefaultRightsDto) {
-        return this.roleManagementService.updateDefaultRights(updateDto);
+    async updateDefaultRights(@Body() updateDto: UpdateDefaultRightsDto, @CurrentUser() actor: any) {
+        // Read the old rights first so the alert can say how many were added/removed.
+        const before: number[] = await this.roleManagementService.getDefaultRights(updateDto.userlevelid).catch(() => []);
+        const result = await this.roleManagementService.updateDefaultRights(updateDto);
+        try {
+            const levels = await this.roleManagementService.findAllUserLevels();
+            const level = levels.find((l: any) => l.userlevelid === updateDto.userlevelid);
+            const now = new Set<number>(updateDto.menuIds);
+            const old = new Set<number>(before);
+            AlertBridge.get()?.rightsChanged({
+                by: actor?.username,
+                level: (level as any)?.userlevel ?? `#${updateDto.userlevelid}`,
+                added: [...now].filter((m) => !old.has(m)).length,
+                removed: [...old].filter((m) => !now.has(m)).length,
+                total: now.size,
+            });
+        } catch { /* alerting must never affect rights changes */ }
+        return result;
     }
 }

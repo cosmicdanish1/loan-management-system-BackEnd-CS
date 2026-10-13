@@ -5,6 +5,8 @@ import { SupportQuery } from '../entities/support-query.entity';
 import { CreateSupportQueryDto } from '../dto/create-support-query.dto';
 import { JiraClientService } from './jira-client.service';
 import { TelegramClientService } from '../../alerts/telegram-client.service';
+import { AlertSettingsService, JIRA_CREATE } from '../../alerts/alert-settings.service';
+import { AlertService, esc } from '../../alerts/alert.service';
 
 const TYPE_LABEL: Record<string, string> = {
     BUG: 'Bug',
@@ -28,12 +30,16 @@ export interface Reporter {
 export class SupportQueryService implements OnModuleInit, OnModuleDestroy {
     private readonly logger = new Logger(SupportQueryService.name);
     private readonly inFlight = new Set<number>();
+    /** Queries already announced on Discord (Telegram has its own retry/status columns). */
+    private readonly discordNotified = new Set<number>();
     private timer?: NodeJS.Timeout;
 
     constructor(
         @InjectRepository(SupportQuery) private readonly repo: Repository<SupportQuery>,
         private readonly jira: JiraClientService,
         private readonly telegram: TelegramClientService,
+        private readonly alertSettings: AlertSettingsService,
+        private readonly alerts: AlertService,
     ) { }
 
     onModuleInit() {
@@ -116,7 +122,10 @@ export class SupportQueryService implements OnModuleInit, OnModuleDestroy {
             if (!q) return;
 
             if (q.jiraStatus !== 'SENT' && q.jiraAttempts < MAX_ATTEMPTS) {
-                if (!this.jira.isConfigured()) {
+                if (!this.alertSettings.flag(JIRA_CREATE)) {
+                    // Switched off in Settings: skip for good (not retried), so switching it on never replays old queries.
+                    await this.repo.update(id, { jiraStatus: 'SKIPPED', jiraError: 'Ticket creation is switched off in Settings' });
+                } else if (!this.jira.isConfigured()) {
                     await this.repo.update(id, { jiraStatus: 'DISABLED', jiraError: 'Jira is not configured (.env)' });
                 } else {
                     try {
@@ -141,8 +150,18 @@ export class SupportQueryService implements OnModuleInit, OnModuleDestroy {
             }
 
             const fresh = await this.repo.findOne({ where: { id } });
+
+            // Discord: one best-effort card per new query (routing/mute/test handled by AlertService).
+            // Only for queries raised in the last 10 minutes, so retries after a restart never replay old ones.
+            if (fresh && !this.discordNotified.has(id) && Date.now() - new Date(fresh.createdAt).getTime() < 10 * 60 * 1000) {
+                this.discordNotified.add(id);
+                this.alerts.send('query.new', 'queries', this.discordBody(fresh), 'discord');
+            }
             if (fresh && fresh.telegramStatus !== 'SENT' && fresh.telegramAttempts < MAX_ATTEMPTS) {
-                if (!this.telegram.isConfigured()) {
+                if (!this.alertSettings.isEnabled('query.new')) {
+                    // Muted in Settings: skip for good (not retried), so turning it back on never replays old queries.
+                    await this.repo.update(id, { telegramStatus: 'SKIPPED', telegramError: 'Muted in Settings → Telegram Alerts' });
+                } else if (!this.telegram.isConfigured()) {
                     await this.repo.update(id, { telegramStatus: 'DISABLED', telegramError: 'Telegram is not configured (.env)' });
                 } else {
                     try {
@@ -172,6 +191,22 @@ export class SupportQueryService implements OnModuleInit, OnModuleDestroy {
             `App version: ${q.appVersion || 'unknown'}`,
             `Client: ${q.clientInfo || 'unknown'}`,
             `Raised at: ${q.createdAt.toISOString()}`,
+        ].join('\n');
+    }
+
+    /** The same new-query card the other alerts use (Telegram-style HTML, converted for Discord). */
+    private discordBody(q: SupportQuery): string {
+        const pri = ({ LOW: '🟢', MEDIUM: '🟡', HIGH: '🟠', CRITICAL: '🔴' } as Record<string, string>)[q.priority] || '🟡';
+        const priName = q.priority.charAt(0) + q.priority.slice(1).toLowerCase();
+        const desc = q.description.length > 400 ? `${q.description.slice(0, 400)}…` : q.description;
+        return [
+            `🆕 <b>New query SQ-${String(q.id).padStart(5, '0')}</b>`,
+            `<b>${esc(q.subject)}</b>`,
+            `${pri} ${priName}   ·   🏷 ${esc(TYPE_LABEL[q.queryType] || 'Other')}${q.module ? `   ·   📂 ${esc(q.module)}` : ''}`,
+            `👤 ${esc(q.reporterUsername || 'unknown')}${q.appVersion ? `   🖥 v${esc(q.appVersion)}` : ''}`,
+            '',
+            `<i>${esc(desc)}</i>`,
+            q.jiraKey ? `\n🔗 Jira: <code>${esc(q.jiraKey)}</code>` : '',
         ].join('\n');
     }
 

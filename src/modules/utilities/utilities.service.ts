@@ -1,4 +1,4 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, ConflictException, HttpException } from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { UserPreference } from './entities/user-preference.entity';
@@ -6,6 +6,7 @@ import { SystemSetting } from './entities/system-setting.entity';
 import { UpdateUserPreferenceDto } from './dto/update-user-preference.dto';
 import { RD_RULE_DEFAULTS, RD_RULE_KEYS, RD_BOOLEAN_RULE_KEYS } from '../rd/rd-business-rules';
 import { HEAD_BALANCES_SELECT } from './head-balances.sql';
+import { generateVoucherNo } from '../shared/utils/voucher-utils';
 
 /**
  * A stored day-of-month setting, forced into 1-31. Deliberately NOT validated
@@ -510,14 +511,8 @@ export class UtilitiesService {
       let voucherNo = data.voucherNo;
       
       if (!voucherNo) {
-        const vchrKey = isDeposit ? 'r_vchr_no' : 'p_vchr_no';
-        // BUG FIX: added FOR UPDATE to prevent duplicate voucher numbers under concurrent requests
-        const vmResult = await queryRunner.query(`SELECT ${vchrKey} FROM voucher_master LIMIT 1 FOR UPDATE`);
-        const lastNo = vmResult[0]?.[vchrKey] || (isDeposit ? 'R00000' : 'P00000');
-        const prefix = isDeposit ? 'R' : 'P';
-        const num = parseInt(lastNo.replace(/\D/g, '')) + 1;
-        voucherNo = `${prefix}${num.toString().padStart(5, '0')}`;
-        await queryRunner.query(`UPDATE voucher_master SET ${vchrKey} = $1`, [voucherNo]);
+        // ES-56: shared generator (locks the counter row and skips numbers that already exist)
+        voucherNo = await generateVoucherNo(queryRunner, isDeposit ? 'R' : 'P');
       }
 
       const transDate = data.transDate ? new Date(data.transDate) : new Date();
@@ -696,12 +691,8 @@ export class UtilitiesService {
       const nextTransNo = Number(maxResult[0]?.next_trans_no ?? 1);
       const nextLedgerId = Number(maxResult[0]?.next_ledger_id ?? 1);
 
-      // BUG FIX: added FOR UPDATE to prevent duplicate voucher numbers under concurrent requests
-      const vmResult = await queryRunner.query(`SELECT j_vchr_no FROM voucher_master LIMIT 1 FOR UPDATE`);
-      const lastNo = vmResult[0]?.j_vchr_no || 'J00000';
-      const num = parseInt(lastNo.replace(/\D/g, '')) + 1;
-      const voucherNo = `J${num.toString().padStart(5, '0')}`;
-      await queryRunner.query(`UPDATE voucher_master SET j_vchr_no = $1`, [voucherNo]);
+      // ES-56: shared generator (locks the counter row and skips numbers that already exist)
+      const voucherNo = await generateVoucherNo(queryRunner, 'J');
 
       const transDate = data.transDate ? new Date(data.transDate) : new Date();
 
@@ -792,12 +783,8 @@ export class UtilitiesService {
       const nextTransNo = Number(maxResult[0]?.next_trans_no ?? 1);
       const nextLedgerId = Number(maxResult[0]?.next_ledger_id ?? 1);
 
-      // BUG FIX: added FOR UPDATE to prevent duplicate voucher numbers under concurrent requests
-      const vmResult = await queryRunner.query(`SELECT r_vchr_no FROM voucher_master LIMIT 1 FOR UPDATE`);
-      const lastNo = vmResult[0]?.r_vchr_no || 'R00000';
-      const num = parseInt(lastNo.replace(/\D/g, '')) + 1;
-      const voucherNo = `R${num.toString().padStart(5, '0')}`;
-      await queryRunner.query(`UPDATE voucher_master SET r_vchr_no = $1`, [voucherNo]);
+      // ES-56: shared generator (locks the counter row and skips numbers that already exist)
+      const voucherNo = await generateVoucherNo(queryRunner, 'R');
 
       const depDate = data.depositDate ? new Date(data.depositDate) : new Date();
       const matDate = data.maturityDate ? new Date(data.maturityDate) : new Date();
@@ -893,12 +880,8 @@ export class UtilitiesService {
       const nextTransNo = Number(maxResult[0]?.next_trans_no ?? 1);
       const nextLedgerId = Number(maxResult[0]?.next_ledger_id ?? 1);
 
-      // BUG FIX: added FOR UPDATE to prevent duplicate voucher numbers under concurrent requests
-      const vmResult = await queryRunner.query(`SELECT r_vchr_no FROM voucher_master LIMIT 1 FOR UPDATE`);
-      const lastNo = vmResult[0]?.r_vchr_no || 'R00000';
-      const num = parseInt(lastNo.replace(/\D/g, '')) + 1;
-      const voucherNo = `R${num.toString().padStart(5, '0')}`;
-      await queryRunner.query(`UPDATE voucher_master SET r_vchr_no = $1`, [voucherNo]);
+      // ES-56: shared generator (locks the counter row and skips numbers that already exist)
+      const voucherNo = await generateVoucherNo(queryRunner, 'R');
 
       const transDate = new Date();
       const modeOfPay = data.paymentMode === 'bank' ? 'B' : 'C';
@@ -970,6 +953,11 @@ export class UtilitiesService {
       modeOfPay: string;
       bankCode: string;   // which bank to DR (A1008 etc.)
       narration: string;
+      /** Bank mode only: the customer's cheque details. The ledger has a column for the bank name only;
+       *  the screen also appends the cheque number/date to the narration. */
+      cheqNo?: string;
+      cheqDate?: string;
+      bankName?: string;
       rows: Array<{ code: string; accType: string; amount: number }>;
     },
     username: string = 'system',
@@ -991,12 +979,8 @@ export class UtilitiesService {
       // Generate R voucher number if not provided
       let voucherNo = data.voucherNo;
       if (!voucherNo) {
-        // BUG FIX: added FOR UPDATE to prevent duplicate voucher numbers under concurrent requests
-        const vmResult = await queryRunner.query(`SELECT r_vchr_no FROM voucher_master LIMIT 1 FOR UPDATE`);
-        const lastNo = vmResult[0]?.r_vchr_no || 'R00000';
-        const num = parseInt(lastNo.replace(/\D/g, '')) + 1;
-        voucherNo = `R${num.toString().padStart(5, '0')}`;
-        await queryRunner.query(`UPDATE voucher_master SET r_vchr_no = $1`, [voucherNo]);
+        // ES-56: shared generator (locks the counter row and skips numbers that already exist)
+        voucherNo = await generateVoucherNo(queryRunner, 'R');
       }
 
       const transDate = data.transDate ? new Date(data.transDate) : new Date();
@@ -1008,9 +992,9 @@ export class UtilitiesService {
       for (const row of data.rows) {
         if (!row.code || !row.amount) continue;
         await queryRunner.query(
-          `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid)
-           VALUES ($1, $2, 'CR', $3, $4, 0, $5, $6, $7, 'R', $8, 0, $9, $10, $11)`,
-          [nextTransNo++, transDate, row.code, data.memberNo, row.accType, row.amount, voucherNo, modeOfPay, data.narration || '', username, nextLedgerId++]
+          `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid, cust_bank_name)
+           VALUES ($1, $2, 'CR', $3, $4, 0, $5, $6, $7, 'R', $8, 0, $9, $10, $11, $12)`,
+          [nextTransNo++, transDate, row.code, data.memberNo, row.accType, row.amount, voucherNo, modeOfPay, data.narration || '', username, nextLedgerId++, data.bankName || null]
         );
       }
 
@@ -1022,9 +1006,9 @@ export class UtilitiesService {
 
       // DR cash/bank account (vchr_type='P') — same voucher number, total amount
       await queryRunner.query(
-        `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid)
-         VALUES ($1, $2, 'DR', $3, $4, 0, $5, $6, $7, 'P', $8, 0, $9, $10, $11)`,
-        [nextTransNo++, transDate, drCode, data.memberNo, drAccType, totalAmount, voucherNo, modeOfPay, data.narration || '', username, nextLedgerId++]
+        `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid, cust_bank_name)
+         VALUES ($1, $2, 'DR', $3, $4, 0, $5, $6, $7, 'P', $8, 0, $9, $10, $11, $12)`,
+        [nextTransNo++, transDate, drCode, data.memberNo, drAccType, totalAmount, voucherNo, modeOfPay, data.narration || '', username, nextLedgerId++, data.bankName || null]
       );
 
       await queryRunner.commitTransaction();
@@ -1072,12 +1056,8 @@ export class UtilitiesService {
       // Generate R voucher number if not provided (uses R_VCHR_NO from voucher_master)
       let voucherNo = data.voucherNo;
       if (!voucherNo) {
-        // BUG FIX: added FOR UPDATE to prevent duplicate voucher numbers under concurrent requests
-        const vmResult = await queryRunner.query(`SELECT r_vchr_no FROM voucher_master LIMIT 1 FOR UPDATE`);
-        const lastNo = vmResult[0]?.r_vchr_no || 'R00000';
-        const num = parseInt(lastNo.replace(/\D/g, '')) + 1;
-        voucherNo = `R${num.toString().padStart(5, '0')}`;
-        await queryRunner.query(`UPDATE voucher_master SET r_vchr_no = $1`, [voucherNo]);
+        // ES-56: shared generator (locks the counter row and skips numbers that already exist)
+        voucherNo = await generateVoucherNo(queryRunner, 'R');
       }
 
       const transDate = data.transDate ? new Date(data.transDate) : new Date();
@@ -1109,8 +1089,23 @@ export class UtilitiesService {
         );
       }
 
+      // ES-55: create the voucher HEADER too. Pass Transactions lists and passes only from `vouchers`
+      // (status PENDING), so staged rows with no header could never be listed or passed.
+      await queryRunner.query(`SELECT pg_advisory_xact_lock(hashtext('vouchers'))`);
+      const nextVoucherId = Number((await queryRunner.query(`SELECT COALESCE(MAX(id), 0) + 1 AS n FROM vouchers`))[0].n);
+      await queryRunner.query(
+        `INSERT INTO vouchers ("id","voucherNumber","voucherDate","voucherType","totalAmount","description","memberId","payeeName",
+                               "status","remarks","chequeNumber","chequeDate","bankName","createdAt")
+         VALUES ($1,$2,$3,'RECEIPT',$4,$5,$6,'','PENDING',$7,$8,$9,$10,NOW())`,
+        [nextVoucherId, voucherNo, transDate, totalAmount, data.narration || 'Receipt voucher',
+         data.memberNo || null, `VOUCHER_PAYMENT|PAY_MODE:${isBankMode ? 'BANK' : 'CASH'}`,
+         data.cheqNo || null, data.cheqDate ? new Date(data.cheqDate) : null,
+         // Pass treats a voucher with a bank name or cheque number as a transfer (not cash); keep bank mode intact.
+         data.bankName || (isBankMode ? drCode : null)]
+      );
+
       await queryRunner.commitTransaction();
-      this.logger.log(`[VoucherPayment] Saved vchr=${voucherNo} member=${data.memberNo} total=${totalAmount} rows=${data.rows.length} → TRANSACTIONS (pass_flag=N)`);
+      this.logger.log(`[VoucherPayment] Saved vchr=${voucherNo} member=${data.memberNo} total=${totalAmount} rows=${data.rows.length} → TRANSACTIONS (pass_flag=N) + voucher header (PENDING)`);
 
       return { success: true, transNo: nextTransNo - data.rows.length - 1, voucherNo, message: `Voucher ${voucherNo} staged in TRANSACTIONS (pending pass). Total: ${totalAmount}` };
     } catch (error) {
@@ -1151,12 +1146,8 @@ export class UtilitiesService {
       // Generate voucher number if not provided
       let voucherNo = data.voucherNo;
       if (!voucherNo) {
-        // BUG FIX: added FOR UPDATE to prevent duplicate voucher numbers under concurrent requests
-        const vmResult = await queryRunner.query(`SELECT p_vchr_no FROM voucher_master LIMIT 1 FOR UPDATE`);
-        const lastNo = vmResult[0]?.p_vchr_no || 'P00000';
-        const num = parseInt(lastNo.replace(/\D/g, '')) + 1;
-        voucherNo = `P${num.toString().padStart(5, '0')}`;
-        await queryRunner.query(`UPDATE voucher_master SET p_vchr_no = $1`, [voucherNo]);
+        // ES-56: shared generator (locks the counter row and skips numbers that already exist)
+        voucherNo = await generateVoucherNo(queryRunner, 'P');
       }
 
       const transDate = data.transDate ? new Date(data.transDate) : new Date();
@@ -1929,7 +1920,9 @@ export class UtilitiesService {
         { key: 'RULE_LOAN_R_SHARE_HEAD_CODE', value: String(data.RULE_LOAN_R_SHARE_HEAD_CODE ?? 'L1001'), dataType: 'string' },
         { key: 'RULE_LOAN_ELIGIBILITY_APPLY_RLN', value: data.RULE_LOAN_ELIGIBILITY_APPLY_RLN === false ? 'false' : 'true', dataType: 'boolean' },
         { key: 'RULE_LOAN_ELIGIBILITY_APPLY_ALN', value: data.RULE_LOAN_ELIGIBILITY_APPLY_ALN === false ? 'false' : 'true', dataType: 'boolean' },
-        { key: 'RULE_LOAN_ELIGIBILITY_APPLY_ELN', value: data.RULE_LOAN_ELIGIBILITY_APPLY_ELN === false ? 'false' : 'true', dataType: 'boolean' },
+        // Loan Against RD's limit check is always on (it is what the RD lock secures), so this switch is
+        // not honoured: always stored as 'true' so a stale 'false' can never mislead anyone.
+        { key: 'RULE_LOAN_ELIGIBILITY_APPLY_ELN', value: 'true', dataType: 'boolean' },
         { key: 'RULE_EARLY_CLOSURE_REQUIRE_TYPE_CONFIRM', value: data.RULE_EARLY_CLOSURE_REQUIRE_TYPE_CONFIRM === false ? 'false' : 'true', dataType: 'boolean' },
         { key: 'RULE_TIERED_LOAN_PENALTY_ENABLED', value: willPenaltyBeEnabled ? 'true' : 'false', dataType: 'boolean' },
         { key: 'RULE_TIERED_LOAN_PENALTY_ACTIVATION_DATE', value: penaltyActivationDate, dataType: 'string' },
@@ -2059,6 +2052,181 @@ export class UtilitiesService {
       throw new Error(
         `Failed to transfer entries: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  // ── ES-54: methods removed by commit 2cfd3e7 but still called by the app; restored from 2cfd3e7^ ──
+
+  // Premature Information (RD/SB) lists the actual account holders so the screen can offer a
+  // scoped dropdown instead of a blind member-number search.
+  async listRdAccountHolders(): Promise<any[]> {
+    const query = `
+      SELECT
+        f.mbno as "memberNo",
+        TRIM(COALESCE(m.f_name,'') || ' ' || COALESCE(m.m_name,'') || ' ' || COALESCE(m.l_name,'')) as "memberName",
+        f.account_number as "accountNumber",
+        f.fdamount as "monthlyInstallment"
+      FROM fdmaster f
+      LEFT JOIN member_master m ON f.mbno::text = m.mbno::text
+      WHERE f.fdrdflag = 'R' AND f.status = '0'
+      ORDER BY f.mbno
+    `;
+    return this.dataSource.query(query);
+  }
+
+  async listSbAccountHolders(): Promise<any[]> {
+    // sbmaster is the real, authoritative SB account table.
+    const query = `
+      SELECT
+        s.mbno as "memberNo",
+        TRIM(COALESCE(m.f_name,'') || ' ' || COALESCE(m.m_name,'') || ' ' || COALESCE(m.l_name,'')) as "memberName",
+        s.acc_no as "accountNumber",
+        s.balance
+      FROM sbmaster s
+      LEFT JOIN member_master m ON s.mbno::text = m.mbno::text
+      ORDER BY s.mbno
+    `;
+    return this.dataSource.query(query);
+  }
+
+  /**
+   * Running ledger balance for an account head (asset convention: DR increases,
+   * CR decreases) — used to show the live Bank/Cash balance on voucher screens.
+   */
+  async getHeadBalance(code: string): Promise<number> {
+    const res = await this.dataSource.query(
+      `SELECT COALESCE(SUM(CASE WHEN trans_type = 'DR' THEN trans_amt::numeric ELSE -trans_amt::numeric END), 0) AS balance
+       FROM ledger WHERE code = $1`,
+      [code],
+    );
+    return Number(res[0]?.balance || 0);
+  }
+
+  async deleteHeadMaster(code: string): Promise<{ success: boolean; message: string }> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      const children = await queryRunner.query(
+        `SELECT COUNT(*)::int AS cnt FROM headmaster WHERE parent_code = $1`, [code]
+      );
+      if (children[0].cnt > 0) {
+        throw new ConflictException(`${code} has ${children[0].cnt} child heads — remove children first.`);
+      }
+      // Deleting a head with real ledger postings would silently drop those transactions from
+      // every future rebuildBalancesheet() run (it LEFT JOINs from headmaster) instead of erroring.
+      const postings = await queryRunner.query(
+        `SELECT COUNT(*)::int AS cnt FROM ledger WHERE code = $1`, [code]
+      );
+      if (postings[0].cnt > 0) {
+        throw new ConflictException(`${code} has ${postings[0].cnt} ledger transaction(s) posted against it — cannot delete.`);
+      }
+      await queryRunner.query(`DELETE FROM headmaster   WHERE code      = $1`, [code]);
+      await queryRunner.query(`DELETE FROM balancesheet WHERE head_code = $1`, [code]);
+      await queryRunner.commitTransaction();
+      this.logger.log(`[DeleteHead] Deleted head ${code}`);
+      return { success: true, message: `${code} deleted successfully.` };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      if (error instanceof HttpException) throw error;
+      throw new Error(error instanceof Error ? error.message : 'Delete failed');
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  async getFinancialYears(): Promise<any[]> {
+    // yearcode is just a sequential ID (1, 2, 3…), not a calendar year: the real dates live on
+    // the row itself (start_date/end_date), set at creation by FinancialYearService.
+    const rows = await this.dataSource.query(
+      `SELECT DISTINCT ON (yearcode) yearcode, start_date, end_date
+       FROM yearend WHERE yearcode IS NOT NULL ORDER BY yearcode`
+    );
+    const fmt = (d: Date) => new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    return rows.map((r: any) => {
+      const startDate = fmt(r.start_date);
+      const endDate = fmt(r.end_date);
+      return { yearcode: parseInt(r.yearcode), startDate, endDate, label: `${startDate} - ${endDate}` };
+    });
+  }
+
+  async getHeadOpeningBalances(yearcode: number): Promise<any[]> {
+    return this.dataSource.query(`
+      SELECT
+        hm.code,
+        hm.parent_code  AS "parentCode",
+        hm.head_name    AS "headName",
+        hm.headtype     AS "headType",
+        COALESCE(yh.closing_bal, hm.op_bal, 0) AS "openingBal",
+        (yh.head_code IS NOT NULL) AS "hasYearData"
+      FROM headmaster hm
+      LEFT JOIN (
+        SELECT DISTINCT ON (head_code) head_code, closing_bal
+        FROM yearend_head
+        WHERE yearcode = $1
+        ORDER BY head_code
+      ) yh ON yh.head_code = hm.code
+      ORDER BY hm.code
+    `, [yearcode]);
+  }
+
+  async saveHeadOpeningBalances(
+    yearcode: number,
+    balances: Array<{ headCode: string; closingBal: number }>,
+  ): Promise<{ success: boolean; message: string }> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      await queryRunner.query(
+        `DELETE FROM yearend_head WHERE yearcode = $1 AND head_code IN (SELECT code FROM headmaster)`,
+        [yearcode],
+      );
+      for (const b of balances) {
+        await queryRunner.query(
+          `INSERT INTO yearend_head (yearcode, head_code, parent_code, closing_bal)
+           SELECT $1, hm.code, hm.parent_code, $3 FROM headmaster hm WHERE hm.code = $2`,
+          [yearcode, b.headCode, b.closingBal],
+        );
+      }
+      await queryRunner.commitTransaction();
+      this.logger.log(`[HeadOpenBal] Saved ${balances.length} balances for year ${yearcode}`);
+      return { success: true, message: `Saved ${balances.length} head balances for year ${yearcode}.` };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw new Error(`Failed to save opening balances: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  async applyYearOpeningBalances(yearcode: number): Promise<{ success: boolean; message: string; updated: number }> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      // queryRunner.query() only returns raw.rows by default, which is empty for an UPDATE with no
+      // RETURNING clause; pass useStructuredResult:true to read the affected row count instead.
+      const result = await queryRunner.query(`
+        UPDATE headmaster hm
+        SET op_bal = yh.closing_bal
+        FROM (
+          SELECT DISTINCT ON (head_code) head_code, closing_bal
+          FROM yearend_head
+          WHERE yearcode = $1 AND head_code IN (SELECT code FROM headmaster)
+          ORDER BY head_code
+        ) yh
+        WHERE hm.code = yh.head_code
+      `, [yearcode], true);
+      await queryRunner.commitTransaction();
+      const updated = result.affected ?? 0;
+      this.logger.log(`[HeadOpenBal] Applied year ${yearcode} → ${updated} accounts updated`);
+      return { success: true, message: `Applied year ${yearcode} balances to ${updated} account heads.`, updated };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw new Error(`Failed to apply opening balances: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       await queryRunner.release();
     }

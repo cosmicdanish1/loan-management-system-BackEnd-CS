@@ -2,6 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { parseSafeDate } from '../../shared/utils/date-utils';
 
+// Report Head Order (ES-57): configured position first, heads not in the table last, then by code.
+const HEAD_ORDER_SQL = (col: string) =>
+    `COALESCE((SELECT ho.position FROM report_head_order ho WHERE ho.code = ${col}), 1000000), ${col}`;
+
 /**
  * Cash Book Reports Service - Handles cash book and ledger reports.
  * 
@@ -136,7 +140,7 @@ export class CashBookReportsService {
             FROM tblcashbook
             WHERE trans_date::date = $1::date
             GROUP BY headcode
-            ORDER BY headcode
+            ORDER BY ${HEAD_ORDER_SQL('headcode')}
         `, [targetDate]);
 
         const totalReceiptsCash = entries.reduce((sum: number, e: any) => sum + (parseFloat(e.receipt_cash) || 0), 0);
@@ -230,7 +234,7 @@ export class CashBookReportsService {
         AND trans_date >= $1
         AND trans_date <= $2
       GROUP BY headcode
-      ORDER BY headcode
+      ORDER BY ${HEAD_ORDER_SQL('headcode')}
     `;
 
         const params: any[] = [startStr, endStr];

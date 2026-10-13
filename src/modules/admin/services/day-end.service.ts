@@ -227,6 +227,51 @@ export class DayEndService {
     }
   }
 
+  /**
+   * Creates the genesis getworkingdate row — the only bootstrap path, since
+   * every other write to this table requires a current row to already exist.
+   * Refuses if any row already exists, to avoid double-initializing.
+   */
+  async initializeWorkingDate(workingDate: string): Promise<{ message: string }> {
+    const existing = await this.dataSource.query(`SELECT 1 FROM getworkingdate LIMIT 1`);
+    if (existing.length > 0) {
+      throw new BadRequestException('getworkingdate already has data — cannot re-initialize.');
+    }
+
+    // `new Date(str); date.setHours(0,0,0,0)` silently shifts the date back a day on this server
+    // (IST, UTC+5:30): setHours() re-anchors to LOCAL midnight but new Date('YYYY-MM-DD') parses as
+    // UTC midnight. Avoided here by never constructing a JS Date — validate the string shape and let
+    // Postgres parse the literal directly as a calendar date.
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(workingDate)) {
+      throw new BadRequestException('Invalid working date — expected YYYY-MM-DD.');
+    }
+
+    await this.dataSource.query(
+      `INSERT INTO getworkingdate
+        (working_date, payment_voucher, receipt_voucher, journal_voucher, dayend_flag, updategl_flag)
+       VALUES ($1::date, 0, 0, 0, 'N', 'N')`,
+      [workingDate],
+    );
+
+    this.logger.log(`getworkingdate initialized with working date ${workingDate}`);
+    return { message: `Working date initialized to ${workingDate}.` };
+  }
+
+  /**
+   * Corrects a mis-set initial working date (e.g. fat-fingered on genesis
+   * setup) — refuses once any real day-end has ever completed, to avoid
+   * resetting a working table with real transaction history behind it.
+   */
+  async resetWorkingDate(): Promise<{ message: string }> {
+    const completed = await this.dayEndProcessRepository.count({ where: { status: DayEndStatus.COMPLETED } });
+    if (completed > 0) {
+      throw new BadRequestException('Cannot reset — day-end has already been completed at least once.');
+    }
+    await this.dataSource.query(`DELETE FROM getworkingdate`);
+    this.logger.log('getworkingdate reset (no completed day-end existed)');
+    return { message: 'Working date cleared. Set a new one to continue.' };
+  }
+
   private async calculateOpeningBalance(date: Date): Promise<number> {
     const previousDay = new Date(date);
     previousDay.setDate(previousDay.getDate() - 1);

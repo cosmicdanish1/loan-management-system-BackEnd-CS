@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindManyOptions, Like } from 'typeorm';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
 import {
   SystemConfig,
   ConfigCategory,
@@ -315,6 +317,57 @@ export class SystemConfigService {
   }
 
   // Deposit Slab Methods
+
+  /**
+   * Replace ALL slabs of one type atomically (delete + insert in a single transaction). This is what the
+   * Deposit/Loan Slab screen's Save calls: the screen holds the complete list for the tab, so saving means
+   * "this is now the full set". Every row is validated with the same rules as a single create, and an
+   * empty list is allowed (clears the type). Nothing is changed if any row is invalid.
+   */
+  async replaceDepositSlabs(type: string, rows: unknown): Promise<{ saved: number }> {
+    if (!Object.values(DepositSlabType).includes(type as DepositSlabType)) {
+      throw new BadRequestException(`type must be one of: ${Object.values(DepositSlabType).join(', ')}`);
+    }
+    if (!Array.isArray(rows)) {
+      throw new BadRequestException('rows must be an array');
+    }
+
+    const dtos: CreateDepositSlabDto[] = [];
+    for (let i = 0; i < rows.length; i++) {
+      const dto = plainToInstance(CreateDepositSlabDto, rows[i] ?? {});
+      const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: false });
+      if (errors.length > 0) {
+        const detail = errors.flatMap(e => Object.values(e.constraints ?? {})).join('; ');
+        throw new BadRequestException(`Row ${i + 1}: ${detail}`);
+      }
+      if (dto.type !== type) {
+        throw new BadRequestException(`Row ${i + 1}: type '${dto.type}' does not match '${type}'`);
+      }
+      if (dto.maxAmount < dto.minAmount) {
+        throw new BadRequestException(`Row ${i + 1}: maximum amount is below the minimum amount`);
+      }
+      if (dto.maxTenure < dto.minTenure) {
+        throw new BadRequestException(`Row ${i + 1}: maximum tenure is below the minimum tenure`);
+      }
+      dtos.push(dto);
+    }
+
+    await this.depositSlabRepository.manager.transaction(async (manager) => {
+      await manager.delete(DepositSlab, { type: type as DepositSlabType });
+      for (const dto of dtos) {
+        await manager.save(
+          manager.create(DepositSlab, {
+            ...dto,
+            effectiveFrom: new Date(dto.effectiveFrom),
+            effectiveTo: dto.effectiveTo ? new Date(dto.effectiveTo) : null,
+          }),
+        );
+      }
+    });
+
+    return { saved: dtos.length };
+  }
+
   async createDepositSlab(createDto: CreateDepositSlabDto): Promise<DepositSlabResponseDto> {
     const depositSlab = this.depositSlabRepository.create({
       ...createDto,

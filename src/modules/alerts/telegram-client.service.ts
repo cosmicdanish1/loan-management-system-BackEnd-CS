@@ -21,6 +21,15 @@ export class TelegramClientService {
         return !!(this.config.get('TELEGRAM_BOT_TOKEN') && this.config.get('TELEGRAM_CHAT_ID'));
     }
 
+    /** Which of the five channels have their own topic id in .env (the rest land in the group's General chat). */
+    channelsConfigured(): Record<TelegramChannel, boolean> {
+        const has = (c: TelegramChannel) => {
+            const n = Number(this.config.get<string>(TOPIC_ENV[c]));
+            return Number.isInteger(n) && n > 0;
+        };
+        return { queries: has('queries'), errors: has('errors'), activity: has('activity'), business: has('business'), digest: has('digest') };
+    }
+
     async send(text: string, channel: TelegramChannel = 'queries', parseMode?: 'HTML'): Promise<void> {
         const token = this.config.get<string>('TELEGRAM_BOT_TOKEN');
         const topic = Number(this.config.get<string>(TOPIC_ENV[channel]));

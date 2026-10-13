@@ -20,7 +20,7 @@ export class MemberReportsService {
 
     const query = `
       SELECT 
-        m.mbno, m.f_name, m.m_name, m.l_name, m.desig, m.present_address, m.dob, m.dor, m.pfno, m.basic_pay,
+        m.mbno, m.f_name, m.m_name, m.l_name, m.desig, m.present_address, m.dob, m.date_of_retirement AS dor, m.pfno, m.basic_pay,
         m.nominee_name, m.nominee_address, m.nominee_relation, m.isactive,
         TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) as full_name,
         d.name as office_name,

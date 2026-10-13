@@ -6,10 +6,12 @@ import {
     Body,
     Param,
     Query,
+    Req,
     BadRequestException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { parseSafeDate } from '../shared/utils/date-utils';
+import { RequireAuthCode } from '../auth/twofa/require-auth-code';
 import {
     LoanApplicationService,
     LoanSanctionService,
@@ -317,17 +319,21 @@ export class LoanV2Controller {
         );
     }
 
+    // ES-116: asks for the performer's own authenticator code when the Early Loan Closure switch is ON.
     @Post('early-closure/execute/:caseNo')
+    @RequireAuthCode('early_closure')
     @ApiOperation({ summary: 'Actually settle a loan early -- writes ledger entries and zeroes the balance' })
     async executeEarlyClosure(
         @Param('caseNo') caseNo: string,
         @Body() body: { closureDate?: string; adjustment?: number; postedBy?: string; receiptNo?: string; applyRdShare?: boolean; mbno?: string },
+        @Req() req: any,
     ) {
         return this.loanRepaymentService.executeEarlyClosure(
             caseNo,
             parseSafeDate(body?.closureDate),
             body?.adjustment ?? 0,
-            body?.postedBy || 'system',
+            // who actually closed the loan = the signed-in user (the body value is client-supplied)
+            req?.user?.username || body?.postedBy || 'system',
             body?.receiptNo,
             body?.applyRdShare ?? true,
             body?.mbno,

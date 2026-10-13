@@ -349,7 +349,7 @@ export class VoucherService {
                     v.*,
                     m.f_name, m.m_name, m.l_name
                 FROM vouchers v
-                JOIN member_master m ON v."memberId" = m.mbno
+                LEFT JOIN member_master m ON v."memberId" = m.mbno
                 WHERE v.status = 'PENDING'
                 ORDER BY v."createdAt" DESC
             `;
@@ -399,7 +399,7 @@ export class VoucherService {
                         srNo: (idx + 1).toString(),
                         code: t.code || '',
                         name: t.narration || t.particulars,
-                        rp: reagreement ? 'R' : 'P',
+                        rp: (reagreement || String(row.voucherType || '').toUpperCase() === 'RECEIPT') ? 'R' : 'P',
                         amount: parseFloat(t.trans_amt)
                     }))
                 });

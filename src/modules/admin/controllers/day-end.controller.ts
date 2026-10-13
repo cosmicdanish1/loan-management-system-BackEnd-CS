@@ -2,11 +2,13 @@ import {
   Controller,
   Get,
   Post,
+  Delete,
   Body,
   Param,
   Query,
   UseGuards,
   ParseIntPipe,
+  DefaultValuePipe,
   HttpStatus,
 } from '@nestjs/common';
 import {
@@ -34,16 +36,19 @@ import {
 
 @ApiTags('Day-End Processing')
 @ApiBearerAuth()
-// TODO: Re-enable controller-level guards once auth system is properly configured
-// @UseGuards(JwtAuthGuard, RoleGuard, PermissionsGuard)
+// BUG FIX: was commented out — any logged-in user, any role, could trigger or
+// reset Day-End (only the app-wide JwtAuthGuard applied, which just checks for
+// a valid token). RoleGuard/PermissionsGuard both have an "administrator"
+// master-bypass, so the admin account always passes regardless of the specific
+// decorator below.
+@UseGuards(JwtAuthGuard, RoleGuard, PermissionsGuard)
 @Controller('admin/day-end')
 export class DayEndController {
   constructor(private readonly dayEndService: DayEndService) { }
 
   @Post('initiate')
-  // TODO: Re-enable authentication once auth system is properly configured
-  // @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  // @RequirePermissions(UserPermission.DAY_END_OPERATIONS)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @RequirePermissions(UserPermission.DAY_END_OPERATIONS)
   @ApiOperation({ summary: 'Initiate day-end processing' })
   @ApiResponse({
     status: HttpStatus.CREATED,
@@ -64,9 +69,8 @@ export class DayEndController {
   }
 
   @Get('summary')
-  // TODO: Re-enable authentication once auth system is properly configured
-  // @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.ACCOUNTANT)
-  // @RequirePermissions(UserPermission.DAY_END_OPERATIONS)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.ACCOUNTANT)
+  @RequirePermissions(UserPermission.DAY_END_OPERATIONS)
   @ApiOperation({ summary: 'Get current day-end summary' })
   @ApiResponse({
     status: HttpStatus.OK,
@@ -74,6 +78,24 @@ export class DayEndController {
   })
   async getCurrentDayEndSummary() {
     return this.dayEndService.getCurrentDayEndSummary();
+  }
+
+  // BUG FIX: getworkingdate starts empty and nothing else can create the
+  // first row — see DayEndService.initializeWorkingDate for the full story.
+  @Post('initialize')
+  @Roles(UserRole.ADMIN)
+  @RequirePermissions(UserPermission.DAY_END_OPERATIONS)
+  @ApiOperation({ summary: 'Create the genesis getworkingdate row (only when none exists)' })
+  async initializeWorkingDate(@Body('workingDate') workingDate: string) {
+    return this.dayEndService.initializeWorkingDate(workingDate);
+  }
+
+  @Delete('working-date')
+  @Roles(UserRole.ADMIN)
+  @RequirePermissions(UserPermission.DAY_END_OPERATIONS)
+  @ApiOperation({ summary: 'Reset a mis-set initial working date (only before any day-end has completed)' })
+  async resetWorkingDate() {
+    return this.dayEndService.resetWorkingDate();
   }
 
   @Get('processes')
@@ -86,9 +108,12 @@ export class DayEndController {
     status: HttpStatus.OK,
     description: 'Day-end processes retrieved successfully',
   })
+  // A bare GET with no query string crashed with 500 "Provided 'skip' value is not a number":
+  // DefaultValuePipe + ParseIntPipe substitutes the default before parsing and gives a clean 400
+  // for invalid input instead of reaching TypeORM as NaN.
   async getDayEndProcesses(
-    @Query('page') page: number = 1,
-    @Query('limit') limit: number = 10,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
   ) {
     return this.dayEndService.getDayEndProcesses(page, limit);
   }

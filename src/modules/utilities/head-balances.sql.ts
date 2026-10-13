@@ -13,6 +13,9 @@
  * postings of its own (e.g. I1002 "INTT FROM MEMBER", which is now also the parent of the
  * per-loan-type interest heads). The root (M1000) and section roots (pflag R) are excluded.
  */
+export const HEAD_BALANCES_SELECT_AS_ON = (paramIndex: number) =>
+  HEAD_BALANCES_SELECT.replace('/*AS_ON*/', `WHERE trans_date::date <= $${paramIndex}::date`);
+
 export const HEAD_BALANCES_SELECT = `
   SELECT
     hm.code        AS head_code,
@@ -44,6 +47,7 @@ export const HEAD_BALANCES_SELECT = `
       SUM(CASE WHEN UPPER(TRIM(trans_type)) IN ('DR', 'P') THEN trans_amt::numeric ELSE 0 END) AS total_dr,
       SUM(CASE WHEN UPPER(TRIM(trans_type)) IN ('CR', 'R') THEN trans_amt::numeric ELSE 0 END) AS total_cr
     FROM ledger
+    /*AS_ON*/
     GROUP BY code
   ) lag ON lag.code = hm.code
   WHERE hm.code <> 'M1000'

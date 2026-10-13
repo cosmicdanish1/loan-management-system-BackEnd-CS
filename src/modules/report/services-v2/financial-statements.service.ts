@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { HEAD_BALANCES_SELECT } from '../../utilities/head-balances.sql';
+import { HEAD_BALANCES_SELECT, HEAD_BALANCES_SELECT_AS_ON } from '../../utilities/head-balances.sql';
 
 @Injectable()
 export class FinancialStatementsService {
@@ -220,9 +220,14 @@ export class FinancialStatementsService {
     /**
      * Get Balance Sheet data
      */
-    async getBalanceSheet(asOnDate?: string) {
+    async getBalanceSheet(asOnDate?: string, includeZeroClosing = true, includeZeroTransaction = true) {
+        const hasDate = !!asOnDate && /^\d{4}-\d{2}-\d{2}$/.test(asOnDate);
+        const filters: string[] = [];
+        // "Suppress A/c with Zero Closing Balance" / "Zero Transaction A/c" (no debit and no credit)
+        if (!includeZeroClosing) filters.push('ABS(closingbalance) > 0.004');
+        if (!includeZeroTransaction) filters.push('(debit <> 0 OR credit <> 0)');
         const query = `
-            SELECT 
+            SELECT
                 head_code,
                 head_name,
                 opening_balance,
@@ -230,11 +235,12 @@ export class FinancialStatementsService {
                 credit,
                 closingbalance,
                 maincd
-            FROM (${HEAD_BALANCES_SELECT}) live
+            FROM (${hasDate ? HEAD_BALANCES_SELECT_AS_ON(1) : HEAD_BALANCES_SELECT}) live
+            ${filters.length ? 'WHERE ' + filters.join(' AND ') : ''}
             ORDER BY maincd, head_code
         `;
-        
-        const result = await this.dataSource.query(query);
+
+        const result = await this.dataSource.query(query, hasDate ? [asOnDate] : []);
         
         // Group by main categories
         const liabilities = result.filter((item: any) => item.maincd === 1);

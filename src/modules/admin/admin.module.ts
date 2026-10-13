@@ -35,7 +35,6 @@ import { SbAccountService } from './services/sb-account.service';
 import { MemberAdminService } from './services/member-admin.service';
 import { MemberFundsService } from './services/member-funds.service';
 import { FinancialYearService } from './services/financial-year.service';
-import { User } from '../auth/entities/user.entity';
 import { UserMaster, UserLevelMaster, MenuMaster, UserLevelDefaultRights, LoginTime } from '../auth/entities';
 import { UserActivity } from './entities/user-activity.entity';
 import { SystemConfig } from './entities/system-config.entity';
@@ -53,7 +52,6 @@ import { Member } from '../member/entities/member.entity';
   imports: [
     ScheduleModule.forRoot(),
     TypeOrmModule.forFeature([
-      User,
       UserMaster,
       UserLevelMaster,
       MenuMaster,

@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   CanActivate,
   ExecutionContext,
   ForbiddenException,
@@ -10,6 +11,8 @@ import { ROLES_KEY, PERMISSIONS_KEY } from '../decorators';
 
 @Injectable()
 export class RoleGuard implements CanActivate {
+  private readonly logger = new Logger(RoleGuard.name);
+
   constructor(private reflector: Reflector) { }
 
   canActivate(context: ExecutionContext): boolean {
@@ -39,7 +42,7 @@ export class RoleGuard implements CanActivate {
     // MASTER BYPASS for setup roles
     const userRole = user.role?.toLowerCase();
     if (userRole === 'sample_1' || userRole === 'administrator' || userRole === 'admin') {
-      console.log(`[RoleGuard] Master bypass granted for role: ${userRole}`);
+      this.logger.log(`Master bypass granted for role: ${userRole}`);
       return true;
     }
 
@@ -50,12 +53,12 @@ export class RoleGuard implements CanActivate {
       const normalizedUserRole = normalizeRole(userRole || '');
       const normalizedRequiredRoles = requiredRoles.map(r => normalizeRole(r));
 
-      console.log(`[RoleGuard] Normalized User role: "${normalizedUserRole}"`);
-      console.log(`[RoleGuard] Normalized Required roles: ${JSON.stringify(normalizedRequiredRoles)}`);
+      this.logger.debug(`Normalized User role: "${normalizedUserRole}"`);
+      this.logger.debug(`Normalized Required roles: ${JSON.stringify(normalizedRequiredRoles)}`);
 
       const hasRole = normalizedRequiredRoles.includes(normalizedUserRole);
       if (!hasRole) {
-        console.log(`[RoleGuard] Access denied. Mismatch detected.`);
+        this.logger.warn(`Access denied. Mismatch detected.`);
         throw new ForbiddenException(
           `Access denied. Required roles: ${requiredRoles.join(', ')}`,
         );

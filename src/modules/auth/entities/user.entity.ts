@@ -60,6 +60,11 @@ export enum UserPermission {
   MANAGE_SYSTEM_CONFIG = 'manage_system_config',
   PERFORM_BACKUP = 'perform_backup',
   DAY_END_OPERATIONS = 'day_end_operations',
+
+  // Approver (OTP): may give the authenticator code that authorises sensitive actions (ES-124).
+  // Never part of any role's default rights; an administrator grants it per user in the
+  // Access Privilege Matrix.
+  APPROVE_ACTIONS = 'approve_actions',
 }
 
 @Entity('users')
@@ -82,9 +87,6 @@ export class User {
   @Column()
   lastName: string;
 
-  @Column({ nullable: true })
-  avatar: string;
-
   @Column({
     type: 'varchar',
     default: UserRole.DATA_OPERATOR,
@@ -94,11 +96,21 @@ export class User {
   @Column('simple-array', { nullable: true })
   permissions: UserPermission[];
 
+  // Not persisted — computed per-login by AuthService.getAllowedActions().
+  // null means unrestricted (SYSTEM/ADMINISTRATOR bypass), see menu-action-map.ts.
+  allowedActions?: string[] | null;
+
+  // Not persisted — mirrors usermaster.pass_transaction_flag ("TRANSACTION AUTH"
+  // in Create/Modify Users). Lets PermissionsGuard grant full loan access to a
+  // user flagged for transaction authority without needing every granular
+  // loan permission individually checked. See PermissionsGuard.
+  canPassTransactions?: boolean;
+
   @Column({ default: true })
   isActive: boolean;
 
-  @Column({ default: false })
-  canPassTransactions: boolean;
+  @Column({ nullable: true })
+  avatar: string;
 
   @Column({ nullable: true })
   lastLoginAt: Date;

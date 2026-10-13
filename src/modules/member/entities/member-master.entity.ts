@@ -44,8 +44,13 @@ export class MemberMaster {
   @Column({ type: 'timestamp', nullable: true })
   date_of_appt: Date;
 
+  // Kept in sync with date_of_retirement by a DB trigger (ES-99); read date_of_retirement.
   @Column({ type: 'timestamp', nullable: true })
   dor: Date;
+
+  // Single source of truth for the member's retirement date.
+  @Column({ type: 'timestamp', nullable: true })
+  date_of_retirement: Date;
 
   @Column({ type: 'numeric', precision: 18, scale: 0, default: 0 })
   gross_salary: number;

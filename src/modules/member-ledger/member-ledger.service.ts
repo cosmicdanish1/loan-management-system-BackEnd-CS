@@ -6,6 +6,7 @@ import { DataSource } from 'typeorm';
 import { Ledger } from './entities/ledger.entity';
 import { MemberMaster } from '../member/entities/member-master.entity';
 import { HeadMaster } from '../consolidation/entities/head-master.entity';
+import { ReportHeadOrderService } from '../report-head-order/report-head-order.service';
 import {
   GetMemberLedgerDto,
   MemberLedgerSummaryDto,
@@ -28,7 +29,8 @@ export class MemberLedgerService {
     private memberRepository: Repository<MemberMaster>,
     @InjectRepository(HeadMaster)
     private headMasterRepository: Repository<HeadMaster>,
-    private dataSource: DataSource
+    private dataSource: DataSource,
+    private headOrder: ReportHeadOrderService,
   ) { }
 
   async getMemberLedgerReport(dto: GetMemberLedgerDto): Promise<MemberLedgerSummaryDto> {
@@ -199,6 +201,9 @@ export class MemberLedgerService {
         ])
         .getRawMany();
 
+      // Heads print in the configured Report Head Order (ES-57); within a head the date/voucher order above is kept.
+      const orderedEntries = await this.headOrder.sortByHeadOrder(rawEntries, (e: any) => e.l_code);
+
       const openingRows = await this.dataSource.query(`
         SELECT code, COALESCE(SUM(CASE
           WHEN trans_type IN ('CR', 'R') THEN trans_amt
@@ -227,7 +232,7 @@ export class MemberLedgerService {
       }).format(new Date(value));
 
       // Transform to DTO
-      const entries = rawEntries.map(entry => {
+      const entries = orderedEntries.map(entry => {
         const amount = typeof entry.l_trans_amt === 'number' ? entry.l_trans_amt : parseFloat(entry.l_trans_amt);
         const direction = this.normalizeLedgerDirection(entry.l_trans_type);
         const debit = direction === 'DR' ? amount : 0;
@@ -522,7 +527,7 @@ export class MemberLedgerService {
       memberNumber,
       minDate: rows[0]?.minDate ?? null,
       maxDate: rows[0]?.maxDate ?? null,
-      heads: rows.map(row => ({
+      heads: (await this.headOrder.sortByHeadOrder(rows, row => row.code)).map(row => ({
         code: row.code,
         headName: row.headName || row.code,
         transactionCount: Number(row.transactionCount) || 0,

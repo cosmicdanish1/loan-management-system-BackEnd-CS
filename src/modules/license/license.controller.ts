@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { LicenseService } from './license.service';
 import { ActivateLicenseDto } from './dto/license.dto';
+import { Public } from '../auth/decorators';
 
 @Controller('license')
 export class LicenseController {
@@ -21,6 +22,7 @@ export class LicenseController {
    * Result is cached in memory for the current calendar day —
    * safe to call on every app launch without hammering the DB.
    */
+  @Public()
   @Get('status')
   @HttpCode(HttpStatus.OK)
   async getStatus() {
@@ -33,6 +35,7 @@ export class LicenseController {
    * The key encodes customer + expiry + HMAC — no pre-insert needed.
    * Replaces any previously active license on this machine.
    */
+  @Public()
   @Post('activate')
   @HttpCode(HttpStatus.OK)
   async activate(@Body() dto: ActivateLicenseDto) {

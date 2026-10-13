@@ -6,6 +6,7 @@ import { IsArray, IsOptional, IsString, ValidateNested } from 'class-validator';
 import { ClientLogsService } from './client-logs.service';
 import { AlertBridge } from '../alerts/alert-bridge';
 import { clientInfoOf } from '../alerts/client-info';
+import { Public } from '../auth/decorators';
 
 class ClientLogEntryDto {
   @IsString()
@@ -42,6 +43,8 @@ export class ClientLogsController {
 
   constructor(private readonly clientLogsService: ClientLogsService) {}
 
+  // Public on purpose: the desktop app ships logs before login (and when login itself fails).
+  @Public()
   @ApiOperation({ summary: 'Ingest a batch of client-side (desktop app) log entries' })
   @Post()
   async receiveClientLogs(

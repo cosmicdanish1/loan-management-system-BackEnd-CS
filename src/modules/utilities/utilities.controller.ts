@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Body, Query, Param, Logger, UseGuards, Req } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Post, Patch, Delete, Body, Query, Param, Logger, UseGuards, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { UtilitiesService } from './utilities.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -371,6 +371,79 @@ export class UtilitiesController {
   @ApiOperation({ summary: 'Build Tree: refresh the stored head balances (balancesheet) from the ledger' })
   async rebuildBalancesheet() {
     return this.utilitiesService.rebuildBalancesheet();
+  }
+
+  // ── ES-54: routes removed by commit 2cfd3e7 but still called by the app; restored from 2cfd3e7^ ──
+
+  @Get('head-balance/:code')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Get the running ledger balance for an account head (e.g. a bank/cash account)' })
+  async getHeadBalance(@Param('code') code: string) {
+    const balance = await this.utilitiesService.getHeadBalance(code);
+    return { success: true, data: { code, balance } };
+  }
+
+  @Get('rd-accounts/holders')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'List members who have at least one active RD account (for Premature Information dropdown)' })
+  async listRdAccountHolders() {
+    const data = await this.utilitiesService.listRdAccountHolders();
+    return { success: true, data, message: 'RD account holders retrieved successfully' };
+  }
+
+  @Get('sb-accounts/holders')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'List members who have an SB account (for Premature Information dropdown)' })
+  async listSbAccountHolders() {
+    const data = await this.utilitiesService.listSbAccountHolders();
+    return { success: true, data, message: 'SB account holders retrieved successfully' };
+  }
+
+  @Delete('head-master/:code')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Delete an account head (blocked if it has children or ledger postings)' })
+  async deleteHeadMaster(@Param('code') code: string) {
+    return await this.utilitiesService.deleteHeadMaster(code);
+  }
+
+  @Get('financial-years')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Get distinct financial years from yearend table' })
+  async getFinancialYears() {
+    return await this.utilitiesService.getFinancialYears();
+  }
+
+  @Get('head-opening-balance')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Get head opening balances for a financial year' })
+  async getHeadOpeningBalances(@Query('yearcode') yearcode: string) {
+    return await this.utilitiesService.getHeadOpeningBalances(parseInt(yearcode));
+  }
+
+  @Post('head-opening-balance/apply/:yearcode')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Apply year opening balances to headmaster.op_bal' })
+  async applyYearOpeningBalances(@Param('yearcode') yearcode: string) {
+    return await this.utilitiesService.applyYearOpeningBalances(parseInt(yearcode));
+  }
+
+  @Post('head-opening-balance')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Save head opening balances for a financial year' })
+  async saveHeadOpeningBalances(@Body() body: { yearcode: number; balances: Array<{ headCode: string; closingBal: number }> }) {
+    // A missing balances array crashed with 500 "balances is not iterable".
+    if (!body?.yearcode || !Array.isArray(body?.balances)) {
+      throw new BadRequestException('yearcode and a balances array are required');
+    }
+    return await this.utilitiesService.saveHeadOpeningBalances(body.yearcode, body.balances);
   }
 
   @Get('deposit-loan-slabs')  @UseGuards(JwtAuthGuard)

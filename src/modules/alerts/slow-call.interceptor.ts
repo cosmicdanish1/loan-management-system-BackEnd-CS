@@ -20,7 +20,8 @@ export class SlowCallInterceptor implements NestInterceptor {
             finalize(() => {
                 try {
                     const ms = Date.now() - start;
-                    if (ms < (Number(process.env.SLOW_API_MS) || 5000)) return;
+                    const limit = AlertBridge.get()?.slowThresholdMs() ?? (Number(process.env.SLOW_API_MS) || 5000);
+                    if (ms < limit) return;
                     const urlPath = String(req.originalUrl || '').split('?')[0];
                     if (SLOW_EXEMPT.test(urlPath)) return;
                     AlertBridge.get()?.reportSlowCall({

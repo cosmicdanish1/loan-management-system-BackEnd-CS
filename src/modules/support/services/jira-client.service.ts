@@ -41,6 +41,38 @@ export class JiraClientService {
         return `Basic ${Buffer.from(raw).toString('base64')}`;
     }
 
+    /** What the Settings window may show about the connection (never the token or e-mail). */
+    describe() {
+        return {
+            configured: this.isConfigured(),
+            site: this.baseUrl.replace(/^https?:\/\//, ''),
+            projectKey: this.projectKey,
+            issueType: this.config.get<string>('JIRA_ISSUE_TYPE') || 'Task',
+        };
+    }
+
+    /** Checks the credentials and that the project exists, without creating anything. */
+    async testConnection(): Promise<{ ok: boolean; message: string }> {
+        if (!this.isConfigured()) return { ok: false, message: 'Jira is not configured on the server (.env).' };
+        const get = (path: string) => fetch(`${this.baseUrl}${path}`, {
+            headers: { Authorization: this.authHeader, Accept: 'application/json' },
+            signal: AbortSignal.timeout(10000),
+        });
+        try {
+            const me = await get('/rest/api/3/myself');
+            if (me.status === 401 || me.status === 403) return { ok: false, message: 'Jira rejected the e-mail or API token (check JIRA_EMAIL and JIRA_API_TOKEN, the token may have expired).' };
+            if (!me.ok) return { ok: false, message: `Jira answered ${me.status} when checking the login.` };
+            const who = (await me.json() as any).displayName || 'the configured user';
+            const project = await get(`/rest/api/3/project/${encodeURIComponent(this.projectKey)}`);
+            if (project.status === 404) return { ok: false, message: `Signed in as ${who}, but project "${this.projectKey}" was not found.` };
+            if (!project.ok) return { ok: false, message: `Signed in as ${who}, but the project check answered ${project.status}.` };
+            const name = (await project.json() as any).name || this.projectKey;
+            return { ok: true, message: `Connected as ${who}. Project: ${name} (${this.projectKey}).` };
+        } catch (e: any) {
+            return { ok: false, message: `Could not reach Jira (${e.cause?.code || e.name}).` };
+        }
+    }
+
     browseUrl(key: string): string {
         return `${this.baseUrl}/browse/${key}`;
     }

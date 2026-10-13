@@ -350,13 +350,19 @@ export class MemberCrudService {
      */
     async saveMemberMaster(memberData: any) {
         try {
+            // ES-99: date_of_retirement is the single retirement date. Clients may still
+            // send it as `dor`; accept either and write the same value to both columns.
+            if (memberData.date_of_retirement && !memberData.dor) {
+                memberData.dor = memberData.date_of_retirement;
+            }
+            memberData.dor = memberData.dor || null;
             if (memberData.mbno && memberData.mbno !== 'auto') {
                 // Update existing member
                 const updateQuery = `
           UPDATE member_master SET
             prefix = $2, f_name = $3, m_name = $4, l_name = $5, sex = $6, desig = $7,
             present_address = $8, permanent_address = $9, wingno = $10, officeno = $11, age = $12,
-            dob = $13, dor = $14, gross_salary = $15, basic_pay = $16, nominee_name = $17,
+            dob = $13, dor = $14, date_of_retirement = $14, gross_salary = $15, basic_pay = $16, nominee_name = $17,
             nominee_address = $18, nominee_relation = $19, declare_date = $20, memb_date = $21,
             pfno = $22, flg_insured = $23, insureamt = $24, remarks = $25, dept_name = $26,
             isactive = $27, flg_retire = $28, aadharno = $29, phoneno = $30, pan_no = $31,
@@ -406,14 +412,14 @@ export class MemberCrudService {
           INSERT INTO member_master (
             mbno, prefix, f_name, m_name, l_name, sex, desig,
             present_address, permanent_address, wingno, officeno, age,
-            dob, dor, gross_salary, basic_pay, nominee_name, nominee_address,
+            dob, dor, date_of_retirement, gross_salary, basic_pay, nominee_name, nominee_address,
             nominee_relation, declare_date, memb_date, pfno, lfno, flg_incometax,
             flg_insured, insureamt, remarks, dept_name, isactive, flg_retire,
             aadharno, phoneno, pan_no, frs_no, fathers_name, branchmsno,
             supanuationdate, compulsory_deposit, share_amount, cast_category
           ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-            $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24,
+            $13, $14, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24,
             $25, $26, $27, $28, $29, $30,
             $31, $32, $33, $34, $35, $36,
             $37, $38, $39, $40
