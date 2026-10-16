@@ -20,6 +20,7 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { TwoFaService } from './twofa/twofa.service';
 import { TwoFaController } from './twofa/twofa.controller';
 import { AuthCodeGuard } from './twofa/require-auth-code';
+import { MenuRightGuard } from './guards/menu-right.guard';
 
 // The modern `users` table (the old `User` entity) has been retired —
 // usermaster is now the single source of truth for user management. The
@@ -65,6 +66,8 @@ import { AuthCodeGuard } from './twofa/require-auth-code';
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     // ES-116: runs after JwtAuthGuard (so req.user is set); only acts on @RequireAuthCode() endpoints.
     { provide: APP_GUARD, useClass: AuthCodeGuard },
+    // Role Governance on the server: only acts on @RequireMenuAction() endpoints.
+    { provide: APP_GUARD, useClass: MenuRightGuard },
   ],
   exports: [AuthService, TwoFaService, TypeOrmModule],
 })

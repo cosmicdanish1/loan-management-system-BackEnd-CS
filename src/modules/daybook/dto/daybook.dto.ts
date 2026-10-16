@@ -23,6 +23,8 @@ export class DayBookEntryDto {
   headName: string;
   narration: string;
   username: string;
+  /** Mode of payment from the ledger (C = cash, B / other = transfer). */
+  modeOfPay: string;
   transactionTime: Date;
 }
 
@@ -34,6 +36,39 @@ export class DayBookSummaryDto {
   openingBalance: number;
   closingBalance: number;
   entries: DayBookEntryDto[];
+  totalTransactions: number;
+}
+
+/** One line of the grouped Day-Book (the all-heads report): a member's leg on a voucher. */
+export class DayBookGroupEntryDto {
+  mbNo: string;
+  memberName: string;
+  voucherNo: string;
+  amount: number;
+  username: string;
+}
+
+export class DayBookHeadGroupDto {
+  headCode: string;
+  headName: string;
+  entries: DayBookGroupEntryDto[];
+  total: number;
+}
+
+/**
+ * The all-heads Day-Book: every ledger leg of the day except Cash-In-Hand,
+ * grouped Payment (DR) / Receipt (CR) by head. Opening/closing and the two
+ * totals are the real Cash-In-Hand (A1001) position and movement.
+ */
+export class DayBookGroupedDto {
+  date: string;
+  openingBalance: number;
+  totalReceipts: number;
+  totalPayments: number;
+  netBalance: number;
+  closingBalance: number;
+  paymentGroups: DayBookHeadGroupDto[];
+  receiptGroups: DayBookHeadGroupDto[];
   totalTransactions: number;
 }
 

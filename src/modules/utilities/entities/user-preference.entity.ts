@@ -60,6 +60,9 @@ export class UserPreference {
     @Column({ default: true })
     inactivityLogout: boolean;
 
+    @Column({ default: true })
+    showChatbot: boolean;
+
     @Column({ type: 'integer', default: 60 })
     inactivityTimeoutMinutes: number;
 

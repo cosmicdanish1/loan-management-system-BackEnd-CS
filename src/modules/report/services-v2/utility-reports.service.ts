@@ -193,7 +193,7 @@ export class UtilityReportsService {
         SELECT
           f.account_number as account_no,
           f.mbno as member_no,
-          TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
+          COALESCE(NULLIF(TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')), ''), TRIM(COALESCE(f.f_name, '') || ' ' || COALESCE(f.l_name, ''))) as member_name,
           CASE WHEN f.fdrdflag = 'R' THEN 'RD' ELSE 'FD' END as account_type,
           f.statusdate as closing_date,
           CAST(f.matamount AS numeric) as final_amount,
@@ -225,66 +225,121 @@ export class UtilityReportsService {
   async getRecoveryDetails(dto: { memberNo: string; month: string; year: number; wingNo?: string }) {
     const { memberNo, month, year } = dto;
 
-    let query = `
-      SELECT 
-        d.mbno as member_no,
-        TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
-        m.present_address as address,
+    // demand_master keeps the month as a number (1-12); the screen sends the
+    // three-letter name (JAN..DEC). Accept either.
+    const MONTH_NAMES = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+    const monthText = String(month ?? '').trim();
+    const monthNo = /^\d{1,2}$/.test(monthText)
+      ? Number(monthText)
+      : MONTH_NAMES.indexOf(monthText.slice(0, 3).toUpperCase()) + 1;
+    if (!monthNo || monthNo < 1 || monthNo > 12) {
+      throw new Error(`Invalid month '${month}'`);
+    }
+
+    // Column names are the real demand_master ones: totaldemand, bankcharge and
+    // "OTHERS" (upper case, so it must be quoted), shr_amount for the share part.
+    // The deposit parts are what is demanded this month (rd/md/cd_amount), not the
+    // running balances; MD also has five extra slots (md1..md5). Each loan part is
+    // the installment plus its interest.
+    const query = `
+      SELECT
+        d.mbno AS member_no,
+        TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) AS member_name,
+        m.present_address AS address,
         d.demand_for_month,
         d.demand_for_year,
-        d.total_demand,
-        COALESCE(d.rln_installment_amount, 0) as rln_amt,
-        COALESCE(d.eln_installment_amount, 0) as eln_amt,
-        COALESCE(d.aln_installment_amount, 0) as aln_amt,
-        COALESCE(d.rdbalance, 0) as rd_amt,
-        COALESCE(d.mdbalance, 0) as md_amt,
-        COALESCE(d.cdbalance, 0) as cd_amt,
-        COALESCE(d.sd_amount, 0) as sd_amt,
-        COALESCE(d.bank_charges, 0) as bank_charges,
-        COALESCE(d.other_charges, 0) as other_charges,
+        COALESCE(d.totaldemand, 0) AS total_demand,
+        COALESCE(d.rln_installment_amount, 0) + COALESCE(d.rln_interest, 0) AS rln_amt,
+        COALESCE(d.eln_installment_amount, 0) + COALESCE(d.eln_interest, 0) AS eln_amt,
+        COALESCE(d.aln_installment_amount, 0) + COALESCE(d.aln_interest, 0) AS aln_amt,
+        COALESCE(d.mln_installment_amount, 0) + COALESCE(d.mln_interest, 0) AS mln_amt,
+        COALESCE(d.rln_amount, 0) AS rln_out,
+        COALESCE(d.eln_amount, 0) AS eln_out,
+        COALESCE(d.aln_amount, 0) AS aln_out,
+        COALESCE(d.rln_installment_amount, 0) AS rln_prin,
+        COALESCE(d.eln_installment_amount, 0) AS eln_prin,
+        COALESCE(d.aln_installment_amount, 0) AS aln_prin,
+        COALESCE(d.mln_installment_amount, 0) AS mln_prin,
+        COALESCE(d.rln_interest, 0) AS rln_int,
+        COALESCE(d.eln_interest, 0) AS eln_int,
+        COALESCE(d.aln_interest, 0) AS aln_int,
+        COALESCE(d.mln_interest, 0) AS mln_int,
+        COALESCE(d.rdbalance, 0) AS rd_bal,
+        COALESCE(d.rd_amount, 0) AS rd_amt,
+        COALESCE(d.md_amount, 0) + COALESCE(d.md1_amount, 0) + COALESCE(d.md2_amount, 0)
+          + COALESCE(d.md3_amount, 0) + COALESCE(d.md4_amount, 0) + COALESCE(d.md5_amount, 0) AS md_amt,
+        COALESCE(d.cd_amount, 0) AS cd_amt,
+        COALESCE(d.shr_amount, 0) AS shr_amt,
+        COALESCE(d.bankcharge, 0) AS bank_charges,
+        COALESCE(d."OTHERS", 0) AS other_charges,
         d.demand_posted
       FROM demand_master d
       LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(d.mbno AS text)
-      WHERE CAST(d.mbno AS text) = $1 
-        AND UPPER(d.demand_for_month) = UPPER($2)
-        AND CAST(d.demand_for_year AS integer) = $3
+      WHERE CAST(d.mbno AS text) = $1
+        AND d.demand_for_month = $2
+        AND d.demand_for_year = $3
+      ORDER BY d.dmnd_srno DESC NULLS LAST
+      LIMIT 1
     `;
 
-    const results = await this.dataSource.query(query, [memberNo, month, year]);
+    const results = await this.dataSource.query(query, [memberNo, monthNo, Number(year)]);
 
     if (results.length === 0) {
       throw new Error('No recovery details found for the selected member and period');
     }
 
     const r = results[0];
+    const posted = String(r.demand_posted ?? '').toUpperCase() === 'Y';
+    const monthLabel = MONTH_NAMES[monthNo - 1];
     return {
       memberNo: r.member_no,
       memberName: r.member_name,
       address: r.address || 'Address not available',
-      demandMonth: r.demand_for_month,
+      demandMonth: monthLabel,
       demandYear: r.demand_for_year,
-      period: `${r.demand_for_month} ${r.demand_for_year}`,
+      period: `${monthLabel} ${r.demand_for_year}`,
       totalDemand: parseFloat(r.total_demand) || 0,
       loanRecoveries: {
         regularLoan: parseFloat(r.rln_amt) || 0,
         emergencyLoan: parseFloat(r.eln_amt) || 0,
         advanceLoan: parseFloat(r.aln_amt) || 0,
-        miscLoan: 0
+        miscLoan: parseFloat(r.mln_amt) || 0
       },
       depositRecoveries: {
         recurringDeposit: parseFloat(r.rd_amt) || 0,
         monthlyDeposit: parseFloat(r.md_amt) || 0,
         compulsoryDeposit: parseFloat(r.cd_amt) || 0,
-        shareAmount: parseFloat(r.sd_amt) || 0
+        shareAmount: parseFloat(r.shr_amt) || 0
       },
       charges: {
         bankCharges: parseFloat(r.bank_charges) || 0,
         otherCharges: parseFloat(r.other_charges) || 0
       },
+      // The parts behind the loan recoveries above, for the legacy table: what is still
+      // outstanding on each loan, the principal and the interest recovered this month, and the RD balance.
+      // Same names as loanRecoveries: emergencyLoan = Loan Against RD (ELN), advanceLoan = Emergency Loan (ALN).
+      loanOutstanding: {
+        regularLoan: parseFloat(r.rln_out) || 0,
+        emergencyLoan: parseFloat(r.eln_out) || 0,
+        advanceLoan: parseFloat(r.aln_out) || 0
+      },
+      loanPrincipal: {
+        regularLoan: parseFloat(r.rln_prin) || 0,
+        emergencyLoan: parseFloat(r.eln_prin) || 0,
+        advanceLoan: parseFloat(r.aln_prin) || 0,
+        miscLoan: parseFloat(r.mln_prin) || 0
+      },
+      loanInterest: {
+        regularLoan: parseFloat(r.rln_int) || 0,
+        emergencyLoan: parseFloat(r.eln_int) || 0,
+        advanceLoan: parseFloat(r.aln_int) || 0,
+        miscLoan: parseFloat(r.mln_int) || 0
+      },
+      rdBalance: parseFloat(r.rd_bal) || 0,
       balanceForMonth: 0,
       demandGeneratedDate: null,
-      demandPostedDate: r.demand_posted ? 'Posted' : null,
-      status: r.demand_posted ? 'Posted' : 'Generated'
+      demandPostedDate: posted ? 'Posted' : null,
+      status: posted ? 'Posted' : 'Generated'
     };
   }
 

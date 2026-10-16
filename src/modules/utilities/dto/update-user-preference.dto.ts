@@ -83,6 +83,11 @@ export class UpdateUserPreferenceDto {
     @IsBoolean()
     inactivityLogout?: boolean;
 
+    @ApiProperty({ description: 'Show the floating chatbot', required: false })
+    @IsOptional()
+    @IsBoolean()
+    showChatbot?: boolean;
+
     @ApiProperty({ description: 'Inactivity timeout in minutes', required: false })
     @IsOptional()
     @IsNumber()

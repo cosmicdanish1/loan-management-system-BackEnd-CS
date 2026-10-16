@@ -97,10 +97,10 @@ export class LoanReportsService {
       FROM loan_master loan
       LEFT JOIN member_master m ON m.mbno = loan.mbno
       LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
-      WHERE loan.payment_date >= $1 AND loan.payment_date <= $2
+      WHERE loan.payment_date::date >= $1::date AND loan.payment_date::date <= $2::date
     `;
 
-    const params: any[] = [parseSafeDate(fromDate), parseSafeDate(toDate)];
+    const params: any[] = [String(fromDate).slice(0, 10), String(toDate).slice(0, 10)];
     let whereClause = '';
 
     if (loanType) {
@@ -506,7 +506,7 @@ export class LoanReportsService {
       LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(lp.mbno AS text)
       LEFT JOIN member_master s1 ON CAST(s1.mbno AS text) = CAST(lp.g1mbno AS text)
       LEFT JOIN member_master s2 ON CAST(s2.mbno AS text) = CAST(lp.g2mbno AS text)
-      LEFT JOIN loan_master lm ON lp.loancaseno = lm.loancaseno
+      LEFT JOIN loan_master lm ON lp.loancaseno = lm.loancaseno AND CAST(lm.mbno AS text) = CAST(lp.mbno AS text)
       WHERE 1=1
     `;
 
@@ -515,8 +515,9 @@ export class LoanReportsService {
 
     // Handle member range filter
     if (memberFrom && memberTo) {
-      whereClause += ` AND CAST(lp.mbno AS integer) BETWEEN $${params.length + 1} AND $${params.length + 2}`;
-      params.push(parseInt(memberFrom), parseInt(memberTo));
+      // bigint: member numbers go above 2,147,483,647 (test members 9999962xxx), integer overflowed and the report failed
+      whereClause += ` AND CAST(lp.mbno AS bigint) BETWEEN CAST($${params.length + 1} AS bigint) AND CAST($${params.length + 2} AS bigint)`;
+      params.push(String(memberFrom).trim(), String(memberTo).trim());
     } else if (memberNo) {
       whereClause += ` AND (CAST(lp.mbno AS text) = $${params.length + 1} OR CAST(lp.g1mbno AS text) = $${params.length + 1} OR CAST(lp.g2mbno AS text) = $${params.length + 1})`;
       params.push(memberNo);

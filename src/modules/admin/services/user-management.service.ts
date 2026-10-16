@@ -189,7 +189,7 @@ export class UserManagementService implements OnModuleInit {
     // Only an administrator may make someone an approver (ES-124).
     const actorRole = String(actor?.role || '').toLowerCase();
     if (!['admin', 'administrator', 'system', 'sample_1'].includes(actorRole)) {
-      permissions = permissions.filter((p) => p !== UserPermission.APPROVE_ACTIONS);
+      permissions = permissions.filter((p) => p !== UserPermission.APPROVE_ACTIONS && p !== UserPermission.MANAGE_TWO_FACTOR);
     }
     const userLevel = await this.resolveOrCreateUserLevel(createUserDto.role);
 
@@ -309,11 +309,13 @@ export class UserManagementService implements OnModuleInit {
     return this.mapUserMasterToResponseDto(userMaster);
   }
 
-  async updateUser(id: number, updateUserDto: UpdateUserDto): Promise<UserResponseDto> {
-    const userMaster = await this.userMasterRepository.findOne({ where: { userid: id } });
+  async updateUser(id: number, updateUserDto: UpdateUserDto, actorId?: number): Promise<UserResponseDto> {
+    const userMaster = await this.userMasterRepository.findOne({ where: { userid: id }, relations: ['userLevel'] });
     if (!userMaster) {
       throw new NotFoundException('User not found');
     }
+    // Setting a password here is a password reset: same rule as the dedicated reset (not for administrators).
+    if (updateUserDto.password) this.assertCanResetPassword(userMaster, actorId);
 
     if (updateUserDto.email && updateUserDto.email !== userMaster.email) {
       const existingEmail = await this.userMasterRepository.findOne({ where: { email: updateUserDto.email } });
@@ -394,14 +396,29 @@ export class UserManagementService implements OnModuleInit {
     return { message: 'Password changed successfully' };
   }
 
+  /** An administrator may reset the password of a user who is not an administrator. */
+  private static readonly ADMIN_LEVELS = ['ADMINISTRATOR', 'SYSTEM'];
+
+  private assertCanResetPassword(target: UserMaster, actorId?: number): void {
+    const level = String((target as any).userLevel?.userlevel || '').toUpperCase();
+    if (actorId !== undefined && target.userid === actorId) {
+      throw new ForbiddenException('Use Change Password to change your own password.');
+    }
+    if (UserManagementService.ADMIN_LEVELS.includes(level)) {
+      throw new ForbiddenException('An administrator\'s password cannot be reset by another administrator. They can change their own, or use Forgot password on the sign-in page.');
+    }
+  }
+
   async adminChangeUserPassword(
     userId: number,
     adminChangePasswordDto: AdminChangePasswordDto,
+    actorId?: number,
   ): Promise<{ message: string }> {
-    const userMaster = await this.userMasterRepository.findOne({ where: { userid: userId } });
+    const userMaster = await this.userMasterRepository.findOne({ where: { userid: userId }, relations: ['userLevel'] });
     if (!userMaster) {
       throw new NotFoundException('User not found');
     }
+    this.assertCanResetPassword(userMaster, actorId);
 
     userMaster.spassword = adminChangePasswordDto.newPassword;
     await this.userMasterRepository.save(userMaster);
@@ -543,7 +560,7 @@ export class UserManagementService implements OnModuleInit {
     }));
     // Not a role: puts the Approver (OTP) right into the Access Privilege Matrix pool without
     // making it part of any role's default rights.
-    return [...roles, { role: 'approver_pool' as any, permissions: [UserPermission.APPROVE_ACTIONS] }];
+    return [...roles, { role: 'approver_pool' as any, permissions: [UserPermission.APPROVE_ACTIONS, UserPermission.MANAGE_TWO_FACTOR] }];
   }
 
   private mapUserMasterToResponseDto(userMaster: UserMaster): UserResponseDto {
@@ -570,7 +587,7 @@ export class UserManagementService implements OnModuleInit {
       case UserRole.SYSTEM:
       case UserRole.ADMIN:
         // Approver (OTP) is never a default right: it is granted per user by an administrator.
-        return Object.values(UserPermission).filter((p) => p !== UserPermission.APPROVE_ACTIONS);
+        return Object.values(UserPermission).filter((p) => p !== UserPermission.APPROVE_ACTIONS && p !== UserPermission.MANAGE_TWO_FACTOR);
 
       case UserRole.BRANCH_MANAGER:
         return [

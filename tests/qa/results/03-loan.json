@@ -1,0 +1,189 @@
+{
+ "suite": "03-loan",
+ "ranAt": "2026-10-16T17:33:52.615Z",
+ "seconds": 7.578,
+ "total": 30,
+ "failed": 10,
+ "results": [
+  {
+   "id": "LN-01",
+   "title": "EMI 100000 @12% 12m = 8884.88 (standard reducing-balance)",
+   "ok": true,
+   "detail": "8884.88"
+  },
+  {
+   "id": "LN-02",
+   "title": "Breakdown has 12 rows, last balance ~0",
+   "ok": true,
+   "detail": "0"
+  },
+  {
+   "id": "LN-03",
+   "title": "Sum of principal parts equals principal",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "LN-04",
+   "title": "totalInterest = totalAmount - principal",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "LN-05",
+   "title": "Outstanding balance strictly decreasing",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "LN-06",
+   "title": "0% rate -> EMI = principal/tenure (10000) or clean 400",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"emi\":10000,\"totalAmount\":120000,\""
+  },
+  {
+   "id": "LN-07",
+   "title": "Negative principal: rejected with 400 (no 5xx, no NaN/Infinity, no nonsense 2xx)",
+   "ok": false,
+   "detail": "500 {\"statusCode\":500,\"timestamp\":\"2026-10-16T17:33:46.347Z\",\"path\":\"/api/v1/loans/calculate-emi\",\"method\":\"POST\",\"error\":\"Error\",\"message\":\"Inv"
+  },
+  {
+   "id": "LN-08",
+   "title": "Zero tenure (divide by zero): rejected with 400 (no 5xx, no NaN/Infinity, no nonsense 2xx)",
+   "ok": false,
+   "detail": "500 {\"statusCode\":500,\"timestamp\":\"2026-10-16T17:33:46.532Z\",\"path\":\"/api/v1/loans/calculate-emi\",\"method\":\"POST\",\"error\":\"Error\",\"message\":\"Inv"
+  },
+  {
+   "id": "LN-09",
+   "title": "Negative tenure: rejected with 400 (no 5xx, no NaN/Infinity, no nonsense 2xx)",
+   "ok": false,
+   "detail": "500 {\"statusCode\":500,\"timestamp\":\"2026-10-16T17:33:46.629Z\",\"path\":\"/api/v1/loans/calculate-emi\",\"method\":\"POST\",\"error\":\"Error\",\"message\":\"Inv"
+  },
+  {
+   "id": "LN-10",
+   "title": "Negative rate: rejected with 400 (no 5xx, no NaN/Infinity, no nonsense 2xx)",
+   "ok": false,
+   "detail": "500 {\"statusCode\":500,\"timestamp\":\"2026-10-16T17:33:46.709Z\",\"path\":\"/api/v1/loans/calculate-emi\",\"method\":\"POST\",\"error\":\"Error\",\"message\":\"Inv"
+  },
+  {
+   "id": "LN-11",
+   "title": "String instead of numbers: rejected with 400 (no 5xx, no NaN/Infinity, no nonsense 2xx)",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"emi\":null,\"totalAmount\":null,\"totalInterest\":null,\"mo"
+  },
+  {
+   "id": "LN-12",
+   "title": "Missing fields: rejected with 400 (no 5xx, no NaN/Infinity, no nonsense 2xx)",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"emi\":null,\"totalAmount\":null,\"totalInterest\":null,\"mo"
+  },
+  {
+   "id": "LN-13",
+   "title": "Null fields: rejected with 400 (no 5xx, no NaN/Infinity, no nonsense 2xx)",
+   "ok": false,
+   "detail": "500 {\"statusCode\":500,\"timestamp\":\"2026-10-16T17:33:46.940Z\",\"path\":\"/api/v1/loans/calculate-emi\",\"method\":\"POST\",\"error\":\"Error\",\"message\":\"Inv"
+  },
+  {
+   "id": "LN-14",
+   "title": "Huge principal 1e15: rejected with 400 (no 5xx, no NaN/Infinity, no nonsense 2xx)",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"emi\":88848788678341.67,\"totalAmount\":1066185464140100"
+  },
+  {
+   "id": "LN-15",
+   "title": "Tenure 100000 months (CPU / response size): rejected with 400 (no 5xx, no NaN/Infinity, no nonsense 2xx)",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"emi\":null,\"totalAmount\":null,\"totalInterest\":null,\"mo"
+  },
+  {
+   "id": "LN-16",
+   "title": "Rate 1e6 %: rejected with 400 (no 5xx, no NaN/Infinity, no nonsense 2xx)",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"emi\":83333333.33,\"totalAmount\":1000000000,\"totalInter"
+  },
+  {
+   "id": "LN-17",
+   "title": "Fractional tenure 12.5: rejected with 400 (no 5xx, no NaN/Infinity, no nonsense 2xx)",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"emi\":8550.3,\"totalAmount\":106878.7,\"totalInterest\":68"
+  },
+  {
+   "id": "LN-18",
+   "title": "Amortization schedule returns 24 rows",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":[{\"installmentN"
+  },
+  {
+   "id": "LN-19",
+   "title": "Invalid start date handled (no 5xx)",
+   "ok": true,
+   "detail": "201"
+  },
+  {
+   "id": "LN-20",
+   "title": "Loan case list loads",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "id": "LN-21",
+   "title": "Master, history and summary respond without 5xx for 3 sanctioned cases",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "LN-22",
+   "title": "Repayment history has no duplicated rows (ES-212 regression)",
+   "ok": false,
+   "detail": "610033240: 15 duplicate rows; 9999962394: 10 duplicate rows; 9999962385: 2 duplicate rows"
+  },
+  {
+   "id": "LN-23",
+   "title": "Early-closure quote is read-only and repeatable",
+   "ok": true,
+   "detail": "201/201"
+  },
+  {
+   "id": "LN-24",
+   "title": "Quote with invalid date -> no 5xx",
+   "ok": true,
+   "detail": "201"
+  },
+  {
+   "id": "LN-25",
+   "title": "Quote with wrong member for the case -> 4xx, not another member's data (ES-212 class)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T17:33:52.180Z\",\"path\":\"/api/v1/loans/early-closure/quote/2"
+  },
+  {
+   "id": "LN-26",
+   "title": "Eligibility with negative amount / unknown loan type -> no 5xx",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"ruleApplies\":"
+  },
+  {
+   "id": "LN-27",
+   "title": "Eligibility with out-of-range member number -> no 5xx",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"ruleApplies\":"
+  },
+  {
+   "id": "LN-28",
+   "title": "Unknown case number -> 404 (not 500)",
+   "ok": false,
+   "detail": "400"
+  },
+  {
+   "id": "LN-29",
+   "title": "SQL-injection style case number -> 4xx and table intact",
+   "ok": true,
+   "detail": "400"
+  },
+  {
+   "id": "LN-30",
+   "title": "Loan data still readable after injection probe",
+   "ok": true,
+   "detail": ""
+  }
+ ]
+}

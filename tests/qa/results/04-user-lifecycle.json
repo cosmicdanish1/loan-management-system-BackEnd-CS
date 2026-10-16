@@ -1,0 +1,159 @@
+{
+ "suite": "04-user-lifecycle",
+ "ranAt": "2026-10-16T17:35:19.756Z",
+ "seconds": 1.751,
+ "total": 25,
+ "failed": 1,
+ "results": [
+  {
+   "id": "US-01",
+   "title": "Create user - Missing username -> 400",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T17:35:18.434Z\",\"path\":\"/api/v1/admin/users\",\"method\":\"POST"
+  },
+  {
+   "id": "US-02",
+   "title": "Create user - Password under 6 chars -> 400",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T17:35:18.477Z\",\"path\":\"/api/v1/admin/users\",\"method\":\"POST"
+  },
+  {
+   "id": "US-03",
+   "title": "Create user - Invalid email -> 400",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T17:35:18.519Z\",\"path\":\"/api/v1/admin/users\",\"method\":\"POST"
+  },
+  {
+   "id": "US-04",
+   "title": "Create user - Invalid role value -> 400",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T17:35:18.548Z\",\"path\":\"/api/v1/admin/users\",\"method\":\"POST"
+  },
+  {
+   "id": "US-05",
+   "title": "Create user - Unknown extra field (forbidNonWhitelisted) -> 400",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T17:35:18.578Z\",\"path\":\"/api/v1/admin/users\",\"method\":\"POST"
+  },
+  {
+   "id": "US-06",
+   "title": "Create temp user succeeds",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"id\":67,\"username\":\"QA_TMP_1792172118388\",\"email\":\"qa_tmp_1792172118388@ba"
+  },
+  {
+   "id": "US-07",
+   "title": "Create response does not echo password/hash",
+   "ok": true,
+   "detail": "{\"id\":67,\"username\":\"QA_TMP_1792172118388\",\"email\":\"qa_tmp_1792172118388@bank.local\",\"firstName\":\"QA\",\"lastName\":\"Temp\",\"fullName\":\"QA Temp\",\"role\":\"data_operator\",\"permissions\":[\"read_member\",\"read_l"
+  },
+  {
+   "id": "US-08",
+   "title": "Duplicate username -> 409/400, not 500 and not a second row",
+   "ok": true,
+   "detail": "409"
+  },
+  {
+   "id": "US-09",
+   "title": "Same username different case -> rejected (login names must stay unique)",
+   "ok": false,
+   "detail": "201"
+  },
+  {
+   "id": "US-10",
+   "title": "Temp user can log in",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "id": "US-11",
+   "title": "Data-operator cannot list users (403)",
+   "ok": true,
+   "detail": "403"
+  },
+  {
+   "id": "US-12",
+   "title": "Data-operator cannot delete users (403) - nonexistent id, so a broken guard shows as 404 and deletes nothing",
+   "ok": true,
+   "detail": "403"
+  },
+  {
+   "id": "US-13",
+   "title": "Data-operator cannot reach backup admin routes (403)",
+   "ok": true,
+   "detail": "403"
+  },
+  {
+   "id": "US-14",
+   "title": "Data-operator cannot register users (403)",
+   "ok": true,
+   "detail": "403"
+  },
+  {
+   "id": "US-15",
+   "title": "Data-operator cannot promote self to administrator (403)",
+   "ok": true,
+   "detail": "403"
+  },
+  {
+   "id": "US-16",
+   "title": "Change password with wrong current password -> 400/401",
+   "ok": true,
+   "detail": "400"
+  },
+  {
+   "id": "US-17",
+   "title": "Admin can reset temp user password",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"message\":\"Password changed succes"
+  },
+  {
+   "id": "US-18",
+   "title": "Old password no longer works after reset",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "US-19",
+   "title": "New password works",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "id": "US-20",
+   "title": "Disabled user cannot log in",
+   "ok": true,
+   "detail": "200 / login 401"
+  },
+  {
+   "id": "US-21",
+   "title": "Delete temp user succeeds",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"message\":\"Use"
+  },
+  {
+   "id": "US-22",
+   "title": "Deleted user returns 404",
+   "ok": true,
+   "detail": "404"
+  },
+  {
+   "id": "US-23",
+   "title": "Deleted user cannot log in",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "US-24",
+   "title": "Deleting twice -> 404 (idempotent, no 500)",
+   "ok": true,
+   "detail": "404"
+  },
+  {
+   "id": "US-25",
+   "title": "Deleted user not in list",
+   "ok": true,
+   "detail": "200"
+  }
+ ]
+}

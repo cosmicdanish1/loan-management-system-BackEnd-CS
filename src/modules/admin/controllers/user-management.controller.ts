@@ -163,7 +163,7 @@ export class UserManagementController {
     @Body() updateUserDto: UpdateUserDto,
     @CurrentUser() actor: any,
   ): Promise<UserResponseDto> {
-    const updated = await this.userManagementService.updateUser(id, updateUserDto);
+    const updated = await this.userManagementService.updateUser(id, updateUserDto, Number(actor?.id ?? actor?.userid));
     try {
       const dto: any = updateUserDto;
       const name = (updated as any).username ?? dto.username ?? `#${id}`;
@@ -222,7 +222,7 @@ export class UserManagementController {
     @CurrentUser() actor: any,
   ): Promise<{ message: string }> {
     const target: any = await this.userManagementService.findUserById(id).catch(() => null);
-    const result = await this.userManagementService.adminChangeUserPassword(id, adminChangePasswordDto);
+    const result = await this.userManagementService.adminChangeUserPassword(id, adminChangePasswordDto, Number(actor?.id ?? actor?.userid));
     try {
       AlertBridge.get()?.passwordChanged({ by: actor?.username, username: target?.username ?? `#${id}`, self: false });
     } catch { /* alerting must never affect user admin */ }

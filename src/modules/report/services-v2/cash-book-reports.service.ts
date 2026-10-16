@@ -22,93 +22,81 @@ export class CashBookReportsService {
     async getCashBookDaily(date: string) {
         const targetDate = parseSafeDate(date);
 
-        // Get all unique vouchers for the date from ledger
-        const vouchers = await this.dataSource.query(`
-            SELECT DISTINCT 
-                receipt_vchr_no as voucher_no,
-                mbno as member_no,
-                vchr_type as voucher_type,
-                modeofpay as mode_of_payment
-            FROM ledger
-            WHERE trans_date::date = $1::date
-            AND receipt_vchr_no IS NOT NULL 
-            AND receipt_vchr_no != ''
-            ORDER BY receipt_vchr_no
+        // One query for every leg of the day (head and member names joined in), grouped into
+        // vouchers in code. It used to run one query per voucher-and-member row plus one per
+        // member name, all at once: a busy day (thousands of legs) used up the connection
+        // pool and the report failed with "timeout exceeded when trying to connect".
+        // headmaster holds the real head names; head_master is only a fallback.
+        const legs = await this.dataSource.query(`
+            SELECT
+                l.receipt_vchr_no AS voucher_no,
+                l.mbno AS member_no,
+                l.modeofpay AS mode_of_payment,
+                l.code AS head_code,
+                COALESCE(hm.head_name, h.head_name) AS head_name,
+                l.narration AS description,
+                CAST(l.trans_amt AS numeric) AS amount,
+                l.trans_type,
+                TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) AS member_name
+            FROM ledger l
+            LEFT JOIN headmaster hm ON hm.code = l.code
+            LEFT JOIN head_master h ON h.code = l.code
+            LEFT JOIN member_master m ON m.mbno = l.mbno
+            WHERE l.trans_date::date = $1::date
+              AND l.receipt_vchr_no IS NOT NULL
+              AND l.receipt_vchr_no != ''
+            ORDER BY l.receipt_vchr_no, l.trans_no, l.ledgerid
         `, [targetDate]);
 
-        // For each voucher, get transactions
-        const voucherDetails = await Promise.all(vouchers.map(async (voucher: any) => {
-            const transactions = await this.dataSource.query(`
-                SELECT 
-                    l.code as head_code,
-                    h.head_name,
-                    l.narration as description,
-                    CAST(l.trans_amt AS numeric) as amount,
-                    l.trans_type
-                FROM ledger l
-                LEFT JOIN head_master h ON l.code = h.code
-                WHERE l.receipt_vchr_no = $1 AND l.trans_date::date = $2::date
-                ORDER BY l.trans_no
-            `, [voucher.voucher_no, targetDate]);
-
-            // Get member name
-            let memberName = '';
-            if (voucher.member_no) {
-                const memberResult = await this.dataSource.query(`
-                    SELECT f_name, m_name, l_name FROM member_master WHERE mbno = $1
-                `, [voucher.member_no]);
-                if (memberResult[0]) {
-                    memberName = `${memberResult[0].f_name || ''} ${memberResult[0].m_name || ''} ${memberResult[0].l_name || ''}`.trim();
-                }
+        // A voucher is listed once, even when its legs carry different member numbers (the
+        // first real member is used), so it can no longer be listed or counted twice.
+        const byVoucher = new Map<string, any>();
+        for (const leg of legs) {
+            let v = byVoucher.get(leg.voucher_no);
+            if (!v) {
+                v = { voucherNo: leg.voucher_no, memberNo: '', memberName: '', modeOfPayment: leg.mode_of_payment || 'Cash', narration: leg.description || '', entries: [], totalPayment: 0, totalReceipt: 0 };
+                byVoucher.set(leg.voucher_no, v);
             }
-
-            let voucherPayment = 0;
-            let voucherReceipt = 0;
-
-            const entries = transactions.map((t: any, index: number) => {
-                const amount = parseFloat(t.amount) || 0;
-                const isPayment = t.trans_type === 'DR';
-                
-                if (isPayment) {
-                    voucherPayment += amount;
-                } else {
-                    voucherReceipt += amount;
-                }
-
-                return {
-                    sno: index + 1,
-                    headCode: t.head_code || '',
-                    headName: t.head_name || 'Unknown',
-                    description: t.description || '',
-                    payment: isPayment ? amount : 0,
-                    receipt: !isPayment ? amount : 0
-                };
+            if (!v.memberNo && leg.member_no && String(leg.member_no) !== '0') {
+                v.memberNo = String(leg.member_no);
+                v.memberName = (leg.member_name || '').trim();
+            }
+            const amount = parseFloat(leg.amount) || 0;
+            const isPayment = leg.trans_type === 'DR';
+            if (isPayment) v.totalPayment += amount; else v.totalReceipt += amount;
+            v.entries.push({
+                sno: v.entries.length + 1,
+                headCode: leg.head_code || '',
+                headName: leg.head_name || 'Unknown',
+                description: leg.description || '',
+                payment: isPayment ? amount : 0,
+                receipt: !isPayment ? amount : 0,
             });
+        }
+        const voucherDetails = Array.from(byVoucher.values());
 
-            return {
-                voucherNo: voucher.voucher_no,
-                memberNo: voucher.member_no || '',
-                memberName: memberName,
-                modeOfPayment: voucher.mode_of_payment || 'Cash',
-                narration: transactions[0]?.description || '',
-                entries: entries,
-                totalPayment: voucherPayment,
-                totalReceipt: voucherReceipt
-            };
-        }));
-
-        // Calculate opening and closing balance
-        const openingBalanceResult = await this.dataSource.query(`
-            SELECT 
-                SUM(CASE WHEN trans_type = 'CR' THEN CAST(trans_amt AS numeric) ELSE 0 END) -
-                SUM(CASE WHEN trans_type = 'DR' THEN CAST(trans_amt AS numeric) ELSE 0 END) as balance
+        // Opening, receipts, payments and closing are the real Cash-In-Hand (A1001) position and
+        // movement, the same as the Day-Book (1.3). The old opening balance was credits minus
+        // debits over the whole ledger, which is not a cash position, and credit always equalled
+        // debit because every voucher balances.
+        const openingResult = await this.dataSource.query(`
+            SELECT
+                SUM(CASE WHEN trans_type = 'DR' THEN CAST(trans_amt AS numeric) ELSE 0 END) -
+                SUM(CASE WHEN trans_type = 'CR' THEN CAST(trans_amt AS numeric) ELSE 0 END) AS balance
             FROM ledger
-            WHERE trans_date::date < $1::date
+            WHERE trans_date::date < $1::date AND code = 'A1001'
+        `, [targetDate]);
+        const dayResult = await this.dataSource.query(`
+            SELECT
+                SUM(CASE WHEN trans_type = 'DR' THEN CAST(trans_amt AS numeric) ELSE 0 END) AS cash_in,
+                SUM(CASE WHEN trans_type = 'CR' THEN CAST(trans_amt AS numeric) ELSE 0 END) AS cash_out
+            FROM ledger
+            WHERE trans_date::date = $1::date AND code = 'A1001'
         `, [targetDate]);
 
-        const openingBalance = parseFloat(openingBalanceResult[0]?.balance) || 0;
-        const totalPayments = voucherDetails.reduce((sum, v) => sum + v.totalPayment, 0);
-        const totalReceipts = voucherDetails.reduce((sum, v) => sum + v.totalReceipt, 0);
+        const openingBalance = parseFloat(openingResult[0]?.balance) || 0;
+        const totalReceipts = parseFloat(dayResult[0]?.cash_in) || 0;
+        const totalPayments = parseFloat(dayResult[0]?.cash_out) || 0;
         const closingBalance = openingBalance + totalReceipts - totalPayments;
 
         return {
@@ -209,17 +197,17 @@ export class CashBookReportsService {
         };
 
         const monthIndex = monthMap[month.substring(0, 3)];
-        const startDate = new Date(year, monthIndex, 1);
-        const endDate = new Date(year, monthIndex + 1, 0);
-
-        const startStr = startDate.toISOString().split('T')[0];
-        const endStr = endDate.toISOString().split('T')[0];
+        if (monthIndex === undefined) throw new Error(`Invalid month '${month}'`);
+        // Plain calendar dates: toISOString() on a local midnight shifts the day back on an IST server.
+        const lastDay = new Date(year, monthIndex + 1, 0).getDate();
+        const startStr = `${year}-${String(monthIndex + 1).padStart(2, '0')}-01`;
+        const endStr = `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 
         // Get total count (using subquery to count groups)
         const countRes = await this.dataSource.query(`
             SELECT COUNT(DISTINCT headcode) as count 
             FROM tblcashbook 
-            WHERE trans_date >= $1 AND trans_date <= $2
+            WHERE trans_date::date >= $1::date AND trans_date::date <= $2::date
         `, [startStr, endStr]);
         const totalCount = parseInt(countRes[0].count);
 
@@ -231,8 +219,8 @@ export class CashBookReportsService {
         SUM(COALESCE(pcash, 0) + COALESCE(ptransfer, 0)) as payment
       FROM tblcashbook
       WHERE trans_date IS NOT NULL
-        AND trans_date >= $1
-        AND trans_date <= $2
+        AND trans_date::date >= $1::date
+        AND trans_date::date <= $2::date
       GROUP BY headcode
       ORDER BY ${HEAD_ORDER_SQL('headcode')}
     `;
@@ -249,12 +237,23 @@ export class CashBookReportsService {
 
         const result = await this.dataSource.query(query, params);
 
+        // Same basis as the daily Cash-Book (1.2): cash + transfer movement in tblcashbook before the month.
+        const [ob] = await this.dataSource.query(`
+            SELECT COALESCE(SUM(COALESCE(rcash, 0) + COALESCE(rtransfer, 0) - COALESCE(pcash, 0) - COALESCE(ptransfer, 0)), 0) AS balance
+            FROM tblcashbook WHERE trans_date::date < $1::date
+        `, [startStr]);
+        const openingBalance = parseFloat(ob?.balance) || 0;
+        const monthReceipt = result.reduce((t: number, r: any) => t + (parseFloat(r.receipt) || 0), 0);
+        const monthPayment = result.reduce((t: number, r: any) => t + (parseFloat(r.payment) || 0), 0);
+
         return {
             metadata: {
                 totalCount,
                 limit: limit || totalCount,
                 offset: offset || 0
             },
+            openingBalance,
+            closingBalance: openingBalance + monthReceipt - monthPayment,
             data: result.map((item: any, index: number) => ({
                 key: ((offset || 0) + index).toString(),
                 code: item.code || '',
@@ -280,8 +279,8 @@ export class CashBookReportsService {
 
         // Get total count
         const countRes = await this.dataSource.query(`
-            SELECT COUNT(*) FROM ledger WHERE code = $1 AND trans_date >= $2 AND trans_date <= $3
-        `, [head_code, parseSafeDate(from_date), parseSafeDate(to_date)]);
+            SELECT COUNT(*) FROM ledger WHERE code = $1 AND trans_date::date >= $2::date AND trans_date::date <= $3::date
+        `, [head_code, String(from_date).slice(0, 10), String(to_date).slice(0, 10)]);
         const totalCount = parseInt(countRes[0].count);
 
         // Get transactions
@@ -293,11 +292,11 @@ export class CashBookReportsService {
         trans_type,
         trans_amt as amount
       FROM ledger
-      WHERE code = $1 AND trans_date >= $2 AND trans_date <= $3
+      WHERE code = $1 AND trans_date::date >= $2::date AND trans_date::date <= $3::date
       ORDER BY trans_date ASC, trans_no ASC
     `;
 
-        const params: any[] = [head_code, parseSafeDate(from_date), parseSafeDate(to_date)];
+        const params: any[] = [head_code, String(from_date).slice(0, 10), String(to_date).slice(0, 10)];
         if (limit !== undefined) {
             query += ` LIMIT $${params.length + 1}`;
             params.push(limit);
@@ -315,8 +314,8 @@ export class CashBookReportsService {
                 COALESCE(SUM(CASE WHEN trans_type = 'DR' THEN CAST(trans_amt AS numeric) ELSE 0 END), 0) -
                 COALESCE(SUM(CASE WHEN trans_type = 'CR' THEN CAST(trans_amt AS numeric) ELSE 0 END), 0) as balance
             FROM ledger
-            WHERE code = $1 AND trans_date < $2
-        `, [head_code, parseSafeDate(from_date)]);
+            WHERE code = $1 AND trans_date::date < $2::date
+        `, [head_code, String(from_date).slice(0, 10)]);
         let runningBalance = parseFloat(obResult[0]?.balance || '0');
 
         // For paginated pages, add the balance of rows skipped by offset
@@ -327,7 +326,7 @@ export class CashBookReportsService {
                     COALESCE(SUM(CASE WHEN trans_type = 'CR' THEN CAST(trans_amt AS numeric) ELSE 0 END), 0) as balance
                 FROM (
                     SELECT trans_type, trans_amt FROM ledger
-                    WHERE code = $1 AND trans_date >= $2 AND trans_date <= $3
+                    WHERE code = $1 AND trans_date::date >= $2::date AND trans_date::date <= $3::date
                     ORDER BY trans_date ASC, trans_no ASC
                     LIMIT $4
                 ) pre
@@ -390,8 +389,8 @@ export class CashBookReportsService {
 
         // Get total count
         const countRes = await this.dataSource.query(`
-            SELECT COUNT(*) FROM ledger WHERE code = $1 AND trans_date >= $2 AND trans_date <= $3
-        `, [bank_head_code, parseSafeDate(from_date), parseSafeDate(to_date)]);
+            SELECT COUNT(*) FROM ledger WHERE code = $1 AND trans_date::date >= $2::date AND trans_date::date <= $3::date
+        `, [bank_head_code, String(from_date).slice(0, 10), String(to_date).slice(0, 10)]);
         const totalCount = parseInt(countRes[0].count);
 
         // Get transactions
@@ -403,11 +402,11 @@ export class CashBookReportsService {
         trans_type,
         CAST(trans_amt AS numeric) as amount
       FROM ledger
-      WHERE code = $1 AND trans_date >= $2 AND trans_date <= $3
+      WHERE code = $1 AND trans_date::date >= $2::date AND trans_date::date <= $3::date
       ORDER BY trans_date ASC, trans_no ASC
     `;
 
-        const params: any[] = [bank_head_code, parseSafeDate(from_date), parseSafeDate(to_date)];
+        const params: any[] = [bank_head_code, String(from_date).slice(0, 10), String(to_date).slice(0, 10)];
         if (limit !== undefined) {
             query += ` LIMIT $${params.length + 1}`;
             params.push(limit);
@@ -419,7 +418,11 @@ export class CashBookReportsService {
 
         const transactions = await this.dataSource.query(query, params);
 
-        const openingBalance = 0;
+        const [bankOb] = await this.dataSource.query(`
+            SELECT COALESCE(SUM(CASE WHEN trans_type = 'DR' THEN CAST(trans_amt AS numeric) ELSE -CAST(trans_amt AS numeric) END), 0) AS balance
+            FROM ledger WHERE code = $1 AND trans_date::date < $2::date
+        `, [bank_head_code, String(from_date).slice(0, 10)]);
+        const openingBalance = parseFloat(bankOb?.balance) || 0;
         let runningBalance = openingBalance;
         const ledgerData = transactions.map((trans: any, index: number) => {
             const isDebit = trans.trans_type === 'DR';

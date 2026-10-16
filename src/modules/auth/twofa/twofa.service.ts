@@ -32,6 +32,12 @@ export interface TwoFaSettings {
   issuer: string;
   /** ES-124: may an approver approve an action they are performing themselves? default no */
   approverCanApproveOwn: boolean;
+  /** ES-161: "Forgot password?" on the login page may use the user's authenticator code */
+  forgotAuthenticator: boolean;
+  /** false = nobody is asked for an authenticator code when signing in (forgot password and approver codes keep working) */
+  loginCode: boolean;
+  /** ES-161: ask enrolled users for their code at least this often, even on a remembered device. 0 = off */
+  monthlyCheckDays: number;
 }
 
 const DEFAULTS: TwoFaSettings = {
@@ -44,10 +50,14 @@ const DEFAULTS: TwoFaSettings = {
   lockoutMinutes: 15,
   issuer: 'EMP Society',
   approverCanApproveOwn: false,
+  forgotAuthenticator: true,
+  loginCode: true,
+  monthlyCheckDays: 30,
 };
 
 const KEY_PREFIX = 'twofa.';
 const CHALLENGE_TTL = '5m';
+const RESET_TTL = '10m';
 const RECOVERY_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I
 
 export type GateMode = 'none' | 'verify' | 'enrol';
@@ -96,6 +106,9 @@ export class TwoFaService implements OnModuleInit {
     await q(`ALTER TABLE usermaster ADD COLUMN IF NOT EXISTS totp_enrolled_at timestamp`);
     await q(`ALTER TABLE usermaster ADD COLUMN IF NOT EXISTS totp_failed_count integer NOT NULL DEFAULT 0`);
     await q(`ALTER TABLE usermaster ADD COLUMN IF NOT EXISTS totp_locked_until timestamp`);
+    // ES-178: an administrator can mark a user as 'must use 2FA'; the user then scans their own QR at next sign-in.
+    await q(`ALTER TABLE usermaster ADD COLUMN IF NOT EXISTS totp_required boolean NOT NULL DEFAULT false`);
+    await q(`ALTER TABLE usermaster ADD COLUMN IF NOT EXISTS totp_verified_at timestamp`);
     await q(`CREATE TABLE IF NOT EXISTS user_recovery_codes (
       id serial PRIMARY KEY,
       user_id integer NOT NULL,
@@ -167,7 +180,7 @@ export class TwoFaService implements OnModuleInit {
     };
     const policy = (m.get('policy') as TwoFaPolicy) || DEFAULTS.policy;
     return {
-      policy: ['off', 'optional', 'roles', 'all'].includes(policy) ? policy : DEFAULTS.policy,
+      policy: ['off', 'optional', 'all'].includes(policy) ? policy : DEFAULTS.policy, // old 'roles' value counts as optional
       requiredLevelIds: (m.get('required_levels') || '')
         .split(',')
         .filter((s) => s.trim() !== '')
@@ -180,6 +193,9 @@ export class TwoFaService implements OnModuleInit {
       lockoutMinutes: num('lockout_minutes', DEFAULTS.lockoutMinutes),
       issuer: m.get('issuer') || DEFAULTS.issuer,
       approverCanApproveOwn: m.get('approver_self') === '1',
+      forgotAuthenticator: m.has('forgot_authenticator') ? m.get('forgot_authenticator') === '1' : DEFAULTS.forgotAuthenticator,
+      loginCode: m.has('login_code') ? m.get('login_code') === '1' : DEFAULTS.loginCode,
+      monthlyCheckDays: num('monthly_check_days', DEFAULTS.monthlyCheckDays),
     };
   }
 
@@ -201,11 +217,12 @@ export class TwoFaService implements OnModuleInit {
       return v;
     };
     if (patch.policy !== undefined) {
-      if (!['off', 'optional', 'roles', 'all'].includes(patch.policy)) {
+      if (!['off', 'optional', 'all'].includes(patch.policy)) {
         throw new BadRequestException('Invalid policy');
       }
       await this.setKey('policy', patch.policy);
     }
+    if (patch.loginCode !== undefined) await this.setKey('login_code', patch.loginCode ? '1' : '0');
     if (patch.requiredLevelIds !== undefined) {
       const ids = (patch.requiredLevelIds || []).map((n) => clamp(n, 0, 32767, 'Role id'));
       await this.setKey('required_levels', ids.join(','));
@@ -216,6 +233,8 @@ export class TwoFaService implements OnModuleInit {
     if (patch.maxAttempts !== undefined) await this.setKey('max_attempts', String(clamp(patch.maxAttempts, 3, 20, 'Max failed attempts')));
     if (patch.lockoutMinutes !== undefined) await this.setKey('lockout_minutes', String(clamp(patch.lockoutMinutes, 1, 1440, 'Lockout minutes')));
     if (patch.approverCanApproveOwn !== undefined) await this.setKey('approver_self', patch.approverCanApproveOwn ? '1' : '0');
+    if (patch.forgotAuthenticator !== undefined) await this.setKey('forgot_authenticator', patch.forgotAuthenticator ? '1' : '0');
+    if (patch.monthlyCheckDays !== undefined) await this.setKey('monthly_check_days', String(clamp(patch.monthlyCheckDays, 0, 365, 'Monthly check days')));
     if (patch.issuer !== undefined) {
       const issuer = String(patch.issuer).trim();
       if (!issuer || issuer.length > 40 || /[:]/.test(issuer)) {
@@ -269,7 +288,7 @@ export class TwoFaService implements OnModuleInit {
   private async row(userId: number) {
     const r = await this.q<any>(
       `SELECT userid, susername, userlevelid, totp_secret_enc, totp_enabled, totp_last_step,
-              totp_enrolled_at, totp_failed_count, totp_locked_until
+              totp_enrolled_at, totp_failed_count, totp_locked_until, totp_verified_at, totp_required
          FROM usermaster WHERE userid = $1`,
       [userId],
     );
@@ -281,15 +300,25 @@ export class TwoFaService implements OnModuleInit {
     const [s, u] = await Promise.all([this.getSettings(), this.row(userId)]);
     if (!u) return { mode: 'none', graceDaysLeft: null, required: false, enrolled: false, trusted: false };
     const enrolled = !!u.totp_enabled;
-    const required =
-      s.policy === 'all' || (s.policy === 'roles' && s.requiredLevelIds.includes(Number(u.userlevelid)));
+    // ES-178: required = policy 'Required for everyone' OR this user was marked 'must use 2FA'.
+    const required = s.policy === 'all' || !!u.totp_required;
     if (s.policy === 'off') return { mode: 'none', graceDaysLeft: null, required: false, enrolled, trusted: false };
+    // Administrator switched the sign-in code off: nobody is asked for a code or to set one up at login.
+    if (!s.loginCode) return { mode: 'none', graceDaysLeft: null, required, enrolled, trusted: false };
 
     if (enrolled) {
-      const trusted = !!deviceToken && (await this.isTrusted(userId, deviceToken));
+      let trusted = !!deviceToken && (await this.isTrusted(userId, deviceToken));
+      // ES-161: a remembered device does not excuse the user from proving they still hold the authenticator.
+      if (trusted && s.monthlyCheckDays > 0) {
+        const last = u.totp_verified_at || u.totp_enrolled_at;
+        if (!last || Date.now() - new Date(last).getTime() > s.monthlyCheckDays * 86400000) trusted = false;
+      }
       return { mode: trusted ? 'none' : 'verify', graceDaysLeft: null, required, enrolled, trusted };
     }
     if (required) {
+      // ES-178: a user an administrator marked 'must use 2FA' sets it up at their next sign-in (no grace).
+      if (u.totp_required) return { mode: 'enrol', graceDaysLeft: 0, required, enrolled, trusted: false };
+      // Policy 'Required for everyone' keeps its grace period from the moment the policy was switched on.
       const end = await this.graceEnd(s);
       const left = Math.ceil((end.getTime() - Date.now()) / 86400000);
       if (left > 0) return { mode: 'none', graceDaysLeft: left, required, enrolled, trusted: false };
@@ -384,7 +413,10 @@ export class TwoFaService implements OnModuleInit {
             WHERE userid = $1 AND (totp_last_step IS NULL OR totp_last_step < $2) RETURNING userid`,
           [userId, step],
         );
-        if (claimed.length) return 'totp';
+        if (claimed.length) {
+          await this.markVerified(userId);
+          return 'totp';
+        }
         await this.audit(userId, 'system', 'replay_rejected');
         throw new UnauthorizedException('That code was already used. Wait for the next one.');
       }
@@ -400,6 +432,7 @@ export class TwoFaService implements OnModuleInit {
           if (!used.length) break; // lost a race with another request using the same code
           await this.users.query(`UPDATE usermaster SET totp_failed_count = 0 WHERE userid=$1`, [userId]);
           await this.audit(userId, 'system', 'recovery_used');
+          await this.markVerified(userId);
           return 'recovery';
         }
       }
@@ -408,11 +441,93 @@ export class TwoFaService implements OnModuleInit {
     return this.registerFailure(userId, s, 'bad code format');
   }
 
+  private async markVerified(userId: number): Promise<void> {
+    await this.users.query(`UPDATE usermaster SET totp_verified_at = now() WHERE userid = $1`, [userId]);
+  }
+
+  // ------------------------------------------------------- forgot password (ES-161)
+
+  async forgotMethods() {
+    const s = await this.getSettings();
+    return {
+      authenticator: s.policy !== 'off' && s.forgotAuthenticator,
+      email: { available: false, comingSoon: true },
+      contactAdmin: true,
+    };
+  }
+
+  /** Same wording for "no such user", "no authenticator" and "wrong code" so the form cannot be used to probe usernames. */
+  private static readonly FORGOT_FAIL =
+    'Invalid username or code. If you have not set up an authenticator, contact your administrator.';
+
+  /** Step 1: username + authenticator (or recovery) code -> short-lived token that allows one password change. */
+  async forgotVerify(username: string, code: string): Promise<{ resetToken: string }> {
+    const s = await this.getSettings();
+    if (s.policy === 'off' || !s.forgotAuthenticator) {
+      throw new ForbiddenException('Resetting a password with an authenticator code is switched off. Contact your administrator.');
+    }
+    const rows = await this.q<any>(
+      `SELECT userid, enable_disable, totp_enabled FROM usermaster WHERE susername = $1 LIMIT 1`,
+      [String(username || '').trim()],
+    );
+    const u = rows[0];
+    if (!u || u.enable_disable !== 'E' || !u.totp_enabled) {
+      await this.audit(u?.userid ?? null, 'anonymous', 'forgot_rejected', u ? 'not eligible' : 'unknown user');
+      throw new UnauthorizedException(TwoFaService.FORGOT_FAIL);
+    }
+    try {
+      await this.verifyUserCode(u.userid, code, true);
+    } catch (e) {
+      if (e instanceof ForbiddenException) throw e; // locked out: say so
+      await this.audit(u.userid, 'anonymous', 'forgot_bad_code');
+      throw new UnauthorizedException(TwoFaService.FORGOT_FAIL);
+    }
+    await this.audit(u.userid, 'anonymous', 'forgot_verified');
+    return { resetToken: await this.signReset(u.userid) };
+  }
+
+  private async passwordVersion(userId: number): Promise<string> {
+    const r = await this.q<any>(`SELECT spassword FROM usermaster WHERE userid = $1`, [userId]);
+    return crypto.createHash('sha256').update(String(r[0]?.spassword || '')).digest('hex').slice(0, 16);
+  }
+
+  private async signReset(userId: number): Promise<string> {
+    return this.jwt.sign(
+      { sub: userId, purpose: 'pwreset', pv: await this.passwordVersion(userId) },
+      { secret: this.challengeSecret() + ':reset', expiresIn: RESET_TTL },
+    );
+  }
+
+  /** Step 2: new password. The token carries a fingerprint of the old password, so it works exactly once. */
+  async forgotReset(resetToken: string, newPassword: string): Promise<void> {
+    let p: any;
+    try {
+      p = this.jwt.verify(resetToken, { secret: this.challengeSecret() + ':reset' });
+      if (p.purpose !== 'pwreset') throw new Error('wrong token');
+    } catch {
+      throw new UnauthorizedException('This reset has expired. Start again from the sign-in page.');
+    }
+    const userId = Number(p.sub);
+    if (p.pv !== (await this.passwordVersion(userId))) {
+      throw new UnauthorizedException('This reset was already used. Start again from the sign-in page.');
+    }
+    if (typeof newPassword !== 'string' || newPassword.length < 8 || newPassword.length > 128 || !/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(newPassword)) {
+      throw new BadRequestException('Password must be at least 8 characters with an uppercase letter, a lowercase letter and a number');
+    }
+    // Raw UPDATE with an explicit bcrypt hash: repository.save() would re-run the entity hooks on legacy passwords.
+    await this.users.query(
+      `UPDATE usermaster SET spassword = $2, totp_failed_count = 0, totp_locked_until = NULL WHERE userid = $1`,
+      [userId, await bcrypt.hash(newPassword, 10)],
+    );
+    await this.audit(userId, 'anonymous', 'password_reset', 'via authenticator');
+  }
+
   // ------------------------------------------------------------ enrolment
 
   private async checkPassword(userId: number, password: string): Promise<void> {
     const um = await this.users.findOne({ where: { userid: userId } });
-    if (!um || !(await um.validatePassword(password || ''))) {
+    // Same rule as signing in (incl. the configured super-admin fallback), so "your password" means what it meant at login.
+    if (!um || !(await um.validatePassword(password || '', this.config.get<string>('SUPER_ADMIN_PASSWORD')))) {
       throw new UnauthorizedException('Password is incorrect');
     }
   }
@@ -455,7 +570,7 @@ export class TwoFaService implements OnModuleInit {
       throw new UnauthorizedException('That code is not right. Check the time on your phone and try again.');
     }
     await this.users.query(
-      `UPDATE usermaster SET totp_enabled=true, totp_enrolled_at=now(), totp_last_step=$2, totp_failed_count=0, totp_locked_until=NULL WHERE userid=$1`,
+      `UPDATE usermaster SET totp_enabled=true, totp_enrolled_at=now(), totp_verified_at=now(), totp_last_step=$2, totp_failed_count=0, totp_locked_until=NULL WHERE userid=$1`,
       [userId, step],
     );
     const recoveryCodes = await this.makeRecoveryCodes(userId);
@@ -489,6 +604,43 @@ export class TwoFaService implements OnModuleInit {
     await this.users.query(`DELETE FROM trusted_devices WHERE user_id=$1`, [userId]);
   }
 
+  /** Administrator accounts can only be managed by an administrator, never by a "Manage Two-Factor" holder. */
+  async assertCanManageTarget(actorIsAdmin: boolean, targetId: number): Promise<void> {
+    const r = await this.q<any>(
+      `SELECT upper(coalesce(l.userlevel, '')) AS lvl FROM usermaster u LEFT JOIN userlevelmaster l ON l.userlevelid = u.userlevelid WHERE u.userid = $1`,
+      [targetId],
+    );
+    if (!r[0]) throw new BadRequestException('User not found');
+    if (!actorIsAdmin && ['SYSTEM', 'ADMINISTRATOR', 'ADMIN'].includes(r[0].lvl)) {
+      throw new ForbiddenException('Only an administrator can change the two-factor settings of an administrator account');
+    }
+  }
+
+  /** "Must use 2FA" flag: the user scans their own QR at their next sign-in (the admin never sees the secret). */
+  async setRequired(targetUserId: number, required: boolean, actor: { id: number; username: string }, signOutNow = false): Promise<void> {
+    const u = await this.row(targetUserId);
+    if (!u) throw new BadRequestException('User not found');
+    await this.users.query(`UPDATE usermaster SET totp_required = $2 WHERE userid = $1`, [targetUserId, !!required]);
+    // Optional: end the user's current session too, so the set-up is forced at once instead of at their next sign-in.
+    // Same mechanism as an administrator's "force logout": every token issued before this moment stops working.
+    if (required && signOutNow) {
+      await this.users.query(`UPDATE usermaster SET force_logout_at = now(), login_status = 'N' WHERE userid = $1`, [targetUserId]);
+    }
+    await this.audit(targetUserId, actor.username, required ? 'required_on' : 'required_off', `by ${actor.username}${required && signOutNow ? ' (signed out now)' : ''}`);
+  }
+
+  /** Recent two-factor activity (enrolments, resets, approvals, switches) for the Activity tab. */
+  async listAudit(limit = 100) {
+    const n = Math.min(Math.max(Math.trunc(Number(limit)) || 100, 1), 300);
+    const rows = await this.q<any>(
+      `SELECT a.id, a.at, a.event, a.actor, a.detail, u.susername AS username
+         FROM twofa_audit a LEFT JOIN usermaster u ON u.userid = a.user_id
+        ORDER BY a.id DESC LIMIT $1`,
+      [n],
+    );
+    return rows.map((r) => ({ id: Number(r.id), at: r.at, event: r.event, actor: r.actor, user: r.username, detail: r.detail }));
+  }
+
   async adminReset(targetUserId: number, actor: string): Promise<void> {
     const u = await this.row(targetUserId);
     if (!u) throw new BadRequestException('User not found');
@@ -499,7 +651,7 @@ export class TwoFaService implements OnModuleInit {
   async adminList() {
     const s = await this.getSettings();
     const rows = await this.q<any>(
-      `SELECT u.userid, u.susername, u.userlevelid, l.userlevel AS level, u.enable_disable, u.totp_enabled, u.totp_enrolled_at,
+      `SELECT u.userid, u.susername, u.userlevelid, l.userlevel AS level, u.enable_disable, u.totp_enabled, u.totp_enrolled_at, u.totp_required,
               (u.totp_locked_until IS NOT NULL AND u.totp_locked_until > now()) AS locked
          FROM usermaster u LEFT JOIN userlevelmaster l ON l.userlevelid = u.userlevelid
         ORDER BY u.susername`,
@@ -513,7 +665,8 @@ export class TwoFaService implements OnModuleInit {
       enrolled: !!r.totp_enabled,
       enrolledAt: r.totp_enrolled_at,
       locked: !!r.locked,
-      required: s.policy === 'all' || (s.policy === 'roles' && s.requiredLevelIds.includes(Number(r.userlevelid))),
+      requiredFlag: !!r.totp_required,
+      required: s.policy === 'all' || !!r.totp_required,
     }));
   }
 
@@ -537,9 +690,11 @@ export class TwoFaService implements OnModuleInit {
   /** Users who currently count as approvers: enabled, hold the right, and have an authenticator. */
   private async activeApprovers(): Promise<Array<{ id: number; username: string; secretEnc: string }>> {
     const rows = await this.q<any>(
-      `SELECT userid, susername, totp_secret_enc FROM usermaster
-        WHERE enable_disable = 'E' AND totp_enabled = true AND totp_secret_enc IS NOT NULL
-          AND (',' || COALESCE("permissions", '') || ',') LIKE '%,approve_actions,%'`,
+      `SELECT u.userid, u.susername, u.totp_secret_enc FROM usermaster u
+         JOIN userlevelmaster l ON l.userlevelid = u.userlevelid
+        WHERE u.enable_disable = 'E' AND u.totp_enabled = true AND u.totp_secret_enc IS NOT NULL
+          AND UPPER(l.userlevel) IN ('ADMINISTRATOR', 'SYSTEM')
+          AND (',' || COALESCE(u."permissions", '') || ',') LIKE '%,approve_actions,%'`,
     );
     return rows.map((r) => ({ id: Number(r.userid), username: r.susername, secretEnc: r.totp_secret_enc }));
   }
@@ -557,6 +712,9 @@ export class TwoFaService implements OnModuleInit {
     return out;
   }
 
+  /** Approvers must be administrators: these are the user levels that count as one. */
+  private static readonly APPROVER_LEVELS = ['ADMINISTRATOR', 'SYSTEM'];
+
   /** Every user with whether they are an approver and whether their authenticator is set up. */
   async listApprovers() {
     const rows = await this.q<any>(
@@ -565,16 +723,21 @@ export class TwoFaService implements OnModuleInit {
          FROM usermaster u LEFT JOIN userlevelmaster l ON l.userlevelid = u.userlevelid
         ORDER BY u.susername`,
     );
-    return rows.map((r) => ({
-      userid: Number(r.userid),
-      username: r.susername,
-      level: r.level,
-      enabled: r.enable_disable === 'E',
-      enrolled: !!r.totp_enabled,
-      approver: !!r.approver,
-      /** counts today: has the right AND an authenticator AND the account is enabled */
-      active: !!r.approver && !!r.totp_enabled && r.enable_disable === 'E',
-    }));
+    return rows.map((r) => {
+      const admin = TwoFaService.APPROVER_LEVELS.includes(String(r.level || '').toUpperCase());
+      return {
+        userid: Number(r.userid),
+        username: r.susername,
+        level: r.level,
+        /** only administrators may be approvers */
+        admin,
+        enabled: r.enable_disable === 'E',
+        enrolled: !!r.totp_enabled,
+        approver: !!r.approver,
+        /** counts today: administrator AND has the right AND an authenticator AND the account is enabled */
+        active: admin && !!r.approver && !!r.totp_enabled && r.enable_disable === 'E',
+      };
+    });
   }
 
   /** Grant or remove the Approver right (admin only). Effective immediately. */
@@ -585,6 +748,9 @@ export class TwoFaService implements OnModuleInit {
         const um = await this.users.findOne({ where: { userid: id }, relations: ['userLevel'] });
         if (!um) throw new BadRequestException('User ' + id + ' not found');
         if (grant && um.enableDisable !== 'E') throw new BadRequestException(um.susername + ' is disabled and cannot be an approver');
+        if (grant && !TwoFaService.APPROVER_LEVELS.includes(String((um as any).userLevel?.userlevel || '').toUpperCase())) {
+          throw new BadRequestException(um.susername + ' is not an administrator. Only administrators can be approvers.');
+        }
         // Rows that never had explicit rights fall back to role defaults; materialise those first so
         // granting this one right does not wipe the user's other rights.
         const current: string[] = um.hasExplicitPermissions ? um.permissions : (mapUserMasterToUser(um).permissions as string[]);

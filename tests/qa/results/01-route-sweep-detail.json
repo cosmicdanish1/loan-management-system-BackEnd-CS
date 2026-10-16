@@ -1,0 +1,4626 @@
+[
+ {
+  "method": "DELETE",
+  "path": "/api/v1/admin/backup/{filename}",
+  "url": "http://localhost:3001/api/v1/admin/backup/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/backup/create",
+  "url": "http://localhost:3001/api/v1/admin/backup/create",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/backup/list",
+  "url": "http://localhost:3001/api/v1/admin/backup/list",
+  "noToken": 401,
+  "noTokenMs": 14,
+  "badToken": 401,
+  "auth": 0,
+  "authMs": 60016,
+  "authSnippet": "TimeoutError: The operation was aborted due to timeout",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/backup/restore",
+  "url": "http://localhost:3001/api/v1/admin/backup/restore",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/backup/verify/{filename}",
+  "url": "http://localhost:3001/api/v1/admin/backup/verify/1",
+  "noToken": 401,
+  "noTokenMs": 15,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 72,
+  "public": false
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/admin/cast-categories/{id}",
+  "url": "http://localhost:3001/api/v1/admin/cast-categories/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/cast-categories/{id}",
+  "url": "http://localhost:3001/api/v1/admin/cast-categories/1",
+  "noToken": 401,
+  "noTokenMs": 17,
+  "badToken": 401,
+  "auth": 404,
+  "authMs": 67,
+  "public": false
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/admin/cast-categories/{id}",
+  "url": "http://localhost:3001/api/v1/admin/cast-categories/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/cast-categories",
+  "url": "http://localhost:3001/api/v1/admin/cast-categories",
+  "noToken": 401,
+  "noTokenMs": 19,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 67,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/cast-categories",
+  "url": "http://localhost:3001/api/v1/admin/cast-categories",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/admin/certificate-templates/{id}",
+  "url": "http://localhost:3001/api/v1/admin/certificate-templates/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/certificate-templates/{id}",
+  "url": "http://localhost:3001/api/v1/admin/certificate-templates/1",
+  "noToken": 401,
+  "noTokenMs": 14,
+  "badToken": 401,
+  "auth": 404,
+  "authMs": 117,
+  "public": false
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/admin/certificate-templates/{id}",
+  "url": "http://localhost:3001/api/v1/admin/certificate-templates/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/certificate-templates/default",
+  "url": "http://localhost:3001/api/v1/admin/certificate-templates/default",
+  "noToken": 401,
+  "noTokenMs": 13,
+  "badToken": 401,
+  "auth": 404,
+  "authMs": 124,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/certificate-templates",
+  "url": "http://localhost:3001/api/v1/admin/certificate-templates",
+  "noToken": 401,
+  "noTokenMs": 16,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 87,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/certificate-templates",
+  "url": "http://localhost:3001/api/v1/admin/certificate-templates",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/config/business-rules/bulk",
+  "url": "http://localhost:3001/api/v1/admin/config/business-rules/bulk",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/config/business-rules",
+  "url": "http://localhost:3001/api/v1/admin/config/business-rules",
+  "noToken": 401,
+  "noTokenMs": 12,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 170,
+  "public": false
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/admin/config/deposit-slabs/{id}",
+  "url": "http://localhost:3001/api/v1/admin/config/deposit-slabs/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/config/deposit-slabs/{id}",
+  "url": "http://localhost:3001/api/v1/admin/config/deposit-slabs/1",
+  "noToken": 401,
+  "noTokenMs": 12,
+  "badToken": 401,
+  "auth": 404,
+  "authMs": 112,
+  "public": false
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/admin/config/deposit-slabs/{id}",
+  "url": "http://localhost:3001/api/v1/admin/config/deposit-slabs/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/config/deposit-slabs/bulk",
+  "url": "http://localhost:3001/api/v1/admin/config/deposit-slabs/bulk",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/config/deposit-slabs",
+  "url": "http://localhost:3001/api/v1/admin/config/deposit-slabs",
+  "noToken": 401,
+  "noTokenMs": 11,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 110,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/config/deposit-slabs",
+  "url": "http://localhost:3001/api/v1/admin/config/deposit-slabs",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/admin/config/interest-rates/{id}",
+  "url": "http://localhost:3001/api/v1/admin/config/interest-rates/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/config/interest-rates/{id}",
+  "url": "http://localhost:3001/api/v1/admin/config/interest-rates/1",
+  "noToken": 401,
+  "noTokenMs": 23,
+  "badToken": 401,
+  "auth": 404,
+  "authMs": 112,
+  "public": false
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/admin/config/interest-rates/{id}",
+  "url": "http://localhost:3001/api/v1/admin/config/interest-rates/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/config/interest-rates",
+  "url": "http://localhost:3001/api/v1/admin/config/interest-rates",
+  "noToken": 401,
+  "noTokenMs": 17,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 116,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/config/interest-rates",
+  "url": "http://localhost:3001/api/v1/admin/config/interest-rates",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/admin/config/system/{id}",
+  "url": "http://localhost:3001/api/v1/admin/config/system/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/admin/config/system/{id}",
+  "url": "http://localhost:3001/api/v1/admin/config/system/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/config/system/initialize",
+  "url": "http://localhost:3001/api/v1/admin/config/system/initialize",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/config/system/key/{key}",
+  "url": "http://localhost:3001/api/v1/admin/config/system/key/1",
+  "noToken": 401,
+  "noTokenMs": 12,
+  "badToken": 401,
+  "auth": 404,
+  "authMs": 135,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/config/system",
+  "url": "http://localhost:3001/api/v1/admin/config/system",
+  "noToken": 401,
+  "noTokenMs": 22,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 171,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/config/system",
+  "url": "http://localhost:3001/api/v1/admin/config/system",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/dashboard",
+  "url": "http://localhost:3001/api/v1/admin/dashboard",
+  "noToken": 401,
+  "noTokenMs": 22,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 116,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/day-end/initialize",
+  "url": "http://localhost:3001/api/v1/admin/day-end/initialize",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/day-end/initiate",
+  "url": "http://localhost:3001/api/v1/admin/day-end/initiate",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/day-end/processes/{id}/interest-calculations",
+  "url": "http://localhost:3001/api/v1/admin/day-end/processes/1/interest-calculations",
+  "noToken": 401,
+  "noTokenMs": 14,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 99,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/day-end/processes/{id}/summary",
+  "url": "http://localhost:3001/api/v1/admin/day-end/processes/1/summary",
+  "noToken": 401,
+  "noTokenMs": 11,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 85,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/day-end/processes/{id}",
+  "url": "http://localhost:3001/api/v1/admin/day-end/processes/1",
+  "noToken": 401,
+  "noTokenMs": 17,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 96,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/day-end/processes",
+  "url": "http://localhost:3001/api/v1/admin/day-end/processes",
+  "noToken": 401,
+  "noTokenMs": 9,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 110,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/day-end/summary",
+  "url": "http://localhost:3001/api/v1/admin/day-end/summary",
+  "noToken": 401,
+  "noTokenMs": 8,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 157,
+  "public": false
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/admin/day-end/working-date",
+  "url": "http://localhost:3001/api/v1/admin/day-end/working-date",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/admin/deposit-loan-slabs/{id}",
+  "url": "http://localhost:3001/api/v1/admin/deposit-loan-slabs/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/deposit-loan-slabs/{id}",
+  "url": "http://localhost:3001/api/v1/admin/deposit-loan-slabs/1",
+  "noToken": 401,
+  "noTokenMs": 21,
+  "badToken": 401,
+  "auth": 404,
+  "authMs": 127,
+  "public": false
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/admin/deposit-loan-slabs/{id}",
+  "url": "http://localhost:3001/api/v1/admin/deposit-loan-slabs/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/deposit-loan-slabs",
+  "url": "http://localhost:3001/api/v1/admin/deposit-loan-slabs",
+  "noToken": 401,
+  "noTokenMs": 21,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 129,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/deposit-loan-slabs",
+  "url": "http://localhost:3001/api/v1/admin/deposit-loan-slabs",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/admin/designations/{code}",
+  "url": "http://localhost:3001/api/v1/admin/designations/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/designations/{code}",
+  "url": "http://localhost:3001/api/v1/admin/designations/1",
+  "noToken": 401,
+  "noTokenMs": 16,
+  "badToken": 401,
+  "auth": 404,
+  "authMs": 53,
+  "public": false
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/admin/designations/{code}",
+  "url": "http://localhost:3001/api/v1/admin/designations/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/designations",
+  "url": "http://localhost:3001/api/v1/admin/designations",
+  "noToken": 401,
+  "noTokenMs": 17,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 67,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/designations",
+  "url": "http://localhost:3001/api/v1/admin/designations",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/admin/financial-year/{yearCode}",
+  "url": "http://localhost:3001/api/v1/admin/financial-year/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/financial-year/balance-transfer",
+  "url": "http://localhost:3001/api/v1/admin/financial-year/balance-transfer",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/financial-year/close-year",
+  "url": "http://localhost:3001/api/v1/admin/financial-year/close-year",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/financial-year/closing-entries/{yearCode}",
+  "url": "http://localhost:3001/api/v1/admin/financial-year/closing-entries/1",
+  "noToken": 401,
+  "noTokenMs": 9,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 124,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/financial-year/create",
+  "url": "http://localhost:3001/api/v1/admin/financial-year/create",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/financial-year/current",
+  "url": "http://localhost:3001/api/v1/admin/financial-year/current",
+  "noToken": 401,
+  "noTokenMs": 7,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 80,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/financial-year/list",
+  "url": "http://localhost:3001/api/v1/admin/financial-year/list",
+  "noToken": 401,
+  "noTokenMs": 7,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 83,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/financial-year/pl-year-end-process",
+  "url": "http://localhost:3001/api/v1/admin/financial-year/pl-year-end-process",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/financial-year/transfer-entries",
+  "url": "http://localhost:3001/api/v1/admin/financial-year/transfer-entries",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/member-balances/{memberNo}",
+  "url": "http://localhost:3001/api/v1/admin/member-balances/1",
+  "noToken": 401,
+  "noTokenMs": 18,
+  "badToken": 401,
+  "auth": 404,
+  "authMs": 60,
+  "public": false
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/admin/member-balances/{memberNo}",
+  "url": "http://localhost:3001/api/v1/admin/member-balances/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/member-funds/{memberNo}",
+  "url": "http://localhost:3001/api/v1/admin/member-funds/1",
+  "noToken": 401,
+  "noTokenMs": 8,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 41,
+  "public": false
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/admin/member-funds/{memberNo}",
+  "url": "http://localhost:3001/api/v1/admin/member-funds/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/member-funds/list",
+  "url": "http://localhost:3001/api/v1/admin/member-funds/list",
+  "noToken": 401,
+  "noTokenMs": 7,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 96,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/members/{memberNo}",
+  "url": "http://localhost:3001/api/v1/admin/members/1",
+  "noToken": 401,
+  "noTokenMs": 13,
+  "badToken": 401,
+  "auth": 404,
+  "authMs": 58,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/members/transfer",
+  "url": "http://localhost:3001/api/v1/admin/members/transfer",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/admin/offices/{id}",
+  "url": "http://localhost:3001/api/v1/admin/offices/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/offices/{id}",
+  "url": "http://localhost:3001/api/v1/admin/offices/1",
+  "noToken": 401,
+  "noTokenMs": 17,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 51,
+  "public": false
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/admin/offices/{id}",
+  "url": "http://localhost:3001/api/v1/admin/offices/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/offices",
+  "url": "http://localhost:3001/api/v1/admin/offices",
+  "noToken": 401,
+  "noTokenMs": 13,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 64,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/offices",
+  "url": "http://localhost:3001/api/v1/admin/offices",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/admin/passbook-templates/{id}",
+  "url": "http://localhost:3001/api/v1/admin/passbook-templates/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/passbook-templates/{id}",
+  "url": "http://localhost:3001/api/v1/admin/passbook-templates/1",
+  "noToken": 401,
+  "noTokenMs": 15,
+  "badToken": 401,
+  "auth": 404,
+  "authMs": 121,
+  "public": false
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/admin/passbook-templates/{id}",
+  "url": "http://localhost:3001/api/v1/admin/passbook-templates/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/passbook-templates/default",
+  "url": "http://localhost:3001/api/v1/admin/passbook-templates/default",
+  "noToken": 401,
+  "noTokenMs": 12,
+  "badToken": 401,
+  "auth": 404,
+  "authMs": 150,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/passbook-templates",
+  "url": "http://localhost:3001/api/v1/admin/passbook-templates",
+  "noToken": 401,
+  "noTokenMs": 14,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 138,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/passbook-templates",
+  "url": "http://localhost:3001/api/v1/admin/passbook-templates",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/roles/defaults/{levelId}",
+  "url": "http://localhost:3001/api/v1/admin/roles/defaults/1",
+  "noToken": 401,
+  "noTokenMs": 14,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 104,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/roles/defaults",
+  "url": "http://localhost:3001/api/v1/admin/roles/defaults",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/roles/levels",
+  "url": "http://localhost:3001/api/v1/admin/roles/levels",
+  "noToken": 401,
+  "noTokenMs": 14,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 102,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/roles/menus",
+  "url": "http://localhost:3001/api/v1/admin/roles/menus",
+  "noToken": 401,
+  "noTokenMs": 14,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 130,
+  "public": false
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/admin/sb-accounts/{id}",
+  "url": "http://localhost:3001/api/v1/admin/sb-accounts/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/sb-accounts/{id}",
+  "url": "http://localhost:3001/api/v1/admin/sb-accounts/1",
+  "noToken": 401,
+  "noTokenMs": 12,
+  "badToken": 401,
+  "auth": 404,
+  "authMs": 42,
+  "public": false
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/admin/sb-accounts/{id}",
+  "url": "http://localhost:3001/api/v1/admin/sb-accounts/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/sb-accounts/next-number",
+  "url": "http://localhost:3001/api/v1/admin/sb-accounts/next-number",
+  "noToken": 401,
+  "noTokenMs": 11,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 48,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/sb-accounts",
+  "url": "http://localhost:3001/api/v1/admin/sb-accounts",
+  "noToken": 401,
+  "noTokenMs": 9,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 53,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/sb-accounts",
+  "url": "http://localhost:3001/api/v1/admin/sb-accounts",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/system-info",
+  "url": "http://localhost:3001/api/v1/admin/system-info",
+  "noToken": 401,
+  "noTokenMs": 20,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 106,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/users/{id}/activities",
+  "url": "http://localhost:3001/api/v1/admin/users/1/activities",
+  "noToken": 401,
+  "noTokenMs": 15,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 161,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/users/{id}/activities",
+  "url": "http://localhost:3001/api/v1/admin/users/1/activities",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/users/{id}/login-history",
+  "url": "http://localhost:3001/api/v1/admin/users/1/login-history",
+  "noToken": 401,
+  "noTokenMs": 18,
+  "badToken": 401,
+  "auth": 404,
+  "authMs": 148,
+  "public": false
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/admin/users/{id}/password",
+  "url": "http://localhost:3001/api/v1/admin/users/1/password",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/admin/users/{id}/role",
+  "url": "http://localhost:3001/api/v1/admin/users/1/role",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/admin/users/{id}",
+  "url": "http://localhost:3001/api/v1/admin/users/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/users/{id}",
+  "url": "http://localhost:3001/api/v1/admin/users/1",
+  "noToken": 401,
+  "noTokenMs": 17,
+  "badToken": 401,
+  "auth": 404,
+  "authMs": 138,
+  "public": false
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/admin/users/{id}",
+  "url": "http://localhost:3001/api/v1/admin/users/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/users/active-sessions/matrix",
+  "url": "http://localhost:3001/api/v1/admin/users/active-sessions/matrix",
+  "noToken": 401,
+  "noTokenMs": 26,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 264,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/users/active-sessions/terminate",
+  "url": "http://localhost:3001/api/v1/admin/users/active-sessions/terminate",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/users/activities",
+  "url": "http://localhost:3001/api/v1/admin/users/activities",
+  "noToken": 401,
+  "noTokenMs": 10,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 132,
+  "public": false
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/admin/users/change-password",
+  "url": "http://localhost:3001/api/v1/admin/users/change-password",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/users/roles/permissions",
+  "url": "http://localhost:3001/api/v1/admin/users/roles/permissions",
+  "noToken": 401,
+  "noTokenMs": 9,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 145,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/users",
+  "url": "http://localhost:3001/api/v1/admin/users",
+  "noToken": 401,
+  "noTokenMs": 18,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 192,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/users",
+  "url": "http://localhost:3001/api/v1/admin/users",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/admin/wings/{id}",
+  "url": "http://localhost:3001/api/v1/admin/wings/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/wings/{id}",
+  "url": "http://localhost:3001/api/v1/admin/wings/1",
+  "noToken": 401,
+  "noTokenMs": 10,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 42,
+  "public": false
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/admin/wings/{id}",
+  "url": "http://localhost:3001/api/v1/admin/wings/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/wings",
+  "url": "http://localhost:3001/api/v1/admin/wings",
+  "noToken": 401,
+  "noTokenMs": 15,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 54,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/wings",
+  "url": "http://localhost:3001/api/v1/admin/wings",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/alert-settings/{key}",
+  "url": "http://localhost:3001/api/v1/alert-settings/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/alert-settings/group/{group}",
+  "url": "http://localhost:3001/api/v1/alert-settings/group/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/alert-settings/jira/test",
+  "url": "http://localhost:3001/api/v1/alert-settings/jira/test",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/alert-settings/online/post",
+  "url": "http://localhost:3001/api/v1/alert-settings/online/post",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/alert-settings/online",
+  "url": "http://localhost:3001/api/v1/alert-settings/online",
+  "noToken": 401,
+  "noTokenMs": 7,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 25,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/alert-settings/test/{dest}",
+  "url": "http://localhost:3001/api/v1/alert-settings/test/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/alert-settings",
+  "url": "http://localhost:3001/api/v1/alert-settings",
+  "noToken": 401,
+  "noTokenMs": 11,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 32,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/auth/2fa/access",
+  "url": "http://localhost:3001/api/v1/auth/2fa/access",
+  "noToken": 401,
+  "noTokenMs": 4,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 19,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/auth/2fa/admin/reset/{userid}",
+  "url": "http://localhost:3001/api/v1/auth/2fa/admin/reset/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/auth/2fa/admin/unlock/{userid}",
+  "url": "http://localhost:3001/api/v1/auth/2fa/admin/unlock/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/auth/2fa/admin/users",
+  "url": "http://localhost:3001/api/v1/auth/2fa/admin/users",
+  "noToken": 401,
+  "noTokenMs": 4,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 26,
+  "public": false
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/auth/2fa/approvers",
+  "url": "http://localhost:3001/api/v1/auth/2fa/approvers",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/auth/2fa/audit",
+  "url": "http://localhost:3001/api/v1/auth/2fa/audit",
+  "noToken": 401,
+  "noTokenMs": 4,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 37,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/auth/2fa/disable",
+  "url": "http://localhost:3001/api/v1/auth/2fa/disable",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/auth/2fa/enroll/begin",
+  "url": "http://localhost:3001/api/v1/auth/2fa/enroll/begin",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/auth/2fa/enroll/confirm",
+  "url": "http://localhost:3001/api/v1/auth/2fa/enroll/confirm",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/auth/2fa/forgot/methods",
+  "url": "http://localhost:3001/api/v1/auth/2fa/forgot/methods",
+  "noToken": 200,
+  "noTokenMs": 101,
+  "badToken": 200,
+  "auth": 200,
+  "authMs": 316,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/auth/2fa/forgot/reset",
+  "url": "http://localhost:3001/api/v1/auth/2fa/forgot/reset",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/auth/2fa/forgot/verify",
+  "url": "http://localhost:3001/api/v1/auth/2fa/forgot/verify",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/auth/2fa/guards",
+  "url": "http://localhost:3001/api/v1/auth/2fa/guards",
+  "noToken": 401,
+  "noTokenMs": 17,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 304,
+  "public": false
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/auth/2fa/guards",
+  "url": "http://localhost:3001/api/v1/auth/2fa/guards",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/auth/2fa/login/enroll/begin",
+  "url": "http://localhost:3001/api/v1/auth/2fa/login/enroll/begin",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/auth/2fa/login/enroll/confirm",
+  "url": "http://localhost:3001/api/v1/auth/2fa/login/enroll/confirm",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/auth/2fa/login/verify",
+  "url": "http://localhost:3001/api/v1/auth/2fa/login/verify",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/auth/2fa/recovery/regenerate",
+  "url": "http://localhost:3001/api/v1/auth/2fa/recovery/regenerate",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/auth/2fa/settings",
+  "url": "http://localhost:3001/api/v1/auth/2fa/settings",
+  "noToken": 401,
+  "noTokenMs": 73,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 570,
+  "public": false
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/auth/2fa/settings",
+  "url": "http://localhost:3001/api/v1/auth/2fa/settings",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/auth/2fa/status",
+  "url": "http://localhost:3001/api/v1/auth/2fa/status",
+  "noToken": 401,
+  "noTokenMs": 73,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 266,
+  "public": false
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/auth/2fa/users/{userid}/require",
+  "url": "http://localhost:3001/api/v1/auth/2fa/users/1/require",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/auth/change-password",
+  "url": "http://localhost:3001/api/v1/auth/change-password",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/auth/heartbeat",
+  "url": "http://localhost:3001/api/v1/auth/heartbeat",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/auth/login",
+  "url": "http://localhost:3001/api/v1/auth/login",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": true
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/auth/logout",
+  "url": "http://localhost:3001/api/v1/auth/logout",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/auth/me",
+  "url": "http://localhost:3001/api/v1/auth/me",
+  "noToken": 401,
+  "noTokenMs": 62,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 79,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/auth/refresh",
+  "url": "http://localhost:3001/api/v1/auth/refresh",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": true
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/auth/register",
+  "url": "http://localhost:3001/api/v1/auth/register",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/auth/usernames",
+  "url": "http://localhost:3001/api/v1/auth/usernames",
+  "noToken": 401,
+  "noTokenMs": 72,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 308,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/auth/users-list",
+  "url": "http://localhost:3001/api/v1/auth/users-list",
+  "noToken": 401,
+  "noTokenMs": 68,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 310,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/backup/cleanup",
+  "url": "http://localhost:3001/api/v1/backup/cleanup",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/backup/create",
+  "url": "http://localhost:3001/api/v1/backup/create",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/backup/database-info",
+  "url": "http://localhost:3001/api/v1/backup/database-info",
+  "noToken": 401,
+  "noTokenMs": 7,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 76,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/backup/list",
+  "url": "http://localhost:3001/api/v1/backup/list",
+  "noToken": 401,
+  "noTokenMs": 6,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 98,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/backup/test-connection",
+  "url": "http://localhost:3001/api/v1/backup/test-connection",
+  "noToken": 401,
+  "noTokenMs": 7,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 1899,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/backup/validate-destination",
+  "url": "http://localhost:3001/api/v1/backup/validate-destination",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/cashbook/interest-rate",
+  "url": "http://localhost:3001/api/v1/cashbook/interest-rate",
+  "noToken": 401,
+  "noTokenMs": 8,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 53,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/cashbook/member/balance",
+  "url": "http://localhost:3001/api/v1/cashbook/member/balance",
+  "noToken": 401,
+  "noTokenMs": 9,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 125,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/cashbook/members/active",
+  "url": "http://localhost:3001/api/v1/cashbook/members/active",
+  "noToken": 401,
+  "noTokenMs": 46,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 537,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/cashbook/report",
+  "url": "http://localhost:3001/api/v1/cashbook/report",
+  "noToken": 401,
+  "noTokenMs": 44,
+  "badToken": 401,
+  "auth": 400,
+  "authMs": 35,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/cashbook/transaction",
+  "url": "http://localhost:3001/api/v1/cashbook/transaction",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/cashbook/transactions",
+  "url": "http://localhost:3001/api/v1/cashbook/transactions",
+  "noToken": 401,
+  "noTokenMs": 30,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 33,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/client-logs",
+  "url": "http://localhost:3001/api/v1/client-logs",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/consolidation/report",
+  "url": "http://localhost:3001/api/v1/consolidation/report",
+  "noToken": 401,
+  "noTokenMs": 28,
+  "badToken": 401,
+  "auth": 400,
+  "authMs": 47,
+  "public": false
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/dashboard-notices/{id}",
+  "url": "http://localhost:3001/api/v1/dashboard-notices/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/dashboard-notices/reorder",
+  "url": "http://localhost:3001/api/v1/dashboard-notices/reorder",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/dashboard-notices",
+  "url": "http://localhost:3001/api/v1/dashboard-notices",
+  "noToken": 401,
+  "noTokenMs": 27,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 48,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/dashboard-notices",
+  "url": "http://localhost:3001/api/v1/dashboard-notices",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/dashboard-summary",
+  "url": "http://localhost:3001/api/v1/dashboard-summary",
+  "noToken": 401,
+  "noTokenMs": 10,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 333,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/daybook/active-members",
+  "url": "http://localhost:3001/api/v1/daybook/active-members",
+  "noToken": 401,
+  "noTokenMs": 6,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 287,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/daybook/calculate-interest",
+  "url": "http://localhost:3001/api/v1/daybook/calculate-interest",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/daybook/interest-rate",
+  "url": "http://localhost:3001/api/v1/daybook/interest-rate",
+  "noToken": 401,
+  "noTokenMs": 3,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 221,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/daybook/pay-interest",
+  "url": "http://localhost:3001/api/v1/daybook/pay-interest",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/daybook/report/sb",
+  "url": "http://localhost:3001/api/v1/daybook/report/sb",
+  "noToken": 401,
+  "noTokenMs": 4,
+  "badToken": 401,
+  "auth": 400,
+  "authMs": 18,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/daybook/report",
+  "url": "http://localhost:3001/api/v1/daybook/report",
+  "noToken": 401,
+  "noTokenMs": 6,
+  "badToken": 401,
+  "auth": 400,
+  "authMs": 18,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/deposits/calculate-interest",
+  "url": "http://localhost:3001/api/v1/deposits/calculate-interest",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/deposits/certificates/download/{fileName}",
+  "url": "http://localhost:3001/api/v1/deposits/certificates/download/1",
+  "noToken": 401,
+  "noTokenMs": 10,
+  "badToken": 401,
+  "auth": 404,
+  "authMs": 66,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/deposits/fixed-deposits/{id}/certificate",
+  "url": "http://localhost:3001/api/v1/deposits/fixed-deposits/1/certificate",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/deposits/fixed-deposits/{id}/close",
+  "url": "http://localhost:3001/api/v1/deposits/fixed-deposits/1/close",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/deposits/fixed-deposits/{id}/maturity",
+  "url": "http://localhost:3001/api/v1/deposits/fixed-deposits/1/maturity",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/deposits/fixed-deposits/{id}",
+  "url": "http://localhost:3001/api/v1/deposits/fixed-deposits/1",
+  "noToken": 401,
+  "noTokenMs": 11,
+  "badToken": 401,
+  "auth": 404,
+  "authMs": 102,
+  "public": false
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/deposits/fixed-deposits/{id}",
+  "url": "http://localhost:3001/api/v1/deposits/fixed-deposits/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/deposits/fixed-deposits",
+  "url": "http://localhost:3001/api/v1/deposits/fixed-deposits",
+  "noToken": 401,
+  "noTokenMs": 8,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 85,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/deposits/fixed-deposits",
+  "url": "http://localhost:3001/api/v1/deposits/fixed-deposits",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/deposits/member/{memberNo}",
+  "url": "http://localhost:3001/api/v1/deposits/member/1",
+  "noToken": 401,
+  "noTokenMs": 11,
+  "badToken": 401,
+  "auth": 404,
+  "authMs": 90,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/deposits/members/{memberId}/fixed-deposits",
+  "url": "http://localhost:3001/api/v1/deposits/members/1/fixed-deposits",
+  "noToken": 401,
+  "noTokenMs": 11,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 104,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/deposits/members/{memberId}/recurring-deposits",
+  "url": "http://localhost:3001/api/v1/deposits/members/1/recurring-deposits",
+  "noToken": 401,
+  "noTokenMs": 11,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 81,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/deposits/members/{memberId}/share-certificate",
+  "url": "http://localhost:3001/api/v1/deposits/members/1/share-certificate",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/deposits/rd-installments/{id}/pay",
+  "url": "http://localhost:3001/api/v1/deposits/rd-installments/1/pay",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/deposits/recurring-deposits/{id}/certificate",
+  "url": "http://localhost:3001/api/v1/deposits/recurring-deposits/1/certificate",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/deposits/recurring-deposits/{id}/close",
+  "url": "http://localhost:3001/api/v1/deposits/recurring-deposits/1/close",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/deposits/recurring-deposits/{id}",
+  "url": "http://localhost:3001/api/v1/deposits/recurring-deposits/1",
+  "noToken": 401,
+  "noTokenMs": 17,
+  "badToken": 401,
+  "auth": 404,
+  "authMs": 75,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/deposits/recurring-deposits",
+  "url": "http://localhost:3001/api/v1/deposits/recurring-deposits",
+  "noToken": 401,
+  "noTokenMs": 15,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 90,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/deposits/recurring-deposits",
+  "url": "http://localhost:3001/api/v1/deposits/recurring-deposits",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/dividend/calculation/commit",
+  "url": "http://localhost:3001/api/v1/dividend/calculation/commit",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/dividend/calculation/preview",
+  "url": "http://localhost:3001/api/v1/dividend/calculation/preview",
+  "noToken": 401,
+  "noTokenMs": 8,
+  "badToken": 401,
+  "auth": 400,
+  "authMs": 45,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/dividend/credit/commit",
+  "url": "http://localhost:3001/api/v1/dividend/credit/commit",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/dividend/credit/preview",
+  "url": "http://localhost:3001/api/v1/dividend/credit/preview",
+  "noToken": 401,
+  "noTokenMs": 7,
+  "badToken": 401,
+  "auth": 400,
+  "authMs": 41,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/dividend/share-snapshot/history/{mbno}",
+  "url": "http://localhost:3001/api/v1/dividend/share-snapshot/history/1",
+  "noToken": 401,
+  "noTokenMs": 7,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 68,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/dividend/share-snapshot/report",
+  "url": "http://localhost:3001/api/v1/dividend/share-snapshot/report",
+  "noToken": 401,
+  "noTokenMs": 12,
+  "badToken": 401,
+  "auth": 400,
+  "authMs": 34,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/dividend/share-snapshot",
+  "url": "http://localhost:3001/api/v1/dividend/share-snapshot",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/general-ledger/head-masters",
+  "url": "http://localhost:3001/api/v1/general-ledger/head-masters",
+  "noToken": 401,
+  "noTokenMs": 6,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 44,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/general-ledger/report",
+  "url": "http://localhost:3001/api/v1/general-ledger/report",
+  "noToken": 401,
+  "noTokenMs": 12,
+  "badToken": 401,
+  "auth": 400,
+  "authMs": 23,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/group-insurance/context",
+  "url": "http://localhost:3001/api/v1/group-insurance/context",
+  "noToken": 401,
+  "noTokenMs": 5,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 101,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/group-insurance/post",
+  "url": "http://localhost:3001/api/v1/group-insurance/post",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/group-insurance/preview",
+  "url": "http://localhost:3001/api/v1/group-insurance/preview",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/group-insurance/runs/{id}",
+  "url": "http://localhost:3001/api/v1/group-insurance/runs/1",
+  "noToken": 401,
+  "noTokenMs": 5,
+  "badToken": 401,
+  "auth": 404,
+  "authMs": 79,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/health",
+  "url": "http://localhost:3001/api/v1/health",
+  "noToken": 200,
+  "noTokenMs": 117,
+  "badToken": 200,
+  "auth": 200,
+  "authMs": 13,
+  "public": true
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/interest/current-rate",
+  "url": "http://localhost:3001/api/v1/interest/current-rate",
+  "noToken": 401,
+  "noTokenMs": 3,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 160,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/interest/history",
+  "url": "http://localhost:3001/api/v1/interest/history",
+  "noToken": 401,
+  "noTokenMs": 3,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 166,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/interest/preview-calculation",
+  "url": "http://localhost:3001/api/v1/interest/preview-calculation",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/interest/preview-yearly-fund",
+  "url": "http://localhost:3001/api/v1/interest/preview-yearly-fund",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/interest/process-yearly-fund",
+  "url": "http://localhost:3001/api/v1/interest/process-yearly-fund",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/interest/update-saving-interest",
+  "url": "http://localhost:3001/api/v1/interest/update-saving-interest",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/interest/validate-parameters",
+  "url": "http://localhost:3001/api/v1/interest/validate-parameters",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/jotting-report/head-masters",
+  "url": "http://localhost:3001/api/v1/jotting-report/head-masters",
+  "noToken": 401,
+  "noTokenMs": 3,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 16,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/jotting-report/offices",
+  "url": "http://localhost:3001/api/v1/jotting-report/offices",
+  "noToken": 401,
+  "noTokenMs": 3,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 13,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/jotting-report/wings",
+  "url": "http://localhost:3001/api/v1/jotting-report/wings",
+  "noToken": 401,
+  "noTokenMs": 3,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 14,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/jotting-report",
+  "url": "http://localhost:3001/api/v1/jotting-report",
+  "noToken": 401,
+  "noTokenMs": 4,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 232,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/license/activate",
+  "url": "http://localhost:3001/api/v1/license/activate",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/license/list",
+  "url": "http://localhost:3001/api/v1/license/list",
+  "noToken": 401,
+  "noTokenMs": 8,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 156,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/license/status",
+  "url": "http://localhost:3001/api/v1/license/status",
+  "noToken": 200,
+  "noTokenMs": 33,
+  "badToken": 200,
+  "auth": 200,
+  "authMs": 23,
+  "public": true
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/loans/amortization-schedule",
+  "url": "http://localhost:3001/api/v1/loans/amortization-schedule",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/loans/calculate-emi",
+  "url": "http://localhost:3001/api/v1/loans/calculate-emi",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/loans/case/{caseNo}/consolidation-chain",
+  "url": "http://localhost:3001/api/v1/loans/case/1/consolidation-chain",
+  "noToken": 401,
+  "noTokenMs": 16,
+  "badToken": 401,
+  "auth": 400,
+  "authMs": 39,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/loans/case/{caseNo}/repayment-summary",
+  "url": "http://localhost:3001/api/v1/loans/case/1/repayment-summary",
+  "noToken": 401,
+  "noTokenMs": 8,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 96,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/loans/case/{caseNo}",
+  "url": "http://localhost:3001/api/v1/loans/case/1",
+  "noToken": 401,
+  "noTokenMs": 13,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 52,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/loans/cases",
+  "url": "http://localhost:3001/api/v1/loans/cases",
+  "noToken": 401,
+  "noTokenMs": 8,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 825,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/loans/due-status/{caseNo}",
+  "url": "http://localhost:3001/api/v1/loans/due-status/1",
+  "noToken": 401,
+  "noTokenMs": 9,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 201,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/loans/early-closure/execute/{caseNo}",
+  "url": "http://localhost:3001/api/v1/loans/early-closure/execute/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/loans/early-closure/quote/{caseNo}",
+  "url": "http://localhost:3001/api/v1/loans/early-closure/quote/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/loans/eligibility/{memberNo}",
+  "url": "http://localhost:3001/api/v1/loans/eligibility/1",
+  "noToken": 401,
+  "noTokenMs": 123,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 799,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/loans/generate/loan-case-number",
+  "url": "http://localhost:3001/api/v1/loans/generate/loan-case-number",
+  "noToken": 401,
+  "noTokenMs": 7,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 71,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/loans/loan-application",
+  "url": "http://localhost:3001/api/v1/loans/loan-application",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/loans/master/{caseNo}/emi-schedule",
+  "url": "http://localhost:3001/api/v1/loans/master/1/emi-schedule",
+  "noToken": 401,
+  "noTokenMs": 12,
+  "badToken": 401,
+  "auth": 404,
+  "authMs": 50,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/loans/master/{caseNo}",
+  "url": "http://localhost:3001/api/v1/loans/master/1",
+  "noToken": 401,
+  "noTokenMs": 12,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 62,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/loans/member/{mbno}/repayment-history",
+  "url": "http://localhost:3001/api/v1/loans/member/1/repayment-history",
+  "noToken": 401,
+  "noTokenMs": 12,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 54,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/loans/member/{memberNo}/all",
+  "url": "http://localhost:3001/api/v1/loans/member/1/all",
+  "noToken": 401,
+  "noTokenMs": 12,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 57,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/loans/member/{memberNo}/cases",
+  "url": "http://localhost:3001/api/v1/loans/member/1/cases",
+  "noToken": 401,
+  "noTokenMs": 10,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 684,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/loans/member/{memberNo}/master",
+  "url": "http://localhost:3001/api/v1/loans/member/1/master",
+  "noToken": 401,
+  "noTokenMs": 9,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 149,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/loans/member/{memberNo}/pending",
+  "url": "http://localhost:3001/api/v1/loans/member/1/pending",
+  "noToken": 401,
+  "noTokenMs": 15,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 696,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/loans/member/{memberNo}/surety-cases",
+  "url": "http://localhost:3001/api/v1/loans/member/1/surety-cases",
+  "noToken": 401,
+  "noTokenMs": 18,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 70,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/loans/month-end/history/{mbno}",
+  "url": "http://localhost:3001/api/v1/loans/month-end/history/1",
+  "noToken": 401,
+  "noTokenMs": 7,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 49,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/loans/month-end/report",
+  "url": "http://localhost:3001/api/v1/loans/month-end/report",
+  "noToken": 401,
+  "noTokenMs": 8,
+  "badToken": 401,
+  "auth": 400,
+  "authMs": 27,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/loans/month-end/snapshot",
+  "url": "http://localhost:3001/api/v1/loans/month-end/snapshot",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/loans/pending/{caseNo}",
+  "url": "http://localhost:3001/api/v1/loans/pending/1",
+  "noToken": 401,
+  "noTokenMs": 10,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 70,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/loans/position/{mbno}/{caseNo}",
+  "url": "http://localhost:3001/api/v1/loans/position/1/1",
+  "noToken": 401,
+  "noTokenMs": 11,
+  "badToken": 401,
+  "auth": 404,
+  "authMs": 97,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/loans/position/acknowledge",
+  "url": "http://localhost:3001/api/v1/loans/position/acknowledge",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/loans/reagreement/{id}/cancel",
+  "url": "http://localhost:3001/api/v1/loans/reagreement/1/cancel",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/loans/reagreement/{id}/document",
+  "url": "http://localhost:3001/api/v1/loans/reagreement/1/document",
+  "noToken": 401,
+  "noTokenMs": 9,
+  "badToken": 401,
+  "auth": 404,
+  "authMs": 77,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/loans/reagreement/{id}/draft",
+  "url": "http://localhost:3001/api/v1/loans/reagreement/1/draft",
+  "noToken": 401,
+  "noTokenMs": 9,
+  "badToken": 401,
+  "auth": 404,
+  "authMs": 77,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/loans/reagreement/{id}/log",
+  "url": "http://localhost:3001/api/v1/loans/reagreement/1/log",
+  "noToken": 401,
+  "noTokenMs": 11,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 88,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/loans/reagreement/{id}",
+  "url": "http://localhost:3001/api/v1/loans/reagreement/1",
+  "noToken": 401,
+  "noTokenMs": 18,
+  "badToken": 401,
+  "auth": 404,
+  "authMs": 79,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/loans/reagreement/apply",
+  "url": "http://localhost:3001/api/v1/loans/reagreement/apply",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/loans/reagreement/by-case/{caseNo}",
+  "url": "http://localhost:3001/api/v1/loans/reagreement/by-case/1",
+  "noToken": 401,
+  "noTokenMs": 9,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 90,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/loans/reagreement/eligibility/{caseNo}",
+  "url": "http://localhost:3001/api/v1/loans/reagreement/eligibility/1",
+  "noToken": 401,
+  "noTokenMs": 9,
+  "badToken": 401,
+  "auth": 400,
+  "authMs": 80,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/loans/reagreement/history/{mbno}/{caseNo}",
+  "url": "http://localhost:3001/api/v1/loans/reagreement/history/1/1",
+  "noToken": 401,
+  "noTokenMs": 13,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 125,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/loans/reagreement/member/{mbno}/loans",
+  "url": "http://localhost:3001/api/v1/loans/reagreement/member/1/loans",
+  "noToken": 401,
+  "noTokenMs": 6,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 125,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/loans/reagreement/open",
+  "url": "http://localhost:3001/api/v1/loans/reagreement/open",
+  "noToken": 401,
+  "noTokenMs": 11,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 109,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/loans/reagreement/quote",
+  "url": "http://localhost:3001/api/v1/loans/reagreement/quote",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/loans/repayment",
+  "url": "http://localhost:3001/api/v1/loans/repayment",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/loans/sanction/{caseNo}",
+  "url": "http://localhost:3001/api/v1/loans/sanction/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/loans/sanctioned",
+  "url": "http://localhost:3001/api/v1/loans/sanctioned",
+  "noToken": 401,
+  "noTokenMs": 8,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 117,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/loans/search/member-loans",
+  "url": "http://localhost:3001/api/v1/loans/search/member-loans",
+  "noToken": 401,
+  "noTokenMs": 11,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 90,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/loans/surety/{caseNo}",
+  "url": "http://localhost:3001/api/v1/loans/surety/1",
+  "noToken": 401,
+  "noTokenMs": 9,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 68,
+  "public": false
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/loans/surety/{caseNo}",
+  "url": "http://localhost:3001/api/v1/loans/surety/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/loans/surety/validate/{memberNo}",
+  "url": "http://localhost:3001/api/v1/loans/surety/validate/1",
+  "noToken": 401,
+  "noTokenMs": 14,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 58,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/member-ledger/detail-columnar",
+  "url": "http://localhost:3001/api/v1/member-ledger/detail-columnar",
+  "noToken": 401,
+  "noTokenMs": 35,
+  "badToken": 401,
+  "auth": 400,
+  "authMs": 57,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/member-ledger/detail-report",
+  "url": "http://localhost:3001/api/v1/member-ledger/detail-report",
+  "noToken": 401,
+  "noTokenMs": 35,
+  "badToken": 401,
+  "auth": 400,
+  "authMs": 46,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/member-ledger/head-masters",
+  "url": "http://localhost:3001/api/v1/member-ledger/head-masters",
+  "noToken": 401,
+  "noTokenMs": 22,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 58,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/member-ledger/member-context",
+  "url": "http://localhost:3001/api/v1/member-ledger/member-context",
+  "noToken": 401,
+  "noTokenMs": 6,
+  "badToken": 401,
+  "auth": 400,
+  "authMs": 75,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/member-ledger/report",
+  "url": "http://localhost:3001/api/v1/member-ledger/report",
+  "noToken": 401,
+  "noTokenMs": 34,
+  "badToken": 401,
+  "auth": 400,
+  "authMs": 44,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/member-ledger/validate-member",
+  "url": "http://localhost:3001/api/v1/member-ledger/validate-member",
+  "noToken": 401,
+  "noTokenMs": 7,
+  "badToken": 401,
+  "auth": 400,
+  "authMs": 101,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/member-status/{memberNo}/check",
+  "url": "http://localhost:3001/api/v1/member-status/1/check",
+  "noToken": 401,
+  "noTokenMs": 3,
+  "badToken": 401,
+  "auth": 404,
+  "authMs": 39,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/member-status/{memberNo}/history",
+  "url": "http://localhost:3001/api/v1/member-status/1/history",
+  "noToken": 401,
+  "noTokenMs": 4,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 178,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/member-status/{memberNo}/inactive",
+  "url": "http://localhost:3001/api/v1/member-status/1/inactive",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/member-status/{memberNo}/reactivate",
+  "url": "http://localhost:3001/api/v1/member-status/1/reactivate",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/member-status/list",
+  "url": "http://localhost:3001/api/v1/member-status/list",
+  "noToken": 401,
+  "noTokenMs": 5,
+  "badToken": 401,
+  "auth": 400,
+  "authMs": 27,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/member-status/summary",
+  "url": "http://localhost:3001/api/v1/member-status/summary",
+  "noToken": 401,
+  "noTokenMs": 5,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 161,
+  "public": false
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/members/{id}/signature",
+  "url": "http://localhost:3001/api/v1/members/1/signature",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/members/{id}/signature",
+  "url": "http://localhost:3001/api/v1/members/1/signature",
+  "noToken": 401,
+  "noTokenMs": 11,
+  "badToken": 401,
+  "auth": 404,
+  "authMs": 70,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/members/{id}/signature",
+  "url": "http://localhost:3001/api/v1/members/1/signature",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/members/{id}",
+  "url": "http://localhost:3001/api/v1/members/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/members/{id}",
+  "url": "http://localhost:3001/api/v1/members/1",
+  "noToken": 401,
+  "noTokenMs": 7,
+  "badToken": 401,
+  "auth": 404,
+  "authMs": 65,
+  "public": false
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/members/{id}",
+  "url": "http://localhost:3001/api/v1/members/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/members/balance/{memberNo}/quick",
+  "url": "http://localhost:3001/api/v1/members/balance/1/quick",
+  "noToken": 401,
+  "noTokenMs": 11,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 83,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/members/balance/{memberNo}",
+  "url": "http://localhost:3001/api/v1/members/balance/1",
+  "noToken": 401,
+  "noTokenMs": 8,
+  "badToken": 401,
+  "auth": 500,
+  "authMs": 90,
+  "authSnippet": "{\"statusCode\":500,\"timestamp\":\"2026-10-16T17:25:42.681Z\",\"path\":\"/api/v1/members/balance/1\",\"method\":\"GET\",\"error\":\"Error\",\"message\":\"Member not found\"}",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/members/details/{memberNo}",
+  "url": "http://localhost:3001/api/v1/members/details/1",
+  "noToken": 401,
+  "noTokenMs": 7,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 61,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/members/find/{memberNo}",
+  "url": "http://localhost:3001/api/v1/members/find/1",
+  "noToken": 401,
+  "noTokenMs": 9,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 57,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/members/generate/member-number",
+  "url": "http://localhost:3001/api/v1/members/generate/member-number",
+  "noToken": 401,
+  "noTokenMs": 9,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 86,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/members/lookup",
+  "url": "http://localhost:3001/api/v1/members/lookup",
+  "noToken": 401,
+  "noTokenMs": 5,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 159,
+  "public": false
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/members/master/{mbno}/document/{id}",
+  "url": "http://localhost:3001/api/v1/members/master/1/document/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/members/master/{mbno}/document/{id}",
+  "url": "http://localhost:3001/api/v1/members/master/1/document/1",
+  "noToken": 401,
+  "noTokenMs": 18,
+  "badToken": 401,
+  "auth": 404,
+  "authMs": 111,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/members/master/{mbno}/document",
+  "url": "http://localhost:3001/api/v1/members/master/1/document",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/members/master/{mbno}/documents",
+  "url": "http://localhost:3001/api/v1/members/master/1/documents",
+  "noToken": 401,
+  "noTokenMs": 15,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 118,
+  "public": false
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/members/master/{mbno}/photo/{type}",
+  "url": "http://localhost:3001/api/v1/members/master/1/photo/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/members/master/{mbno}/photo/{type}",
+  "url": "http://localhost:3001/api/v1/members/master/1/photo/1",
+  "noToken": 401,
+  "noTokenMs": 17,
+  "badToken": 401,
+  "auth": 400,
+  "authMs": 72,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/members/master/{mbno}/photo/{type}",
+  "url": "http://localhost:3001/api/v1/members/master/1/photo/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/members/master/{mbno}/signature",
+  "url": "http://localhost:3001/api/v1/members/master/1/signature",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/members/master/{mbno}/signature",
+  "url": "http://localhost:3001/api/v1/members/master/1/signature",
+  "noToken": 401,
+  "noTokenMs": 13,
+  "badToken": 401,
+  "auth": 404,
+  "authMs": 94,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/members/master/{mbno}/signature",
+  "url": "http://localhost:3001/api/v1/members/master/1/signature",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/members/save-member",
+  "url": "http://localhost:3001/api/v1/members/save-member",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/members/statistics",
+  "url": "http://localhost:3001/api/v1/members/statistics",
+  "noToken": 401,
+  "noTokenMs": 4,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 22,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/members",
+  "url": "http://localhost:3001/api/v1/members",
+  "noToken": 401,
+  "noTokenMs": 4,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 15,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/members",
+  "url": "http://localhost:3001/api/v1/members",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/notification-centre/{id}/read",
+  "url": "http://localhost:3001/api/v1/notification-centre/1/read",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/notification-centre/{id}/unread",
+  "url": "http://localhost:3001/api/v1/notification-centre/1/unread",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/notification-centre/list",
+  "url": "http://localhost:3001/api/v1/notification-centre/list",
+  "noToken": 401,
+  "noTokenMs": 5,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 316,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/notification-centre/read-all",
+  "url": "http://localhost:3001/api/v1/notification-centre/read-all",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/notification-centre/summary",
+  "url": "http://localhost:3001/api/v1/notification-centre/summary",
+  "noToken": 401,
+  "noTokenMs": 4,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 269,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/notification-centre/sync",
+  "url": "http://localhost:3001/api/v1/notification-centre/sync",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/notifications/cancel-batch",
+  "url": "http://localhost:3001/api/v1/notifications/cancel-batch",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/notifications/channel-status",
+  "url": "http://localhost:3001/api/v1/notifications/channel-status",
+  "noToken": 401,
+  "noTokenMs": 7,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 37,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/notifications/history",
+  "url": "http://localhost:3001/api/v1/notifications/history",
+  "noToken": 401,
+  "noTokenMs": 8,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 64,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/notifications/queue-manual",
+  "url": "http://localhost:3001/api/v1/notifications/queue-manual",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/notifications/queue-transaction-alert",
+  "url": "http://localhost:3001/api/v1/notifications/queue-transaction-alert",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/notifications/send-batch",
+  "url": "http://localhost:3001/api/v1/notifications/send-batch",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/notifications/send-manual",
+  "url": "http://localhost:3001/api/v1/notifications/send-manual",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/notifications/send-one/{id}",
+  "url": "http://localhost:3001/api/v1/notifications/send-one/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/notifications/stats",
+  "url": "http://localhost:3001/api/v1/notifications/stats",
+  "noToken": 401,
+  "noTokenMs": 9,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 53,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/notifications/trigger-emi-check",
+  "url": "http://localhost:3001/api/v1/notifications/trigger-emi-check",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/notifications/trigger-maturity-check",
+  "url": "http://localhost:3001/api/v1/notifications/trigger-maturity-check",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/onboarding/complete",
+  "url": "http://localhost:3001/api/v1/onboarding/complete",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/onboarding/global-mode",
+  "url": "http://localhost:3001/api/v1/onboarding/global-mode",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/onboarding/preference",
+  "url": "http://localhost:3001/api/v1/onboarding/preference",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/onboarding/profile",
+  "url": "http://localhost:3001/api/v1/onboarding/profile",
+  "noToken": 401,
+  "noTokenMs": 4,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 28,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/onboarding/status",
+  "url": "http://localhost:3001/api/v1/onboarding/status",
+  "noToken": 401,
+  "noTokenMs": 4,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 42,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/onboarding/step",
+  "url": "http://localhost:3001/api/v1/onboarding/step",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/onboarding/terms/accept",
+  "url": "http://localhost:3001/api/v1/onboarding/terms/accept",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/onboarding/terms",
+  "url": "http://localhost:3001/api/v1/onboarding/terms",
+  "noToken": 401,
+  "noTokenMs": 3,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 52,
+  "public": false
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/onboarding/terms",
+  "url": "http://localhost:3001/api/v1/onboarding/terms",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/print-voucher/{voucherNo}",
+  "url": "http://localhost:3001/api/v1/print-voucher/1",
+  "noToken": 401,
+  "noTokenMs": 3,
+  "badToken": 401,
+  "auth": 404,
+  "authMs": 14,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/print-voucher/journal/{voucherNo}",
+  "url": "http://localhost:3001/api/v1/print-voucher/journal/1",
+  "noToken": 401,
+  "noTokenMs": 18,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 23,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/print-voucher/journal/list/all",
+  "url": "http://localhost:3001/api/v1/print-voucher/journal/list/all",
+  "noToken": 401,
+  "noTokenMs": 4,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 3341,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/print-voucher/journal/list/by-date",
+  "url": "http://localhost:3001/api/v1/print-voucher/journal/list/by-date",
+  "noToken": 401,
+  "noTokenMs": 4,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 10862,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/print-voucher/list/all",
+  "url": "http://localhost:3001/api/v1/print-voucher/list/all",
+  "noToken": 401,
+  "noTokenMs": 6,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 58,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/print-voucher/list/by-date",
+  "url": "http://localhost:3001/api/v1/print-voucher/list/by-date",
+  "noToken": 401,
+  "noTokenMs": 7,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 57,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/rd/balance/{mbno}/{yearcode}/current",
+  "url": "http://localhost:3001/api/v1/rd/balance/1/1/current",
+  "noToken": 401,
+  "noTokenMs": 30,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 353,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/rd/balance/{mbno}/{yearcode}/timeline",
+  "url": "http://localhost:3001/api/v1/rd/balance/1/1/timeline",
+  "noToken": 401,
+  "noTokenMs": 10,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 103,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/rd/balance/{mbno}/{yearcode}/withdraw",
+  "url": "http://localhost:3001/api/v1/rd/balance/1/1/withdraw",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/rd/closing/{mbno}/{yearcode}/close",
+  "url": "http://localhost:3001/api/v1/rd/closing/1/1/close",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/rd/closing/{mbno}/{yearcode}/preview",
+  "url": "http://localhost:3001/api/v1/rd/closing/1/1/preview",
+  "noToken": 401,
+  "noTokenMs": 18,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 1014,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/rd/closing/{yearcode}/close-all",
+  "url": "http://localhost:3001/api/v1/rd/closing/1/close-all",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/rd/closing/{yearcode}/members",
+  "url": "http://localhost:3001/api/v1/rd/closing/1/members",
+  "noToken": 401,
+  "noTokenMs": 10,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 159,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/rd/closing/{yearcode}/preview",
+  "url": "http://localhost:3001/api/v1/rd/closing/1/preview",
+  "noToken": 401,
+  "noTokenMs": 7,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 1046,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/rd/interest/{mbno}/{yearcode}/preview",
+  "url": "http://localhost:3001/api/v1/rd/interest/1/1/preview",
+  "noToken": 401,
+  "noTokenMs": 9,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 422,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/rd/member-config/{mbno}/{yearcode}/current",
+  "url": "http://localhost:3001/api/v1/rd/member-config/1/1/current",
+  "noToken": 401,
+  "noTokenMs": 8,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 88,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/rd/member-config/{mbno}/{yearcode}/history",
+  "url": "http://localhost:3001/api/v1/rd/member-config/1/1/history",
+  "noToken": 401,
+  "noTokenMs": 8,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 89,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/rd/member-config/{mbno}/{yearcode}",
+  "url": "http://localhost:3001/api/v1/rd/member-config/1/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/rd/pattern/{mbno}/{yearcode}",
+  "url": "http://localhost:3001/api/v1/rd/pattern/1/1",
+  "noToken": 401,
+  "noTokenMs": 10,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 422,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/rd/repayment/{mbno}/{yearcode}/pending",
+  "url": "http://localhost:3001/api/v1/rd/repayment/1/1/pending",
+  "noToken": 401,
+  "noTokenMs": 18,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 997,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/rd/repayment/{mbno}/{yearcode}",
+  "url": "http://localhost:3001/api/v1/rd/repayment/1/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/report-head-order/reset",
+  "url": "http://localhost:3001/api/v1/report-head-order/reset",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/report-head-order",
+  "url": "http://localhost:3001/api/v1/report-head-order",
+  "noToken": 401,
+  "noTokenMs": 6,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 231,
+  "public": false
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/report-head-order",
+  "url": "http://localhost:3001/api/v1/report-head-order",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/account-closing",
+  "url": "http://localhost:3001/api/v1/reports/account-closing",
+  "noToken": 401,
+  "noTokenMs": 19,
+  "badToken": 401,
+  "auth": 500,
+  "authMs": 29,
+  "authSnippet": "{\"statusCode\":500,\"timestamp\":\"2026-10-16T17:25:46.501Z\",\"path\":\"/api/v1/reports/account-closing\",\"method\":\"GET\",\"error\":\"TypeError\",\"message\":\"Cannot read properties of undefined (reading 'toString')\"}",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/adhoc-reports",
+  "url": "http://localhost:3001/api/v1/reports/adhoc-reports",
+  "noToken": 401,
+  "noTokenMs": 15,
+  "badToken": 401,
+  "auth": 500,
+  "authMs": 121,
+  "authSnippet": "{\"statusCode\":500,\"timestamp\":\"2026-10-16T17:25:46.142Z\",\"path\":\"/api/v1/reports/adhoc-reports\",\"method\":\"GET\",\"error\":\"Error\",\"message\":\"Unsupported report type\"}",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/annual-member-statement",
+  "url": "http://localhost:3001/api/v1/reports/annual-member-statement",
+  "noToken": 401,
+  "noTokenMs": 15,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 157,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/balance-sheet",
+  "url": "http://localhost:3001/api/v1/reports/balance-sheet",
+  "noToken": 401,
+  "noTokenMs": 5,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 4069,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/reports/bank/ledger",
+  "url": "http://localhost:3001/api/v1/reports/bank/ledger",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/banks",
+  "url": "http://localhost:3001/api/v1/reports/banks",
+  "noToken": 401,
+  "noTokenMs": 8,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 50,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/reports/cashbook/daily",
+  "url": "http://localhost:3001/api/v1/reports/cashbook/daily",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/reports/cashbook/monthly",
+  "url": "http://localhost:3001/api/v1/reports/cashbook/monthly",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/reports/cashbook2/daily",
+  "url": "http://localhost:3001/api/v1/reports/cashbook2/daily",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/reports/defaulters",
+  "url": "http://localhost:3001/api/v1/reports/defaulters",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/reports/deposit/maturity",
+  "url": "http://localhost:3001/api/v1/reports/deposit/maturity",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/diagnostic",
+  "url": "http://localhost:3001/api/v1/reports/diagnostic",
+  "noToken": 401,
+  "noTokenMs": 5,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 66,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/dividend-paid",
+  "url": "http://localhost:3001/api/v1/reports/dividend-paid",
+  "noToken": 401,
+  "noTokenMs": 17,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 64,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/dividend-report",
+  "url": "http://localhost:3001/api/v1/reports/dividend-report",
+  "noToken": 401,
+  "noTokenMs": 20,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 269,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/dividend-warrant",
+  "url": "http://localhost:3001/api/v1/reports/dividend-warrant",
+  "noToken": 401,
+  "noTokenMs": 15,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 48,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/divisions",
+  "url": "http://localhost:3001/api/v1/reports/divisions",
+  "noToken": 401,
+  "noTokenMs": 17,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 39,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/financial-summary",
+  "url": "http://localhost:3001/api/v1/reports/financial-summary",
+  "noToken": 401,
+  "noTokenMs": 5,
+  "badToken": 401,
+  "auth": 400,
+  "authMs": 31,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/heads",
+  "url": "http://localhost:3001/api/v1/reports/heads",
+  "noToken": 401,
+  "noTokenMs": 7,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 56,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/reports/interest-certificate",
+  "url": "http://localhost:3001/api/v1/reports/interest-certificate",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/interest-list",
+  "url": "http://localhost:3001/api/v1/reports/interest-list",
+  "noToken": 401,
+  "noTokenMs": 7,
+  "badToken": 401,
+  "auth": 400,
+  "authMs": 39,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/reports/jotting",
+  "url": "http://localhost:3001/api/v1/reports/jotting",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/reports/ledger/detail",
+  "url": "http://localhost:3001/api/v1/reports/ledger/detail",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/lien-account-information",
+  "url": "http://localhost:3001/api/v1/reports/lien-account-information",
+  "noToken": 401,
+  "noTokenMs": 8,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 91,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/loan-contributions-register",
+  "url": "http://localhost:3001/api/v1/reports/loan-contributions-register",
+  "noToken": 401,
+  "noTokenMs": 15,
+  "badToken": 401,
+  "auth": 500,
+  "authMs": 137,
+  "authSnippet": "{\"statusCode\":500,\"timestamp\":\"2026-10-16T17:25:46.133Z\",\"path\":\"/api/v1/reports/loan-contributions-register\",\"method\":\"GET\",\"error\":\"Error\",\"message\":\"Member not found\"}",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/loan-nil-certificate/{memberNo}",
+  "url": "http://localhost:3001/api/v1/reports/loan-nil-certificate/1",
+  "noToken": 401,
+  "noTokenMs": 14,
+  "badToken": 401,
+  "auth": 400,
+  "authMs": 84,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/loan-types",
+  "url": "http://localhost:3001/api/v1/reports/loan-types",
+  "noToken": 401,
+  "noTokenMs": 11,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 80,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/reports/loans/interest-statement",
+  "url": "http://localhost:3001/api/v1/reports/loans/interest-statement",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/reports/loans/new-disbursed",
+  "url": "http://localhost:3001/api/v1/reports/loans/new-disbursed",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/member-balance-range",
+  "url": "http://localhost:3001/api/v1/reports/member-balance-range",
+  "noToken": 401,
+  "noTokenMs": 7,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 34,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/member-ledger",
+  "url": "http://localhost:3001/api/v1/reports/member-ledger",
+  "noToken": 401,
+  "noTokenMs": 9,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 50,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/member-loan-detail",
+  "url": "http://localhost:3001/api/v1/reports/member-loan-detail",
+  "noToken": 401,
+  "noTokenMs": 13,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 2710,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/member/{memberNo}/loan-cases",
+  "url": "http://localhost:3001/api/v1/reports/member/1/loan-cases",
+  "noToken": 401,
+  "noTokenMs": 9,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 136,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/reports/member/balance-range",
+  "url": "http://localhost:3001/api/v1/reports/member/balance-range",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/reports/member/loan-ledger",
+  "url": "http://localhost:3001/api/v1/reports/member/loan-ledger",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/member/profile/{memberNo}",
+  "url": "http://localhost:3001/api/v1/reports/member/profile/1",
+  "noToken": 401,
+  "noTokenMs": 9,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 40,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/reports/member/statement",
+  "url": "http://localhost:3001/api/v1/reports/member/statement",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/offices",
+  "url": "http://localhost:3001/api/v1/reports/offices",
+  "noToken": 401,
+  "noTokenMs": 17,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 40,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/passbook-printing",
+  "url": "http://localhost:3001/api/v1/reports/passbook-printing",
+  "noToken": 401,
+  "noTokenMs": 5,
+  "badToken": 401,
+  "auth": 500,
+  "authMs": 72,
+  "authSnippet": "{\"statusCode\":500,\"timestamp\":\"2026-10-16T17:25:46.407Z\",\"path\":\"/api/v1/reports/passbook-printing\",\"method\":\"GET\",\"error\":\"Error\",\"message\":\"Member not found\"}",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/reports/rd/statement",
+  "url": "http://localhost:3001/api/v1/reports/rd/statement",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/recovery-details",
+  "url": "http://localhost:3001/api/v1/reports/recovery-details",
+  "noToken": 401,
+  "noTokenMs": 5,
+  "badToken": 401,
+  "auth": 500,
+  "authMs": 38,
+  "authSnippet": "{\"statusCode\":500,\"timestamp\":\"2026-10-16T17:25:46.535Z\",\"path\":\"/api/v1/reports/recovery-details\",\"method\":\"GET\",\"error\":\"Error\",\"message\":\"Invalid month 'undefined'\"}",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/recurring-details",
+  "url": "http://localhost:3001/api/v1/reports/recurring-details",
+  "noToken": 401,
+  "noTokenMs": 11,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 22,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/reports/saving/statement",
+  "url": "http://localhost:3001/api/v1/reports/saving/statement",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/schedule/{id}",
+  "url": "http://localhost:3001/api/v1/reports/schedule/1",
+  "noToken": 401,
+  "noTokenMs": 49,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 38,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/reports/schedule/execute",
+  "url": "http://localhost:3001/api/v1/reports/schedule/execute",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/schedule",
+  "url": "http://localhost:3001/api/v1/reports/schedule",
+  "noToken": 401,
+  "noTokenMs": 49,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 40,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/reports/schedule",
+  "url": "http://localhost:3001/api/v1/reports/schedule",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/share-certificate",
+  "url": "http://localhost:3001/api/v1/reports/share-certificate",
+  "noToken": 401,
+  "noTokenMs": 5,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 27,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/share-warrant",
+  "url": "http://localhost:3001/api/v1/reports/share-warrant",
+  "noToken": 401,
+  "noTokenMs": 7,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 29,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/surety-register",
+  "url": "http://localhost:3001/api/v1/reports/surety-register",
+  "noToken": 401,
+  "noTokenMs": 9,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 16159,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/voters-list",
+  "url": "http://localhost:3001/api/v1/reports/voters-list",
+  "noToken": 401,
+  "noTokenMs": 7,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 368,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/wings",
+  "url": "http://localhost:3001/api/v1/reports/wings",
+  "noToken": 401,
+  "noTokenMs": 11,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 24,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/reports/yearly-member-statement",
+  "url": "http://localhost:3001/api/v1/reports/yearly-member-statement",
+  "noToken": 401,
+  "noTokenMs": 6,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 153,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/search/global",
+  "url": "http://localhost:3001/api/v1/search/global",
+  "noToken": 401,
+  "noTokenMs": 76,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 28,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/search/suggestions",
+  "url": "http://localhost:3001/api/v1/search/suggestions",
+  "noToken": 401,
+  "noTokenMs": 49,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 25,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/support-queries/{id}/retry",
+  "url": "http://localhost:3001/api/v1/support-queries/1/retry",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/support-queries/{id}",
+  "url": "http://localhost:3001/api/v1/support-queries/1",
+  "noToken": 401,
+  "noTokenMs": 4,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 25,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/support-queries/admin/all",
+  "url": "http://localhost:3001/api/v1/support-queries/admin/all",
+  "noToken": 401,
+  "noTokenMs": 5,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 73,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/support-queries/mine",
+  "url": "http://localhost:3001/api/v1/support-queries/mine",
+  "noToken": 401,
+  "noTokenMs": 4,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 38,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/support-queries",
+  "url": "http://localhost:3001/api/v1/support-queries",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/transactions/cd/income-heads",
+  "url": "http://localhost:3001/api/v1/transactions/cd/income-heads",
+  "noToken": 401,
+  "noTokenMs": 10,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 37,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/transactions/cd/members",
+  "url": "http://localhost:3001/api/v1/transactions/cd/members",
+  "noToken": 401,
+  "noTokenMs": 9,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 132,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/transactions/cd/post",
+  "url": "http://localhost:3001/api/v1/transactions/cd/post",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/transactions/demand-generation/generate",
+  "url": "http://localhost:3001/api/v1/transactions/demand-generation/generate",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/transactions/demand-generation/import-preview",
+  "url": "http://localhost:3001/api/v1/transactions/demand-generation/import-preview",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/transactions/demand-generation/import-process",
+  "url": "http://localhost:3001/api/v1/transactions/demand-generation/import-process",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/transactions/dividend/pay",
+  "url": "http://localhost:3001/api/v1/transactions/dividend/pay",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/transactions/dividend/pending/{memberNo}",
+  "url": "http://localhost:3001/api/v1/transactions/dividend/pending/1",
+  "noToken": 401,
+  "noTokenMs": 12,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 39,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/transactions/journal/post",
+  "url": "http://localhost:3001/api/v1/transactions/journal/post",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/transactions/ledger-posting/post",
+  "url": "http://localhost:3001/api/v1/transactions/ledger-posting/post",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/transactions/ledger-posting/summary",
+  "url": "http://localhost:3001/api/v1/transactions/ledger-posting/summary",
+  "noToken": 401,
+  "noTokenMs": 13,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 58,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/transactions/loan-voucher",
+  "url": "http://localhost:3001/api/v1/transactions/loan-voucher",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/transactions/pass/{voucherNo}",
+  "url": "http://localhost:3001/api/v1/transactions/pass/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/transactions/reports/demand-list/generate",
+  "url": "http://localhost:3001/api/v1/transactions/reports/demand-list/generate",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/transactions/reverse/{voucherNo}",
+  "url": "http://localhost:3001/api/v1/transactions/reverse/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/transactions/short-recovery/adjust",
+  "url": "http://localhost:3001/api/v1/transactions/short-recovery/adjust",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/transactions/short-recovery",
+  "url": "http://localhost:3001/api/v1/transactions/short-recovery",
+  "noToken": 401,
+  "noTokenMs": 12,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 61,
+  "public": false
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/transactions/voucher/{voucherNo}",
+  "url": "http://localhost:3001/api/v1/transactions/voucher/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/transactions/voucher/{voucherNo}",
+  "url": "http://localhost:3001/api/v1/transactions/voucher/1",
+  "noToken": 401,
+  "noTokenMs": 14,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 128,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/transactions/voucher",
+  "url": "http://localhost:3001/api/v1/transactions/voucher",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/transactions/vouchers/pending",
+  "url": "http://localhost:3001/api/v1/transactions/vouchers/pending",
+  "noToken": 401,
+  "noTokenMs": 9,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 140,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/utilities/balance-transfer",
+  "url": "http://localhost:3001/api/v1/utilities/balance-transfer",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/balance/account/{accountType}/{accountId}",
+  "url": "http://localhost:3001/api/v1/utilities/balance/account/1/1",
+  "noToken": 401,
+  "noTokenMs": 7,
+  "badToken": 401,
+  "auth": 500,
+  "authMs": 79,
+  "authSnippet": "{\"statusCode\":500,\"timestamp\":\"2026-10-16T17:25:45.412Z\",\"path\":\"/api/v1/utilities/balance/account/1/1\",\"method\":\"GET\",\"error\":\"Error\",\"message\":\"Invalid account type\"}",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/balance/member/{memberId}/accounts",
+  "url": "http://localhost:3001/api/v1/utilities/balance/member/1/accounts",
+  "noToken": 401,
+  "noTokenMs": 10,
+  "badToken": 401,
+  "auth": 500,
+  "authMs": 100,
+  "authSnippet": "{\"statusCode\":500,\"timestamp\":\"2026-10-16T17:25:45.442Z\",\"path\":\"/api/v1/utilities/balance/member/1/accounts\",\"method\":\"GET\",\"error\":\"Error\",\"message\":\"Member not found\"}",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/balance/member/{memberId}/realtime",
+  "url": "http://localhost:3001/api/v1/utilities/balance/member/1/realtime",
+  "noToken": 401,
+  "noTokenMs": 10,
+  "badToken": 401,
+  "auth": 500,
+  "authMs": 99,
+  "authSnippet": "{\"statusCode\":500,\"timestamp\":\"2026-10-16T17:25:45.444Z\",\"path\":\"/api/v1/utilities/balance/member/1/realtime\",\"method\":\"GET\",\"error\":\"Error\",\"message\":\"Member not found\"}",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/balance/member/{memberId}",
+  "url": "http://localhost:3001/api/v1/utilities/balance/member/1",
+  "noToken": 401,
+  "noTokenMs": 9,
+  "badToken": 401,
+  "auth": 500,
+  "authMs": 82,
+  "authSnippet": "{\"statusCode\":500,\"timestamp\":\"2026-10-16T17:25:45.406Z\",\"path\":\"/api/v1/utilities/balance/member/1\",\"method\":\"GET\",\"error\":\"Error\",\"message\":\"Member not found\"}",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/business-rules",
+  "url": "http://localhost:3001/api/v1/utilities/business-rules",
+  "noToken": 401,
+  "noTokenMs": 19,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 471,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/utilities/business-rules",
+  "url": "http://localhost:3001/api/v1/utilities/business-rules",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/calculator/loan-rates",
+  "url": "http://localhost:3001/api/v1/utilities/calculator/loan-rates",
+  "noToken": 401,
+  "noTokenMs": 10,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 45,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/calculator/member-eligibility",
+  "url": "http://localhost:3001/api/v1/utilities/calculator/member-eligibility",
+  "noToken": 401,
+  "noTokenMs": 7,
+  "badToken": 401,
+  "auth": 400,
+  "authMs": 26,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/data-consistency/check",
+  "url": "http://localhost:3001/api/v1/utilities/data-consistency/check",
+  "noToken": 401,
+  "noTokenMs": 14,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 222,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/utilities/data-correction/auto-fix",
+  "url": "http://localhost:3001/api/v1/utilities/data-correction/auto-fix",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/utilities/data-correction/balance-discrepancies",
+  "url": "http://localhost:3001/api/v1/utilities/data-correction/balance-discrepancies",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/utilities/data-correction/fix-integrity",
+  "url": "http://localhost:3001/api/v1/utilities/data-correction/fix-integrity",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/utilities/data-correction/orphaned-records",
+  "url": "http://localhost:3001/api/v1/utilities/data-correction/orphaned-records",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/utilities/data-correction/recalculate-balances",
+  "url": "http://localhost:3001/api/v1/utilities/data-correction/recalculate-balances",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/utilities/data-correction/remove-duplicates",
+  "url": "http://localhost:3001/api/v1/utilities/data-correction/remove-duplicates",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/demand-print-order",
+  "url": "http://localhost:3001/api/v1/utilities/demand-print-order",
+  "noToken": 401,
+  "noTokenMs": 56,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 493,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/utilities/demand-print-order",
+  "url": "http://localhost:3001/api/v1/utilities/demand-print-order",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/deposit-loan-slabs",
+  "url": "http://localhost:3001/api/v1/utilities/deposit-loan-slabs",
+  "noToken": 401,
+  "noTokenMs": 42,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 207,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/utilities/deposit-loan-slabs",
+  "url": "http://localhost:3001/api/v1/utilities/deposit-loan-slabs",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/utilities/dividend/pay",
+  "url": "http://localhost:3001/api/v1/utilities/dividend/pay",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/dividend/pending",
+  "url": "http://localhost:3001/api/v1/utilities/dividend/pending",
+  "noToken": 401,
+  "noTokenMs": 11,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 42,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/divisions",
+  "url": "http://localhost:3001/api/v1/utilities/divisions",
+  "noToken": 401,
+  "noTokenMs": 8,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 70,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/fd-accounts/member",
+  "url": "http://localhost:3001/api/v1/utilities/fd-accounts/member",
+  "noToken": 401,
+  "noTokenMs": 12,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 55,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/utilities/fd-interest/post",
+  "url": "http://localhost:3001/api/v1/utilities/fd-interest/post",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/fd-rd-sb/accounts",
+  "url": "http://localhost:3001/api/v1/utilities/fd-rd-sb/accounts",
+  "noToken": 401,
+  "noTokenMs": 3,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 387,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/utilities/fd-rd-sb/entry",
+  "url": "http://localhost:3001/api/v1/utilities/fd-rd-sb/entry",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/utilities/fd-receipt",
+  "url": "http://localhost:3001/api/v1/utilities/fd-receipt",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/financial-year/current",
+  "url": "http://localhost:3001/api/v1/utilities/financial-year/current",
+  "noToken": 401,
+  "noTokenMs": 66,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 59,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/utilities/financial-year/transfer-entries",
+  "url": "http://localhost:3001/api/v1/utilities/financial-year/transfer-entries",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/financial-years",
+  "url": "http://localhost:3001/api/v1/utilities/financial-years",
+  "noToken": 401,
+  "noTokenMs": 18,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 161,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/head-balance/{code}",
+  "url": "http://localhost:3001/api/v1/utilities/head-balance/1",
+  "noToken": 401,
+  "noTokenMs": 9,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 2488,
+  "public": false
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/utilities/head-master/{code}",
+  "url": "http://localhost:3001/api/v1/utilities/head-master/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/utilities/head-master/rebuild-tree",
+  "url": "http://localhost:3001/api/v1/utilities/head-master/rebuild-tree",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/head-master",
+  "url": "http://localhost:3001/api/v1/utilities/head-master",
+  "noToken": 401,
+  "noTokenMs": 8,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 5191,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/utilities/head-master",
+  "url": "http://localhost:3001/api/v1/utilities/head-master",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/utilities/head-opening-balance/apply/{yearcode}",
+  "url": "http://localhost:3001/api/v1/utilities/head-opening-balance/apply/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/head-opening-balance",
+  "url": "http://localhost:3001/api/v1/utilities/head-opening-balance",
+  "noToken": 401,
+  "noTokenMs": 28,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 445,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/utilities/head-opening-balance",
+  "url": "http://localhost:3001/api/v1/utilities/head-opening-balance",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/utilities/health/alerts/{alertId}/resolve",
+  "url": "http://localhost:3001/api/v1/utilities/health/alerts/1/resolve",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": true
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/health/alerts/all",
+  "url": "http://localhost:3001/api/v1/utilities/health/alerts/all",
+  "noToken": 401,
+  "noTokenMs": 16,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 76,
+  "public": true
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/health/alerts",
+  "url": "http://localhost:3001/api/v1/utilities/health/alerts",
+  "noToken": 401,
+  "noTokenMs": 17,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 89,
+  "public": true
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/health/diagnostics",
+  "url": "http://localhost:3001/api/v1/utilities/health/diagnostics",
+  "noToken": 401,
+  "noTokenMs": 10,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 249,
+  "public": true
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/health/history",
+  "url": "http://localhost:3001/api/v1/utilities/health/history",
+  "noToken": 401,
+  "noTokenMs": 11,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 95,
+  "public": true
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/health/performance",
+  "url": "http://localhost:3001/api/v1/utilities/health/performance",
+  "noToken": 401,
+  "noTokenMs": 17,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 75,
+  "public": true
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/health/status",
+  "url": "http://localhost:3001/api/v1/utilities/health/status",
+  "noToken": 401,
+  "noTokenMs": 9,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 281,
+  "public": true
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/utilities/loan/entry",
+  "url": "http://localhost:3001/api/v1/utilities/loan/entry",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/member/balance",
+  "url": "http://localhost:3001/api/v1/utilities/member/balance",
+  "noToken": 401,
+  "noTokenMs": 6,
+  "badToken": 401,
+  "auth": 400,
+  "authMs": 28,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/utilities/payment-voucher",
+  "url": "http://localhost:3001/api/v1/utilities/payment-voucher",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/preferences",
+  "url": "http://localhost:3001/api/v1/utilities/preferences",
+  "noToken": 401,
+  "noTokenMs": 6,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 68,
+  "public": false
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/utilities/preferences",
+  "url": "http://localhost:3001/api/v1/utilities/preferences",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/rd-accounts/holders",
+  "url": "http://localhost:3001/api/v1/utilities/rd-accounts/holders",
+  "noToken": 401,
+  "noTokenMs": 6,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 788,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/utilities/receipt-voucher",
+  "url": "http://localhost:3001/api/v1/utilities/receipt-voucher",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/utilities/receipt",
+  "url": "http://localhost:3001/api/v1/utilities/receipt",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/saving/account/{accountNo}",
+  "url": "http://localhost:3001/api/v1/utilities/saving/account/1",
+  "noToken": 401,
+  "noTokenMs": 13,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 66,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/utilities/saving/transaction",
+  "url": "http://localhost:3001/api/v1/utilities/saving/transaction",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/sb-accounts/holders",
+  "url": "http://localhost:3001/api/v1/utilities/sb-accounts/holders",
+  "noToken": 401,
+  "noTokenMs": 319,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 234,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/search/deposits",
+  "url": "http://localhost:3001/api/v1/utilities/search/deposits",
+  "noToken": 401,
+  "noTokenMs": 13,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 62,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/search/global",
+  "url": "http://localhost:3001/api/v1/utilities/search/global",
+  "noToken": 401,
+  "noTokenMs": 13,
+  "badToken": 401,
+  "auth": 400,
+  "authMs": 105,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/search/loans",
+  "url": "http://localhost:3001/api/v1/utilities/search/loans",
+  "noToken": 401,
+  "noTokenMs": 12,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 63,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/search/members",
+  "url": "http://localhost:3001/api/v1/utilities/search/members",
+  "noToken": 401,
+  "noTokenMs": 17,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 64,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/search/sb-accounts",
+  "url": "http://localhost:3001/api/v1/utilities/search/sb-accounts",
+  "noToken": 401,
+  "noTokenMs": 6,
+  "badToken": 401,
+  "auth": 400,
+  "authMs": 36,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/search/transactions",
+  "url": "http://localhost:3001/api/v1/utilities/search/transactions",
+  "noToken": 401,
+  "noTokenMs": 8,
+  "badToken": 401,
+  "auth": 400,
+  "authMs": 78,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/utilities/statement/generate",
+  "url": "http://localhost:3001/api/v1/utilities/statement/generate",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/statement/member/{memberId}",
+  "url": "http://localhost:3001/api/v1/utilities/statement/member/1",
+  "noToken": 401,
+  "noTokenMs": 21,
+  "badToken": 401,
+  "auth": 500,
+  "authMs": 93,
+  "authSnippet": "{\"statusCode\":500,\"timestamp\":\"2026-10-16T17:25:45.468Z\",\"path\":\"/api/v1/utilities/statement/member/1\",\"method\":\"GET\",\"error\":\"Error\",\"message\":\"Member not found\"}",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/system-settings/{key}",
+  "url": "http://localhost:3001/api/v1/utilities/system-settings/1",
+  "noToken": 401,
+  "noTokenMs": 7,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 48,
+  "public": false
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/utilities/system-settings/{key}",
+  "url": "http://localhost:3001/api/v1/utilities/system-settings/1",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities",
+  "url": "http://localhost:3001/api/v1/utilities",
+  "noToken": 401,
+  "noTokenMs": 6,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 76,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1",
+  "url": "http://localhost:3001/api/v1",
+  "noToken": 200,
+  "noTokenMs": 17,
+  "badToken": 200,
+  "auth": 200,
+  "authMs": 51,
+  "public": false
+ }
+]

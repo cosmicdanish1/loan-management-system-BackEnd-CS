@@ -8,6 +8,7 @@ import { RoleGuard } from '../guards';
 import { User, UserRole } from '../entities/user.entity';
 import { AuthService } from '../auth.service';
 import { TwoFaService } from './twofa.service';
+import { TwoFaManageGuard, canManageTwoFactor, isAdminUser } from './manage.guard';
 import type { TwoFaSettings, GuardConfig } from './twofa.service';
 import { GUARD_ACTIONS } from './twofa.service';
 
@@ -17,6 +18,14 @@ class ChallengeDto {
 class VerifyDto extends ChallengeDto {
   @IsString() @MaxLength(40) code: string;
   @IsOptional() @IsBoolean() rememberDevice?: boolean;
+}
+class ForgotVerifyDto {
+  @IsString() @MaxLength(100) username: string;
+  @IsString() @MaxLength(40) code: string;
+}
+class ForgotResetDto {
+  @IsString() @MaxLength(2000) resetToken: string;
+  @IsString() @MaxLength(128) newPassword: string;
 }
 class ConfirmDto {
   @IsString() @MaxLength(40) code: string;
@@ -35,12 +44,17 @@ class GuardsDto {
   @IsOptional() @IsString() @MaxLength(200) password?: string;
   @IsOptional() @IsString() @MaxLength(40) code?: string;
 }
+class RequireDto {
+  @IsBoolean() required: boolean;
+  /** also end the user's current session so they must set up 2FA when they sign in again */
+  @IsOptional() @IsBoolean() signOutNow?: boolean;
+}
 class ApproversDto {
   @IsOptional() @IsArray() @IsInt({ each: true }) add?: number[];
   @IsOptional() @IsArray() @IsInt({ each: true }) remove?: number[];
 }
 class SettingsDto {
-  @IsOptional() @IsIn(['off', 'optional', 'roles', 'all']) policy?: TwoFaSettings['policy'];
+  @IsOptional() @IsIn(['off', 'optional', 'all']) policy?: TwoFaSettings['policy'];
   @IsOptional() @IsArray() @IsInt({ each: true }) requiredLevelIds?: number[];
   @IsOptional() @IsInt() @Min(0) @Max(365) graceDays?: number;
   @IsOptional() @IsInt() @Min(0) @Max(365) rememberDays?: number;
@@ -49,6 +63,9 @@ class SettingsDto {
   @IsOptional() @IsInt() lockoutMinutes?: number;
   @IsOptional() @IsString() @MaxLength(40) issuer?: string;
   @IsOptional() @IsBoolean() approverCanApproveOwn?: boolean;
+  @IsOptional() @IsBoolean() forgotAuthenticator?: boolean;
+  @IsOptional() @IsBoolean() loginCode?: boolean;
+  @IsOptional() @IsInt() @Min(0) @Max(365) monthlyCheckDays?: number;
 }
 
 // Tight limit on every unauthenticated step of the login flow. Per-account
@@ -96,6 +113,31 @@ export class TwoFaController {
     const { recoveryCodes } = await this.twofa.confirmEnroll(userId, dto.code);
     const session = await this.auth.completeTwoFaLogin(userId);
     return { ...session, recoveryCodes };
+  }
+
+  // ------------------------------------------- forgot password (ES-161)
+
+  @Public()
+  @Get('forgot/methods')
+  forgotMethods() {
+    return this.twofa.forgotMethods();
+  }
+
+  @Public()
+  @Throttle(LOGIN_STEP_LIMIT)
+  @Post('forgot/verify')
+  @HttpCode(HttpStatus.OK)
+  forgotVerify(@Body() dto: ForgotVerifyDto) {
+    return this.twofa.forgotVerify(dto.username, dto.code);
+  }
+
+  @Public()
+  @Throttle(LOGIN_STEP_LIMIT)
+  @Post('forgot/reset')
+  @HttpCode(HttpStatus.OK)
+  async forgotReset(@Body() dto: ForgotResetDto) {
+    await this.twofa.forgotReset(dto.resetToken, dto.newPassword);
+    return { message: 'Password changed. You can sign in with your new password.' };
   }
 
   // ---------------------------------------------------- signed-in user
@@ -192,30 +234,57 @@ export class TwoFaController {
     return { approvers: await this.twofa.setApprovers(body?.add || [], body?.remove || [], { id: user.id, username: user.username }) };
   }
 
-  @Get('admin/users')
+  /** What the signed-in user may see in the Two-Factor & Approvals window (the backend enforces it too). */
+  @Get('access')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  access(@CurrentUser() user: User) {
+    const perms: string[] = Array.isArray((user as any).permissions) ? (user as any).permissions : [];
+    return { isAdmin: isAdminUser(user), canManageUsers: canManageTwoFactor(user), isApprover: perms.includes('approve_actions') };
+  }
+
+  /** Recent two-factor activity (administrators only). */
+  @Get('audit')
   @UseGuards(AuthGuard('jwt'), RoleGuard)
   @Roles(UserRole.ADMIN)
+  @ApiBearerAuth()
+  audit() {
+    return this.twofa.listAudit(150);
+  }
+
+  @Get('admin/users')
+  @UseGuards(AuthGuard('jwt'), TwoFaManageGuard)
   @ApiBearerAuth()
   adminUsers() {
     return this.twofa.adminList();
   }
 
+  /** Mark a user as "must use 2FA" (or clear it). They scan their own QR at their next sign-in. */
+  @Put('users/:userid/require')
+  @UseGuards(AuthGuard('jwt'), TwoFaManageGuard)
+  @ApiBearerAuth()
+  async setRequired(@CurrentUser() user: User, @Param('userid', ParseIntPipe) userid: number, @Body() body: RequireDto) {
+    await this.twofa.assertCanManageTarget(isAdminUser(user), userid);
+    await this.twofa.setRequired(userid, body.required, { id: user.id, username: user.username }, !!body.signOutNow);
+    return { message: body.required ? (body.signOutNow ? 'This user was signed out and must set up 2FA when they sign in again' : 'This user must set up 2FA at their next sign-in') : 'This user is no longer required to use 2FA' };
+  }
+
   @Post('admin/reset/:userid')
   @HttpCode(HttpStatus.OK)
-  @UseGuards(AuthGuard('jwt'), RoleGuard)
-  @Roles(UserRole.ADMIN)
+  @UseGuards(AuthGuard('jwt'), TwoFaManageGuard)
   @ApiBearerAuth()
   async adminReset(@CurrentUser() user: User, @Param('userid', ParseIntPipe) userid: number) {
+    await this.twofa.assertCanManageTarget(isAdminUser(user), userid);
     await this.twofa.adminReset(userid, user.username);
     return { message: 'Two-factor authentication reset. The user must set it up again.' };
   }
 
   @Post('admin/unlock/:userid')
   @HttpCode(HttpStatus.OK)
-  @UseGuards(AuthGuard('jwt'), RoleGuard)
-  @Roles(UserRole.ADMIN)
+  @UseGuards(AuthGuard('jwt'), TwoFaManageGuard)
   @ApiBearerAuth()
   async adminUnlock(@CurrentUser() user: User, @Param('userid', ParseIntPipe) userid: number) {
+    await this.twofa.assertCanManageTarget(isAdminUser(user), userid);
     await this.twofa.clearLock(userid, user.username);
     return { message: 'Lockout cleared' };
   }

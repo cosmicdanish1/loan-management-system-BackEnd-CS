@@ -10,7 +10,9 @@ import {
   DayBookSummaryDto,
   DayBookEntryDto,
   InterestCalculationDto,
-  InterestPaymentDto
+  InterestPaymentDto,
+  DayBookGroupedDto,
+  DayBookHeadGroupDto
 } from './dto/daybook.dto';
 
 @Injectable()
@@ -132,6 +134,7 @@ export class DayBookService {
             headName: resolvedHeadName,
             narration: l.narration || '',
             username: l.username || '',
+            modeOfPay: String(l.modeofpay || 'C').trim().toUpperCase(),
             transactionTime: l.trans_date
           };
         })
@@ -166,6 +169,203 @@ export class DayBookService {
     } catch (error) {
       this.logger.error('Error generating day book report:', error);
       throw new Error('Failed to generate day book report');
+    }
+  }
+
+  /**
+   * All-heads Day-Book, restored to the shape the Day-Book window reads:
+   * Payment / Receipt groups by head, each line carrying member, voucher and user.
+   *
+   * - Rows: every ledger leg of the day except Cash-In-Hand (A1001), which is the
+   *   balance being tracked rather than an analysis head; legs without a voucher
+   *   number are skipped. One row per ledger id, with the head name taken from
+   *   headmaster (accountbalance is mostly empty).
+   * - Opening: Cash-In-Hand position before the day, from ledger history (DR − CR).
+   * - Totals / closing: the day's own Cash-In-Hand movement. They cannot come from
+   *   the group totals: in a balanced ledger the non-cash legs of a voucher net to
+   *   the opposite of its cash leg, so the closing balance would never move.
+   * `ledger.trans_date` is a timestamp without time zone, so the day is matched on
+   * the calendar date string rather than a JavaScript Date.
+   */
+  async getDayBookGroupedReport(dto: GetDayBookDto): Promise<DayBookGroupedDto> {
+    try {
+      const reportDate = dto.date.slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(reportDate)) {
+        throw new Error(`Invalid Day Book date: ${dto.date}`);
+      }
+
+      const rows = await this.ledgerRepository.query(`
+        SELECT DISTINCT ON (l.ledgerid)
+          l.ledgerid,
+          l.trans_type,
+          CAST(l.mbno AS text)                              AS mb_no,
+          l.code                                            AS head_code,
+          COALESCE(h.head_name, l.code)                     AS head_name,
+          CAST(l.trans_amt AS numeric)                      AS amount,
+          COALESCE(l.receipt_vchr_no, '')                   AS voucher_no,
+          COALESCE(l.username, '')                          AS username,
+          TRIM(
+            COALESCE(m.f_name,'') || ' ' ||
+            COALESCE(m.m_name,'') || ' ' ||
+            COALESCE(m.l_name,'')
+          )                                                 AS member_name
+        FROM ledger l
+        LEFT JOIN headmaster      h  ON h.code   = l.code
+        LEFT JOIN member_master   m  ON CAST(m.mbno AS text) = CAST(l.mbno AS text)
+        WHERE l.trans_date::date = $1::date
+          AND l.code IS NOT NULL AND TRIM(l.code) != ''
+          AND l.code != 'A1001'
+          AND l.receipt_vchr_no IS NOT NULL AND TRIM(l.receipt_vchr_no) != ''
+        ORDER BY l.ledgerid, l.code, l.trans_type
+      `, [reportDate]);
+
+      const openingResult = await this.ledgerRepository.query(`
+        SELECT
+          SUM(CASE WHEN trans_type = 'DR' THEN CAST(trans_amt AS numeric) ELSE 0 END) -
+          SUM(CASE WHEN trans_type = 'CR' THEN CAST(trans_amt AS numeric) ELSE 0 END) AS balance
+        FROM ledger
+        WHERE trans_date::date < $1::date AND code = 'A1001'
+      `, [reportDate]);
+      const openingBalance = parseFloat(openingResult[0]?.balance) || 0;
+
+      const cashMoveResult = await this.ledgerRepository.query(`
+        SELECT
+          SUM(CASE WHEN trans_type = 'DR' THEN CAST(trans_amt AS numeric) ELSE 0 END) AS cash_in,
+          SUM(CASE WHEN trans_type = 'CR' THEN CAST(trans_amt AS numeric) ELSE 0 END) AS cash_out
+        FROM ledger
+        WHERE trans_date::date = $1::date AND code = 'A1001'
+      `, [reportDate]);
+      const totalReceipts = parseFloat(cashMoveResult[0]?.cash_in) || 0;
+      const totalPayments = parseFloat(cashMoveResult[0]?.cash_out) || 0;
+
+      // DR legs are payments, CR legs are receipts.
+      const paymentMap = new Map<string, DayBookHeadGroupDto>();
+      const receiptMap = new Map<string, DayBookHeadGroupDto>();
+      for (const row of rows) {
+        const mbNo = row.mb_no && row.mb_no !== '0' ? row.mb_no : '';
+        const map = row.trans_type === 'DR' ? paymentMap : receiptMap;
+        let group = map.get(row.head_code);
+        if (!group) {
+          group = { headCode: row.head_code, headName: row.head_name || row.head_code, entries: [], total: 0 };
+          map.set(row.head_code, group);
+        }
+        const amount = parseFloat(row.amount) || 0;
+        group.entries.push({
+          mbNo,
+          memberName: row.member_name?.trim() || '',
+          voucherNo: row.voucher_no,
+          amount,
+          username: row.username,
+        });
+        group.total += amount;
+      }
+
+      return {
+        date: dto.date,
+        openingBalance,
+        totalReceipts,
+        totalPayments,
+        netBalance: totalReceipts - totalPayments,
+        closingBalance: openingBalance + totalReceipts - totalPayments,
+        paymentGroups: Array.from(paymentMap.values()),
+        receiptGroups: Array.from(receiptMap.values()),
+        totalTransactions: rows.length,
+      };
+    } catch (error) {
+      this.logger.error('Error generating day book report:', error);
+      throw new Error('Failed to generate day book report');
+    }
+  }
+
+  /**
+   * Savings-bank day book: one row per SB transaction of the day, split into deposit /
+   * withdrawal by Cash or Transfer (modeofpay C = cash, anything else = transfer).
+   * Restored in the shape the Day-Book [SB] window reads (it was replaced by the flat
+   * entries list in an earlier commit).
+   */
+  async getDayBookSBReport(date: string): Promise<any> {
+    try {
+      const reportDate = String(date).slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(reportDate)) {
+        throw new Error(`Invalid Day Book date: ${date}`);
+      }
+
+      const rows = await this.ledgerRepository.query(`
+        SELECT DISTINCT ON (l.ledgerid)
+          l.ledgerid                                             AS tr_no,
+          COALESCE(CAST(l.acc_no AS text), '')                  AS acc_no,
+          COALESCE(
+            NULLIF(TRIM(
+              COALESCE(m.f_name,'') || ' ' ||
+              COALESCE(m.m_name,'') || ' ' ||
+              COALESCE(m.l_name,'')
+            ), ''),
+            'Member ' || CAST(l.mbno AS text)
+          )                                                      AS ac_name,
+          l.trans_type,
+          UPPER(COALESCE(l.modeofpay, 'C'))                     AS modeofpay,
+          CAST(l.trans_amt AS numeric)                           AS amount
+        FROM ledger l
+        LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(l.mbno AS text)
+        WHERE l.trans_date::date = $1::date
+          AND l.acc_type = 'SB'
+          AND l.code = 'A001'
+        ORDER BY l.ledgerid
+      `, [reportDate]);
+
+      // Opening balance: cumulative SB balance before the date. Only code 'A001' (the member's own
+      // SB leg) is counted, so the interest-expense counter-leg is not shown as a phantom deposit.
+      const openingResult = await this.ledgerRepository.query(`
+        SELECT COALESCE(SUM(CASE WHEN trans_type='CR' THEN amt ELSE -amt END), 0) AS opening_balance
+        FROM (
+          SELECT DISTINCT ON (ledgerid) ledgerid, trans_type, CAST(trans_amt AS numeric) AS amt
+          FROM ledger
+          WHERE acc_type = 'SB' AND code = 'A001' AND trans_date::date < $1::date
+          ORDER BY ledgerid
+        ) t
+      `, [reportDate]);
+      const openingBalance = parseFloat(openingResult[0]?.opening_balance) || 0;
+
+      const entries = rows.map((r: any, idx: number) => {
+        const amt = parseFloat(r.amount) || 0;
+        const isCash = r.modeofpay === 'C';
+        const isDeposit = r.trans_type === 'CR';
+        return {
+          srNo: idx + 1,
+          accNo: r.acc_no,
+          acName: (r.ac_name || '').trim(),
+          depositCash: isDeposit && isCash ? amt : 0,
+          depositTransfer: isDeposit && !isCash ? amt : 0,
+          withdrawalCash: !isDeposit && isCash ? amt : 0,
+          withdrawalTransfer: !isDeposit && !isCash ? amt : 0,
+        };
+      });
+
+      const sum = (k: string) => entries.reduce((t: number, e: any) => t + e[k], 0);
+      const totalDepositCash = sum('depositCash');
+      const totalDepositTransfer = sum('depositTransfer');
+      const totalWithdrawalCash = sum('withdrawalCash');
+      const totalWithdrawalTransfer = sum('withdrawalTransfer');
+      const totalDeposit = totalDepositCash + totalDepositTransfer;
+      const totalWithdrawal = totalWithdrawalCash + totalWithdrawalTransfer;
+
+      return {
+        date,
+        openingBalance,
+        totalDepositCash,
+        totalDepositTransfer,
+        totalDeposit,
+        totalWithdrawalCash,
+        totalWithdrawalTransfer,
+        totalWithdrawal,
+        totalCashInHand: openingBalance + totalDeposit,
+        closingBalance: openingBalance + totalDeposit - totalWithdrawal,
+        totalTransactions: entries.length,
+        entries,
+      };
+    } catch (error) {
+      this.logger.error('Error generating SB day book report:', error);
+      throw new Error('Failed to generate SB day book report');
     }
   }
 
@@ -382,6 +582,18 @@ export class DayBookService {
   }
 
   private async calculateOpeningBalance(date: string, filterType?: string): Promise<number> {
+    if (filterType === 'cd') {
+      // The CD ledger (head L1004) carries migrated loan-disbursement and journal legs, so its
+      // running sum (about -5.7 Cr, also -6.1 Cr in the legacy database) is not a CD balance.
+      // The real balance is the members' CD amounts (fundsmaster.cdamt); roll it back by the
+      // CD movement from the report date onward to get the position at the start of that day.
+      const [bal] = await this.ledgerRepository.query('SELECT COALESCE(SUM(cdamt),0) AS total FROM fundsmaster');
+      const [mov] = await this.ledgerRepository.query(
+        `SELECT COALESCE(SUM(CASE WHEN trans_type IN ('CR','R') THEN trans_amt::numeric ELSE -trans_amt::numeric END),0) AS net
+         FROM ledger
+         WHERE trans_date >= $1 AND code = 'L1004' AND acc_type = 'CD' AND vchr_type IN ('R','D')`, [date]);
+      return Number(bal?.total ?? 0) - Number(mov?.net ?? 0);
+    }
     let query = this.ledgerRepository
       .createQueryBuilder('l')
       .where('l.trans_date < :date', { date });

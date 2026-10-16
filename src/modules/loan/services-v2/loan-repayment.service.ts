@@ -2164,14 +2164,15 @@ export class LoanRepaymentService {
                 lm.loan_amt - SUM(CASE WHEN lrl.is_payroll_lag_credit THEN 0 ELSE lrl.principal_amount END)
                     OVER (PARTITION BY lrl.mbno, lrl.loancaseno ORDER BY lrl.id) as remaining_balance
              FROM loan_repayment_ledger lrl
-             LEFT JOIN loan_master lm ON lm.loancaseno::text = lrl.loancaseno
+             LEFT JOIN loan_master lm ON lm.loancaseno::text = lrl.loancaseno AND lm.mbno::text = lrl.mbno::text
              WHERE lrl.mbno = $1 AND lrl.is_payroll_lag_credit = false
              ORDER BY lrl.created_at DESC, lrl.id DESC`,
             [mbno]
         );
     }
 
-    async getLoanRepaymentSummary(loancaseno: string): Promise<any> {
+    /** `mbno` picks the right member when the same case number exists for more than one member. */
+    async getLoanRepaymentSummary(loancaseno: string, mbno?: string): Promise<any> {
         const rows = await this.dataSource.query(
             `SELECT
                 lm.loancaseno, lm.loantype,
@@ -2209,9 +2210,10 @@ export class LoanRepaymentService {
              LEFT JOIN loan_repayment_ledger lrl
                ON lrl.loancaseno = lm.loancaseno::text AND lrl.mbno = lm.mbno AND lrl.loantype = lm.loantype
              WHERE lm.loancaseno::text = $1
+               AND ($2::text IS NULL OR lm.mbno::text = $2::text)
              GROUP BY lm.loancaseno, lm.loantype, lm.loan_amt, lm.balance, lm.no_of_instal, lm.instal_amt,
                       schedule.effective_date, schedule.opening_principal`,
-            [loancaseno]
+            [loancaseno, mbno ?? null]
         );
         return rows[0] || null;
     }

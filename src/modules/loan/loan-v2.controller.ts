@@ -12,6 +12,7 @@ import {
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { parseSafeDate } from '../shared/utils/date-utils';
 import { RequireAuthCode } from '../auth/twofa/require-auth-code';
+import { RequireMenuAction } from '../auth/guards/menu-right.guard';
 import {
     LoanApplicationService,
     LoanSanctionService,
@@ -300,8 +301,8 @@ export class LoanV2Controller {
 
     @Get('case/:caseNo/repayment-summary')
     @ApiOperation({ summary: 'Repayment totals (paid/principal/interest/penal) for one loan case' })
-    async getLoanRepaymentSummary(@Param('caseNo') caseNo: string) {
-        return this.loanRepaymentService.getLoanRepaymentSummary(caseNo);
+    async getLoanRepaymentSummary(@Param('caseNo') caseNo: string, @Query('mbno') mbno?: string) {
+        return this.loanRepaymentService.getLoanRepaymentSummary(caseNo, mbno);
     }
 
     @Post('early-closure/quote/:caseNo')
@@ -321,6 +322,7 @@ export class LoanV2Controller {
 
     // ES-116: asks for the performer's own authenticator code when the Early Loan Closure switch is ON.
     @Post('early-closure/execute/:caseNo')
+    @RequireMenuAction('LOAN_EARLY_CLOSURE')
     @RequireAuthCode('early_closure')
     @ApiOperation({ summary: 'Actually settle a loan early -- writes ledger entries and zeroes the balance' })
     async executeEarlyClosure(

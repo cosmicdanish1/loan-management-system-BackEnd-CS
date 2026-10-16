@@ -485,7 +485,7 @@ export class AuthService {
     switch (role) {
       case UserRole.ADMIN:
         // Approver (OTP) is never a default right: it is granted per user by an administrator.
-        return Object.values(UserPermission).filter((p) => p !== UserPermission.APPROVE_ACTIONS);
+        return Object.values(UserPermission).filter((p) => p !== UserPermission.APPROVE_ACTIONS && p !== UserPermission.MANAGE_TWO_FACTOR);
 
       case UserRole.MANAGER:
         return [

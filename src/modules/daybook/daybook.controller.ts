@@ -2,7 +2,8 @@ import { Controller, Get, Post, Query, Body, Logger } from '@nestjs/common';
 import { DayBookService } from './daybook.service';
 import { 
   GetDayBookDto, 
-  DayBookSummaryDto, 
+  DayBookSummaryDto,
+  DayBookGroupedDto,
   InterestCalculationDto,
   InterestPaymentDto 
 } from './dto/daybook.dto';
@@ -16,12 +17,15 @@ export class DayBookController {
   @Get('report')
   async getDayBookReport(@Query() dto: GetDayBookDto): Promise<{
     success: boolean;
-    data: DayBookSummaryDto;
+    data: DayBookSummaryDto | DayBookGroupedDto;
     message: string;
   }> {
     this.logger.log(`Generating day book report for date: ${dto.date}, filter: ${dto.filterType || 'all'}`);
     
-    const report = await this.dayBookService.getDayBookReport(dto);
+    // The all-heads Day-Book is a grouped journal; the SB / CD day books are flat, account-scoped lists.
+    const report = !dto.filterType || dto.filterType === 'all'
+      ? await this.dayBookService.getDayBookGroupedReport(dto)
+      : await this.dayBookService.getDayBookReport(dto);
     
     return {
       success: true,
@@ -33,15 +37,14 @@ export class DayBookController {
   @Get('report/sb')
   async getDayBookSBReport(@Query() dto: GetDayBookDto): Promise<{
     success: boolean;
-    data: DayBookSummaryDto;
+    data: any;
     message: string;
   }> {
     this.logger.log(`Generating day book SB report for date: ${dto.date}`);
-    
-    // Force SB filtering
-    const sbDto = { ...dto, filterType: 'sb' as const };
-    const report = await this.dayBookService.getDayBookReport(sbDto);
-    
+
+    // The SB day book has its own shape: deposits and withdrawals split into cash and transfer.
+    const report = await this.dayBookService.getDayBookSBReport(dto.date);
+
     return {
       success: true,
       data: report,

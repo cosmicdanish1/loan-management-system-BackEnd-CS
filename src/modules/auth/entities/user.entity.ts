@@ -65,6 +65,10 @@ export enum UserPermission {
   // Never part of any role's default rights; an administrator grants it per user in the
   // Access Privilege Matrix.
   APPROVE_ACTIONS = 'approve_actions',
+
+  // Manage Two-Factor (other users): may require 2FA for, reset and unlock other (non-administrator)
+  // users in the Two-Factor & Approvals window (ES-178). Never a default right.
+  MANAGE_TWO_FACTOR = 'manage_two_factor',
 }
 
 @Entity('users')

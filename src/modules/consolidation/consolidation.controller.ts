@@ -1,8 +1,7 @@
 import { Controller, Get, Query, Logger } from '@nestjs/common';
 import { ConsolidationService } from './consolidation.service';
 import { 
-  GetConsolidationDto, 
-  ConsolidationSummaryDto 
+  GetConsolidationDto
 } from './dto/consolidation.dto';
 
 @Controller('consolidation')
@@ -14,7 +13,7 @@ export class ConsolidationController {
   @Get('report')
   async getConsolidationReport(@Query() dto: GetConsolidationDto): Promise<{
     success: boolean;
-    data: ConsolidationSummaryDto;
+    data: any;
     message: string;
   }> {
     this.logger.log(`Generating consolidation report for date: ${dto.date}, output: ${dto.outputType || 'screen'}`);

@@ -37,6 +37,7 @@ import { LicenseModule } from './modules/license/license.module';
 import { ClientLogsModule } from './modules/client-logs/client-logs.module';
 import { NoticeModule } from './modules/notice/notice.module';
 import { SupportModule } from './modules/support/support.module';
+import { OnboardingModule } from './modules/onboarding/onboarding.module';
 import { MemberStatusModule } from './modules/member-status/member-status.module';
 import { GroupInsuranceModule } from './modules/group-insurance/group-insurance.module';
 import { NotificationCentreModule } from './modules/notification-centre/notification-centre.module';
@@ -170,6 +171,7 @@ import { LoggingModule } from './common/logging/logging.module';
     NoticeModule,
     AlertsModule, // Telegram alerts: errors, logins, backups, licence, daily digest
     SupportModule, // Raise a Query desk (Jira + Telegram)
+    OnboardingModule, // First-login walkthrough (ES-146)
     MemberStatusModule, // ES-100: retired / inactive member flagging
     GroupInsuranceModule, // ES-98: yearly group insurance deducted from RD
     NotificationCentreModule, // ES-101: all system notifications in one place

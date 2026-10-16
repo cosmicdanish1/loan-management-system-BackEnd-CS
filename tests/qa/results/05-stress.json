@@ -1,0 +1,57 @@
+{
+ "suite": "05-stress",
+ "ranAt": "2026-10-16T17:38:37.433Z",
+ "seconds": 149.875,
+ "total": 8,
+ "failed": 3,
+ "results": [
+  {
+   "id": "ST-01",
+   "title": "No 5xx / connection failure at 10, 50, 150 concurrent users",
+   "ok": false,
+   "detail": "reports/balance-sheet@50 {\"200\":26,\"500\":124}; members/lookup@150 {\"200\":448,\"500\":2}; reports/balance-sheet@150 {\"200\":23,\"500\":427}"
+  },
+  {
+   "id": "ST-02",
+   "title": "p95 latency under 3 s for every endpoint set",
+   "ok": false,
+   "detail": "reports/balance-sheet@10 p95=21756ms; reports/balance-sheet@50 p95=22375ms; members/lookup@150 p95=4075ms; reports/balance-sheet@150 p95=6013ms"
+  },
+  {
+   "id": "ST-03",
+   "title": "Rate limiter engaged under load (429 seen) - informational",
+   "ok": true,
+   "detail": "never throttled"
+  },
+  {
+   "id": "ST-04",
+   "title": "25 concurrent logins complete without 5xx",
+   "ok": true,
+   "detail": "ok=25/25 statuses=200"
+  },
+  {
+   "id": "ST-05",
+   "title": "4MB body accepted/rejected cleanly (no crash)",
+   "ok": true,
+   "detail": "201"
+  },
+  {
+   "id": "ST-06",
+   "title": "Deeply nested JSON -> 400, no crash",
+   "ok": false,
+   "detail": "201"
+  },
+  {
+   "id": "ST-07",
+   "title": "200 simultaneous /health calls all answered",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "id": "ST-08",
+   "title": "Backend healthy and responsive after the full run",
+   "ok": true,
+   "detail": "200/200 11ms"
+  }
+ ]
+}

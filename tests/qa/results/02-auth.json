@@ -1,0 +1,153 @@
+{
+ "suite": "02-auth",
+ "ranAt": "2026-10-16T17:32:50.479Z",
+ "seconds": 2.617,
+ "total": 24,
+ "failed": 1,
+ "results": [
+  {
+   "id": "AU-01",
+   "title": "Valid login returns access + refresh token",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "id": "AU-02",
+   "title": "Login response never contains the password / hash",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "AU-03",
+   "title": "Wrong password -> 401",
+   "ok": true,
+   "detail": "401"
+  },
+  {
+   "id": "AU-04",
+   "title": "Unknown user -> 401 with same message as wrong password (no user enumeration)",
+   "ok": true,
+   "detail": "401 \"Invalid credentials\" vs \"Invalid credentials\""
+  },
+  {
+   "id": "AU-05",
+   "title": "Empty login body -> 400/401, not 500",
+   "ok": true,
+   "detail": "401"
+  },
+  {
+   "id": "AU-06",
+   "title": "Password shorter than 6 -> 400/401",
+   "ok": true,
+   "detail": "401"
+  },
+  {
+   "id": "AU-07",
+   "title": "SQL-injection style login rejected (401/400)",
+   "ok": true,
+   "detail": "401"
+  },
+  {
+   "id": "AU-08",
+   "title": "Object injection in login fields -> 400/401, not 500",
+   "ok": true,
+   "detail": "401"
+  },
+  {
+   "id": "AU-09",
+   "title": "200KB password handled (no crash/500)",
+   "ok": true,
+   "detail": "401"
+  },
+  {
+   "id": "AU-10",
+   "title": "Malformed JSON -> 400",
+   "ok": true,
+   "detail": "400"
+  },
+  {
+   "id": "AU-11",
+   "title": "Body above 5MB limit rejected with 413 (not crash)",
+   "ok": true,
+   "detail": "413"
+  },
+  {
+   "id": "AU-12",
+   "title": "GET /auth/me with token -> 200",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "id": "AU-13",
+   "title": "GET /auth/me without token -> 401",
+   "ok": true,
+   "detail": "401"
+  },
+  {
+   "id": "AU-14",
+   "title": "Token with tampered payload (privilege escalation) -> 401",
+   "ok": true,
+   "detail": "401"
+  },
+  {
+   "id": "AU-15",
+   "title": "JWT alg=none token -> 401",
+   "ok": true,
+   "detail": "401"
+  },
+  {
+   "id": "AU-16",
+   "title": "Refresh token used as access token -> 401 (or documented behaviour)",
+   "ok": true,
+   "detail": "401"
+  },
+  {
+   "id": "AU-17",
+   "title": "Refresh with valid refresh token -> 200/201 and new token",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "id": "AU-18",
+   "title": "Refresh with garbage -> 401/400",
+   "ok": true,
+   "detail": "401"
+  },
+  {
+   "id": "AU-19",
+   "title": "Heartbeat works",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "id": "AU-20",
+   "title": "Logout succeeds",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "id": "AU-21",
+   "title": "Token is rejected after logout (revocation works)",
+   "ok": true,
+   "detail": "401"
+  },
+  {
+   "id": "AU-22",
+   "title": "X-Powered-By header not exposed",
+   "ok": false,
+   "detail": "Express"
+  },
+  {
+   "id": "AU-23",
+   "title": "Error body has no stack trace",
+   "ok": true,
+   "detail": "{\"statusCode\":401,\"timestamp\":\"2026-10-16T17:32:49.846Z\",\"path\":\"/api/v1/auth/me\",\"method\":\"GET\",\"error\":\"UnauthorizedEx"
+  },
+  {
+   "id": "AU-24",
+   "title": "Rate limiter returns 429 under burst of 130 requests/s (informational - /health may be exempt)",
+   "ok": true,
+   "detail": "429 count=0"
+  }
+ ]
+}

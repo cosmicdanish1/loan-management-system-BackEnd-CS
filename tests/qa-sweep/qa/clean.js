@@ -1,0 +1,6 @@
+const L=require('./lib');(async()=>{const {token}=await L.login();const P='/api/v1';
+const c=(m,p)=>L.call(m,P+p,{token});
+const arr=r=>{const d=r.json?.data;return Array.isArray(d)?d:Array.isArray(d?.data)?d.data:Array.isArray(d?.items)?d.items:[]};
+const jobs=[['/admin/designations',x=>/^QA/.test(x.code),x=>x.code],['/admin/cast-categories',x=>x.id<=0||x.id>=900000,x=>x.id],['/admin/offices',x=>x.officeId<=0||x.officeId>=900000,x=>x.officeId],['/admin/wings',x=>/^QA/.test(String(x.wingId))||String(x.wingId)==='123'||String(x.wingId).startsWith('W'.repeat(20)),x=>x.wingId],
+['/admin/deposit-loan-slabs',x=>/^(QA|x$)/.test(x.name),x=>x.id],['/admin/config/deposit-slabs',x=>/^(QA|x$)/.test(x.name),x=>x.id],['/admin/config/interest-rates',x=>/^(QA|x$)/.test(x.name),x=>x.id],['/admin/config/system',x=>/^qa\./.test(x.key),x=>x.id],['/admin/users',x=>/^qa_(fake|bad)/.test(x.username),x=>x.id],['/dashboard-notices',x=>x.title==='QA notice'||x.title==='x'.repeat(10000)||x.title==='',x=>x.id]];
+for(const [b,m,k] of jobs){const r=await c('GET',b);const items=arr(r);let n=0;for(const it of items.filter(m)){const d=await c('DELETE',b+'/'+encodeURIComponent(k(it)));n++;if(d.status>=300)console.log('  del fail',b,k(it),d.status,d.text.slice(0,80))}console.log(b,'listed',items.length,'deleted',n)}})()
