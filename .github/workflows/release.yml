@@ -1,9 +1,12 @@
 name: Release
 
-# Push a tag like backend-v1.7.0 (it must match "version" in package.json).
+# Push a tag like backend-v1.9.0 (it must match "version" in package.json).
 # 1. CI must pass.
-# 2. A release zip + manifest is built and attached to a DRAFT release in THIS repo.
-#    It is not published to the public releases repo: the zip contains the backend code.
+# 2. A COMPLETE release zip (compiled code + production node_modules + migrations + updater scripts)
+#    is built on Windows and uploaded as a DRAFT release to the PRIVATE repo cosmicdanish1/fibe-backend-releases.
+#    It is never put in the public releases repo: the zip contains the backend code.
+# 3. Review the draft and click Publish. Client servers then see it under Utility > System Update >
+#    Check for updates (read-only token), or you can download it and upload it by hand.
 on:
   push:
     tags: ['backend-v*']
@@ -14,14 +17,19 @@ jobs:
 
   release:
     needs: test
-    runs-on: ubuntu-latest
+    # Windows on purpose: node_modules holds native modules (bcrypt) that must match the servers.
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      # The servers must run the same Node MAJOR version; the updater refuses a mismatch.
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -37,26 +45,73 @@ jobs:
           fi
           echo "VERSION=$PKG" >> "$GITHUB_ENV"
 
+      # Fail fast, with a clear reason, instead of after the long build.
+      - name: Check the releases token
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Secret BACKEND_RELEASES_TOKEN is empty or missing in THIS repo (Settings > Secrets and variables > Actions). Check the exact spelling."
+            exit 1
+          fi
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" https://api.github.com/repos/cosmicdanish1/fibe-backend-releases)
+          if [ "$CODE" != "200" ]; then
+            echo "::error::BACKEND_RELEASES_TOKEN cannot read cosmicdanish1/fibe-backend-releases (HTTP $CODE). Check the token's repository access and expiry."
+            exit 1
+          fi
+          echo "Token can reach the releases repo."
+        env:
+          GH_TOKEN: ${{ secrets.BACKEND_RELEASES_TOKEN }}
+
       - run: npm ci
 
       - run: npx nest build
 
+      - name: Production dependencies only
+        run: |
+          rm -rf node_modules
+          npm ci --omit=dev
+
       - name: Package release zip
         run: |
           mkdir -p stage out
-          cp -r dist package.json package-lock.json stage/
+          cp -r dist stage/dist
+          # Not needed to run, and they point back at our file names and API shapes.
+          find stage/dist \( -name "*.map" -o -name "*.d.ts" \) -type f -delete
+          cp -r node_modules stage/node_modules
+          cp package.json package-lock.json stage/
           cp -r database/migrations stage/migrations
-          mkdir -p stage/scripts && cp scripts/apply-sql-migration.js stage/scripts/
-          ( cd stage && zip -qr "../out/fibe-backend-$VERSION.zip" . )
-          SHA=$(sha256sum "out/fibe-backend-$VERSION.zip" | cut -d' ' -f1)
-          MIGRATIONS=$(ls database/migrations | sort | node -e 'console.log(JSON.stringify(require("fs").readFileSync(0,"utf8").split("\n").filter(Boolean)))')
-          cat > out/release-manifest.json <<JSON
-          { "version": "$VERSION", "sha256": "$SHA", "migrations": $MIGRATIONS }
-          JSON
-          cat out/release-manifest.json
+          mkdir -p stage/scripts && cp -r scripts/update stage/scripts/update
+          node -e '
+            const fs = require("fs");
+            fs.writeFileSync("stage/release-manifest.json", JSON.stringify({
+              version: process.env.VERSION,
+              nodeMajor: parseInt(process.versions.node.split(".")[0], 10),
+              migrations: fs.readdirSync("database/migrations").filter((f) => f.endsWith(".sql")).sort(),
+              builtAt: new Date().toISOString(),
+              commit: process.env.GITHUB_SHA,
+            }, null, 2));
+          '
+          # Windows tar (bsdtar) writes a .zip that the updater can unpack
+          "$SYSTEMROOT/System32/tar.exe" -a -cf "out/fibe-backend-$VERSION.zip" -C stage .
+          ( cd out && sha256sum "fibe-backend-$VERSION.zip" > "fibe-backend-$VERSION.zip.sha256" && cat "fibe-backend-$VERSION.zip.sha256" )
+          cp stage/release-manifest.json out/release-manifest.json
+          ls -la out
 
-      - name: Create draft release
+      - name: Release notes from commits
         run: |
-          gh release create "$GITHUB_REF_NAME" out/* --draft --generate-notes --title "Backend $VERSION"
+          PREV=$(git describe --tags --abbrev=0 --match 'backend-v*' "${GITHUB_REF_NAME}^" 2>/dev/null || true)
+          RANGE=${PREV:+$PREV..}HEAD
+          {
+            echo "Backend $VERSION"
+            echo
+            git log $RANGE --no-merges --pretty='- %s' | head -40
+          } > out-notes.md
+          cat out-notes.md
+
+      # The release goes to the separate PRIVATE releases repo. Servers read it with a read-only
+      # token limited to that repo, so they never get access to the source repo. It is created as a
+      # DRAFT: a read-only token cannot see drafts, so nothing reaches a server until you click Publish.
+      # (The repo needs at least one commit, e.g. a README, before the first release can be created.)
+      - name: Create draft release in the private releases repo
+        run: gh release create "v$VERSION" out/* --repo cosmicdanish1/fibe-backend-releases --draft --title "Backend $VERSION" --notes-file out-notes.md
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.BACKEND_RELEASES_TOKEN }}

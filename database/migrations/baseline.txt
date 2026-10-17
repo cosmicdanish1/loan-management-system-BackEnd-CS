@@ -1,0 +1,3 @@
+create-license-keys-table.sql
+seed-loan-system-config.sql
+unify-retirement-date.sql

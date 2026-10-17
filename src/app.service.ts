@@ -25,7 +25,24 @@ function readBackendVersion(): string {
   return 'unknown';
 }
 
-const BACKEND_VERSION = readBackendVersion();
+export const BACKEND_VERSION = readBackendVersion();
+
+// The desktop app and the server updater read this before acting, so an update never restarts
+// the server in the middle of a day-end run. Fails open (false) if the lookup errors: /health must
+// keep answering for the liveness probe.
+export async function isDayEndInProgress(dataSource: DataSource): Promise<boolean> {
+  try {
+    const running = await dataSource.getRepository(DayEndProcess).count({
+      where: {
+        status: DayEndStatus.IN_PROGRESS,
+        startedAt: MoreThan(new Date(Date.now() - DAY_END_STALE_AFTER_MS)),
+      },
+    });
+    return running > 0;
+  } catch {
+    return false;
+  }
+}
 
 @Injectable()
 export class AppService {
@@ -55,20 +72,7 @@ export class AppService {
     };
   }
 
-  // The desktop app reads this before offering an install, so an update never
-  // restarts a PC in the middle of a day-end run. Fails open (false) if the
-  // lookup errors: /health must keep answering for the liveness probe.
-  private async isDayEndInProgress(): Promise<boolean> {
-    try {
-      const running = await this.dataSource.getRepository(DayEndProcess).count({
-        where: {
-          status: DayEndStatus.IN_PROGRESS,
-          startedAt: MoreThan(new Date(Date.now() - DAY_END_STALE_AFTER_MS)),
-        },
-      });
-      return running > 0;
-    } catch {
-      return false;
-    }
+  private isDayEndInProgress(): Promise<boolean> {
+    return isDayEndInProgress(this.dataSource);
   }
 }
