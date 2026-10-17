@@ -1,0 +1,123 @@
+{
+ "suite": "12-masters",
+ "ranAt": "2026-10-16T18:24:26.462Z",
+ "seconds": 1.527,
+ "total": 19,
+ "failed": 6,
+ "results": [
+  {
+   "id": "MS-01",
+   "title": "Create two QA cast categories",
+   "ok": true,
+   "detail": "201/201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"id\":705345,\"n"
+  },
+  {
+   "id": "MS-02",
+   "title": "Duplicate id is refused (409/400) and does NOT overwrite the existing record",
+   "ok": false,
+   "detail": "201; record now {\"id\":705345,\"name\":\"OVERWRITE ATTEMPT\"}"
+  },
+  {
+   "id": "MS-03",
+   "title": "Name longer than 30 chars -> 400",
+   "ok": true,
+   "detail": "400"
+  },
+  {
+   "id": "MS-04",
+   "title": "Editing record 1 changes only record 1",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "id": "MS-05",
+   "title": "Edit of a record that does not exist -> 404 (not 200)",
+   "ok": true,
+   "detail": "404"
+  },
+  {
+   "id": "MS-06",
+   "title": "Delete own records works; deleting again -> 404",
+   "ok": true,
+   "detail": "200/200/404"
+  },
+  {
+   "id": "MS-07",
+   "title": "Create QA designation",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"code\":\"QA0653"
+  },
+  {
+   "id": "MS-08",
+   "title": "Duplicate designation code refused and original unchanged",
+   "ok": false,
+   "detail": "201; {\"code\":\"QA065345\",\"name\":\"OVERWRITE\",\"level\":1}"
+  },
+  {
+   "id": "MS-09",
+   "title": "Code longer than 20 chars -> 400",
+   "ok": true,
+   "detail": "400"
+  },
+  {
+   "id": "MS-10",
+   "title": "Delete own designation works",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "id": "MS-11",
+   "title": "Create QA wing",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"wingId\":\"QW34"
+  },
+  {
+   "id": "MS-12",
+   "title": "Duplicate wing id refused and original unchanged",
+   "ok": false,
+   "detail": "201; {\"wingId\":\"QW345\",\"wingName\":\"OVERWRITE\",\"state\":\"XX\"}"
+  },
+  {
+   "id": "MS-13",
+   "title": "QA member created that uses the QA wing",
+   "ok": true,
+   "detail": "201"
+  },
+  {
+   "id": "MS-14",
+   "title": "Deleting a wing that a member uses is refused (4xx)",
+   "ok": false,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"timestamp\":\"2026-10-1"
+  },
+  {
+   "id": "MS-15",
+   "title": "Create QA office",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"officeId\":805"
+  },
+  {
+   "id": "MS-16",
+   "title": "Duplicate office id refused and original unchanged",
+   "ok": false,
+   "detail": "201; {\"officeId\":805345,\"officeName\":\"OVERWRITE\",\"division\":\"QA\",\"address\":\"QA\",\"city\":\"QA\"}"
+  },
+  {
+   "id": "MS-17",
+   "title": "Deleting an office that a member uses is refused (4xx)",
+   "ok": false,
+   "detail": "member 201; delete 200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"timestamp\":\"2026-10-1"
+  },
+  {
+   "id": "MS-18",
+   "title": "Delete of an office that does not exist -> 404",
+   "ok": true,
+   "detail": "404"
+  },
+  {
+   "id": "MS-19",
+   "title": "SQL-injection style name stored as text, table intact",
+   "ok": true,
+   "detail": "201/200"
+  }
+ ]
+}

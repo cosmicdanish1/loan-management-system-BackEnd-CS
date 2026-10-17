@@ -1,0 +1,195 @@
+{
+ "suite": "11-cd-journal-batch",
+ "ranAt": "2026-10-16T18:23:22.243Z",
+ "seconds": 1.197,
+ "total": 31,
+ "failed": 3,
+ "results": [
+  {
+   "id": "JC-01",
+   "title": "CD income heads load",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "id": "JC-02",
+   "title": "CD post with total does not equal the sum of distributions: refused (4xx), nothing posted",
+   "ok": true,
+   "detail": "400; ledger 0 -> 0; {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:23:21.412Z\",\"path\":\"/api/v1/transactions/cd/post\",\"meth"
+  },
+  {
+   "id": "JC-03",
+   "title": "CD post with negative post amount: refused (4xx), nothing posted",
+   "ok": true,
+   "detail": "400; ledger 0 -> 0; {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:23:21.429Z\",\"path\":\"/api/v1/transactions/cd/post\",\"meth"
+  },
+  {
+   "id": "JC-04",
+   "title": "CD post with member that does not exist: refused (4xx), nothing posted",
+   "ok": true,
+   "detail": "400; ledger 0 -> 0; {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:23:21.441Z\",\"path\":\"/api/v1/transactions/cd/post\",\"meth"
+  },
+  {
+   "id": "JC-05",
+   "title": "CD post with unknown income head: refused (4xx), nothing posted",
+   "ok": true,
+   "detail": "400; ledger 0 -> 0; {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:23:21.452Z\",\"path\":\"/api/v1/transactions/cd/post\",\"meth"
+  },
+  {
+   "id": "JC-06",
+   "title": "CD post with empty distribution list: refused (4xx), nothing posted",
+   "ok": true,
+   "detail": "400; ledger 0 -> 0; {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:23:21.464Z\",\"path\":\"/api/v1/transactions/cd/post\",\"meth"
+  },
+  {
+   "id": "JC-07",
+   "title": "CD post with same member twice: refused (4xx), nothing posted",
+   "ok": true,
+   "detail": "400; ledger 0 -> 0; {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:23:21.474Z\",\"path\":\"/api/v1/transactions/cd/post\",\"meth"
+  },
+  {
+   "id": "JC-08",
+   "title": "Valid CD post of 100 + 200 succeeds (or approval gate)",
+   "ok": false,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:23:21.484Z\",\"path\":\"/api/v1/transactions/cd/post\",\"method\":\"POST\",\"error\":\"Database Error\",\"mes"
+  },
+  {
+   "id": "JJ-01",
+   "title": "Journal with debit 1000, credit 900 (unbalanced): refused (4xx)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:23:21.494Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\""
+  },
+  {
+   "id": "JJ-02",
+   "title": "Journal with negative debit: refused (4xx)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:23:21.506Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\""
+  },
+  {
+   "id": "JJ-03",
+   "title": "Journal with all zero: refused (4xx)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:23:21.514Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\""
+  },
+  {
+   "id": "JJ-04",
+   "title": "Journal with single row: refused (4xx)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:23:21.521Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\""
+  },
+  {
+   "id": "JJ-05",
+   "title": "Journal with no rows: refused (4xx)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:23:21.528Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\""
+  },
+  {
+   "id": "JJ-06",
+   "title": "Journal with unknown head: refused (4xx)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:23:21.539Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\""
+  },
+  {
+   "id": "JJ-07",
+   "title": "Journal with same head on both sides (no-op): refused (4xx)",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"message\""
+  },
+  {
+   "id": "JJ-08",
+   "title": "Journal with bad transferType: refused (4xx)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:23:21.577Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\""
+  },
+  {
+   "id": "JJ-09",
+   "title": "Journal with member-to-member with member that does not exist: refused (4xx)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:23:21.583Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\""
+  },
+  {
+   "id": "JJ-10",
+   "title": "Balanced head-to-head journal 100/100 succeeds",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"message\":\"Journal voucher J34180 creat"
+  },
+  {
+   "id": "JJ-11",
+   "title": "Member-to-member journal between two QA members succeeds",
+   "ok": false,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:23:21.600Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\"POST\",\"error\":\"Bad Request\",\"m"
+  },
+  {
+   "id": "JJ-12",
+   "title": "5 parallel journals: no 5xx",
+   "ok": true,
+   "detail": "201,201,201,201,201"
+  },
+  {
+   "id": "JJ-13",
+   "title": "Journal postings do not reuse the same transaction number across journals",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "id": "JJ-14",
+   "title": "Every QA journal voucher in the ledger balances (debits = credits)",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "id": "JB-01",
+   "title": "Dividend calculation preview does not 5xx",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:23:22.161Z\",\"path\":\"/api/v1/dividend/calculation/preview\",\"method\":\"GET\",\"e"
+  },
+  {
+   "id": "JB-02",
+   "title": "Dividend credit preview does not 5xx",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:23:22.169Z\",\"path\":\"/api/v1/dividend/credit/preview\",\"method\":\"GET\",\"error\""
+  },
+  {
+   "id": "JB-03",
+   "title": "Interest preview with valid dates does not 5xx",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:23:22.178Z\",\"path\":\"/api/v1/interest/preview-calculation\",\"method\":\"POST\",\""
+  },
+  {
+   "id": "JB-04",
+   "title": "Interest preview with reversed dates -> 4xx",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:23:22.184Z\",\"path\":\"/api/v1/interest/preview-calculation\",\"method\":\"POST\",\""
+  },
+  {
+   "id": "JB-05",
+   "title": "Interest validate-parameters with empty body -> 4xx",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:23:22.190Z\",\"path\":\"/api/v1/interest/validate-parameters\",\"method\":\"POST\",\""
+  },
+  {
+   "id": "JB-06",
+   "title": "Interest history loads",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "id": "JB-07",
+   "title": "Day-end summary loads",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"date\":\"2026-08-23\",\"openingBalanc"
+  },
+  {
+   "id": "JB-08",
+   "title": "Day-end process list loads",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "id": "JB-09",
+   "title": "Day-end process that does not exist -> 404",
+   "ok": true,
+   "detail": "404"
+  }
+ ]
+}

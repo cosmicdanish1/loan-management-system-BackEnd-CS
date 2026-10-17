@@ -6,6 +6,8 @@ import { RoleGuard } from '../auth/guards/role.guard';
 import { UserRole } from '../auth/entities/user.entity';
 import { OnboardingService } from './onboarding.service';
 import { TermsService } from './terms.service';
+import { ChecklistService } from './checklist.service';
+import { InsightsService } from './insights.service';
 
 class ModeDto {
     @IsString() @MaxLength(10) mode: string;
@@ -19,6 +21,13 @@ class AcceptTermsDto {
 class PublishTermsDto {
     @IsString() @MaxLength(30) version: string;
     @IsString() @MaxLength(50000) text: string;
+}
+class ChecklistItemDto {
+    @IsString() @MaxLength(60) item: string;
+}
+class EventDto {
+    @IsString() @MaxLength(20) event: string;
+    @IsOptional() @IsString() @MaxLength(50) step?: string;
 }
 class StepDto {
     @IsString() @MaxLength(40) step: string;
@@ -35,7 +44,12 @@ function userIdOf(req: any): number {
 @Controller('onboarding')
 @UseGuards(JwtAuthGuard, RoleGuard)
 export class OnboardingController {
-    constructor(private readonly service: OnboardingService, private readonly terms: TermsService) { }
+    constructor(
+        private readonly service: OnboardingService,
+        private readonly terms: TermsService,
+        private readonly checklist: ChecklistService,
+        private readonly insights: InsightsService,
+    ) { }
 
     @ApiOperation({ summary: 'Should the walkthrough start for the current user, and under which mode; plus terms acceptance' })
     @Get('status')
@@ -43,6 +57,39 @@ export class OnboardingController {
         const userId = userIdOf(req);
         const [onboarding, terms] = await Promise.all([this.service.getStatus(userId), this.terms.status(userId)]);
         return { ...onboarding, terms };
+    }
+
+    @ApiOperation({ summary: 'Getting-started checklist and its progress for the current user' })
+    @Get('checklist')
+    getChecklist(@Req() req: any) {
+        return this.checklist.status(userIdOf(req));
+    }
+
+    @ApiOperation({ summary: 'Tick a checklist item (profile, password, tour, slides, dismissed, window:<ACTION>)' })
+    @Post('checklist')
+    markChecklist(@Body() dto: ChecklistItemDto, @Req() req: any) {
+        return this.checklist.mark(userIdOf(req), dto.item);
+    }
+
+    @ApiOperation({ summary: 'Show the checklist again after it was hidden' })
+    @Post('checklist/show')
+    showChecklist(@Req() req: any) {
+        return this.checklist.unhide(userIdOf(req));
+    }
+
+    @ApiOperation({ summary: 'Record a walkthrough event for the admin insights' })
+    @Post('event')
+    async recordEvent(@Body() dto: EventDto, @Req() req: any) {
+        await this.insights.record(userIdOf(req), req.user?.username ?? null, dto.event, dto.step);
+        return { ok: true };
+    }
+
+    @ApiOperation({ summary: 'Admin: walkthrough completion funnel and terms acceptance report' })
+    @Get('report')
+    report(@Req() req: any) {
+        const role = String(req.user?.role || '').toLowerCase();
+        if (role !== UserRole.ADMIN && role !== UserRole.SYSTEM) throw new ForbiddenException('Administrator only');
+        return this.insights.report();
     }
 
     @ApiOperation({ summary: 'Own profile summary for the welcome card' })

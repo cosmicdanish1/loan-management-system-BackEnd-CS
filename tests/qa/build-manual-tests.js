@@ -138,7 +138,7 @@ const readme = [
   ['Test data rule', 'Use TEST members and TEST users only. NEVER delete or change real members, users, loans or backups. To test a delete, first create a throwaway record (name it QA DELETE ME / QA_TMP_x) and delete only that.'],
   ['When to run what', 'Any change: Release Gate. Change in a module: all cases of that Module + Release Gate. Release candidate: everything.'],
   ['Passing rule', 'A case passes only if the Expected Result is fully true. If unsure, mark Fail and add a note.'],
-  ['Known open issues', 'ES-258 own-account delete, ES-261 logs not written, ES-265 EMI calculator validation, ES-259/262 server errors for bad input, ES-263/264 slow screens (backup list, reports).'],
+  ['Known open issues (Jira ES, 2026-10-16)', 'Release blockers: ES-315 Saving receipt/payment cannot save; ES-321 parallel loan repayments lose updates; ES-322 early closure accepts free waiver; ES-323 Compulsory Deposit cannot post. High: ES-258 own-account delete, ES-261 logs not written, ES-267 balance sheet exhausts DB pool, ES-316/317/318/319/320 loan application, sanction, disbursement and repayment validation, ES-309/313 missing input validation on members and vouchers, ES-325 masters overwrite on duplicate key. Medium/low: ES-259/262/314 500 instead of 4xx, ES-263/264 slow screens, ES-265 EMI calculator validation, ES-268 rate limiting off, ES-310/311/312 member screens, ES-326, ES-324.'],
   ['Generated', new Date().toISOString().slice(0, 10) + ' from the QA suite; ' + rows.length + ' cases, ' + gate.length + ' release blockers'],
 ];
 const testData = [

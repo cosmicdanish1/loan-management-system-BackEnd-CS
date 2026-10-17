@@ -1,0 +1,57 @@
+{
+ "suite": "10-loan-closure",
+ "ranAt": "2026-10-16T18:22:11.859Z",
+ "seconds": 6.534,
+ "total": 8,
+ "failed": 3,
+ "results": [
+  {
+   "id": "CL-01",
+   "title": "Second disbursement voucher for same case refused",
+   "ok": false,
+   "detail": "201 VCH291"
+  },
+  {
+   "id": "CL-02",
+   "title": "Passing both vouchers must pay out the loan only ONCE (1 loan row; cash leg once)",
+   "ok": true,
+   "detail": "pass1 201, pass2 500; loan rows 1; cash legs {\"cr\":\"0\",\"n\":\"0\"}"
+  },
+  {
+   "id": "CL-03",
+   "title": "3 simultaneous EMI payments: each success lowers the balance by one principal part (ok=3)",
+   "ok": false,
+   "detail": "balance 60000 -> 57500; ledger principal 7500.00; ok=3; statuses 201,201,201"
+  },
+  {
+   "id": "CL-04",
+   "title": "No duplicate installment is applied twice in the repayment ledger",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "CL-05",
+   "title": "Quote works",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"loanCaseNo\":\"889213\",\"closureDate\":\"2026-10-16\",\"outstandingPrincipal\":52500,\"payrollLagPrincipalOffset\":0,\"nrPri"
+  },
+  {
+   "id": "CL-06",
+   "title": "Quote with a huge NEGATIVE adjustment (waiver) must not produce a negative payable",
+   "ok": true,
+   "detail": "201 total=undefined {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"loanCaseNo\":\"889213\",\"closureDate\":\"2026-10-16\",\"outstandingPrincipal\":52"
+  },
+  {
+   "id": "CL-07",
+   "title": "Quote with a closure date before disbursement is refused or handled (no negative interest)",
+   "ok": true,
+   "detail": "201 total=undefined"
+  },
+  {
+   "id": "CL-08",
+   "title": "Execute early closure with a -999,999,999 adjustment (free waiver) is refused",
+   "ok": false,
+   "detail": "201; balance 57500 -> 0; {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"message\":\"Loan 889213 closed early as of 2026-10-16. Final"
+  }
+ ]
+}

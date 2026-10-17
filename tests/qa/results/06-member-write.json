@@ -1,0 +1,165 @@
+{
+ "suite": "06-member-write",
+ "ranAt": "2026-10-16T18:05:42.323Z",
+ "seconds": 1.371,
+ "total": 26,
+ "failed": 12,
+ "results": [
+  {
+   "id": "MB-01",
+   "title": "Previewing the next member number twice returns the same number (preview must not consume numbers)",
+   "ok": false,
+   "detail": "9999962448 then 9999962449"
+  },
+  {
+   "id": "MB-02",
+   "title": "Create member succeeds and returns a member number",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"mbno\":\"9999962450\",\"prefix\":\"MR\","
+  },
+  {
+   "id": "MB-03",
+   "title": "Member number shown by the preview equals the number actually saved",
+   "ok": false,
+   "detail": "preview 9999962448 vs saved 9999962450"
+  },
+  {
+   "id": "MB-04",
+   "title": "Saved values round-trip (name, phone, nominee)",
+   "ok": true,
+   "detail": "{\"f\":\"QATEST\",\"p\":\"9000000001\"}"
+  },
+  {
+   "id": "MB-05",
+   "title": "New member is found by number",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "id": "MB-06",
+   "title": "Member details load",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "id": "MB-07",
+   "title": "New member appears in lookup by surname",
+   "ok": false,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":[{\"memberNo\":\"6"
+  },
+  {
+   "id": "MB-08",
+   "title": "Balance of a brand-new member loads (not 500)",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"memberInfo\":{\"memberNo\":\"99999624"
+  },
+  {
+   "id": "MB-09",
+   "title": "Update (full body) changes the phone and address",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":[{\"mbno\":\"9999962450\",\"prefix\":\"MR\""
+  },
+  {
+   "id": "MB-10",
+   "title": "Partial update (only phone) keeps name and address (no silent wiping of other fields)",
+   "ok": true,
+   "detail": "400; after: {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"mbno\":\"9999962450\",\"prefix\":\"MR\",\"fullname\":\"QATEST  W941205\",\"f_name\":\"QATEST\",\"m_name\":\"\",\"l_name\":\"W941205\",\"f"
+  },
+  {
+   "id": "MB-11",
+   "title": "Update of a member number that does not exist -> 404/400 (not 200 with empty result)",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":[],\"timestamp\":\"2026-10-16T18:05:41"
+  },
+  {
+   "id": "MB-12",
+   "title": "Create with Empty first name is rejected (4xx, no 5xx, no row created)",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"mbno\":\"9999962451\",\"pre"
+  },
+  {
+   "id": "MB-13",
+   "title": "Create with Invalid date of birth 31-02-1990 is rejected (4xx, no 5xx, no row created)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:05:41.436Z\",\"path\":\"/api/v1/members/save-member\",\"method\":\"POST\","
+  },
+  {
+   "id": "MB-14",
+   "title": "Create with Date of birth in the future is rejected (4xx, no 5xx, no row created)",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"mbno\":\"9999962453\",\"pre"
+  },
+  {
+   "id": "MB-15",
+   "title": "Create with Retirement date before birth date is rejected (4xx, no 5xx, no row created)",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"mbno\":\"9999962454\",\"pre"
+  },
+  {
+   "id": "MB-16",
+   "title": "Create with Phone with letters is rejected (4xx, no 5xx, no row created)",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"mbno\":\"9999962455\",\"pre"
+  },
+  {
+   "id": "MB-17",
+   "title": "Create with Negative gross salary is rejected (4xx, no 5xx, no row created)",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"mbno\":\"9999962456\",\"pre"
+  },
+  {
+   "id": "MB-18",
+   "title": "Create with Negative compulsory deposit is rejected (4xx, no 5xx, no row created)",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"mbno\":\"9999962457\",\"pre"
+  },
+  {
+   "id": "MB-19",
+   "title": "Create with Aadhaar of wrong length is rejected (4xx, no 5xx, no row created)",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"mbno\":\"9999962458\",\"pre"
+  },
+  {
+   "id": "MB-20",
+   "title": "Create with Name of 5000 characters is rejected (4xx, no 5xx, no row created)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:05:41.511Z\",\"path\":\"/api/v1/members/save-member\",\"method\":\"POST\","
+  },
+  {
+   "id": "MB-21",
+   "title": "SQL-injection style name is stored as text and the member table survives",
+   "ok": true,
+   "detail": "201/200"
+  },
+  {
+   "id": "MB-22",
+   "title": "Unicode / HTML in name accepted without error",
+   "ok": true,
+   "detail": "201"
+  },
+  {
+   "id": "MB-23",
+   "title": "8 parallel creates give 8 different member numbers and no 5xx",
+   "ok": true,
+   "detail": "distinct=8 statuses=201"
+  },
+  {
+   "id": "MB-24",
+   "title": "Member created with compulsory deposit 500 succeeds",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"mbno\":\"9999962470\",\"prefix\":\"MR\","
+  },
+  {
+   "id": "MB-25",
+   "title": "CD 500 shows in the member ledger and RD config exists (member-ledger endpoint 2xx)",
+   "ok": true,
+   "detail": "ledger 404, rd 200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "MB-26",
+   "title": "Delete of own QA member (no accounts) works or is refused with a clear 4xx",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:05:42.307Z\",\"path\":\"/api/v1/members/9999962450\",\"method"
+  }
+ ]
+}

@@ -1,0 +1,267 @@
+{
+ "suite": "09-loan-lifecycle",
+ "ranAt": "2026-10-16T18:20:40.480Z",
+ "seconds": 2.58,
+ "total": 43,
+ "failed": 19,
+ "results": [
+  {
+   "id": "LF-00",
+   "title": "Two QA members created",
+   "ok": true,
+   "detail": "9999962473 9999962474"
+  },
+  {
+   "id": "LF-01",
+   "title": "Loan application with amount 0: rejected 4xx (ACCEPTED case 889201)",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"message\""
+  },
+  {
+   "id": "LF-02",
+   "title": "Loan application with negative amount: rejected 4xx (ACCEPTED case 889202)",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"message\""
+  },
+  {
+   "id": "LF-03",
+   "title": "Loan application with text amount: rejected 4xx (ok)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:20:38.560Z\",\"path\":\"/api/v1/loans/loan-application\",\"method\":\"POS"
+  },
+  {
+   "id": "LF-04",
+   "title": "Loan application with unknown member: rejected 4xx (ACCEPTED case 889203)",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"message\""
+  },
+  {
+   "id": "LF-05",
+   "title": "Loan application with installments 0: rejected 4xx (ACCEPTED case 889204)",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"message\""
+  },
+  {
+   "id": "LF-06",
+   "title": "Loan application with installments -5: rejected 4xx (ACCEPTED case 889205)",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"message\""
+  },
+  {
+   "id": "LF-07",
+   "title": "Loan application with installments 100000: rejected 4xx (ok)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:20:38.688Z\",\"path\":\"/api/v1/loans/loan-application\",\"method\":\"POS"
+  },
+  {
+   "id": "LF-08",
+   "title": "Loan application with member as own surety: rejected 4xx (ACCEPTED case 889206)",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"message\""
+  },
+  {
+   "id": "LF-09",
+   "title": "Loan application with surety that does not exist: rejected 4xx (ACCEPTED case 889207)",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"message\""
+  },
+  {
+   "id": "LF-10",
+   "title": "Loan application with unknown loan type \"ZZZ\": rejected 4xx (ACCEPTED case 889208)",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"message\""
+  },
+  {
+   "id": "LF-11",
+   "title": "Loan application with application date 2099: rejected 4xx (ACCEPTED case 889209)",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"message\""
+  },
+  {
+   "id": "LF-12",
+   "title": "Loan application with amount above the member limit (1e10): rejected 4xx (ok)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:20:38.819Z\",\"path\":\"/api/v1/loans/loan-application\",\"method\":\"POS"
+  },
+  {
+   "id": "LF-13",
+   "title": "Valid application saved with a case number",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+  },
+  {
+   "id": "LF-14",
+   "title": "loan_pending row matches input (member, amount 50000, not sanctioned)",
+   "ok": true,
+   "detail": "{\"mbno\":\"9999962473\",\"applied_amt\":\"50000.0000\",\"flg_sanctioned\":\"N\",\"flg_paid\":\"N\"}"
+  },
+  {
+   "id": "LF-15",
+   "title": "Application sent with ANOTHER member's existing case number is refused and does not overwrite that case",
+   "ok": false,
+   "detail": "201; row now mbno=9999962473 amt=12345.0000"
+  },
+  {
+   "id": "LF-16",
+   "title": "Case number is unique in loan_pending",
+   "ok": true,
+   "detail": "1"
+  },
+  {
+   "id": "LF-17",
+   "title": "Two simultaneous applications get two different case numbers",
+   "ok": true,
+   "detail": "889211,889212 201,201"
+  },
+  {
+   "id": "LF-18",
+   "title": "Sanction with negative sanctioned amount: refused (4xx); case stays unsanctioned",
+   "ok": false,
+   "detail": "200; row {\"flg_sanctioned\":\"Y\",\"sanctioned_amt\":\"-100.0000\",\"no_of_instal\":24}"
+  },
+  {
+   "id": "LF-19",
+   "title": "Sanction with sanctioned amount above applied (10x): refused (4xx); case stays unsanctioned",
+   "ok": false,
+   "detail": "200; row {\"flg_sanctioned\":\"Y\",\"sanctioned_amt\":\"500000.0000\",\"no_of_instal\":24}"
+  },
+  {
+   "id": "LF-20",
+   "title": "Sanction with installments 0: refused (4xx); case stays unsanctioned",
+   "ok": false,
+   "detail": "200; row {\"flg_sanctioned\":\"Y\",\"sanctioned_amt\":\"50000.0000\",\"no_of_instal\":0}"
+  },
+  {
+   "id": "LF-21",
+   "title": "Sanction with text amount: refused (4xx); case stays unsanctioned",
+   "ok": false,
+   "detail": "500; row {\"flg_sanctioned\":\"Y\",\"sanctioned_amt\":\"50000.0000\",\"no_of_instal\":24}"
+  },
+  {
+   "id": "LF-22",
+   "title": "Valid sanction 50000 / 24 succeeds",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+  },
+  {
+   "id": "LF-23",
+   "title": "Loan disbursement voucher generated",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"message\":\"Voucher generated and staged successfully\",\"vouc"
+  },
+  {
+   "id": "LF-24",
+   "title": "Second disbursement voucher for the same case is refused (no double payout)",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+  },
+  {
+   "id": "LF-25",
+   "title": "Disbursement voucher amount = sanctioned 50000 less shortfall deductions (5000) = 45000, or 50000 if no deduction",
+   "ok": true,
+   "detail": "{\"amount\":50000,\"breakdown\":[]}"
+  },
+  {
+   "id": "LF-26",
+   "title": "Pass disbursement (or approval-code gate reported)",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"message\":\"Transaction posted successfu"
+  },
+  {
+   "id": "LF-27",
+   "title": "loan_master row created: amount 50000, balance 50000, installments 24",
+   "ok": true,
+   "detail": "{\"loan_amt\":\"50000.0000\",\"balance\":\"50000.0000\",\"instal_amt\":\"2083.3300\",\"no_of_instal\":24,\"rate\":\"12.0000\"}"
+  },
+  {
+   "id": "LF-28",
+   "title": "Stored EMI (2083.33) equals calculator EMI (2353.67) at the stored rate (12.0000)",
+   "ok": false,
+   "detail": "2083.33 vs 2353.67"
+  },
+  {
+   "id": "LF-29",
+   "title": "Pending case marked paid after disbursement",
+   "ok": true,
+   "detail": "{\"flg_paid\":\"Y\"}"
+  },
+  {
+   "id": "LF-30",
+   "title": "Passing the disbursement twice does not create a second loan row",
+   "ok": true,
+   "detail": "500; loan rows=1"
+  },
+  {
+   "id": "LF-31",
+   "title": "Repay exactly one EMI: accepted",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"message\":\"Repayment of ₹2,083.33 recorded for loan 889210."
+  },
+  {
+   "id": "LF-32",
+   "title": "Balance falls by the principal part only (less than the EMI, more than 0)",
+   "ok": false,
+   "detail": "balance 50000 -> 47916.67 (emi 2083.33)"
+  },
+  {
+   "id": "LF-33",
+   "title": "Repayment ledger: principal + interest + penal = payment amount",
+   "ok": true,
+   "detail": "{\"pa\":\"2083.33\",\"pr\":\"2083.33\",\"it\":\"0.00\",\"pn\":\"0.00\"}"
+  },
+  {
+   "id": "LF-34",
+   "title": "Principal recorded in ledger equals the fall in balance",
+   "ok": true,
+   "detail": "ledger principal 2083.33 vs balance fall 2083.3300000000017"
+  },
+  {
+   "id": "LF-35",
+   "title": "Repayment of zero amount refused (4xx) and balance unchanged",
+   "ok": true,
+   "detail": "400; 47916.67 -> 47916.67; {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:20:40.290Z\",\"path\":\"/api/v1/loans/r"
+  },
+  {
+   "id": "LF-36",
+   "title": "Repayment of negative amount refused (4xx) and balance unchanged",
+   "ok": true,
+   "detail": "400; 47916.67 -> 47916.67; {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:20:40.311Z\",\"path\":\"/api/v1/loans/r"
+  },
+  {
+   "id": "LF-37",
+   "title": "Repayment of text amount refused (4xx) and balance unchanged",
+   "ok": true,
+   "detail": "400; 47916.67 -> 47916.67; {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:20:40.335Z\",\"path\":\"/api/v1/loans/r"
+  },
+  {
+   "id": "LF-38",
+   "title": "Repayment of absurd 1e12 amount refused (4xx) and balance unchanged",
+   "ok": false,
+   "detail": "201; 47916.67 -> 0; {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "LF-39",
+   "title": "Repayment with another member's number for this case is refused",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:20:40.387Z\",\"path\":\"/api/v1/loans/repayment\",\"method\":\""
+  },
+  {
+   "id": "LF-40",
+   "title": "Repayment on a case that does not exist -> 404/400",
+   "ok": true,
+   "detail": "400"
+  },
+  {
+   "id": "LF-41",
+   "title": "Two simultaneous EMI payments: both applied or one refused, balance consistent (ok=0)",
+   "ok": false,
+   "detail": "0 -> 0; statuses 400,400; ledger rows 25"
+  },
+  {
+   "id": "LF-42",
+   "title": "Overpaying far above the outstanding never leaves a negative balance",
+   "ok": true,
+   "detail": "balance 0; status 400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:20:40.456Z\",\"path\":\"/api/v1/loans/r"
+  }
+ ]
+}
