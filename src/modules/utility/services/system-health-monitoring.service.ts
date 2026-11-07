@@ -129,14 +129,6 @@ export class SystemHealthMonitoringService {
   private startTime: Date = new Date();
 
   constructor(
-    @InjectRepository(Member)
-    private memberRepository: Repository<Member>,
-    @InjectRepository(LoanAccount)
-    private loanAccountRepository: Repository<LoanAccount>,
-    @InjectRepository(FixedDeposit)
-    private fixedDepositRepository: Repository<FixedDeposit>,
-    @InjectRepository(Transaction)
-    private transactionRepository: Repository<Transaction>,
     private dataConsistencyService: DataConsistencyService,
     private dataSource: DataSource,
   ) {
@@ -422,53 +414,34 @@ export class SystemHealthMonitoringService {
 
   private async getBusinessHealthMetrics(): Promise<BusinessHealthMetrics> {
     try {
-      const [
-        totalMembers,
-        activeLoans,
-        totalLoanAmount,
-        activeDeposits,
-        totalDepositAmount,
-        dailyTransactions,
-      ] = await Promise.all([
-        this.memberRepository.count({ where: { status: 'ACTIVE' } }),
-        this.loanAccountRepository.count({ where: { status: 'ACTIVE' } }),
-        this.loanAccountRepository
-          .createQueryBuilder('loan')
-          .select('SUM(loan.outstandingBalance)', 'total')
-          .where('loan.status = :status', { status: 'ACTIVE' })
-          .getRawOne()
-          .then(result => parseFloat(result.total) || 0),
-        this.fixedDepositRepository.count({ where: { status: 'ACTIVE' } }),
-        this.fixedDepositRepository
-          .createQueryBuilder('deposit')
-          .select('SUM(deposit.principalAmount)', 'total')
-          .where('deposit.status = :status', { status: 'ACTIVE' })
-          .getRawOne()
-          .then(result => parseFloat(result.total) || 0),
-        this.dataSource
-          .query(`SELECT COUNT(*) AS count FROM transactions WHERE trans_date::date = CURRENT_DATE`)
-          .then((res: any[]) => parseInt(res[0]?.count ?? '0', 10)),
-      ]);
-
-      // Calculate defaulters (loans overdue by more than 30 days)
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-      const defaulterCount = await this.loanAccountRepository.count({
-        where: {
-          status: 'ACTIVE',
-          maturityDate: LessThan(thirtyDaysAgo) as any,
-        },
-      });
+      // The society's real data is in member_master / loan_master / fdmaster / ledger / demand_master. The ORM tables
+      // this used to count (members, loan_accounts, transactions) are empty or demo tables (ES-427).
+      const rows = await this.dataSource.query(`
+        SELECT
+          (SELECT count(*) FROM member_master WHERE isactive = 'Y') AS total_members,
+          (SELECT count(*) FROM loan_master WHERE COALESCE(CAST(balance AS numeric), 0) > 0) AS active_loans,
+          (SELECT COALESCE(SUM(CAST(balance AS numeric)), 0) FROM loan_master WHERE COALESCE(CAST(balance AS numeric), 0) > 0) AS total_loan_amount,
+          (SELECT count(*) FROM fdmaster WHERE COALESCE(status, '') <> 'C') AS active_deposits,
+          (SELECT COALESCE(SUM(fdamount), 0) FROM fdmaster WHERE COALESCE(status, '') <> 'C') AS total_deposit_amount,
+          (SELECT count(DISTINCT NULLIF(receipt_vchr_no, '')) FROM ledger WHERE trans_date::date = CURRENT_DATE) AS daily_transactions,
+          (SELECT count(DISTINCT mbno) FROM demand_master
+             WHERE COALESCE(balance_for_month, 0) > 0
+               AND (demand_for_year * 12 + demand_for_month) < (EXTRACT(YEAR FROM CURRENT_DATE) * 12 + EXTRACT(MONTH FROM CURRENT_DATE))) AS defaulter_count
+      `);
+      const r = rows?.[0] ?? {};
+      const n = (v: any) => Number(v) || 0;
+      const totalMembers = n(r.total_members);
+      const activeLoans = n(r.active_loans);
+      const activeDeposits = n(r.active_deposits);
 
       return {
         totalMembers,
         activeLoans,
-        totalLoanAmount,
+        totalLoanAmount: n(r.total_loan_amount),
         activeDeposits,
-        totalDepositAmount,
-        dailyTransactions,
-        defaulterCount,
+        totalDepositAmount: n(r.total_deposit_amount),
+        dailyTransactions: n(r.daily_transactions),
+        defaulterCount: n(r.defaulter_count),
         systemUtilization: (activeLoans + activeDeposits) / Math.max(totalMembers, 1) * 100,
       };
     } catch (error) {

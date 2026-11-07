@@ -33,6 +33,7 @@ import {
   DayEndSummaryDto,
   InterestCalculationResultDto,
 } from '../dto';
+import { RequireMenuAction } from '../../auth/guards/menu-right.guard';
 
 @ApiTags('Day-End Processing')
 @ApiBearerAuth()
@@ -46,6 +47,7 @@ import {
 export class DayEndController {
   constructor(private readonly dayEndService: DayEndService) { }
 
+  @RequireMenuAction('DAY_END')
   @Post('initiate')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @RequirePermissions(UserPermission.DAY_END_OPERATIONS)
@@ -82,6 +84,7 @@ export class DayEndController {
 
   // BUG FIX: getworkingdate starts empty and nothing else can create the
   // first row — see DayEndService.initializeWorkingDate for the full story.
+  @RequireMenuAction('DAY_END')
   @Post('initialize')
   @Roles(UserRole.ADMIN)
   @RequirePermissions(UserPermission.DAY_END_OPERATIONS)

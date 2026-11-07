@@ -376,6 +376,11 @@ export class AlertService implements OnModuleInit, OnModuleDestroy {
             }));
     }
 
+    /** Ids of the users that have signalled recently (used by Logout User's active-sessions list, ES-114). */
+    onlineUserIds(): Set<string> {
+        return new Set([...this.presence.values()].map((p) => p.userId));
+    }
+
     /** Every minute (scheduler): anyone silent for longer than the Settings limit has gone offline. */
     sweepPresence(): void {
         const minutes = this.settings.param('presence.offline') || 3;

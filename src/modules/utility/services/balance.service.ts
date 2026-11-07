@@ -1,257 +1,195 @@
-import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Member } from '../../member/entities/member.entity';
-import { LoanAccount } from '../../loan/entities/loan-account.entity';
-import { Transaction } from '../../transaction/entities/transaction.entity';
-import { 
-  MemberBalanceInquiryDto, 
-  AccountStatementDto, 
-  MemberBalance, 
-  AccountBalance, 
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { DataSource } from 'typeorm';
+import { parseBusinessDate } from '../../shared/utils/date-utils';
+import {
+  MemberBalanceInquiryDto,
+  AccountStatementDto,
+  MemberBalance,
+  AccountBalance,
   AccountStatement,
-  AccountStatementTransaction 
+  AccountStatementTransaction
 } from '../dto/balance.dto';
 
+const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+
+/**
+ * Balance inquiries and statements read the tables the society actually works in (ES-427):
+ * member_master (members), member_balances (shares / deposits), loan_master (loans) and ledger (postings).
+ * The old version read the empty ORM tables (members, loan_accounts, transactions) and answered
+ * "Member not found" or zero for every real member.
+ */
 @Injectable()
 export class BalanceService {
-  constructor(
-    @InjectRepository(Member)
-    private memberRepository: Repository<Member>,
-    @InjectRepository(LoanAccount)
-    private loanRepository: Repository<LoanAccount>,
-    @InjectRepository(Transaction)
-    private transactionRepository: Repository<Transaction>,
-  ) {}
+  constructor(private readonly dataSource: DataSource) {}
+
+  private async findMember(memberId: number) {
+    const rows = await this.dataSource.query(
+      `SELECT m.mbno::text AS mbno,
+              TRIM(CONCAT(m.f_name, ' ', COALESCE(m.l_name, ''))) AS name,
+              COALESCE(b.shares, 0) AS shares,
+              COALESCE(b.compulsory_deposit, 0) AS compulsory_deposit,
+              COALESCE(b.rd_amt, 0) AS rd_amt
+         FROM member_master m
+         LEFT JOIN member_balances b ON b.mbno::text = m.mbno::text
+        WHERE m.mbno::text = $1
+        LIMIT 1`,
+      [String(memberId)],
+    );
+    if (rows.length === 0) throw new NotFoundException(`Member ${memberId} was not found`);
+    return rows[0];
+  }
 
   async getMemberBalance(inquiryDto: MemberBalanceInquiryDto): Promise<MemberBalance> {
     const { memberId, asOfDate } = inquiryDto;
-    const cutoffDate = asOfDate ? new Date(asOfDate) : new Date();
+    const cutoffDate = asOfDate ? parseBusinessDate(asOfDate, 'As-of date', 0) : new Date();
 
-    // Get member details
-    const member = await this.memberRepository.findOne({
-      where: { id: memberId },
-    });
+    const member = await this.findMember(memberId);
 
-    if (!member) {
-      throw new Error('Member not found');
-    }
+    const shareBalance = round2(Number(member.shares) || 0);
+    // compulsory deposit + recurring deposit are what the member holds with the society
+    const totalDepositBalance = round2((Number(member.compulsory_deposit) || 0) + (Number(member.rd_amt) || 0));
 
-    // Calculate share balance
-    const shareBalance = Number(member.shareAmount) || 0;
+    const loan = await this.dataSource.query(
+      `SELECT COALESCE(SUM(CAST(balance AS numeric)), 0) AS total
+         FROM loan_master
+        WHERE mbno::text = $1 AND CAST(balance AS numeric) > 0`,
+      [member.mbno],
+    );
+    const totalLoanBalance = round2(Number(loan[0]?.total) || 0);
 
-    // Calculate total loan balance
-    const loanBalances = await this.loanRepository
-      .createQueryBuilder('loan')
-      .select('SUM(loan.outstandingBalance)', 'totalBalance')
-      .where('loan.memberId = :memberId', { memberId })
-      .andWhere('loan.status = :status', { status: 'ACTIVE' })
-      .andWhere('loan.disbursementDate <= :cutoffDate', { cutoffDate })
-      .getRawOne();
-
-    const totalLoanBalance = Number(loanBalances?.totalBalance) || 0;
-
-    const totalDepositBalance = 0;
-
-    // Get last transaction date
-    const lastTransaction = await this.transactionRepository
-      .createQueryBuilder('transaction')
-      .where('transaction.memberId = :memberId', { memberId })
-      .andWhere('transaction.transactionDate <= :cutoffDate', { cutoffDate })
-      .orderBy('transaction.transactionDate', 'DESC')
-      .getOne();
-
-    // Calculate net balance (deposits + shares - loans)
-    const netBalance = shareBalance + totalDepositBalance - totalLoanBalance;
+    const last = await this.dataSource.query(
+      `SELECT MAX(trans_date) AS last_date FROM ledger WHERE mbno::text = $1 AND trans_date <= $2`,
+      [member.mbno, cutoffDate],
+    );
 
     return {
-      memberId: member.id,
-      memberNumber: member.memberNumber,
-      memberName: member.fullName,
+      memberId: Number(member.mbno),
+      memberNumber: member.mbno,
+      memberName: member.name,
       shareBalance,
       totalLoanBalance,
       totalDepositBalance,
-      netBalance,
-      lastTransactionDate: lastTransaction?.transactionDate || null,
+      netBalance: round2(shareBalance + totalDepositBalance - totalLoanBalance),
+      lastTransactionDate: last[0]?.last_date || null,
       asOfDate: cutoffDate,
     };
   }
 
+  /**
+   * A single loan by case number. Case numbers are shared between members in the migrated data (ES-391), so a
+   * case number that belongs to more than one loan is refused instead of returning somebody else's loan.
+   */
   async getAccountBalance(accountType: string, accountId: number): Promise<AccountBalance> {
-    let account: any;
-    let currentBalance = 0;
-    let availableBalance = 0;
-
-    switch (accountType.toLowerCase()) {
-      case 'loan':
-        account = await this.loanRepository.findOne({
-          where: { id: accountId },
-          relations: ['member'],
-        });
-        if (account) {
-          currentBalance = Number(account.outstandingBalance);
-          availableBalance = currentBalance; // For loans, available = outstanding
-        }
-        break;
-
-      default:
-        throw new Error('Invalid account type');
+    if (String(accountType).toLowerCase() !== 'loan') {
+      throw new BadRequestException(`Account type '${String(accountType).slice(0, 20)}' is not supported. Use 'loan'.`);
     }
-
-    if (!account) {
-      throw new Error('Account not found');
+    const rows = await this.dataSource.query(
+      `SELECT loancaseno::text AS loancaseno, mbno::text AS mbno, CAST(balance AS numeric) AS balance, payment_date
+         FROM loan_master WHERE loancaseno::text = $1`,
+      [String(accountId)],
+    );
+    if (rows.length === 0) throw new NotFoundException(`Loan account ${accountId} was not found`);
+    if (rows.length > 1) {
+      throw new BadRequestException(
+        `Loan case number ${accountId} is used by ${rows.length} members. Open the loan from the member's own account list instead.`,
+      );
     }
-
-    // Get last transaction date for this account
-    const lastTransaction = await this.transactionRepository
-      .createQueryBuilder('transaction')
-      .where('transaction.referenceType = :refType', { 
-        refType: accountType.toUpperCase() + '_TRANSACTION' 
-      })
-      .andWhere('transaction.referenceId = :accountId', { accountId })
-      .orderBy('transaction.transactionDate', 'DESC')
-      .getOne();
-
+    const loan = rows[0];
+    const balance = round2(Number(loan.balance) || 0);
+    const last = await this.dataSource.query(
+      `SELECT MAX(trans_date) AS last_date FROM ledger WHERE mbno::text = $1 AND acc_no = $2 AND acc_type IN ('RLN','ALN','ELN')`,
+      [loan.mbno, Number(loan.loancaseno)],
+    );
     return {
-      accountId: account.id,
-      accountNumber: account.accountNumber,
-      accountType: accountType.toLowerCase(),
-      currentBalance,
-      availableBalance,
-      lastTransactionDate: lastTransaction?.transactionDate || account.createdAt,
-      status: account.status,
+      accountId: Number(loan.loancaseno),
+      accountNumber: loan.loancaseno,
+      accountType: 'loan',
+      currentBalance: balance,
+      availableBalance: balance,
+      lastTransactionDate: last[0]?.last_date || loan.payment_date || null,
+      status: balance > 0 ? 'ACTIVE' : 'CLOSED',
     };
   }
 
   async generateAccountStatement(statementDto: AccountStatementDto): Promise<AccountStatement> {
-    const { memberId, accountType, accountId, fromDate, toDate, includeClosed } = statementDto;
+    const { memberId, accountType, accountId } = statementDto;
+    const from = parseBusinessDate(statementDto.fromDate, 'From date', 0);
+    const to = parseBusinessDate(statementDto.toDate, 'To date', 0);
+    if (from.getTime() > to.getTime()) throw new BadRequestException('From date cannot be after To date.');
 
-    // Get member details
-    const member = await this.memberRepository.findOne({
-      where: { id: memberId },
-    });
+    const member = await this.findMember(memberId);
 
-    if (!member) {
-      throw new Error('Member not found');
-    }
-
-    let account: any;
-    let openingBalance = 0;
-    let closingBalance = 0;
-
-    // Get account details based on type
+    const filters: string[] = ['mbno::text = $1'];
+    const params: any[] = [member.mbno];
+    let account: { id: number; accountNumber: string } | null = null;
     if (accountType && accountId) {
-      switch (accountType.toLowerCase()) {
-        case 'loan':
-          account = await this.loanRepository.findOne({
-            where: { id: accountId, memberId },
-          });
-          break;
-        default:
-          throw new Error('Invalid account type');
+      if (String(accountType).toLowerCase() !== 'loan') {
+        throw new BadRequestException(`Account type '${String(accountType).slice(0, 20)}' is not supported. Use 'loan'.`);
       }
-
-      if (!account) {
-        throw new Error('Account not found');
-      }
+      const loan = await this.dataSource.query(
+        `SELECT loancaseno::text AS loancaseno FROM loan_master WHERE loancaseno::text = $1 AND mbno::text = $2 LIMIT 1`,
+        [String(accountId), member.mbno],
+      );
+      if (loan.length === 0) throw new NotFoundException(`Loan account ${accountId} was not found for member ${member.mbno}`);
+      account = { id: Number(loan[0].loancaseno), accountNumber: loan[0].loancaseno };
+      params.push(account.id);
+      filters.push(`acc_no = $${params.length}`, `acc_type IN ('RLN','ALN','ELN')`);
     }
+    const where = filters.join(' AND ');
 
-    // Build transaction query
-    const transactionQuery = this.transactionRepository
-      .createQueryBuilder('transaction')
-      .where('transaction.memberId = :memberId', { memberId })
-      .andWhere('transaction.transactionDate BETWEEN :fromDate AND :toDate', {
-        fromDate: new Date(fromDate),
-        toDate: new Date(toDate),
-      });
+    const opening = await this.dataSource.query(
+      `SELECT COALESCE(SUM(CASE WHEN trans_type = 'CR' THEN trans_amt ELSE -trans_amt END), 0) AS balance
+         FROM ledger WHERE ${where} AND trans_date < $${params.length + 1}`,
+      [...params, from],
+    );
+    const openingBalance = round2(Number(opening[0]?.balance) || 0);
 
-    // Filter by account if specified
-    if (accountType && accountId) {
-      transactionQuery.andWhere('transaction.referenceType = :refType', {
-        refType: accountType.toUpperCase() + '_TRANSACTION',
-      });
-      transactionQuery.andWhere('transaction.referenceId = :accountId', { accountId });
-    }
+    // the "to" day is included in full
+    const toEnd = new Date(to.getFullYear(), to.getMonth(), to.getDate() + 1);
+    const rows = await this.dataSource.query(
+      `SELECT trans_no::text AS trans_no, trans_date, trans_type, trans_amt, receipt_vchr_no, narration
+         FROM ledger WHERE ${where} AND trans_date >= $${params.length + 1} AND trans_date < $${params.length + 2}
+        ORDER BY trans_date ASC, trans_no ASC, ledgerid ASC`,
+      [...params, from, toEnd],
+    );
 
-    // Include/exclude closed accounts
-    if (!includeClosed) {
-      transactionQuery.andWhere('transaction.status != :status', { status: 'CANCELLED' });
-    }
-
-    const transactions = await transactionQuery
-      .orderBy('transaction.transactionDate', 'ASC')
-      .addOrderBy('transaction.createdAt', 'ASC')
-      .getMany();
-
-    // Calculate opening balance (transactions before fromDate)
-    const openingBalanceQuery = this.transactionRepository
-      .createQueryBuilder('transaction')
-      .select('SUM(CASE WHEN transaction.creditAccount LIKE :memberPattern THEN transaction.amount ELSE -transaction.amount END)', 'balance')
-      .where('transaction.memberId = :memberId', { memberId })
-      .andWhere('transaction.transactionDate < :fromDate', { fromDate: new Date(fromDate) })
-      .setParameter('memberPattern', `%${member.memberNumber}%`);
-
-    if (accountType && accountId) {
-      openingBalanceQuery.andWhere('transaction.referenceType = :refType', {
-        refType: accountType.toUpperCase() + '_TRANSACTION',
-      });
-      openingBalanceQuery.andWhere('transaction.referenceId = :accountId', { accountId });
-    }
-
-    const openingBalanceResult = await openingBalanceQuery.getRawOne();
-    openingBalance = Number(openingBalanceResult?.balance) || 0;
-
-    // Process transactions and calculate running balance
-    let runningBalance = openingBalance;
-    const statementTransactions: AccountStatementTransaction[] = [];
+    let running = openingBalance;
     let totalDebits = 0;
     let totalCredits = 0;
-
-    for (const transaction of transactions) {
-      const isCredit = transaction.creditAccount.includes(member.memberNumber);
-      const debitAmount = isCredit ? 0 : Number(transaction.amount);
-      const creditAmount = isCredit ? Number(transaction.amount) : 0;
-
-      runningBalance += creditAmount - debitAmount;
+    const transactions: AccountStatementTransaction[] = rows.map((r: any) => {
+      const amount = Number(r.trans_amt) || 0;
+      const isCredit = r.trans_type === 'CR';
+      const debitAmount = isCredit ? 0 : amount;
+      const creditAmount = isCredit ? amount : 0;
+      running = round2(running + creditAmount - debitAmount);
       totalDebits += debitAmount;
       totalCredits += creditAmount;
-
-      statementTransactions.push({
-        date: transaction.transactionDate,
-        transactionNumber: transaction.transactionNumber,
-        description: transaction.description,
+      return {
+        date: r.trans_date,
+        transactionNumber: r.trans_no,
+        description: r.narration || '',
         debitAmount,
         creditAmount,
-        balance: runningBalance,
-        voucherNumber: transaction.voucherNumber,
-        remarks: transaction.remarks,
-      });
-    }
-
-    closingBalance = runningBalance;
+        balance: running,
+        voucherNumber: r.receipt_vchr_no || undefined,
+      };
+    });
 
     return {
-      member: {
-        id: member.id,
-        memberNumber: member.memberNumber,
-        name: member.fullName,
-      },
+      member: { id: Number(member.mbno), memberNumber: member.mbno, name: member.name },
       account: {
         id: account?.id || 0,
         accountNumber: account?.accountNumber || 'ALL_ACCOUNTS',
         accountType: accountType || 'all',
         openingBalance,
-        closingBalance,
+        closingBalance: running,
       },
-      period: {
-        fromDate: new Date(fromDate),
-        toDate: new Date(toDate),
-      },
-      transactions: statementTransactions,
+      period: { fromDate: from, toDate: to },
+      transactions,
       summary: {
-        totalDebits,
-        totalCredits,
-        transactionCount: statementTransactions.length,
+        totalDebits: round2(totalDebits),
+        totalCredits: round2(totalCredits),
+        transactionCount: transactions.length,
       },
     };
   }
@@ -264,51 +202,41 @@ export class BalanceService {
     totalDepositBalance: number;
     netWorth: number;
   }> {
-    // Get member details
-    const member = await this.memberRepository.findOne({
-      where: { id: memberId },
-    });
+    const member = await this.findMember(memberId);
+    const shareBalance = round2(Number(member.shares) || 0);
 
-    if (!member) {
-      throw new Error('Member not found');
-    }
+    const loans = await this.dataSource.query(
+      `SELECT loancaseno::text AS loancaseno, loantype, CAST(balance AS numeric) AS balance, payment_date
+         FROM loan_master
+        WHERE mbno::text = $1 AND CAST(balance AS numeric) > 0
+        ORDER BY payment_date, loancaseno`,
+      [member.mbno],
+    );
+    const loanAccounts: AccountBalance[] = loans.map((l: any) => ({
+      accountId: Number(l.loancaseno),
+      accountNumber: l.loancaseno,
+      accountType: 'loan',
+      currentBalance: round2(Number(l.balance) || 0),
+      availableBalance: round2(Number(l.balance) || 0),
+      lastTransactionDate: l.payment_date || null,
+      status: 'ACTIVE',
+    }));
+    const totalLoanBalance = round2(loanAccounts.reduce((s, a) => s + a.currentBalance, 0));
 
-    const shareBalance = Number(member.shareAmount) || 0;
-
-    // Get all loan accounts
-    const loanAccounts = await this.loanRepository.find({
-      where: { memberId, status: 'ACTIVE' },
-    });
-
-    const loanBalances: AccountBalance[] = [];
-    let totalLoanBalance = 0;
-
-    for (const loan of loanAccounts) {
-      const balance: AccountBalance = {
-        accountId: loan.id,
-        accountNumber: loan.accountNumber,
-        accountType: 'loan',
-        currentBalance: Number(loan.outstandingBalance),
-        availableBalance: Number(loan.outstandingBalance),
-        lastTransactionDate: loan.updatedAt,
-        status: loan.status,
-      };
-      loanBalances.push(balance);
-      totalLoanBalance += balance.currentBalance;
-    }
-
-    const depositBalances: AccountBalance[] = [];
-    const totalDepositBalance = 0;
-
-    const netWorth = shareBalance + totalDepositBalance - totalLoanBalance;
+    const depositAccounts: AccountBalance[] = [];
+    const cd = round2(Number(member.compulsory_deposit) || 0);
+    const rd = round2(Number(member.rd_amt) || 0);
+    if (cd > 0) depositAccounts.push({ accountId: 0, accountNumber: 'CD', accountType: 'compulsory-deposit', currentBalance: cd, availableBalance: cd, lastTransactionDate: null as any, status: 'ACTIVE' });
+    if (rd > 0) depositAccounts.push({ accountId: 0, accountNumber: 'RD', accountType: 'recurring-deposit', currentBalance: rd, availableBalance: rd, lastTransactionDate: null as any, status: 'ACTIVE' });
+    const totalDepositBalance = round2(cd + rd);
 
     return {
       shareBalance,
-      loanAccounts: loanBalances,
-      depositAccounts: depositBalances,
+      loanAccounts,
+      depositAccounts,
       totalLoanBalance,
       totalDepositBalance,
-      netWorth,
+      netWorth: round2(shareBalance + totalDepositBalance - totalLoanBalance),
     };
   }
 

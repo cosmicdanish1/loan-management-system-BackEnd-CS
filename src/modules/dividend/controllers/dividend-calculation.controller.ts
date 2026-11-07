@@ -7,6 +7,12 @@ import { DividendCalculationService } from '../services/dividend-calculation.ser
 export class DividendCalculationController {
     constructor(private readonly service: DividendCalculationService) {}
 
+    @Get('rules')
+    @ApiOperation({ summary: 'Fixed / Minimum / Maximum dividend rate from Modify Business Rules and the proposed starting rate' })
+    async rules() {
+        return this.service.getRateRulesWithDefault();
+    }
+
     @Get('preview')
     @ApiOperation({ summary: 'Read-only preview of the Total Product dividend calculation for a financial year — writes nothing' })
     async preview(

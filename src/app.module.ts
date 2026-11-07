@@ -5,6 +5,8 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { WinstonModule } from 'nest-winston';
 import * as winston from 'winston';
 import * as Joi from 'joi';
+import * as crypto from 'crypto';
+import { ClsModule } from 'nestjs-cls';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -12,6 +14,8 @@ import { DatabaseConfig } from './config/database.config';
 import { AuthModule } from './modules/auth/auth.module';
 import { DepositModule } from './modules/deposit/deposit.module';
 import { RdModule } from './modules/rd/rd.module';
+import { AiChatModule } from './modules/ai-chat/ai-chat.module';
+import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { DividendModule } from './modules/dividend/dividend.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { UtilityModule } from './modules/utility/utility.module';
@@ -37,6 +41,7 @@ import { LicenseModule } from './modules/license/license.module';
 import { ClientLogsModule } from './modules/client-logs/client-logs.module';
 import { NoticeModule } from './modules/notice/notice.module';
 import { SupportModule } from './modules/support/support.module';
+import { MobileModule } from './modules/mobile/mobile.module';
 import { SystemUpdateModule } from './modules/system-update/system-update.module';
 import { OnboardingModule } from './modules/onboarding/onboarding.module';
 import { MemberStatusModule } from './modules/member-status/member-status.module';
@@ -47,6 +52,28 @@ import { LoggingModule } from './common/logging/logging.module';
 
 @Module({
   imports: [
+    // Correlation id: one id per request, shared by the screen (X-Request-Id), every server log line and the
+    // error response (requestId), so support can find the exact log line for an error a user reports (ES-444).
+    // useEnterWith: true because this Express setup loses context with the default run()-wrapping.
+    ClsModule.forRoot({
+      global: true,
+      middleware: {
+        mount: true,
+        generateId: true,
+        useEnterWith: true,
+        // Honour an inbound X-Request-Id only when it is a short, plain token (it ends up in log files); else mint one.
+        idGenerator: (req: any) => {
+          const inbound = String(req.headers['x-request-id'] ?? '');
+          return /^[A-Za-z0-9_.-]{6,64}$/.test(inbound) ? inbound : `req-${crypto.randomBytes(6).toString('hex')}`;
+        },
+        setup: (cls: any, req: any, res: any) => {
+          const id = cls.getId();
+          req.requestId = id; // read by the access-log interceptor and the exception filter
+          res.setHeader('X-Request-Id', id); // echoed back to the screen
+        },
+      },
+    }),
+
     // Configuration module with validation
     ConfigModule.forRoot({
       isGlobal: true,
@@ -149,6 +176,9 @@ import { LoggingModule } from './common/logging/logging.module';
     LoanV2Module, // Restructured loan services
     DepositModule,
     RdModule,
+    // Floating help chat bot (ES-372). Keys come from .env; without keys it answers "not configured". JWT-guarded globally.
+    AiChatModule,
+    AnalyticsModule, // ES-120: the 'analytics' connection above (EMP_Analytics_DB) already exists; the module was never mounted
     DividendModule,
     TransactionV2Module, // Restructured transaction services
     ReportV2Module, // Restructured report services
@@ -172,6 +202,7 @@ import { LoggingModule } from './common/logging/logging.module';
     NoticeModule,
     AlertsModule, // Telegram alerts: errors, logins, backups, licence, daily digest
     SupportModule, // Raise a Query desk (Jira + Telegram)
+    MobileModule, // Fibe Mobile member app API (/api/v1/mobile): isolated token, limits, DB pool
     SystemUpdateModule, // Upload and apply a backend release zip (admin only)
     OnboardingModule, // First-login walkthrough (ES-146)
     MemberStatusModule, // ES-100: retired / inactive member flagging

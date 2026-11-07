@@ -1,0 +1,117 @@
+{
+ "suite": "13-batches",
+ "ranAt": "2026-10-17T06:28:25.474Z",
+ "seconds": 63.41,
+ "total": 18,
+ "failed": 3,
+ "results": [
+  {
+   "id": "BT-01",
+   "title": "Dividend preview works (dry run)",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"yearcode\":2,\"calculationYear\":2027,\"dividendRatePercent\":5,\"monthsExpected\":12,\"members\":[]},\"timestamp\":\"2026-10"
+  },
+  {
+   "id": "BT-02",
+   "title": "Preview writes nothing (dividend rows unchanged)",
+   "ok": true,
+   "detail": "{\"before1\":{\"ledgerRows\":1576596,\"ledgerNet\":6310497.71,\"sbSum\":13500,\"loanBal\":589967964.58,\"divRows\":18,\"intPaid\":3,\"pendingDay\":\"2026-08-24\",\"dayEnds\":13},\"afterPrev\":{\"ledgerRows\":1576596,\"ledgerNet\":6310497.71,\"sbSum\":13500,\"loanBal\":589967964.58,\"divRows\":18,\"intPaid\":3,\"pendingDay\":\"2026-08-24\",\"dayEnds\":13}}"
+  },
+  {
+   "id": "BT-03",
+   "title": "Preview with negative dividend rate -> 4xx",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T06:27:24.852Z\",\"path\":\"/api/v1/dividend/calculation/previe"
+  },
+  {
+   "id": "BT-04",
+   "title": "Commit with an absurd rate (500%) is refused",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+  },
+  {
+   "id": "BT-05",
+   "title": "Refused commit wrote nothing",
+   "ok": true,
+   "detail": "18 -> 18"
+  },
+  {
+   "id": "BT-06",
+   "title": "Dividend commit (year 2025, 5%) runs once",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"calculationYear\":2027,\"membersCommitted\":0},\"timestamp\":\"2026-10-17T06:27:25.536Z\"}"
+  },
+  {
+   "id": "BT-07",
+   "title": "Committed dividend_amount ~= share_amount x rate for the year (rounded per member)",
+   "ok": true,
+   "detail": "sum amount 0 vs shares x rate 0"
+  },
+  {
+   "id": "BT-08",
+   "title": "Commit only fills dividend_master; ledger unchanged (credit is a separate step)",
+   "ok": true,
+   "detail": "1576596 -> 1576596"
+  },
+  {
+   "id": "BT-09",
+   "title": "One dividend row per member for the year",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "id": "BT-10",
+   "title": "Repeat commit for the same year is refused or idempotent (no duplicate rows)",
+   "ok": true,
+   "detail": "201 rows 18 -> 18 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"calculationYear\":2"
+  },
+  {
+   "id": "BT-11",
+   "title": "Credit preview (dry run) works",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"creditYearcode\":2,\"previousCalculationYear\":2026,\"members\":[{\"mbno\":\"1300"
+  },
+  {
+   "id": "BT-12",
+   "title": "Interest preview (dry run) works",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"totalMembers\":2,\"totalInterestAmount\":38.629999999999995,\"fromDate\":\"2026-07-01\",\"toDate\":\"2026-09-30\",\"interestRate\":4,\"voucherNumbe"
+  },
+  {
+   "id": "BT-13",
+   "title": "Interest update with negative rate: refused (4xx), nothing posted",
+   "ok": true,
+   "detail": "400; ledger 1576596 -> 1576596; {\"statusCode\":400,\"timestamp\":\"2026-10-17T06:28:04.745Z\",\"path\":\"/api/v1/interest/update-s"
+  },
+  {
+   "id": "BT-14",
+   "title": "Interest update with rate 90%: refused (4xx), nothing posted",
+   "ok": true,
+   "detail": "400; ledger 1576596 -> 1576596; {\"statusCode\":400,\"timestamp\":\"2026-10-17T06:28:05.486Z\",\"path\":\"/api/v1/interest/update-s"
+  },
+  {
+   "id": "BT-15",
+   "title": "Interest update with from after to: refused (4xx), nothing posted",
+   "ok": true,
+   "detail": "400; ledger 1576596 -> 1576596; {\"statusCode\":400,\"timestamp\":\"2026-10-17T06:28:06.099Z\",\"path\":\"/api/v1/interest/update-s"
+  },
+  {
+   "id": "BT-16",
+   "title": "Interest update with period in the future (2030): refused (4xx), nothing posted",
+   "ok": true,
+   "detail": "400; ledger 1576596 -> 1576596; {\"statusCode\":400,\"timestamp\":\"2026-10-17T06:28:23.520Z\",\"path\":\"/api/v1/interest/update-s"
+  },
+  {
+   "id": "BT-17",
+   "title": "Interest update for Jul-Sep 2026 at 4% runs once",
+   "ok": false,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T06:28:24.069Z\",\"path\":\"/api/v1/interest/update-saving-interest\",\"method\":\"POST\",\"error\":\"Bad Request\",\"message\":\"Interest has already been calculated for this period or dates overlap with existing records\"}"
+  },
+  {
+   "id": "BT-22",
+   "title": "Day-end for pending date 2026-08-24 runs once",
+   "ok": false,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T06:28:25.046Z\",\"path\":\"/api/v1/admin/day-end/initiate\",\"method\":\"POST\",\"error\":\"Bad Request\",\"message\":\"Another day-end process is currently in progress\"}"
+  }
+ ]
+}

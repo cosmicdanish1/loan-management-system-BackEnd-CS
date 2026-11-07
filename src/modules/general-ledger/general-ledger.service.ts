@@ -143,7 +143,7 @@ export class GeneralLedgerService {
 
     } catch (error) {
       this.logger.error('Error fetching head masters:', error);
-      return [];
+      throw error; // an empty list would look like "no heads exist"
     }
   }
 

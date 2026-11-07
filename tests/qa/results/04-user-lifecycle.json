@@ -1,51 +1,51 @@
 {
  "suite": "04-user-lifecycle",
- "ranAt": "2026-10-16T17:35:19.756Z",
- "seconds": 1.751,
+ "ranAt": "2026-11-03T09:44:05.708Z",
+ "seconds": 2.053,
  "total": 25,
- "failed": 1,
+ "failed": 0,
  "results": [
   {
    "id": "US-01",
    "title": "Create user - Missing username -> 400",
    "ok": true,
-   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T17:35:18.434Z\",\"path\":\"/api/v1/admin/users\",\"method\":\"POST"
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:44:04.131Z\",\"path\":\"/api/v1/admin/users\",\"method\":\"POST"
   },
   {
    "id": "US-02",
    "title": "Create user - Password under 6 chars -> 400",
    "ok": true,
-   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T17:35:18.477Z\",\"path\":\"/api/v1/admin/users\",\"method\":\"POST"
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:44:04.192Z\",\"path\":\"/api/v1/admin/users\",\"method\":\"POST"
   },
   {
    "id": "US-03",
    "title": "Create user - Invalid email -> 400",
    "ok": true,
-   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T17:35:18.519Z\",\"path\":\"/api/v1/admin/users\",\"method\":\"POST"
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:44:04.234Z\",\"path\":\"/api/v1/admin/users\",\"method\":\"POST"
   },
   {
    "id": "US-04",
    "title": "Create user - Invalid role value -> 400",
    "ok": true,
-   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T17:35:18.548Z\",\"path\":\"/api/v1/admin/users\",\"method\":\"POST"
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:44:04.269Z\",\"path\":\"/api/v1/admin/users\",\"method\":\"POST"
   },
   {
    "id": "US-05",
    "title": "Create user - Unknown extra field (forbidNonWhitelisted) -> 400",
    "ok": true,
-   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T17:35:18.578Z\",\"path\":\"/api/v1/admin/users\",\"method\":\"POST"
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:44:04.312Z\",\"path\":\"/api/v1/admin/users\",\"method\":\"POST"
   },
   {
    "id": "US-06",
    "title": "Create temp user succeeds",
    "ok": true,
-   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"id\":67,\"username\":\"QA_TMP_1792172118388\",\"email\":\"qa_tmp_1792172118388@ba"
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"id\":71,\"username\":\"QA_TMP_1793699044088\",\"email\":\"qa_tmp_1793699044088@ba"
   },
   {
    "id": "US-07",
    "title": "Create response does not echo password/hash",
    "ok": true,
-   "detail": "{\"id\":67,\"username\":\"QA_TMP_1792172118388\",\"email\":\"qa_tmp_1792172118388@bank.local\",\"firstName\":\"QA\",\"lastName\":\"Temp\",\"fullName\":\"QA Temp\",\"role\":\"data_operator\",\"permissions\":[\"read_member\",\"read_l"
+   "detail": "{\"id\":71,\"username\":\"QA_TMP_1793699044088\",\"email\":\"qa_tmp_1793699044088@bank.local\",\"firstName\":\"QA\",\"lastName\":\"Temp\",\"fullName\":\"QA Temp\",\"role\":\"data_operator\",\"permissions\":[\"read_member\",\"read_l"
   },
   {
    "id": "US-08",
@@ -56,8 +56,8 @@
   {
    "id": "US-09",
    "title": "Same username different case -> rejected (login names must stay unique)",
-   "ok": false,
-   "detail": "201"
+   "ok": true,
+   "detail": "409"
   },
   {
    "id": "US-10",

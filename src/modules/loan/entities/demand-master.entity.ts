@@ -95,7 +95,7 @@ export class DemandMaster {
   @Column({ name: 'shrbalance', type: 'numeric', precision: 18, scale: 2 })
   shrBalance: number;
 
-  @Column({ name: 'receipt_vchr_no', type: 'varchar', length: 6 })
+  @Column({ name: 'receipt_vchr_no', type: 'varchar', length: 20 })
   receiptVoucherNo: string;
 
   @Column({ name: 'dmnd_post_date', type: 'timestamp', nullable: true })

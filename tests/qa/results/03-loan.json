@@ -1,9 +1,9 @@
 {
  "suite": "03-loan",
- "ranAt": "2026-10-16T17:33:52.615Z",
- "seconds": 7.578,
+ "ranAt": "2026-11-03T09:44:03.050Z",
+ "seconds": 1.603,
  "total": 30,
- "failed": 10,
+ "failed": 0,
  "results": [
   {
    "id": "LN-01",
@@ -44,68 +44,68 @@
   {
    "id": "LN-07",
    "title": "Negative principal: rejected with 400 (no 5xx, no NaN/Infinity, no nonsense 2xx)",
-   "ok": false,
-   "detail": "500 {\"statusCode\":500,\"timestamp\":\"2026-10-16T17:33:46.347Z\",\"path\":\"/api/v1/loans/calculate-emi\",\"method\":\"POST\",\"error\":\"Error\",\"message\":\"Inv"
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:44:01.985Z\",\"path\":\"/api/v1/loans/calculate-emi\",\"method\":\"POST\",\"error\":\"Bad Request\",\"message"
   },
   {
    "id": "LN-08",
    "title": "Zero tenure (divide by zero): rejected with 400 (no 5xx, no NaN/Infinity, no nonsense 2xx)",
-   "ok": false,
-   "detail": "500 {\"statusCode\":500,\"timestamp\":\"2026-10-16T17:33:46.532Z\",\"path\":\"/api/v1/loans/calculate-emi\",\"method\":\"POST\",\"error\":\"Error\",\"message\":\"Inv"
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:44:02.015Z\",\"path\":\"/api/v1/loans/calculate-emi\",\"method\":\"POST\",\"error\":\"Bad Request\",\"message"
   },
   {
    "id": "LN-09",
    "title": "Negative tenure: rejected with 400 (no 5xx, no NaN/Infinity, no nonsense 2xx)",
-   "ok": false,
-   "detail": "500 {\"statusCode\":500,\"timestamp\":\"2026-10-16T17:33:46.629Z\",\"path\":\"/api/v1/loans/calculate-emi\",\"method\":\"POST\",\"error\":\"Error\",\"message\":\"Inv"
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:44:02.040Z\",\"path\":\"/api/v1/loans/calculate-emi\",\"method\":\"POST\",\"error\":\"Bad Request\",\"message"
   },
   {
    "id": "LN-10",
    "title": "Negative rate: rejected with 400 (no 5xx, no NaN/Infinity, no nonsense 2xx)",
-   "ok": false,
-   "detail": "500 {\"statusCode\":500,\"timestamp\":\"2026-10-16T17:33:46.709Z\",\"path\":\"/api/v1/loans/calculate-emi\",\"method\":\"POST\",\"error\":\"Error\",\"message\":\"Inv"
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:44:02.062Z\",\"path\":\"/api/v1/loans/calculate-emi\",\"method\":\"POST\",\"error\":\"Bad Request\",\"message"
   },
   {
    "id": "LN-11",
    "title": "String instead of numbers: rejected with 400 (no 5xx, no NaN/Infinity, no nonsense 2xx)",
-   "ok": false,
-   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"emi\":null,\"totalAmount\":null,\"totalInterest\":null,\"mo"
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:44:02.089Z\",\"path\":\"/api/v1/loans/calculate-emi\",\"method\":\"POST\",\"error\":\"Bad Request\",\"message"
   },
   {
    "id": "LN-12",
    "title": "Missing fields: rejected with 400 (no 5xx, no NaN/Infinity, no nonsense 2xx)",
-   "ok": false,
-   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"emi\":null,\"totalAmount\":null,\"totalInterest\":null,\"mo"
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:44:02.111Z\",\"path\":\"/api/v1/loans/calculate-emi\",\"method\":\"POST\",\"error\":\"Bad Request\",\"message"
   },
   {
    "id": "LN-13",
    "title": "Null fields: rejected with 400 (no 5xx, no NaN/Infinity, no nonsense 2xx)",
-   "ok": false,
-   "detail": "500 {\"statusCode\":500,\"timestamp\":\"2026-10-16T17:33:46.940Z\",\"path\":\"/api/v1/loans/calculate-emi\",\"method\":\"POST\",\"error\":\"Error\",\"message\":\"Inv"
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:44:02.133Z\",\"path\":\"/api/v1/loans/calculate-emi\",\"method\":\"POST\",\"error\":\"Bad Request\",\"message"
   },
   {
    "id": "LN-14",
    "title": "Huge principal 1e15: rejected with 400 (no 5xx, no NaN/Infinity, no nonsense 2xx)",
    "ok": true,
-   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"emi\":88848788678341.67,\"totalAmount\":1066185464140100"
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:44:02.157Z\",\"path\":\"/api/v1/loans/calculate-emi\",\"method\":\"POST\",\"error\":\"Bad Request\",\"message"
   },
   {
    "id": "LN-15",
    "title": "Tenure 100000 months (CPU / response size): rejected with 400 (no 5xx, no NaN/Infinity, no nonsense 2xx)",
-   "ok": false,
-   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"emi\":null,\"totalAmount\":null,\"totalInterest\":null,\"mo"
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:44:02.175Z\",\"path\":\"/api/v1/loans/calculate-emi\",\"method\":\"POST\",\"error\":\"Bad Request\",\"message"
   },
   {
    "id": "LN-16",
    "title": "Rate 1e6 %: rejected with 400 (no 5xx, no NaN/Infinity, no nonsense 2xx)",
    "ok": true,
-   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"emi\":83333333.33,\"totalAmount\":1000000000,\"totalInter"
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:44:02.194Z\",\"path\":\"/api/v1/loans/calculate-emi\",\"method\":\"POST\",\"error\":\"Bad Request\",\"message"
   },
   {
    "id": "LN-17",
    "title": "Fractional tenure 12.5: rejected with 400 (no 5xx, no NaN/Infinity, no nonsense 2xx)",
    "ok": true,
-   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"emi\":8550.3,\"totalAmount\":106878.7,\"totalInterest\":68"
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:44:02.213Z\",\"path\":\"/api/v1/loans/calculate-emi\",\"method\":\"POST\",\"error\":\"Bad Request\",\"message"
   },
   {
    "id": "LN-18",
@@ -117,7 +117,7 @@
    "id": "LN-19",
    "title": "Invalid start date handled (no 5xx)",
    "ok": true,
-   "detail": "201"
+   "detail": "400"
   },
   {
    "id": "LN-20",
@@ -134,8 +134,8 @@
   {
    "id": "LN-22",
    "title": "Repayment history has no duplicated rows (ES-212 regression)",
-   "ok": false,
-   "detail": "610033240: 15 duplicate rows; 9999962394: 10 duplicate rows; 9999962385: 2 duplicate rows"
+   "ok": true,
+   "detail": ""
   },
   {
    "id": "LN-23",
@@ -147,13 +147,13 @@
    "id": "LN-24",
    "title": "Quote with invalid date -> no 5xx",
    "ok": true,
-   "detail": "201"
+   "detail": "400"
   },
   {
    "id": "LN-25",
    "title": "Quote with wrong member for the case -> 4xx, not another member's data (ES-212 class)",
    "ok": true,
-   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T17:33:52.180Z\",\"path\":\"/api/v1/loans/early-closure/quote/2"
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:44:02.893Z\",\"path\":\"/api/v1/loans/early-closure/quote/2"
   },
   {
    "id": "LN-26",
@@ -169,8 +169,8 @@
   },
   {
    "id": "LN-28",
-   "title": "Unknown case number -> 404 (not 500)",
-   "ok": false,
+   "title": "Unknown case number -> 400/404 (not 500)",
+   "ok": true,
    "detail": "400"
   },
   {

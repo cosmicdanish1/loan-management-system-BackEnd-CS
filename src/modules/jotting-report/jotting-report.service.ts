@@ -120,11 +120,14 @@ export class JottingReportService {
           COALESCE(
             (SELECT SUM(
               CASE 
-                WHEN l.trans_type = 'CR' THEN l.trans_amt::numeric
-                WHEN l.trans_type = 'DR' THEN -l.trans_amt::numeric
+                WHEN l.trans_type IN ('CR', 'R') THEN l.trans_amt::numeric
+                WHEN l.trans_type IN ('DR', 'P') THEN -l.trans_amt::numeric
                 ELSE 0
               END
-            ) 
+            )
+            -- the head's own normal direction: an asset/expense head (pflag A or E, e.g. a loan) is debit-normal,
+            -- so a member who owes 5,000 shows +5,000; liability/income/reserve heads keep credits positive
+            * (CASE WHEN COALESCE((SELECT UPPER(TRIM(h.pflag)) FROM headmaster h WHERE h.code = $1 LIMIT 1), '') IN ('A', 'E') THEN -1 ELSE 1 END)
             FROM ledger l 
             WHERE l.mbno = mm.mbno 
             AND l.code = $1

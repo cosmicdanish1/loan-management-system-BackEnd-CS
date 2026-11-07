@@ -1,0 +1,237 @@
+{
+ "suite": "15-rd",
+ "ranAt": "2026-11-03T09:49:43.211Z",
+ "seconds": 1.779,
+ "total": 38,
+ "failed": 3,
+ "results": [
+  {
+   "id": "RD-00",
+   "title": "QA member created",
+   "ok": true,
+   "detail": "9999962647"
+  },
+  {
+   "id": "RD-01",
+   "title": "RD config with zero monthly amount: refused (4xx)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:41.972Z\",\"path\":\"/api/v1/rd/member-config/9999962647"
+  },
+  {
+   "id": "RD-02",
+   "title": "RD config with negative monthly amount: refused (4xx)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:42.000Z\",\"path\":\"/api/v1/rd/member-config/9999962647"
+  },
+  {
+   "id": "RD-03",
+   "title": "RD config with text amount: refused (4xx)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:42.024Z\",\"path\":\"/api/v1/rd/member-config/9999962647"
+  },
+  {
+   "id": "RD-04",
+   "title": "RD config with absurd amount 1e12: refused (4xx)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:42.046Z\",\"path\":\"/api/v1/rd/member-config/9999962647"
+  },
+  {
+   "id": "RD-05",
+   "title": "RD config with missing amount: refused (4xx)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:42.069Z\",\"path\":\"/api/v1/rd/member-config/9999962647"
+  },
+  {
+   "id": "RD-06",
+   "title": "RD config for a member that does not exist -> 404/400",
+   "ok": true,
+   "detail": "404 {\"statusCode\":404,\"timestamp\":\"2026-11-03T09:49:42.087Z\",\"path\":\"/api/v1/rd/member-config/1999999999"
+  },
+  {
+   "id": "RD-07",
+   "title": "RD config for a financial year that does not exist -> 404/400",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:42.109Z\",\"path\":\"/api/v1/rd/member-config/9999962647"
+  },
+  {
+   "id": "RD-08",
+   "title": "Valid RD config 500/month saved",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"message\":\"Monthly RD amount saved.\"},\"timestamp\":\"202"
+  },
+  {
+   "id": "RD-09",
+   "title": "Current config returns 500",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"monthlyRdAmount\":500},\"timestamp\""
+  },
+  {
+   "id": "RD-10",
+   "title": "Changing the amount keeps the old value in history (2 entries)",
+   "ok": true,
+   "detail": "201; history {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":[{\"id\":61,\"monthlyRdAmount\":500,\"effectiveFromDate\":\"2026-11-02T18:30:00.00"
+  },
+  {
+   "id": "RD-11",
+   "title": "Pending installments load",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":[{\"installmentMonth\":4,\"installmentYear\":2026,\"dueDate\":\"2026-04-05\",\"expec"
+  },
+  {
+   "id": "RD-12",
+   "title": "RD payment with amount 0: refused (4xx), nothing posted",
+   "ok": true,
+   "detail": "400; rows 0 -> 0; {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:42.248Z\",\"path\":\"/api/v1/rd/repayment/9999"
+  },
+  {
+   "id": "RD-13",
+   "title": "RD payment with negative amount: refused (4xx), nothing posted",
+   "ok": true,
+   "detail": "400; rows 0 -> 0; {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:42.266Z\",\"path\":\"/api/v1/rd/repayment/9999"
+  },
+  {
+   "id": "RD-14",
+   "title": "RD payment with month 13: refused (4xx), nothing posted",
+   "ok": true,
+   "detail": "400; rows 0 -> 0; {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:42.289Z\",\"path\":\"/api/v1/rd/repayment/9999"
+  },
+  {
+   "id": "RD-15",
+   "title": "RD payment with month 0: refused (4xx), nothing posted",
+   "ok": true,
+   "detail": "400; rows 0 -> 0; {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:42.310Z\",\"path\":\"/api/v1/rd/repayment/9999"
+  },
+  {
+   "id": "RD-16",
+   "title": "RD payment with year 1900: refused (4xx), nothing posted",
+   "ok": true,
+   "detail": "400; rows 0 -> 0; {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:42.330Z\",\"path\":\"/api/v1/rd/repayment/9999"
+  },
+  {
+   "id": "RD-17",
+   "title": "RD payment with text amount: refused (4xx), nothing posted",
+   "ok": true,
+   "detail": "400; rows 0 -> 0; {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:42.353Z\",\"path\":\"/api/v1/rd/repayment/9999"
+  },
+  {
+   "id": "RD-18",
+   "title": "RD payment Oct 2026 amount 700 (current config) saved",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"installmentMonth\":10,\"installmentYear\":2026,\"dueDate\":\"2026-10-05\",\"expectedAmount\":700,\"paid"
+  },
+  {
+   "id": "RD-19",
+   "title": "Payment posted a ledger credit of 700 on L1004",
+   "ok": false,
+   "detail": "0 -> 0"
+  },
+  {
+   "id": "RD-20",
+   "title": "Paying the same installment month twice is refused (no double posting)",
+   "ok": false,
+   "detail": "201; ledger 0 -> 0; {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"installmentMo"
+  },
+  {
+   "id": "RD-21",
+   "title": "3 simultaneous payments of the same installment: exactly one is applied (ok=3)",
+   "ok": false,
+   "detail": "statuses 201,201,201; ledger 0 -> 0"
+  },
+  {
+   "id": "RD-22",
+   "title": "Part payment (100 against 700) handled: accepted as part or refused with a reason (no 5xx)",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"installmentMonth\":12,\"installmentYear\":2026,\"dueDate\""
+  },
+  {
+   "id": "RD-23",
+   "title": "Payment of 100x the monthly amount is refused or capped (no silent acceptance of 70,000)",
+   "ok": true,
+   "detail": "400"
+  },
+  {
+   "id": "RD-24",
+   "title": "RD balance loads",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"balance\":0,\"totalHoldings\":1500,\"maxWithdrawable\":500,\"lockedAmount\":0},\""
+  },
+  {
+   "id": "RD-25",
+   "title": "RD timeline loads and has the payments",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":[],\"timestamp\":"
+  },
+  {
+   "id": "RD-26",
+   "title": "RD withdrawal of zero: refused (4xx), nothing posted",
+   "ok": true,
+   "detail": "400; rows 0 -> 0; {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:42.568Z\",\"path\":\"/api/v1/rd/balance/999996"
+  },
+  {
+   "id": "RD-27",
+   "title": "RD withdrawal of negative: refused (4xx), nothing posted",
+   "ok": true,
+   "detail": "400; rows 0 -> 0; {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:42.583Z\",\"path\":\"/api/v1/rd/balance/999996"
+  },
+  {
+   "id": "RD-28",
+   "title": "RD withdrawal of text: refused (4xx), nothing posted",
+   "ok": true,
+   "detail": "400; rows 0 -> 0; {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:42.599Z\",\"path\":\"/api/v1/rd/balance/999996"
+  },
+  {
+   "id": "RD-29",
+   "title": "RD withdrawal of more than the RD balance (1e9): refused (4xx), nothing posted",
+   "ok": true,
+   "detail": "400; rows 0 -> 0; {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:42.624Z\",\"path\":\"/api/v1/rd/balance/999996"
+  },
+  {
+   "id": "RD-30",
+   "title": "Valid withdrawal of 200 accepted",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"message\":\"Withdrawal recorded (₹200 from paid install"
+  },
+  {
+   "id": "RD-31",
+   "title": "Parallel withdrawals never push the RD balance below zero",
+   "ok": true,
+   "detail": "201,201,201; {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"balance\":0,\"totalHoldings\":400,\"maxWithdrawable\":0,\"lockedAmount\":0},\"tim"
+  },
+  {
+   "id": "RD-32",
+   "title": "RD interest preview for the QA member does not 5xx",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"fullInterestEligible\":false,\"installmentInterest\":{\"fullInterestEligible\""
+  },
+  {
+   "id": "RD-33",
+   "title": "RD closing preview for the QA member does not 5xx",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"mbno\":\"9999962647\",\"patternEvaluation\":{\"totalDue\":3,\"totalPaidOnTime\":1,"
+  },
+  {
+   "id": "RD-34",
+   "title": "Closing the QA member RD: done or refused with a reason (4xx), never 5xx",
+   "ok": true,
+   "detail": "201"
+  },
+  {
+   "id": "RD-35",
+   "title": "Closing the same RD twice is refused",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:43.102Z\",\"path\":\"/api/v1/rd/closing/9999962647/1/clo"
+  },
+  {
+   "id": "RD-36",
+   "title": "Payment after the RD is closed is refused",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:43.118Z\",\"path\":\"/api/v1/rd/repayment/9999962647/1\","
+  },
+  {
+   "id": "RD-37",
+   "title": "Bulk closing preview (read-only) loads quickly (< 10 s)",
+   "ok": true,
+   "detail": "200 82ms"
+  }
+ ]
+}

@@ -1,0 +1,321 @@
+{
+ "suite": "26-report-sweep",
+ "ranAt": "2026-11-03T09:51:46.725Z",
+ "seconds": 10.478,
+ "total": 52,
+ "failed": 8,
+ "results": [
+  {
+   "id": "RS-_reports_heads",
+   "title": "GET /reports/heads: 200 in 18 ms, 154 rows",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":[{\"code\":\"A1019\",\"name\":\" FFD BANK OF BARODA\"},{\"code\":\"A1021\",\"n"
+  },
+  {
+   "id": "RS-_reports_banks",
+   "title": "GET /reports/banks: 200 in 17 ms, 27 rows",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":[{\"code\":\"A1019\",\"name\":\" FFD BANK OF BARODA\"},{\"code\":\"A1016\",\"n"
+  },
+  {
+   "id": "RS-_reports_member_profile_610022986",
+   "title": "GET /reports/member/profile/610022986: 200 in 21 ms",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"memberNo\":\"610022986\",\"fullName\":\"KRISHNA NAND RAY\",\"officeName"
+  },
+  {
+   "id": "RS-_reports_voters_list",
+   "title": "GET /reports/voters-list: 200 in 74 ms, 20 rows",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"metadata\":{\"totalCount\":7567,\"limit\":\"20\",\"offse"
+  },
+  {
+   "id": "RS-_reports_member_balance_range",
+   "title": "GET /reports/member-balance-range: 200 in 40 ms, 0 rows",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":[],\"timestamp\":\"2026-11-03T09:51:36.688Z\"}"
+  },
+  {
+   "id": "RS-_reports_member_ledger",
+   "title": "GET /reports/member-ledger: 200 in 15 ms, 0 rows",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":[],\"timestamp\":\"2026-11-03T09:51:36.705Z\"}"
+  },
+  {
+   "id": "RS-_reports_annual_member_statement",
+   "title": "GET /reports/annual-member-statement: 200 in 11 ms",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"reportData\":[],\"societyName\":\"Espat Karmchari Co-Operative Cred"
+  },
+  {
+   "id": "RS-_reports_yearly_member_statement",
+   "title": "GET /reports/yearly-member-statement: 200 in 20 ms, 1 rows",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"data\":[{\"key\":\"0\",\"memberNo\":610022986,\"memberName\":\"Mr KRISHNA"
+  },
+  {
+   "id": "RS-_reports_member_610022986_loan_cases",
+   "title": "GET /reports/member/610022986/loan-cases: 200 in 17 ms, 13 rows",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":[{\"loanCaseNo\":\"17739\",\"loanType\":\"ALN\",\"loanAmount\":300000,\"disb"
+  },
+  {
+   "id": "RS-_reports_member_loan_detail",
+   "title": "GET /reports/member-loan-detail: 200 in 107 ms, 1 rows",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"metadata\":{\"totalCount\":1,\"limit\":1,\"offset\":0},\"data\":[{\"key\":"
+  },
+  {
+   "id": "RS-_reports_loan_contributions_register",
+   "title": "GET /reports/loan-contributions-register: 200 in 29 ms",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"memberNo\":\"610022986\",\"memberName\":\"KRISHNA RAY\",\"address\":\"QR."
+  },
+  {
+   "id": "RS-_reports_surety_register",
+   "title": "GET /reports/surety-register: 200 in 284 ms, 12 rows",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":[{\"key\":\"00\",\"mbno\":\"610022986\",\"memberName\":\"KRISHNA RAY\",\"loanN"
+  },
+  {
+   "id": "RS-_reports_loan_types",
+   "title": "GET /reports/loan-types: 200 in 19 ms, 3 rows",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":[{\"code\":\"ALN\",\"name\":\"Emergency Loan\"},{\"code\":\"ELN\",\"name\":\"Loa"
+  },
+  {
+   "id": "RS-_reports_loan_nil_certificate_610022986",
+   "title": "GET /reports/loan-nil-certificate/610022986: 400 in 14 ms",
+   "ok": false,
+   "detail": "400 with realistic params: {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:51:37.209Z\",\"path\":\"/api/v1/reports {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:51:37.209Z\",\"path\":\"/api/v1/reports/loan-nil-certificate/610022986\",\"method\":\"GET\",\"error\":\"Database Erro"
+  },
+  {
+   "id": "RS-_reports_dividend_report",
+   "title": "GET /reports/dividend-report: 400 in 9 ms",
+   "ok": false,
+   "detail": "400 with realistic params: {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:51:37.219Z\",\"path\":\"/api/v1/reports {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:51:37.219Z\",\"path\":\"/api/v1/reports/dividend-report?year=2026&financialYear=2026-2027&wingName=BHILAI&off"
+  },
+  {
+   "id": "RS-_reports_dividend_paid",
+   "title": "GET /reports/dividend-paid: 200 in 14 ms, 0 rows",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"metadata\":{\"totalCount\":0,\"limit\":\"20\",\"offset\":\"0\"},\"data\":[]}"
+  },
+  {
+   "id": "RS-_reports_dividend_warrant",
+   "title": "GET /reports/dividend-warrant: 400 in 12 ms",
+   "ok": false,
+   "detail": "400 with realistic params: {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:51:37.243Z\",\"path\":\"/api/v1/reports {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:51:37.243Z\",\"path\":\"/api/v1/reports/dividend-warrant?wingName=BHILAI&officeName=BHILAI&fromDate=2026-09-0"
+  },
+  {
+   "id": "RS-_reports_interest_list",
+   "title": "GET /reports/interest-list: 400 in 19 ms",
+   "ok": false,
+   "detail": "400 with realistic params: {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:51:37.261Z\",\"path\":\"/api/v1/reports {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:51:37.261Z\",\"path\":\"/api/v1/reports/interest-list?financialYear=2026-2027&wingName=BHILAI&accountType=RD&"
+  },
+  {
+   "id": "RS-_reports_share_warrant",
+   "title": "GET /reports/share-warrant: 200 in 28 ms, 1 rows",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":[{\"key\":\"0\",\"srno\":\"1\",\"mbno\":610022986,\"memberName\":\"Mr KRISHNA "
+  },
+  {
+   "id": "RS-_reports_share_certificate",
+   "title": "GET /reports/share-certificate: 200 in 12 ms",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"memberNo\":\"610022986\",\"memberName\":\"KRISHNA NAND RAY\",\"address\""
+  },
+  {
+   "id": "RS-_reports_recurring_details",
+   "title": "GET /reports/recurring-details: 200 in 25 ms, 0 rows",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":[],\"timestamp\":\"2026-11-03T09:51:37.328Z\"}"
+  },
+  {
+   "id": "RS-_reports_lien_account_information",
+   "title": "GET /reports/lien-account-information: 200 in 21 ms, 7 rows",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":[{\"key\":\"0\",\"memberNo\":\"610033240\",\"memberName\":\"SUNIL KUMAR\",\"ad"
+  },
+  {
+   "id": "RS-_reports_passbook_printing",
+   "title": "GET /reports/passbook-printing: 200 in 332 ms",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"memberDetails\":{\"memberNo\":\"610022986\",\"memberName\":\"KRISHNA NA"
+  },
+  {
+   "id": "RS-_reports_balance_sheet",
+   "title": "GET /reports/balance-sheet: 200 in 980 ms",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"data\":{\"liabilities\":[{\"headCode\":\"L1001\",\"headN"
+  },
+  {
+   "id": "RS-_reports_wings",
+   "title": "GET /reports/wings: 200 in 7 ms, 1 rows",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":[{\"wingNo\":\"1\",\"name\":\"RISALI\"}],\"timestamp\":\"2026-11-03T09:51:38"
+  },
+  {
+   "id": "RS-_reports_offices",
+   "title": "GET /reports/offices: 200 in 6 ms, 6 rows",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":[{\"officeNo\":1,\"wingNo\":\"1\",\"name\":\"BHILAI\"},{\"officeNo\":5,\"wingN"
+  },
+  {
+   "id": "RS-_reports_divisions",
+   "title": "GET /reports/divisions: 200 in 7 ms, 6 rows",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":[{\"officeNo\":1,\"wingNo\":\"1\",\"name\":\"BHILAI\"},{\"officeNo\":5,\"wingN"
+  },
+  {
+   "id": "RS-_reports_financial_summary",
+   "title": "GET /reports/financial-summary: 400 in 8 ms",
+   "ok": false,
+   "detail": "400 with realistic params: {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:51:38.692Z\",\"path\":\"/api/v1/reports {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:51:38.692Z\",\"path\":\"/api/v1/reports/financial-summary\",\"method\":\"GET\",\"error\":\"Bad Request\",\"message\":[\"f"
+  },
+  {
+   "id": "RS-_reports_account_closing",
+   "title": "GET /reports/account-closing: 400 in 8 ms",
+   "ok": false,
+   "detail": "400 with realistic params: {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:51:38.700Z\",\"path\":\"/api/v1/reports {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:51:38.700Z\",\"path\":\"/api/v1/reports/account-closing?month=SEP&year=2026&accountType=RD\",\"method\":\"GET\",\"e"
+  },
+  {
+   "id": "RS-_reports_recovery_details",
+   "title": "GET /reports/recovery-details: 404 in 75 ms",
+   "ok": true,
+   "detail": " {\"statusCode\":404,\"timestamp\":\"2026-11-03T09:51:38.776Z\",\"path\":\"/api/v1/reports/recovery-details?memberNo=610022986&month=SEP&year=2026\",\"method\":\"GE"
+  },
+  {
+   "id": "RS-_reports_adhoc_reports",
+   "title": "GET /reports/adhoc-reports: 400 in 7 ms",
+   "ok": false,
+   "detail": "400 with realistic params: {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:51:38.783Z\",\"path\":\"/api/v1/reports {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:51:38.783Z\",\"path\":\"/api/v1/reports/adhoc-reports?fromDate=2026-09-01&toDate=2026-09-30\",\"method\":\"GET\",\""
+  },
+  {
+   "id": "RS-_print_voucher_list_all",
+   "title": "GET /print-voucher/list/all: 200 in 14 ms, 176 rows",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":[\"VCH410\",\"VCH389\",\"VCH375\",\"VCH372\",\"VCH370\",\"VCH364\",\"VCH362\",\""
+  },
+  {
+   "id": "RS-_print_voucher_list_by_date",
+   "title": "GET /print-voucher/list/by-date: 200 in 10 ms, 176 rows",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":[{\"voucher_no\":\"VCH372\",\"voucher_date\":\"2026-10-17\"},{\"voucher_no"
+  },
+  {
+   "id": "RS-_print_voucher_journal_list_all",
+   "title": "GET /print-voucher/journal/list/all: 200 in 797 ms, 29771 rows",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":[\"VCH423\",\"VCH422\",\"VCH402\",\"VCH401\",\"VCH387\",\"VCH359\",\"VCH357\",\""
+  },
+  {
+   "id": "RS-_print_voucher_journal_list_by_date",
+   "title": "GET /print-voucher/journal/list/by-date: 200 in 3619 ms, 29806 rows",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":[{\"voucher_no\":\"VCH423\",\"voucher_date\":\"2026-11-02\"},{\"voucher_no"
+  },
+  {
+   "id": "RS-_member_ledger_head_masters",
+   "title": "GET /member-ledger/head-masters: 200 in 24 ms, 154 rows",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":[{\"code\":\"\",\"headName\":\"x\"},{\"code\":\"A1000\",\"headName\":\"ASSET\"},{"
+  },
+  {
+   "id": "RS-_member_ledger_validate_member",
+   "title": "GET /member-ledger/validate-member: 200 in 12 ms",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"exists\":true,\"memberName\":\"KRISHNA NAND RAY\",\"memberNumber\":\"61"
+  },
+  {
+   "id": "RS-_member_ledger_member_context",
+   "title": "GET /member-ledger/member-context: 200 in 1214 ms",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"exists\":true,\"memberName\":\"KRISHNA NAND RAY\",\"memberNumber\":\"61"
+  },
+  {
+   "id": "RS-_member_ledger_detail_columnar",
+   "title": "GET /member-ledger/detail-columnar: 200 in 463 ms, 0 rows",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"memberNumber\":\"610022986\",\"memberName\":\"KRISHNA NAND RAY\",\"from"
+  },
+  {
+   "id": "RS-_daybook_report_sb",
+   "title": "GET /daybook/report/sb: 200 in 878 ms",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"data\":{\"date\":\"2026-09-16\",\"openingBalance\":1750"
+  },
+  {
+   "id": "RS-_daybook_active_members",
+   "title": "GET /daybook/active-members: 200 in 126 ms, 7472 rows",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":[{\"memberCode\":\"30001358\",\"memberName\":\"HIMMAT SINGH\",\"status\":\"Y"
+  },
+  {
+   "id": "RS-_daybook_interest_rate",
+   "title": "GET /daybook/interest-rate: 200 in 16 ms",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"data\":{\"rate\":4},\"message\":\"Current interest rat"
+  },
+  {
+   "id": "RS-_cashbook_members_active",
+   "title": "GET /cashbook/members/active: 200 in 89 ms, 7472 rows",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"data\":[{\"mbno\":\"30001358\",\"f_name\":\"HIMMAT\",\"m_n"
+  },
+  {
+   "id": "RS-_cashbook_interest_rate",
+   "title": "GET /cashbook/interest-rate: 200 in 11 ms",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"data\":{\"rate\":4},\"message\":\"Interest rate fetche"
+  },
+  {
+   "id": "RS-_cashbook_member_balance",
+   "title": "GET /cashbook/member/balance: 200 in 9 ms",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"data\":{\"balance\":532218},\"message\":\"Member balan"
+  },
+  {
+   "id": "RS-_cashbook_transactions",
+   "title": "GET /cashbook/transactions: 200 in 12 ms, 54 rows",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"data\":[{\"trans_no\":127,\"trans_date\":\"2026-09-21T"
+  },
+  {
+   "id": "RS-_general_ledger_head_masters",
+   "title": "GET /general-ledger/head-masters: 200 in 11 ms, 154 rows",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"data\":[{\"code\":\"\",\"headName\":\"x\",\"headType\":null"
+  },
+  {
+   "id": "RS-_jotting_report",
+   "title": "GET /jotting-report: 200 in 63 ms, 7474 rows",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":[{\"memberNo\":\"30001358\",\"memberName\":\"Mr HIMMAT SINGH\",\"wing\":\"BH"
+  },
+  {
+   "id": "RS-_consolidation_report",
+   "title": "GET /consolidation/report: 400 in 16 ms",
+   "ok": false,
+   "detail": "400 with realistic params: {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:51:46.445Z\",\"path\":\"/api/v1/consoli {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:51:46.445Z\",\"path\":\"/api/v1/consolidation/report\",\"method\":\"GET\",\"error\":\"Bad Request\",\"message\":[\"date m"
+  },
+  {
+   "id": "RS-_report_head_order",
+   "title": "GET /report-head-order: 200 in 27 ms, 153 rows",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"data\":[{\"code\":\"A1001\",\"headName\":\"CASH IN HAND-"
+  },
+  {
+   "id": "RS-_dashboard_summary",
+   "title": "GET /dashboard-summary: 200 in 190 ms",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"deposits\":{\"fixedRecurring\":{\"count\":4,\"amount\":100551},\"saving"
+  },
+  {
+   "id": "RS-_utilities_search_deposits",
+   "title": "GET /utilities/search/deposits: 200 in 55 ms, 0 rows",
+   "ok": true,
+   "detail": " {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"data\":[],\"total\":0,\"page\":1,\"limit\":10,\"totalPages\":0},\"timesta"
+  }
+ ]
+}

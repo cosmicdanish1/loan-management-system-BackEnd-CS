@@ -25,7 +25,7 @@ const crypto = require('crypto');
 const cp = require('child_process');
 const { parseEnv } = require('./env-file');
 
-const SWAP_ITEMS = ['dist', 'node_modules', 'package.json', 'package-lock.json', 'migrations', 'scripts'];
+const SWAP_ITEMS = ['dist', 'node_modules', 'package.json', 'package-lock.json', 'migrations', 'scripts', 'assets'];
 const KEEP_ROLLBACKS = 2;
 const KEEP_DUMPS = 5;
 const HEALTH_TIMEOUT_MS = 120 * 1000;

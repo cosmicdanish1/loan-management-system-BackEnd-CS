@@ -97,7 +97,10 @@ export class SaakhScoreService {
       const loanAmt = parseFloat(r.loan_amt) || 0;
       const balance = parseFloat(r.balance) || 0;
       const openbalance = parseFloat(r.openbalance) || loanAmt;
-      const repaidPct = openbalance > 0 ? Math.round(((openbalance - balance) / openbalance) * 100) : 100;
+      // Kept between 0 and 100 (ES-404): a balance above the opening balance (penalty / interest added) used to give a
+      // negative percentage that dragged the average repayment score down, and a negative balance gave more than 100.
+      const rawPct = openbalance > 0 ? Math.round(((openbalance - balance) / openbalance) * 100) : 100;
+      const repaidPct = Math.min(100, Math.max(0, rawPct));
       return {
         loancaseno: r.loancaseno,
         loantype: r.loantype || 'LOAN',

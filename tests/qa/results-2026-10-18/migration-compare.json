@@ -1,0 +1,3516 @@
+{
+ "summary": {
+  "Nothing to migrate": 36,
+  "Not migrated (scratch/backup)": 29,
+  "Migrated, equal": 60,
+  "Not migrated (review)": 41,
+  "Migrated, differs": 28,
+  "Empty in legacy": 7
+ },
+ "tableRows": [
+  {
+   "Legacy table": "_BANKOPBAL",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "_FDMASTER",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "_Fundsmaster_02Jan2020",
+   "New (Postgres) table": "",
+   "Legacy rows": 6780,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - scratch/backup/report-temp copy (migration not needed, confirm)"
+  },
+  {
+   "Legacy table": "_LED",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "_LEDGER",
+   "New (Postgres) table": "",
+   "Legacy rows": 9462,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - scratch/backup/report-temp copy (migration not needed, confirm)"
+  },
+  {
+   "Legacy table": "_LEDGER_07032025",
+   "New (Postgres) table": "",
+   "Legacy rows": 4,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - scratch/backup/report-temp copy (migration not needed, confirm)"
+  },
+  {
+   "Legacy table": "_LEDGER_20012023",
+   "New (Postgres) table": "",
+   "Legacy rows": 3,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - scratch/backup/report-temp copy (migration not needed, confirm)"
+  },
+  {
+   "Legacy table": "_LEDGER_20072023",
+   "New (Postgres) table": "",
+   "Legacy rows": 972902,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - scratch/backup/report-temp copy (migration not needed, confirm)"
+  },
+  {
+   "Legacy table": "_LEDGER_29032025",
+   "New (Postgres) table": "",
+   "Legacy rows": 8,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - scratch/backup/report-temp copy (migration not needed, confirm)"
+  },
+  {
+   "Legacy table": "_LEDGER_610026281",
+   "New (Postgres) table": "",
+   "Legacy rows": 224,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - scratch/backup/report-temp copy (migration not needed, confirm)"
+  },
+  {
+   "Legacy table": "_LEDGER_610031315",
+   "New (Postgres) table": "",
+   "Legacy rows": 222,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - scratch/backup/report-temp copy (migration not needed, confirm)"
+  },
+  {
+   "Legacy table": "_temp_demandfromexcel",
+   "New (Postgres) table": "",
+   "Legacy rows": 2576,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - scratch/backup/report-temp copy (migration not needed, confirm)"
+  },
+  {
+   "Legacy table": "A",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "abc",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "ABCD",
+   "New (Postgres) table": "",
+   "Legacy rows": 7,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - scratch/backup/report-temp copy (migration not needed, confirm)"
+  },
+  {
+   "Legacy table": "ACCCESS_RECOVERY",
+   "New (Postgres) table": "acccess_recovery",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "ACCCESS_RECOVERY_Feb2018",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "AccountBalance",
+   "New (Postgres) table": "accountbalance",
+   "Legacy rows": 146,
+   "New rows": 0,
+   "Difference (new - legacy)": -146,
+   "Difference %": -100,
+   "Status": "NOT MIGRATED - new table is empty"
+  },
+  {
+   "Legacy table": "AKOLA_NATIONAL",
+   "New (Postgres) table": "akola_national",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "AKOLA_UNITED",
+   "New (Postgres) table": "akola_united",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "AMRAVATI_UNITED",
+   "New (Postgres) table": "amravati_united",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "AnnualStatement",
+   "New (Postgres) table": "annualstatement",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "AURANGABAD_UNITD",
+   "New (Postgres) table": "aurangabad_unitd",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "BALANCESHEET",
+   "New (Postgres) table": "balancesheet",
+   "Legacy rows": 151,
+   "New rows": 141,
+   "Difference (new - legacy)": -10,
+   "Difference %": -6.62,
+   "Status": "DIFFERS - new has FEWER rows"
+  },
+  {
+   "Legacy table": "BalSheet",
+   "New (Postgres) table": "balsheet",
+   "Legacy rows": 151,
+   "New rows": 0,
+   "Difference (new - legacy)": -151,
+   "Difference %": -100,
+   "Status": "NOT MIGRATED - new table is empty"
+  },
+  {
+   "Legacy table": "BANK_CHEQ_MASTER",
+   "New (Postgres) table": "bank_cheq_master",
+   "Legacy rows": 21129,
+   "New rows": 20988,
+   "Difference (new - legacy)": -141,
+   "Difference %": -0.67,
+   "Status": "DIFFERS - new has FEWER rows"
+  },
+  {
+   "Legacy table": "BANK_PASSBOOK",
+   "New (Postgres) table": "bank_passbook",
+   "Legacy rows": 1932,
+   "New rows": 0,
+   "Difference (new - legacy)": -1932,
+   "Difference %": -100,
+   "Status": "NOT MIGRATED - new table is empty"
+  },
+  {
+   "Legacy table": "BANK_PASSBOOK_",
+   "New (Postgres) table": "",
+   "Legacy rows": 1,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - no matching table in new system (review)"
+  },
+  {
+   "Legacy table": "Bank_PassBook_Bank_Setting",
+   "New (Postgres) table": "bank_passbook_bank_setting",
+   "Legacy rows": 2,
+   "New rows": 0,
+   "Difference (new - legacy)": -2,
+   "Difference %": -100,
+   "Status": "NOT MIGRATED - new table is empty"
+  },
+  {
+   "Legacy table": "Bank_PassBook_Detail_Page",
+   "New (Postgres) table": "bank_passbook_detail_page",
+   "Legacy rows": 19,
+   "New rows": 0,
+   "Difference (new - legacy)": -19,
+   "Difference %": -100,
+   "Status": "NOT MIGRATED - new table is empty"
+  },
+  {
+   "Legacy table": "Bank_PassBook_First_Page",
+   "New (Postgres) table": "bank_passbook_first_page",
+   "Legacy rows": 8,
+   "New rows": 0,
+   "Difference (new - legacy)": -8,
+   "Difference %": -100,
+   "Status": "NOT MIGRATED - new table is empty"
+  },
+  {
+   "Legacy table": "BANK_PASSBOOK_FULL",
+   "New (Postgres) table": "bank_passbook_full",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "Bank_PassBook_Page_Setting",
+   "New (Postgres) table": "bank_passbook_page_setting",
+   "Legacy rows": 2,
+   "New rows": 2,
+   "Difference (new - legacy)": 0,
+   "Difference %": 0,
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "Bank_PassBookSetting",
+   "New (Postgres) table": "bank_passbooksetting",
+   "Legacy rows": 1,
+   "New rows": 0,
+   "Difference (new - legacy)": -1,
+   "Difference %": -100,
+   "Status": "NOT MIGRATED - new table is empty"
+  },
+  {
+   "Legacy table": "Bank_Signature",
+   "New (Postgres) table": "bank_signature",
+   "Legacy rows": 55,
+   "New rows": 0,
+   "Difference (new - legacy)": -55,
+   "Difference %": -100,
+   "Status": "NOT MIGRATED - new table is empty"
+  },
+  {
+   "Legacy table": "BANKMAS",
+   "New (Postgres) table": "bankmas",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "BANKOPBAL",
+   "New (Postgres) table": "bankopbal",
+   "Legacy rows": 130,
+   "New rows": 151,
+   "Difference (new - legacy)": 21,
+   "Difference %": 16.15,
+   "Status": "DIFFERS - new has MORE rows"
+  },
+  {
+   "Legacy table": "BUSRULES",
+   "New (Postgres) table": "busrules",
+   "Legacy rows": 4025,
+   "New rows": 4100,
+   "Difference (new - legacy)": 75,
+   "Difference %": 1.86,
+   "Status": "DIFFERS - new has MORE rows"
+  },
+  {
+   "Legacy table": "CastCategoryMaster",
+   "New (Postgres) table": "castcategorymaster",
+   "Legacy rows": 4,
+   "New rows": 6,
+   "Difference (new - legacy)": 2,
+   "Difference %": 50,
+   "Status": "DIFFERS - new has MORE rows"
+  },
+  {
+   "Legacy table": "Codes_Table",
+   "New (Postgres) table": "codes_table",
+   "Legacy rows": 4,
+   "New rows": 0,
+   "Difference (new - legacy)": -4,
+   "Difference %": -100,
+   "Status": "NOT MIGRATED - new table is empty"
+  },
+  {
+   "Legacy table": "ConvertMember",
+   "New (Postgres) table": "convertmember",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "CrPLHor",
+   "New (Postgres) table": "crplhor",
+   "Legacy rows": 41,
+   "New rows": 0,
+   "Difference (new - legacy)": -41,
+   "Difference %": -100,
+   "Status": "NOT MIGRATED - new table is empty"
+  },
+  {
+   "Legacy table": "CrPLHor1",
+   "New (Postgres) table": "crplhor1",
+   "Legacy rows": 41,
+   "New rows": 41,
+   "Difference (new - legacy)": 0,
+   "Difference %": 0,
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "CryBSNew",
+   "New (Postgres) table": "crybsnew",
+   "Legacy rows": 105,
+   "New rows": 105,
+   "Difference (new - legacy)": 0,
+   "Difference %": 0,
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "CryPL",
+   "New (Postgres) table": "crypl",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "cryTB",
+   "New (Postgres) table": "crytb",
+   "Legacy rows": 152,
+   "New rows": 0,
+   "Difference (new - legacy)": -152,
+   "Difference %": -100,
+   "Status": "NOT MIGRATED - new table is empty"
+  },
+  {
+   "Legacy table": "DAILY_GL_HISTORY",
+   "New (Postgres) table": "daily_gl_history",
+   "Legacy rows": 25415,
+   "New rows": 0,
+   "Difference (new - legacy)": -25415,
+   "Difference %": -100,
+   "Status": "NOT MIGRATED - new table is empty"
+  },
+  {
+   "Legacy table": "DEMAND_MASTER",
+   "New (Postgres) table": "demand_master",
+   "Legacy rows": 330988,
+   "New rows": 329150,
+   "Difference (new - legacy)": -1838,
+   "Difference %": -0.56,
+   "Status": "DIFFERS - new has FEWER rows"
+  },
+  {
+   "Legacy table": "DEMAND_MASTER$",
+   "New (Postgres) table": "",
+   "Legacy rows": 4064,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - scratch/backup/report-temp copy (migration not needed, confirm)"
+  },
+  {
+   "Legacy table": "DEMAND_MASTER$$",
+   "New (Postgres) table": "",
+   "Legacy rows": 4064,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - scratch/backup/report-temp copy (migration not needed, confirm)"
+  },
+  {
+   "Legacy table": "DEMAND_MASTER_",
+   "New (Postgres) table": "",
+   "Legacy rows": 1331,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - no matching table in new system (review)"
+  },
+  {
+   "Legacy table": "DEMAND_MASTERDelete",
+   "New (Postgres) table": "demand_masterdelete",
+   "Legacy rows": 564442,
+   "New rows": 561033,
+   "Difference (new - legacy)": -3409,
+   "Difference %": -0.6,
+   "Status": "DIFFERS - new has FEWER rows"
+  },
+  {
+   "Legacy table": "DEMAND_OTH_HEAD",
+   "New (Postgres) table": "demand_oth_head",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "Demand_receipt",
+   "New (Postgres) table": "demand_receipt",
+   "Legacy rows": 11,
+   "New rows": 0,
+   "Difference (new - legacy)": -11,
+   "Difference %": -100,
+   "Status": "NOT MIGRATED - new table is empty"
+  },
+  {
+   "Legacy table": "DEMANDBYHAND",
+   "New (Postgres) table": "demandbyhand",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "DEMANDBYHANDDELETED",
+   "New (Postgres) table": "demandbyhanddeleted",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "DEMANDPRINTORDER",
+   "New (Postgres) table": "demandprintorder",
+   "Legacy rows": 6,
+   "New rows": 0,
+   "Difference (new - legacy)": -6,
+   "Difference %": -100,
+   "Status": "NOT MIGRATED - new table is empty"
+  },
+  {
+   "Legacy table": "DEMANDPRINTORDER_",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "designation_master",
+   "New (Postgres) table": "designation_master",
+   "Legacy rows": 0,
+   "New rows": 1,
+   "Difference (new - legacy)": 1,
+   "Difference %": "",
+   "Status": "Empty in legacy; new has rows"
+  },
+  {
+   "Legacy table": "DIVISION_MASTER",
+   "New (Postgres) table": "division_master",
+   "Legacy rows": 6,
+   "New rows": 6,
+   "Difference (new - legacy)": 0,
+   "Difference %": 0,
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "DOI_NATIONAL",
+   "New (Postgres) table": "doi_national",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "DOI_UNITED",
+   "New (Postgres) table": "doi_united",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "DOII_National",
+   "New (Postgres) table": "doii_national",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "DOII_UNITED",
+   "New (Postgres) table": "doii_united",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "DOIII_NATIONAL",
+   "New (Postgres) table": "doiii_national",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "DOIV_NATIONAL",
+   "New (Postgres) table": "doiv_national",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "DOV_NATIONAL",
+   "New (Postgres) table": "dov_national",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "DT_Master",
+   "New (Postgres) table": "dt_master",
+   "Legacy rows": 7243,
+   "New rows": 0,
+   "Difference (new - legacy)": -7243,
+   "Difference %": -100,
+   "Status": "NOT MIGRATED - new table is empty"
+  },
+  {
+   "Legacy table": "DT_Master$",
+   "New (Postgres) table": "",
+   "Legacy rows": 7243,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - scratch/backup/report-temp copy (migration not needed, confirm)"
+  },
+  {
+   "Legacy table": "DT_Member",
+   "New (Postgres) table": "dt_member",
+   "Legacy rows": 7249,
+   "New rows": 0,
+   "Difference (new - legacy)": -7249,
+   "Difference %": -100,
+   "Status": "NOT MIGRATED - new table is empty"
+  },
+  {
+   "Legacy table": "dtproperties",
+   "New (Postgres) table": "dtproperties",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "DUMMY_FD_INTEREST",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "DummyBalance",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "dummyloan",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "DummyOpen",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "fd_",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "FD_INTEREST_MASTER",
+   "New (Postgres) table": "fd_interest_master",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "FDMASTER",
+   "New (Postgres) table": "fdmaster",
+   "Legacy rows": 0,
+   "New rows": 13,
+   "Difference (new - legacy)": 13,
+   "Difference %": "",
+   "Status": "Empty in legacy; new has rows"
+  },
+  {
+   "Legacy table": "fdmaster@",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "FDMaster13-08-2005",
+   "New (Postgres) table": "",
+   "Legacy rows": 309,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - no matching table in new system (review)"
+  },
+  {
+   "Legacy table": "FDMASTERHISTORY",
+   "New (Postgres) table": "fdmasterhistory",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "FDRD_BALANCE",
+   "New (Postgres) table": "fdrd_balance",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "FDRD_SLAB_DETAILS",
+   "New (Postgres) table": "fdrd_slab_details",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "FDRDLIENMASTER",
+   "New (Postgres) table": "fdrdlienmaster",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "fdrdlienmaster_02112015",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "FDRDLIENMASTER_HISTORY",
+   "New (Postgres) table": "fdrdlienmaster_history",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "FRS",
+   "New (Postgres) table": "frs",
+   "Legacy rows": 6454,
+   "New rows": 6454,
+   "Difference (new - legacy)": 0,
+   "Difference %": 0,
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "FRS_Balance",
+   "New (Postgres) table": "frs_balance",
+   "Legacy rows": 6735,
+   "New rows": 6735,
+   "Difference (new - legacy)": 0,
+   "Difference %": 0,
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "FUNDSMASTER",
+   "New (Postgres) table": "fundsmaster",
+   "Legacy rows": 7304,
+   "New rows": 7330,
+   "Difference (new - legacy)": 26,
+   "Difference %": 0.36,
+   "Status": "DIFFERS - new has MORE rows"
+  },
+  {
+   "Legacy table": "FUNDSMASTER$$",
+   "New (Postgres) table": "",
+   "Legacy rows": 6454,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - scratch/backup/report-temp copy (migration not needed, confirm)"
+  },
+  {
+   "Legacy table": "FUNDSMASTER_",
+   "New (Postgres) table": "",
+   "Legacy rows": 6505,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - no matching table in new system (review)"
+  },
+  {
+   "Legacy table": "fundsmaster_16052020",
+   "New (Postgres) table": "",
+   "Legacy rows": 6801,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - scratch/backup/report-temp copy (migration not needed, confirm)"
+  },
+  {
+   "Legacy table": "fundsmaster_24082015",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "FUNDSMASTER_TEMP",
+   "New (Postgres) table": "",
+   "Legacy rows": 86,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - scratch/backup/report-temp copy (migration not needed, confirm)"
+  },
+  {
+   "Legacy table": "G",
+   "New (Postgres) table": "",
+   "Legacy rows": 2,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - scratch/backup/report-temp copy (migration not needed, confirm)"
+  },
+  {
+   "Legacy table": "GETWORKINGDATE",
+   "New (Postgres) table": "getworkingdate",
+   "Legacy rows": 2319,
+   "New rows": 11,
+   "Difference (new - legacy)": -2308,
+   "Difference %": -99.53,
+   "Status": "DIFFERS - new has FEWER rows"
+  },
+  {
+   "Legacy table": "GUARRENTER_MAST",
+   "New (Postgres) table": "guarrenter_mast",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "HEADMASTER",
+   "New (Postgres) table": "headmaster",
+   "Legacy rows": 151,
+   "New rows": 153,
+   "Difference (new - legacy)": 2,
+   "Difference %": 1.32,
+   "Status": "DIFFERS - new has MORE rows"
+  },
+  {
+   "Legacy table": "HEADTYPE",
+   "New (Postgres) table": "headtype",
+   "Legacy rows": 20,
+   "New rows": 20,
+   "Difference (new - legacy)": 0,
+   "Difference %": 0,
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "InterestMaster",
+   "New (Postgres) table": "interestmaster",
+   "Legacy rows": 0,
+   "New rows": 3,
+   "Difference (new - legacy)": 3,
+   "Difference %": "",
+   "Status": "Empty in legacy; new has rows"
+  },
+  {
+   "Legacy table": "InterestPaid",
+   "New (Postgres) table": "interestpaid",
+   "Legacy rows": 0,
+   "New rows": 3,
+   "Difference (new - legacy)": 3,
+   "Difference %": "",
+   "Status": "Empty in legacy; new has rows"
+  },
+  {
+   "Legacy table": "J",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "J18250A",
+   "New (Postgres) table": "",
+   "Legacy rows": 2,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - scratch/backup/report-temp copy (migration not needed, confirm)"
+  },
+  {
+   "Legacy table": "JALGAON_UNITED",
+   "New (Postgres) table": "jalgaon_united",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "LED",
+   "New (Postgres) table": "led",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "LEDGER",
+   "New (Postgres) table": "ledger",
+   "Legacy rows": 1582482,
+   "New rows": 1576589,
+   "Difference (new - legacy)": -5893,
+   "Difference %": -0.37,
+   "Status": "DIFFERS - new has FEWER rows"
+  },
+  {
+   "Legacy table": "LEDGER_",
+   "New (Postgres) table": "",
+   "Legacy rows": 213641,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - no matching table in new system (review)"
+  },
+  {
+   "Legacy table": "LEDGER_DATA",
+   "New (Postgres) table": "ledger_data",
+   "Legacy rows": 4733,
+   "New rows": 4733,
+   "Difference (new - legacy)": 0,
+   "Difference %": 0,
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "LOAN_balance_history",
+   "New (Postgres) table": "loan_balance_history",
+   "Legacy rows": 189007,
+   "New rows": 189010,
+   "Difference (new - legacy)": 3,
+   "Difference %": 0,
+   "Status": "DIFFERS - new has MORE rows"
+  },
+  {
+   "Legacy table": "LOAN_INTEREST_MASTER",
+   "New (Postgres) table": "loan_interest_master",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "LOAN_LIMIT_MASTER",
+   "New (Postgres) table": "loan_limit_master",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "LOAN_MASTER",
+   "New (Postgres) table": "loan_master",
+   "Legacy rows": 20034,
+   "New rows": 20093,
+   "Difference (new - legacy)": 59,
+   "Difference %": 0.29,
+   "Status": "DIFFERS - new has MORE rows"
+  },
+  {
+   "Legacy table": "LOAN_MASTER_",
+   "New (Postgres) table": "",
+   "Legacy rows": 12553,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - no matching table in new system (review)"
+  },
+  {
+   "Legacy table": "LOAN_MASTER_ALN",
+   "New (Postgres) table": "",
+   "Legacy rows": 156,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - no matching table in new system (review)"
+  },
+  {
+   "Legacy table": "LOAN_MASTER_RLN",
+   "New (Postgres) table": "",
+   "Legacy rows": 105,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - no matching table in new system (review)"
+  },
+  {
+   "Legacy table": "LOAN_MASTERHISTORY",
+   "New (Postgres) table": "loan_masterhistory",
+   "Legacy rows": 13678,
+   "New rows": 13623,
+   "Difference (new - legacy)": -55,
+   "Difference %": -0.4,
+   "Status": "DIFFERS - new has FEWER rows"
+  },
+  {
+   "Legacy table": "LOAN_NOMINEE",
+   "New (Postgres) table": "loan_nominee",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "Loan_OpBal",
+   "New (Postgres) table": "loan_opbal",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "LOAN_PENDING",
+   "New (Postgres) table": "loan_pending",
+   "Legacy rows": 19044,
+   "New rows": 19109,
+   "Difference (new - legacy)": 65,
+   "Difference %": 0.34,
+   "Status": "DIFFERS - new has MORE rows"
+  },
+  {
+   "Legacy table": "LOAN_PENDING_",
+   "New (Postgres) table": "",
+   "Legacy rows": 11604,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - no matching table in new system (review)"
+  },
+  {
+   "Legacy table": "LOAN_PENDING__",
+   "New (Postgres) table": "",
+   "Legacy rows": 18590,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - no matching table in new system (review)"
+  },
+  {
+   "Legacy table": "LOAN_PENDING_ALN",
+   "New (Postgres) table": "loan_pending_aln",
+   "Legacy rows": 156,
+   "New rows": 0,
+   "Difference (new - legacy)": -156,
+   "Difference %": -100,
+   "Status": "NOT MIGRATED - new table is empty"
+  },
+  {
+   "Legacy table": "LOAN_PENDING_RLN",
+   "New (Postgres) table": "loan_pending_rln",
+   "Legacy rows": 105,
+   "New rows": 0,
+   "Difference (new - legacy)": -105,
+   "Difference %": -100,
+   "Status": "NOT MIGRATED - new table is empty"
+  },
+  {
+   "Legacy table": "LOAN_PRODUCT",
+   "New (Postgres) table": "loan_product",
+   "Legacy rows": 10574,
+   "New rows": 10572,
+   "Difference (new - legacy)": -2,
+   "Difference %": -0.02,
+   "Status": "DIFFERS - new has FEWER rows"
+  },
+  {
+   "Legacy table": "LOGINTIME",
+   "New (Postgres) table": "logintime",
+   "Legacy rows": 23974,
+   "New rows": 3097,
+   "Difference (new - legacy)": -20877,
+   "Difference %": -87.08,
+   "Status": "DIFFERS - new has FEWER rows"
+  },
+  {
+   "Legacy table": "main",
+   "New (Postgres) table": "main",
+   "Legacy rows": 4,
+   "New rows": 0,
+   "Difference (new - legacy)": -4,
+   "Difference %": -100,
+   "Status": "NOT MIGRATED - new table is empty"
+  },
+  {
+   "Legacy table": "Member_Balances",
+   "New (Postgres) table": "member_balances",
+   "Legacy rows": 6505,
+   "New rows": 6577,
+   "Difference (new - legacy)": 72,
+   "Difference %": 1.11,
+   "Status": "DIFFERS - new has MORE rows"
+  },
+  {
+   "Legacy table": "MEMBER_BOOKBAL",
+   "New (Postgres) table": "member_bookbal",
+   "Legacy rows": 134,
+   "New rows": 0,
+   "Difference (new - legacy)": -134,
+   "Difference %": -100,
+   "Status": "NOT MIGRATED - new table is empty"
+  },
+  {
+   "Legacy table": "MEMBER_BOOKBAL_",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "member_data",
+   "New (Postgres) table": "member_data",
+   "Legacy rows": 42,
+   "New rows": 0,
+   "Difference (new - legacy)": -42,
+   "Difference %": -100,
+   "Status": "NOT MIGRATED - new table is empty"
+  },
+  {
+   "Legacy table": "member_master",
+   "New (Postgres) table": "member_master",
+   "Legacy rows": 7302,
+   "New rows": 7389,
+   "Difference (new - legacy)": 87,
+   "Difference %": 1.19,
+   "Status": "DIFFERS - new has MORE rows"
+  },
+  {
+   "Legacy table": "member_master_",
+   "New (Postgres) table": "",
+   "Legacy rows": 5481,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - no matching table in new system (review)"
+  },
+  {
+   "Legacy table": "member_master_A",
+   "New (Postgres) table": "",
+   "Legacy rows": 34,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - no matching table in new system (review)"
+  },
+  {
+   "Legacy table": "Member_master_t",
+   "New (Postgres) table": "",
+   "Legacy rows": 6694,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - no matching table in new system (review)"
+  },
+  {
+   "Legacy table": "Member_master_TEMP",
+   "New (Postgres) table": "",
+   "Legacy rows": 6742,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - scratch/backup/report-temp copy (migration not needed, confirm)"
+  },
+  {
+   "Legacy table": "MEMBER_MASTER05112019",
+   "New (Postgres) table": "",
+   "Legacy rows": 6717,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - scratch/backup/report-temp copy (migration not needed, confirm)"
+  },
+  {
+   "Legacy table": "Member_masterdelete",
+   "New (Postgres) table": "member_masterdelete",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "Member_Transfer",
+   "New (Postgres) table": "member_transfer",
+   "Legacy rows": 115,
+   "New rows": 0,
+   "Difference (new - legacy)": -115,
+   "Difference %": -100,
+   "Status": "NOT MIGRATED - new table is empty"
+  },
+  {
+   "Legacy table": "Member_Transfer_",
+   "New (Postgres) table": "",
+   "Legacy rows": 14,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - no matching table in new system (review)"
+  },
+  {
+   "Legacy table": "MemberCategory",
+   "New (Postgres) table": "membercategory",
+   "Legacy rows": 7313,
+   "New rows": 7327,
+   "Difference (new - legacy)": 14,
+   "Difference %": 0.19,
+   "Status": "DIFFERS - new has MORE rows"
+  },
+  {
+   "Legacy table": "MemberTypeMaster",
+   "New (Postgres) table": "membertypemaster",
+   "Legacy rows": 4,
+   "New rows": 4,
+   "Difference (new - legacy)": 0,
+   "Difference %": 0,
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "MENUMASTER",
+   "New (Postgres) table": "menumaster",
+   "Legacy rows": 92,
+   "New rows": 135,
+   "Difference (new - legacy)": 43,
+   "Difference %": 46.74,
+   "Status": "DIFFERS - new has MORE rows"
+  },
+  {
+   "Legacy table": "mpjint",
+   "New (Postgres) table": "mpjint",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "N",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "NANDED_UNITED",
+   "New (Postgres) table": "nanded_united",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "OIC1",
+   "New (Postgres) table": "oic1",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "OIC2",
+   "New (Postgres) table": "oic2",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "OIC3",
+   "New (Postgres) table": "oic3",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "P",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "P13509A",
+   "New (Postgres) table": "",
+   "Legacy rows": 2,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - scratch/backup/report-temp copy (migration not needed, confirm)"
+  },
+  {
+   "Legacy table": "P13511A",
+   "New (Postgres) table": "",
+   "Legacy rows": 2,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - scratch/backup/report-temp copy (migration not needed, confirm)"
+  },
+  {
+   "Legacy table": "P13512A",
+   "New (Postgres) table": "",
+   "Legacy rows": 2,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - scratch/backup/report-temp copy (migration not needed, confirm)"
+  },
+  {
+   "Legacy table": "PARAMETER_SETTING",
+   "New (Postgres) table": "parameter_setting",
+   "Legacy rows": 11,
+   "New rows": 11,
+   "Difference (new - legacy)": 0,
+   "Difference %": 0,
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "Pivot",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "PL2BSAc",
+   "New (Postgres) table": "pl2bsac",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "R43209A",
+   "New (Postgres) table": "",
+   "Legacy rows": 3,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - scratch/backup/report-temp copy (migration not needed, confirm)"
+  },
+  {
+   "Legacy table": "R43326A",
+   "New (Postgres) table": "",
+   "Legacy rows": 5,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - scratch/backup/report-temp copy (migration not needed, confirm)"
+  },
+  {
+   "Legacy table": "RELATION_MASTER",
+   "New (Postgres) table": "relation_master",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "Results",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "RO_NATIONAL",
+   "New (Postgres) table": "ro_national",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "RO_UNITED",
+   "New (Postgres) table": "ro_united",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "Sheet1$Print_Area",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "SOCIETY_DETAILS",
+   "New (Postgres) table": "society_details",
+   "Legacy rows": 1,
+   "New rows": 1,
+   "Difference (new - legacy)": 0,
+   "Difference %": 0,
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "SuretyMaster",
+   "New (Postgres) table": "suretymaster",
+   "Legacy rows": 6,
+   "New rows": 0,
+   "Difference (new - legacy)": -6,
+   "Difference %": -100,
+   "Status": "NOT MIGRATED - new table is empty"
+  },
+  {
+   "Legacy table": "sysdiagrams",
+   "New (Postgres) table": "sysdiagrams",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "tblCashBook",
+   "New (Postgres) table": "tblcashbook",
+   "Legacy rows": 8,
+   "New rows": 766,
+   "Difference (new - legacy)": 758,
+   "Difference %": 9475,
+   "Status": "DIFFERS - new has MORE rows"
+  },
+  {
+   "Legacy table": "tblMembDetLedger",
+   "New (Postgres) table": "tblmembdetledger",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "tblMemberDetLedgerHead",
+   "New (Postgres) table": "tblmemberdetledgerhead",
+   "Legacy rows": 0,
+   "New rows": 0,
+   "Difference (new - legacy)": 0,
+   "Difference %": "",
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "tblMembRecTotal",
+   "New (Postgres) table": "tblmembrectotal",
+   "Legacy rows": 13616,
+   "New rows": 0,
+   "Difference (new - legacy)": -13616,
+   "Difference %": -100,
+   "Status": "NOT MIGRATED - new table is empty"
+  },
+  {
+   "Legacy table": "temp_demandfromexcel",
+   "New (Postgres) table": "",
+   "Legacy rows": 2344,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - scratch/backup/report-temp copy (migration not needed, confirm)"
+  },
+  {
+   "Legacy table": "TEMP_JOT_LEDGER",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "TEMP_LOAN_DELETED",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "TEMP_LOAN_MASTER",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "tmpBalance",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "tmpBankDetailLedger",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "tmpDetailLedger",
+   "New (Postgres) table": "",
+   "Legacy rows": 972,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - scratch/backup/report-temp copy (migration not needed, confirm)"
+  },
+  {
+   "Legacy table": "tmpELN",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "tmpGeneralLedger",
+   "New (Postgres) table": "",
+   "Legacy rows": 209,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - scratch/backup/report-temp copy (migration not needed, confirm)"
+  },
+  {
+   "Legacy table": "tmpGeneralLedgerHeadCode",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "tmpGLIE",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "tmpMemBalALN",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "tmpMemBalELN",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "tmpMemBalRLN",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "tmpMemberLedgerBal",
+   "New (Postgres) table": "",
+   "Legacy rows": 96,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - scratch/backup/report-temp copy (migration not needed, confirm)"
+  },
+  {
+   "Legacy table": "tmpopballn",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "tmppassbookbal",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "tmpSuretyRegister",
+   "New (Postgres) table": "",
+   "Legacy rows": 0,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "Legacy table is EMPTY - nothing to migrate"
+  },
+  {
+   "Legacy table": "TRANSACTIONS",
+   "New (Postgres) table": "transactions",
+   "Legacy rows": 0,
+   "New rows": 179,
+   "Difference (new - legacy)": 179,
+   "Difference %": "",
+   "Status": "Empty in legacy; new has rows"
+  },
+  {
+   "Legacy table": "TRANSACTIONS_",
+   "New (Postgres) table": "",
+   "Legacy rows": 3,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - no matching table in new system (review)"
+  },
+  {
+   "Legacy table": "Trf_Slab",
+   "New (Postgres) table": "trf_slab",
+   "Legacy rows": 4,
+   "New rows": 0,
+   "Difference (new - legacy)": -4,
+   "Difference %": -100,
+   "Status": "NOT MIGRATED - new table is empty"
+  },
+  {
+   "Legacy table": "USERINFO",
+   "New (Postgres) table": "userinfo",
+   "Legacy rows": 1,
+   "New rows": 25,
+   "Difference (new - legacy)": 24,
+   "Difference %": 2400,
+   "Status": "DIFFERS - new has MORE rows"
+  },
+  {
+   "Legacy table": "USERLEVELDEFAULTRIGHTS",
+   "New (Postgres) table": "userleveldefaultrights",
+   "Legacy rows": 144,
+   "New rows": 63,
+   "Difference (new - legacy)": -81,
+   "Difference %": -56.25,
+   "Status": "DIFFERS - new has FEWER rows"
+  },
+  {
+   "Legacy table": "USERLEVELMASTER",
+   "New (Postgres) table": "userlevelmaster",
+   "Legacy rows": 9,
+   "New rows": 11,
+   "Difference (new - legacy)": 2,
+   "Difference %": 22.22,
+   "Status": "DIFFERS - new has MORE rows"
+  },
+  {
+   "Legacy table": "USERMASTER",
+   "New (Postgres) table": "usermaster",
+   "Legacy rows": 27,
+   "New rows": 38,
+   "Difference (new - legacy)": 11,
+   "Difference %": 40.74,
+   "Status": "DIFFERS - new has MORE rows"
+  },
+  {
+   "Legacy table": "USERRIGHTS",
+   "New (Postgres) table": "userrights",
+   "Legacy rows": 2242,
+   "New rows": 2066,
+   "Difference (new - legacy)": -176,
+   "Difference %": -7.85,
+   "Status": "DIFFERS - new has FEWER rows"
+  },
+  {
+   "Legacy table": "VOUCHER_MASTER",
+   "New (Postgres) table": "voucher_master",
+   "Legacy rows": 1,
+   "New rows": 1,
+   "Difference (new - legacy)": 0,
+   "Difference %": 0,
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "WingMast",
+   "New (Postgres) table": "wingmast",
+   "Legacy rows": 1,
+   "New rows": 1,
+   "Difference (new - legacy)": 0,
+   "Difference %": 0,
+   "Status": "MIGRATED - row count equal"
+  },
+  {
+   "Legacy table": "YEAREND",
+   "New (Postgres) table": "yearend",
+   "Legacy rows": 8,
+   "New rows": 2,
+   "Difference (new - legacy)": -6,
+   "Difference %": -75,
+   "Status": "DIFFERS - new has FEWER rows"
+  },
+  {
+   "Legacy table": "YEAREND_HEAD",
+   "New (Postgres) table": "yearend_head",
+   "Legacy rows": 0,
+   "New rows": 906,
+   "Difference (new - legacy)": 906,
+   "Difference %": "",
+   "Status": "Empty in legacy; new has rows"
+  },
+  {
+   "Legacy table": "YEAREND_MEMBER",
+   "New (Postgres) table": "yearend_member",
+   "Legacy rows": 0,
+   "New rows": 96077,
+   "Difference (new - legacy)": 96077,
+   "Difference %": "",
+   "Status": "Empty in legacy; new has rows"
+  },
+  {
+   "Legacy table": "Yogesh",
+   "New (Postgres) table": "",
+   "Legacy rows": 5261,
+   "New rows": "",
+   "Difference (new - legacy)": "",
+   "Difference %": "",
+   "Status": "NOT MIGRATED - no matching table in new system (review)"
+  }
+ ],
+ "sumRows": [
+  {
+   "Legacy table": "BALANCESHEET",
+   "New table": "balancesheet",
+   "Column": "OPENING_BALANCE",
+   "Legacy SUM": 1,
+   "New SUM": 1,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "BALANCESHEET",
+   "New table": "balancesheet",
+   "Column": "DEBIT",
+   "Legacy SUM": 185657319,
+   "New SUM": 4765139501.7,
+   "Difference": 4579482182.7,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "BALANCESHEET",
+   "New table": "balancesheet",
+   "Column": "CREDIT",
+   "Legacy SUM": 185657319,
+   "New SUM": 4771338878.08,
+   "Difference": 4585681559.08,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "BALANCESHEET",
+   "New table": "balancesheet",
+   "Column": "CLOSINGBALANCE",
+   "Legacy SUM": 1723836247,
+   "New SUM": 1784366033.36,
+   "Difference": 60529786.36,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "BALANCESHEET",
+   "New table": "balancesheet",
+   "Column": "CLOSINGBAL_DB",
+   "Legacy SUM": 869882318,
+   "New SUM": 1048817146.77,
+   "Difference": 178934828.77,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "BALANCESHEET",
+   "New table": "balancesheet",
+   "Column": "CLOSING_CR",
+   "Legacy SUM": 869882317,
+   "New SUM": 1025953790.36,
+   "Difference": 156071473.36,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "BALANCESHEET",
+   "New table": "balancesheet",
+   "Column": "MAINCD",
+   "Legacy SUM": 330,
+   "New SUM": 315,
+   "Difference": -15,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "BANK_CHEQ_MASTER",
+   "New table": "bank_cheq_master",
+   "Column": "CHEQAMT",
+   "Legacy SUM": 3932539012.27,
+   "New SUM": 3908983910.27,
+   "Difference": -23555102,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "Bank_PassBook_Page_Setting",
+   "New table": "bank_passbook_page_setting",
+   "Column": "PassBook_Page_Setting_Det_Id",
+   "Legacy SUM": 3,
+   "New SUM": 3,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "Bank_PassBook_Page_Setting",
+   "New table": "bank_passbook_page_setting",
+   "Column": "PassBook_Bank_Mst_Id",
+   "Legacy SUM": 3,
+   "New SUM": 3,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "Bank_PassBook_Page_Setting",
+   "New table": "bank_passbook_page_setting",
+   "Column": "Total_Pages",
+   "Legacy SUM": 16,
+   "New SUM": 16,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "Bank_PassBook_Page_Setting",
+   "New table": "bank_passbook_page_setting",
+   "Column": "Total_rows",
+   "Legacy SUM": 74,
+   "New SUM": 74,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "Bank_PassBook_Page_Setting",
+   "New table": "bank_passbook_page_setting",
+   "Column": "Start_Line_Number",
+   "Legacy SUM": 2,
+   "New SUM": 2,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "Bank_PassBook_Page_Setting",
+   "New table": "bank_passbook_page_setting",
+   "Column": "Increment_Level",
+   "Legacy SUM": 2,
+   "New SUM": 2,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "BANKOPBAL",
+   "New table": "bankopbal",
+   "Column": "TrfId",
+   "Legacy SUM": 8515,
+   "New SUM": 11476,
+   "Difference": 2961,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "BANKOPBAL",
+   "New table": "bankopbal",
+   "Column": "FyCode",
+   "Legacy SUM": 130,
+   "New SUM": 151,
+   "Difference": 21,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "BANKOPBAL",
+   "New table": "bankopbal",
+   "Column": "ClosingBalance",
+   "Legacy SUM": 1649630435.2,
+   "New SUM": 1709459416,
+   "Difference": 59828980.8,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "BUSRULES",
+   "New table": "busrules",
+   "Column": "SRNO",
+   "Legacy SUM": 8127786,
+   "New SUM": 8135853,
+   "Difference": 8067,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "BUSRULES",
+   "New table": "busrules",
+   "Column": "RLNMAXLOANAMT",
+   "Legacy SUM": 681904000,
+   "New SUM": 727904000,
+   "Difference": 46000000,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "BUSRULES",
+   "New table": "busrules",
+   "Column": "RLNRATE",
+   "Legacy SUM": 41988,
+   "New SUM": 42325,
+   "Difference": 337,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "BUSRULES",
+   "New table": "busrules",
+   "Column": "RLNPENALRATE",
+   "Legacy SUM": 384,
+   "New SUM": 1062,
+   "Difference": 678,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "BUSRULES",
+   "New table": "busrules",
+   "Column": "RLNMAXNOINST",
+   "Legacy SUM": 273782,
+   "New SUM": 279232,
+   "Difference": 5450,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "BUSRULES",
+   "New table": "busrules",
+   "Column": "RLNNOGR",
+   "Legacy SUM": 7856,
+   "New SUM": 7918,
+   "Difference": 62,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "BUSRULES",
+   "New table": "busrules",
+   "Column": "ELNMAXLOANAMT",
+   "Legacy SUM": 429495000,
+   "New SUM": 444595000,
+   "Difference": 15100000,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "BUSRULES",
+   "New table": "busrules",
+   "Column": "ELNRATE",
+   "Legacy SUM": 7106,
+   "New SUM": 7641,
+   "Difference": 535,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "BUSRULES",
+   "New table": "busrules",
+   "Column": "ELNMAXNOINST",
+   "Legacy SUM": 162890,
+   "New SUM": 166650,
+   "Difference": 3760,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "BUSRULES",
+   "New table": "busrules",
+   "Column": "ELNNOGR",
+   "Legacy SUM": 118,
+   "New SUM": 118,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "BUSRULES",
+   "New table": "busrules",
+   "Column": "ALNMAXLOANAMT",
+   "Legacy SUM": 97512508,
+   "New SUM": 142532508,
+   "Difference": 45020000,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "BUSRULES",
+   "New table": "busrules",
+   "Column": "ALNRATE",
+   "Legacy SUM": 48571,
+   "New SUM": 49123,
+   "Difference": 552,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "CastCategoryMaster",
+   "New table": "castcategorymaster",
+   "Column": "ID",
+   "Legacy SUM": 10,
+   "New SUM": 21,
+   "Difference": 11,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "CrPLHor1",
+   "New table": "crplhor1",
+   "Column": "TblId",
+   "Legacy SUM": 861,
+   "New SUM": 861,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "CrPLHor1",
+   "New table": "crplhor1",
+   "Column": "IncAmt",
+   "Legacy SUM": 68085626,
+   "New SUM": 68085626,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "CrPLHor1",
+   "New table": "crplhor1",
+   "Column": "IncTotal",
+   "Legacy SUM": 136170692,
+   "New SUM": 136170692,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "CryBSNew",
+   "New table": "crybsnew",
+   "Column": "ason",
+   "Legacy SUM": 0,
+   "New SUM": 0,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "CryBSNew",
+   "New table": "crybsnew",
+   "Column": "asonbal",
+   "Legacy SUM": 0,
+   "New SUM": 0,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "CryBSNew",
+   "New table": "crybsnew",
+   "Column": "amount",
+   "Legacy SUM": 755001263.54,
+   "New SUM": 755001263.54,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "CryBSNew",
+   "New table": "crybsnew",
+   "Column": "total",
+   "Legacy SUM": 816124834.25,
+   "New SUM": 816124834.25,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "DEMAND_MASTER",
+   "New table": "demand_master",
+   "Column": "demand_for_year",
+   "Legacy SUM": 669404542,
+   "New SUM": 665680577,
+   "Difference": -3723965,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "DEMAND_MASTER",
+   "New table": "demand_master",
+   "Column": "demand_for_month",
+   "Legacy SUM": 2137562,
+   "New SUM": 2120942,
+   "Difference": -16620,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "DEMAND_MASTER",
+   "New table": "demand_master",
+   "Column": "MBNO",
+   "Legacy SUM": 209794647745020,
+   "New SUM": 209147658956305,
+   "Difference": -646988788715,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "DEMAND_MASTER",
+   "New table": "demand_master",
+   "Column": "RLN_amount",
+   "Legacy SUM": 9286072786,
+   "New SUM": 9274339043,
+   "Difference": -11733743,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "DEMAND_MASTER",
+   "New table": "demand_master",
+   "Column": "ELN_amount",
+   "Legacy SUM": 0,
+   "New SUM": 0,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "DEMAND_MASTER",
+   "New table": "demand_master",
+   "Column": "ALN_amount",
+   "Legacy SUM": 12135761417,
+   "New SUM": 12081350968,
+   "Difference": -54410449,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "DEMAND_MASTER",
+   "New table": "demand_master",
+   "Column": "MLN_amount",
+   "Legacy SUM": 0,
+   "New SUM": 0,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "DEMAND_MASTER",
+   "New table": "demand_master",
+   "Column": "RLN_installment_amount",
+   "Legacy SUM": 205575364,
+   "New SUM": 205453242.33,
+   "Difference": -122121.67,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "DEMAND_MASTER",
+   "New table": "demand_master",
+   "Column": "RLN_interest",
+   "Legacy SUM": 178643792,
+   "New SUM": 178256458,
+   "Difference": -387334,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "DEMAND_MASTER",
+   "New table": "demand_master",
+   "Column": "ELN_installment_amount",
+   "Legacy SUM": 0,
+   "New SUM": 0,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "DEMAND_MASTER",
+   "New table": "demand_master",
+   "Column": "ELN_interest",
+   "Legacy SUM": 0,
+   "New SUM": 0,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "DEMAND_MASTER",
+   "New table": "demand_master",
+   "Column": "ALN_installment_amount",
+   "Legacy SUM": 435553420,
+   "New SUM": 434153394,
+   "Difference": -1400026,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "DEMAND_MASTERDelete",
+   "New table": "demand_masterdelete",
+   "Column": "demand_for_year",
+   "Legacy SUM": 1141422458,
+   "New SUM": 1134515824,
+   "Difference": -6906634,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "DEMAND_MASTERDelete",
+   "New table": "demand_masterdelete",
+   "Column": "demand_for_month",
+   "Legacy SUM": 3463219,
+   "New SUM": 3432538,
+   "Difference": -30681,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "DEMAND_MASTERDelete",
+   "New table": "demand_masterdelete",
+   "Column": "MBNO",
+   "Legacy SUM": 353890877568154,
+   "New SUM": 351790186034699,
+   "Difference": -2100691533455,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "DEMAND_MASTERDelete",
+   "New table": "demand_masterdelete",
+   "Column": "RLN_amount",
+   "Legacy SUM": 17098930077,
+   "New SUM": 17080307126,
+   "Difference": -18622951,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "DEMAND_MASTERDelete",
+   "New table": "demand_masterdelete",
+   "Column": "ELN_amount",
+   "Legacy SUM": 0,
+   "New SUM": 0,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "DEMAND_MASTERDelete",
+   "New table": "demand_masterdelete",
+   "Column": "ALN_amount",
+   "Legacy SUM": 19433622859,
+   "New SUM": 19346736619,
+   "Difference": -86886240,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "DEMAND_MASTERDelete",
+   "New table": "demand_masterdelete",
+   "Column": "MLN_amount",
+   "Legacy SUM": 0,
+   "New SUM": 0,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "DEMAND_MASTERDelete",
+   "New table": "demand_masterdelete",
+   "Column": "RLN_installment_amount",
+   "Legacy SUM": 360321926,
+   "New SUM": 359971128,
+   "Difference": -350798,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "DEMAND_MASTERDelete",
+   "New table": "demand_masterdelete",
+   "Column": "RLN_interest",
+   "Legacy SUM": 301437760,
+   "New SUM": 300840089,
+   "Difference": -597671,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "DEMAND_MASTERDelete",
+   "New table": "demand_masterdelete",
+   "Column": "ELN_installment_amount",
+   "Legacy SUM": 0,
+   "New SUM": 0,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "DEMAND_MASTERDelete",
+   "New table": "demand_masterdelete",
+   "Column": "ELN_interest",
+   "Legacy SUM": 0,
+   "New SUM": 0,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "DEMAND_MASTERDelete",
+   "New table": "demand_masterdelete",
+   "Column": "ALN_installment_amount",
+   "Legacy SUM": 710126294,
+   "New SUM": 707909671,
+   "Difference": -2216623,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "DIVISION_MASTER",
+   "New table": "division_master",
+   "Column": "OFFICENO",
+   "Legacy SUM": 21,
+   "New SUM": 21,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "DIVISION_MASTER",
+   "New table": "division_master",
+   "Column": "DIVNO",
+   "Legacy SUM": 360,
+   "New SUM": 360,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "FRS",
+   "New table": "frs",
+   "Column": "SR_NO",
+   "Legacy SUM": 20830285,
+   "New SUM": 20830285,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "FRS",
+   "New table": "frs",
+   "Column": "MBNO",
+   "Legacy SUM": 4115179627470,
+   "New SUM": 4115179627470,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "FRS",
+   "New table": "frs",
+   "Column": "PFNO",
+   "Legacy SUM": 2643125501,
+   "New SUM": 2643125501,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "FRS",
+   "New table": "frs",
+   "Column": "FRS",
+   "Legacy SUM": 12550072,
+   "New SUM": 12550072,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "FRS",
+   "New table": "frs",
+   "Column": "FRS_FUND",
+   "Legacy SUM": 25876517,
+   "New SUM": 25876517,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "FRS_Balance",
+   "New table": "frs_balance",
+   "Column": "Mbno",
+   "Legacy SUM": 3133666647,
+   "New SUM": 3133666647,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "FRS_Balance",
+   "New table": "frs_balance",
+   "Column": "Balance",
+   "Legacy SUM": 40404714,
+   "New SUM": 40404714,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "FUNDSMASTER",
+   "New table": "fundsmaster",
+   "Column": "MBNO",
+   "Legacy SUM": 4669108183681,
+   "New SUM": 4690386286239,
+   "Difference": 21278102558,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "FUNDSMASTER",
+   "New table": "fundsmaster",
+   "Column": "MDAMT",
+   "Legacy SUM": 45378,
+   "New SUM": 45386,
+   "Difference": 8,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "FUNDSMASTER",
+   "New table": "fundsmaster",
+   "Column": "CDAMT",
+   "Legacy SUM": 1630350,
+   "New SUM": 1629758,
+   "Difference": -592,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "FUNDSMASTER",
+   "New table": "fundsmaster",
+   "Column": "SHAREAMT",
+   "Legacy SUM": 8025,
+   "New SUM": 45533,
+   "Difference": 37508,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "FUNDSMASTER",
+   "New table": "fundsmaster",
+   "Column": "MDOPBAL",
+   "Legacy SUM": 45351464,
+   "New SUM": 45351472,
+   "Difference": 8,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "FUNDSMASTER",
+   "New table": "fundsmaster",
+   "Column": "SHAREOPBAL",
+   "Legacy SUM": 54158205,
+   "New SUM": 54158213,
+   "Difference": 8,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "FUNDSMASTER",
+   "New table": "fundsmaster",
+   "Column": "CDOPBAL",
+   "Legacy SUM": 359999728,
+   "New SUM": 359999636,
+   "Difference": -92,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "FUNDSMASTER",
+   "New table": "fundsmaster",
+   "Column": "LNEXECREC",
+   "Legacy SUM": 0,
+   "New SUM": 8,
+   "Difference": 8,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "FUNDSMASTER",
+   "New table": "fundsmaster",
+   "Column": "SUSPBAL",
+   "Legacy SUM": 7279,
+   "New SUM": 7287,
+   "Difference": 8,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "FUNDSMASTER",
+   "New table": "fundsmaster",
+   "Column": "MD1_AMOUNT",
+   "Legacy SUM": 113696,
+   "New SUM": 113704,
+   "Difference": 8,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "FUNDSMASTER",
+   "New table": "fundsmaster",
+   "Column": "MD2_AMOUNT",
+   "Legacy SUM": 0,
+   "New SUM": 8,
+   "Difference": 8,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "FUNDSMASTER",
+   "New table": "fundsmaster",
+   "Column": "MD3_AMOUNT",
+   "Legacy SUM": 0,
+   "New SUM": 0,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "GETWORKINGDATE",
+   "New table": "getworkingdate",
+   "Column": "PAYMENT_VOUCHER",
+   "Legacy SUM": 31073,
+   "New SUM": 0,
+   "Difference": -31073,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "GETWORKINGDATE",
+   "New table": "getworkingdate",
+   "Column": "RECEIPT_VOUCHER",
+   "Legacy SUM": 15139,
+   "New SUM": 0,
+   "Difference": -15139,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "GETWORKINGDATE",
+   "New table": "getworkingdate",
+   "Column": "JOURNAL_VOUCHER",
+   "Legacy SUM": 29697,
+   "New SUM": 11,
+   "Difference": -29686,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "HEADMASTER",
+   "New table": "headmaster",
+   "Column": "OP_BAL",
+   "Legacy SUM": 1709358597,
+   "New SUM": 1709358597,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "LEDGER",
+   "New table": "ledger",
+   "Column": "TRANS_NO",
+   "Legacy SUM": 11956626509,
+   "New SUM": 12125308971,
+   "Difference": 168682462,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LEDGER",
+   "New table": "ledger",
+   "Column": "MBNO",
+   "Legacy SUM": 995370573249202,
+   "New SUM": 1000653492185946,
+   "Difference": 5282918936744,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LEDGER",
+   "New table": "ledger",
+   "Column": "ACC_NO",
+   "Legacy SUM": 0,
+   "New SUM": 2737332933,
+   "Difference": 2737332933,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LEDGER",
+   "New table": "ledger",
+   "Column": "TRANS_AMT",
+   "Legacy SUM": 9567038568.04,
+   "New SUM": 9536752358.45,
+   "Difference": -30286209.59,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LEDGER",
+   "New table": "ledger",
+   "Column": "PL_BALANCE",
+   "Legacy SUM": 675113247756,
+   "New SUM": 668559370828.68,
+   "Difference": -6553876927.32,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LEDGER",
+   "New table": "ledger",
+   "Column": "LedgerId",
+   "Legacy SUM": 1384928092353,
+   "New SUM": 1374665117437,
+   "Difference": -10262974916,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LEDGER_DATA",
+   "New table": "ledger_data",
+   "Column": "MBNO",
+   "Legacy SUM": 3007195116246,
+   "New SUM": 3007195116246,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "LEDGER_DATA",
+   "New table": "ledger_data",
+   "Column": "I1005_DR",
+   "Legacy SUM": 20749794,
+   "New SUM": 20749794,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "LEDGER_DATA",
+   "New table": "ledger_data",
+   "Column": "L1004_CR",
+   "Legacy SUM": 20749794,
+   "New SUM": 20749794,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "LEDGER_DATA",
+   "New table": "ledger_data",
+   "Column": "L1024_DR",
+   "Legacy SUM": 2869144,
+   "New SUM": 2869144,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "LEDGER_DATA",
+   "New table": "ledger_data",
+   "Column": "L1004CR",
+   "Legacy SUM": 2869144,
+   "New SUM": 2869144,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "LEDGER_DATA",
+   "New table": "ledger_data",
+   "Column": "L1004_DR",
+   "Legacy SUM": 1674420,
+   "New SUM": 1674420,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "LEDGER_DATA",
+   "New table": "ledger_data",
+   "Column": "L1003_CR",
+   "Legacy SUM": 1674420,
+   "New SUM": 1674420,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "LOAN_balance_history",
+   "New table": "loan_balance_history",
+   "Column": "mbno",
+   "Legacy SUM": 117603932042952,
+   "New SUM": 117604022142324,
+   "Difference": 90099372,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOAN_balance_history",
+   "New table": "loan_balance_history",
+   "Column": "opbal",
+   "Legacy SUM": 3047050264,
+   "New SUM": 3047050264,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "LOAN_balance_history",
+   "New table": "loan_balance_history",
+   "Column": "debit",
+   "Legacy SUM": 8384541,
+   "New SUM": 8384541,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "LOAN_balance_history",
+   "New table": "loan_balance_history",
+   "Column": "credit",
+   "Legacy SUM": 2476971,
+   "New SUM": 2476971,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "LOAN_balance_history",
+   "New table": "loan_balance_history",
+   "Column": "balance",
+   "Legacy SUM": 3274755566,
+   "New SUM": 3277725566,
+   "Difference": 2970000,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOAN_balance_history",
+   "New table": "loan_balance_history",
+   "Column": "intrate",
+   "Legacy SUM": 2267712,
+   "New SUM": 2267748,
+   "Difference": 36,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOAN_MASTER",
+   "New table": "loan_master",
+   "Column": "MBNO",
+   "Legacy SUM": 12584736672828,
+   "New SUM": 13556531584643,
+   "Difference": 971794911815,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOAN_MASTER",
+   "New table": "loan_master",
+   "Column": "LOANCASENO",
+   "Legacy SUM": 209192657,
+   "New SUM": 301985277,
+   "Difference": 92792620,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOAN_MASTER",
+   "New table": "loan_master",
+   "Column": "LOAN_AMT",
+   "Legacy SUM": 1583211142,
+   "New SUM": 2133105258,
+   "Difference": 549894116,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOAN_MASTER",
+   "New table": "loan_master",
+   "Column": "RATE",
+   "Legacy SUM": 240361,
+   "New SUM": 241069,
+   "Difference": 708,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOAN_MASTER",
+   "New table": "loan_master",
+   "Column": "NO_OF_INSTAL",
+   "Legacy SUM": 1381880,
+   "New SUM": 1215595,
+   "Difference": -166285,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOAN_MASTER",
+   "New table": "loan_master",
+   "Column": "INSTAL_AMT",
+   "Legacy SUM": 26088755,
+   "New SUM": 61374092.09,
+   "Difference": 35285337.09,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOAN_MASTER",
+   "New table": "loan_master",
+   "Column": "BALANCE",
+   "Legacy SUM": 1583135797,
+   "New SUM": 589967964.58,
+   "Difference": -993167832.42,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOAN_MASTER",
+   "New table": "loan_master",
+   "Column": "OPENBALANCE",
+   "Legacy SUM": 589931120,
+   "New SUM": 590117086,
+   "Difference": 185966,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOAN_MASTER",
+   "New table": "loan_master",
+   "Column": "Intt_Amount",
+   "Legacy SUM": 9148960.4,
+   "New SUM": 9190364.65,
+   "Difference": 41404.25,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOAN_MASTER",
+   "New table": "loan_master",
+   "Column": "PenalRate",
+   "Legacy SUM": 1068,
+   "New SUM": 2565,
+   "Difference": 1497,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOAN_MASTERHISTORY",
+   "New table": "loan_masterhistory",
+   "Column": "MBNO",
+   "Legacy SUM": 8792560151072,
+   "New SUM": 8758718489695,
+   "Difference": -33841661377,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOAN_MASTERHISTORY",
+   "New table": "loan_masterhistory",
+   "Column": "LOANCASENO",
+   "Legacy SUM": 207261098,
+   "New SUM": 206274075,
+   "Difference": -987023,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOAN_MASTERHISTORY",
+   "New table": "loan_masterhistory",
+   "Column": "LOAN_AMT",
+   "Legacy SUM": 1779022721.47,
+   "New SUM": 1773044140.47,
+   "Difference": -5978581,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOAN_MASTERHISTORY",
+   "New table": "loan_masterhistory",
+   "Column": "RATE",
+   "Legacy SUM": 164136,
+   "New SUM": 163476,
+   "Difference": -660,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOAN_MASTERHISTORY",
+   "New table": "loan_masterhistory",
+   "Column": "NO_OF_INSTAL",
+   "Legacy SUM": 1034280,
+   "New SUM": 1029190,
+   "Difference": -5090,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOAN_MASTERHISTORY",
+   "New table": "loan_masterhistory",
+   "Column": "INSTAL_AMT",
+   "Legacy SUM": 24127759,
+   "New SUM": 24058034,
+   "Difference": -69725,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOAN_MASTERHISTORY",
+   "New table": "loan_masterhistory",
+   "Column": "BALANCE",
+   "Legacy SUM": 1778757027.47,
+   "New SUM": 1772778446.47,
+   "Difference": -5978581,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOAN_MASTERHISTORY",
+   "New table": "loan_masterhistory",
+   "Column": "OPENBALANCE",
+   "Legacy SUM": 673990475.47,
+   "New SUM": 673990425.47,
+   "Difference": -50,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOAN_MASTERHISTORY",
+   "New table": "loan_masterhistory",
+   "Column": "RowId",
+   "Legacy SUM": 93618220,
+   "New SUM": 92867659,
+   "Difference": -750561,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOAN_MASTERHISTORY",
+   "New table": "loan_masterhistory",
+   "Column": "Intt_Amount",
+   "Legacy SUM": 8500339.11,
+   "New SUM": 8470127.36,
+   "Difference": -30211.75,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOAN_MASTERHISTORY",
+   "New table": "loan_masterhistory",
+   "Column": "PenalRate",
+   "Legacy SUM": 1420,
+   "New SUM": 1417,
+   "Difference": -3,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOAN_PENDING",
+   "New table": "loan_pending",
+   "Column": "LOANCASENO",
+   "Legacy SUM": 207561103,
+   "New SUM": 305284565,
+   "Difference": 97723462,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOAN_PENDING",
+   "New table": "loan_pending",
+   "Column": "MBNO",
+   "Legacy SUM": 11974813777244,
+   "New SUM": 12967068561857,
+   "Difference": 992254784613,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOAN_PENDING",
+   "New table": "loan_pending",
+   "Column": "APPLIED_AMT",
+   "Legacy SUM": 1559165177,
+   "New SUM": 1560595885,
+   "Difference": 1430708,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOAN_PENDING",
+   "New table": "loan_pending",
+   "Column": "SANCTIONED_AMT",
+   "Legacy SUM": 80722921708,
+   "New SUM": 80724279093,
+   "Difference": 1357385,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOAN_PENDING",
+   "New table": "loan_pending",
+   "Column": "NO_OF_INSTAL",
+   "Legacy SUM": 1322210,
+   "New SUM": 1319166,
+   "Difference": -3044,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOAN_PENDING",
+   "New table": "loan_pending",
+   "Column": "G1MBNO",
+   "Legacy SUM": 217020596072,
+   "New SUM": 216410575043,
+   "Difference": -610021029,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOAN_PENDING",
+   "New table": "loan_pending",
+   "Column": "G2MBNO",
+   "Legacy SUM": 215980697524,
+   "New SUM": 215370664210,
+   "Difference": -610033314,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOAN_PENDING",
+   "New table": "loan_pending",
+   "Column": "G3MBNO",
+   "Legacy SUM": 0,
+   "New SUM": 0,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "LOAN_PRODUCT",
+   "New table": "loan_product",
+   "Column": "Id",
+   "Legacy SUM": 1582236938,
+   "New SUM": 1581071904,
+   "Difference": -1165034,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOAN_PRODUCT",
+   "New table": "loan_product",
+   "Column": "MBNo",
+   "Legacy SUM": 6581639654954,
+   "New SUM": 6580569607245,
+   "Difference": -1070047709,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOAN_PRODUCT",
+   "New table": "loan_product",
+   "Column": "OpBal",
+   "Legacy SUM": 0,
+   "New SUM": 0,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "LOAN_PRODUCT",
+   "New table": "loan_product",
+   "Column": "TotDr",
+   "Legacy SUM": 0,
+   "New SUM": 0,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "LOAN_PRODUCT",
+   "New table": "loan_product",
+   "Column": "TotCr",
+   "Legacy SUM": 0,
+   "New SUM": 0,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "LOAN_PRODUCT",
+   "New table": "loan_product",
+   "Column": "CloseBal",
+   "Legacy SUM": 0,
+   "New SUM": 0,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "LOAN_PRODUCT",
+   "New table": "loan_product",
+   "Column": "Amount",
+   "Legacy SUM": 0,
+   "New SUM": 0,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "LOAN_PRODUCT",
+   "New table": "loan_product",
+   "Column": "Interest",
+   "Legacy SUM": 252512060,
+   "New SUM": 252479486,
+   "Difference": -32574,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "LOGINTIME",
+   "New table": "logintime",
+   "Column": "USERID",
+   "Legacy SUM": 855849,
+   "New SUM": 20401,
+   "Difference": -835448,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "Member_Balances",
+   "New table": "member_balances",
+   "Column": "SrNo",
+   "Legacy SUM": 21213900,
+   "New SUM": 21213900,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "Member_Balances",
+   "New table": "member_balances",
+   "Column": "MbNo",
+   "Legacy SUM": 4167761582852,
+   "New SUM": 4694442628815,
+   "Difference": 526681045963,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "Member_Balances",
+   "New table": "member_balances",
+   "Column": "PFNo",
+   "Legacy SUM": 2676621543,
+   "New SUM": 3565510431,
+   "Difference": 888888888,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "Member_Balances",
+   "New table": "member_balances",
+   "Column": "OfficeNo",
+   "Legacy SUM": 9965,
+   "New SUM": 10015,
+   "Difference": 50,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "Member_Balances",
+   "New table": "member_balances",
+   "Column": "DR_CR",
+   "Legacy SUM": null,
+   "New SUM": 0,
+   "Difference": null,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "Member_Balances",
+   "New table": "member_balances",
+   "Column": "Shares",
+   "Legacy SUM": 52007029,
+   "New SUM": 27021597820585020,
+   "Difference": 27021597768577990,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "Member_Balances",
+   "New table": "member_balances",
+   "Column": "Int_Rate",
+   "Legacy SUM": 45526,
+   "New SUM": 45526,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "Member_Balances",
+   "New table": "member_balances",
+   "Column": "Compulsory_Deposit",
+   "Legacy SUM": 354200305,
+   "New SUM": 27021598118424584,
+   "Difference": 27021597764224280,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "Member_Balances",
+   "New table": "member_balances",
+   "Column": "RD_Amt",
+   "Legacy SUM": 1638700,
+   "New SUM": 27021597765861680,
+   "Difference": 27021597764222980,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "Member_Balances",
+   "New table": "member_balances",
+   "Column": "IsCompound",
+   "Legacy SUM": null,
+   "New SUM": 0,
+   "Difference": null,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "Member_Balances",
+   "New table": "member_balances",
+   "Column": "LoanInt_Rate",
+   "Legacy SUM": 78048,
+   "New SUM": 78048,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "Member_Balances",
+   "New table": "member_balances",
+   "Column": "RegularLoan",
+   "Legacy SUM": 283098719,
+   "New SUM": 27021597968872170,
+   "Difference": 27021597685773450,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "member_master",
+   "New table": "member_master",
+   "Column": "MBNO",
+   "Legacy SUM": 4668248128836,
+   "New SUM": 5391445321488,
+   "Difference": 723197192652,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "member_master",
+   "New table": "member_master",
+   "Column": "OFFICENO",
+   "Legacy SUM": 10996,
+   "New SUM": 11191,
+   "Difference": 195,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "member_master",
+   "New table": "member_master",
+   "Column": "GROSS_SALARY",
+   "Legacy SUM": 0,
+   "New SUM": 295300,
+   "Difference": 295300,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "member_master",
+   "New table": "member_master",
+   "Column": "BASIC_PAY",
+   "Legacy SUM": 142808330,
+   "New SUM": 146978330,
+   "Difference": 4170000,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "member_master",
+   "New table": "member_master",
+   "Column": "INSUREAMT",
+   "Legacy SUM": 5227,
+   "New SUM": 4627,
+   "Difference": -600,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "MemberCategory",
+   "New table": "membercategory",
+   "Column": "MBNO",
+   "Legacy SUM": 4676608463224,
+   "New SUM": 4686368294149,
+   "Difference": 9759830925,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "MemberCategory",
+   "New table": "membercategory",
+   "Column": "CategoryCode",
+   "Legacy SUM": 14609,
+   "New SUM": 14633,
+   "Difference": 24,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "MemberCategory",
+   "New table": "membercategory",
+   "Column": "MemberType",
+   "Legacy SUM": 7315,
+   "New SUM": 7329,
+   "Difference": 14,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "MemberTypeMaster",
+   "New table": "membertypemaster",
+   "Column": "ID",
+   "Legacy SUM": 10,
+   "New SUM": 10,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "MENUMASTER",
+   "New table": "menumaster",
+   "Column": "MENUID",
+   "Legacy SUM": 4982,
+   "New SUM": 13263,
+   "Difference": 8281,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "SOCIETY_DETAILS",
+   "New table": "society_details",
+   "Column": "AuthShare",
+   "Legacy SUM": 0,
+   "New SUM": 0,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "tblCashBook",
+   "New table": "tblcashbook",
+   "Column": "rcash",
+   "Legacy SUM": 0,
+   "New SUM": 2289983,
+   "Difference": 2289983,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "tblCashBook",
+   "New table": "tblcashbook",
+   "Column": "rtransfer",
+   "Legacy SUM": 10913935,
+   "New SUM": 27823406.6,
+   "Difference": 16909471.6,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "tblCashBook",
+   "New table": "tblcashbook",
+   "Column": "pcash",
+   "Legacy SUM": 0,
+   "New SUM": 27913367.5,
+   "Difference": 27913367.5,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "tblCashBook",
+   "New table": "tblcashbook",
+   "Column": "ptransfer",
+   "Legacy SUM": 10913935,
+   "New SUM": 24027487.68,
+   "Difference": 13113552.68,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "USERINFO",
+   "New table": "userinfo",
+   "Column": "USERID",
+   "Legacy SUM": 26,
+   "New SUM": 1086,
+   "Difference": 1060,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "USERLEVELDEFAULTRIGHTS",
+   "New table": "userleveldefaultrights",
+   "Column": "USERLEVELID",
+   "Legacy SUM": 116,
+   "New SUM": 51,
+   "Difference": -65,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "USERLEVELDEFAULTRIGHTS",
+   "New table": "userleveldefaultrights",
+   "Column": "MENUID",
+   "Legacy SUM": 6060,
+   "New SUM": 1988,
+   "Difference": -4072,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "USERLEVELMASTER",
+   "New table": "userlevelmaster",
+   "Column": "USERLEVELID",
+   "Legacy SUM": 36,
+   "New SUM": 55,
+   "Difference": 19,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "USERMASTER",
+   "New table": "usermaster",
+   "Column": "USERID",
+   "Legacy SUM": 1055,
+   "New SUM": 1725,
+   "Difference": 670,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "USERMASTER",
+   "New table": "usermaster",
+   "Column": "USERLEVELID",
+   "Legacy SUM": 27,
+   "New SUM": 116,
+   "Difference": 89,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "USERRIGHTS",
+   "New table": "userrights",
+   "Column": "USERID",
+   "Legacy SUM": 87566,
+   "New SUM": 78021,
+   "Difference": -9545,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "USERRIGHTS",
+   "New table": "userrights",
+   "Column": "MENUID",
+   "Legacy SUM": 109019,
+   "New SUM": 98995,
+   "Difference": -10024,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "WingMast",
+   "New table": "wingmast",
+   "Column": "winstate",
+   "Legacy SUM": 1,
+   "New SUM": 1,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "YEAREND",
+   "New table": "yearend",
+   "Column": "YEARCODE",
+   "Legacy SUM": 43,
+   "New SUM": 3,
+   "Difference": -40,
+   "Result": "differs (row counts also differ)"
+  }
+ ],
+ "biz": [
+  {
+   "Check": "Members (member_master rows)",
+   "Legacy": "7302",
+   "New": "7389",
+   "Difference": 87,
+   "Note": ""
+  },
+  {
+   "Check": "Loans (loan_master rows)",
+   "Legacy": "20034",
+   "New": "20093",
+   "Difference": 59,
+   "Note": ""
+  },
+  {
+   "Check": "Ledger rows",
+   "Legacy": "1582476",
+   "New": "1576589",
+   "Difference": -5887,
+   "Note": ""
+  }
+ ],
+ "keyed": [
+  {
+   "Table": "member_master (by MBNO)",
+   "Legacy keys": 7300,
+   "New keys": 7387,
+   "Identical": 7296,
+   "Only in legacy (missing in new)": 4,
+   "Only in new": 91,
+   "Same key, different values": 0,
+   "Sample only-legacy": "990042370, 990042371, 990042372, 990042373",
+   "Sample only-new": "610000040, 900000003, 610000038, 9999962345, 940000015, 940000016, 9999962350, 940000008, 940000009, 940000011, 940000012, 940000013, 940000014, 9999962351, 610000037",
+   "Sample differences": ""
+  },
+  {
+   "Table": "FUNDSMASTER (by MBNO)",
+   "Legacy keys": 7304,
+   "New keys": 7326,
+   "Identical": 7297,
+   "Only in legacy (missing in new)": 4,
+   "Only in new": 26,
+   "Same key, different values": 3,
+   "Sample only-legacy": "990042370, 990042371, 990042372, 990042373",
+   "Sample only-new": "987654321, 940000007, 900000002, 900000003, 610000038, 610000039, 610000040, 940000008, 940000009, 940000011, 940000012, 940000013, 940000014, 940000015, 940000016",
+   "Sample differences": "610030399 -> SHAREAMT: legacy 0.0 vs new 12500.00 | 610022159 -> SHAREAMT: legacy 0.0 vs new 9000.00 | 610032683 -> SHAREAMT: legacy 0.0 vs new 6000.00"
+  },
+  {
+   "Table": "LOAN_MASTER (by MBNO+LOANCASENO)",
+   "Legacy keys": 19801,
+   "New keys": 19860,
+   "Identical": 8664,
+   "Only in legacy (missing in new)": 46,
+   "Only in new": 105,
+   "Same key, different values": 11091,
+   "Sample only-legacy": "610026533~20993, 940031323~20997, 610032878~20998, 30025028~20999, 610032121~21001, 610032261~21002, 610032406~21003, 610033316~21006, 610033260~21007, 610027077~21013, 940028453~21014, 610033400~21015, 610031044~21016, 610031053~21017, 610030986~21018",
+   "Sample only-new": "30013686~970001, 30017091~970002, 30017292~970003, 30018289~970004, 30018306~970005, 9999962386~889053, 9999962391~889062, 9999962388~889056, 9999962394~889069, 9999962390~889060, 9999962388~889057, 9999962387~889054, 9999962391~889063, 9999962387~889055, 9999962389~889058",
+   "Sample differences": "30001231~1 -> LOAN_AMT: legacy 0.0 vs new 230000.0000; BALANCE: legacy 0.0 vs new 163824.2900; INSTAL_AMT: legacy 0.0 vs new 8206.0000; NO_OF_INSTAL: legacy 60.0 vs new 37 | 30001358~2 -> LOAN_AMT: legacy 0.0 vs new 13524.0000; BALANCE: legacy 0.0 vs new 13524.0000 | 30016739~4 -> LOAN_AMT: legacy 0.0 vs new 33159.0000; BALANCE: legacy 0.0 vs new 33159.0000 | 30017204~5 -> LOAN_AMT: legacy 0.0 vs new 5595.0000; BALANCE: legacy 0.0 vs new 5595.0000 | 30017688~6 -> LOAN_AMT: legacy 0.0 vs new 4400.0000; BALANCE: legacy 0.0 vs new 4400.0000 | 30018263~7 -> LOAN_AMT: legacy 0.0 vs new 15800.0000; BALANCE: legacy 0.0 vs new 15800.0000 | 30018306~9 -> LOAN_AMT: legacy 0.0 vs new -488.0000; BALANCE: legacy 0.0 vs new -488.0000 | 130020977~73570 -> BALANCE: legacy 385000.0 vs new 0.0000; NO_OF_INSTAL: legacy 60.0 vs new 52"
+  },
+  {
+   "Table": "LEDGER (by LedgerId)",
+   "Legacy keys": 1582476,
+   "New keys": 1576020,
+   "Identical": 1575448,
+   "Only in legacy (missing in new)": 6456,
+   "Only in new": 0,
+   "Same key, different values": 572,
+   "Sample only-legacy": "1704146, 1704183, 1704326, 1704781, 1704828, 1704875, 1704903, 1704982, 1715635, 1715918, 1716002, 1716045, 1716088, 1716107, 1704147",
+   "Sample only-new": "",
+   "Sample differences": "1 -> TRANS_AMT: legacy 22372.0 vs new 5.0000; MBNO: legacy 610032379 vs new 610000036 | 2 -> TRANS_AMT: legacy 2052.0 vs new 5.0000; MBNO: legacy 610028604 vs new 610000036 | 3 -> TRANS_AMT: legacy 10000.0 vs new 5.0000; MBNO: legacy 610026503 vs new 900000002 | 5 -> TRANS_AMT: legacy 3881.0 vs new 5.0000; MBNO: legacy 610024243 vs new 610000037 | 6 -> TRANS_AMT: legacy 50000.0 vs new 5.0000; MBNO: legacy 610025996 vs new 610000037 | 12 -> TRANS_AMT: legacy 4806.0 vs new 5.0000; MBNO: legacy 610024282 vs new 610000039 | 15 -> TRANS_AMT: legacy 1672.0 vs new 5.0000; MBNO: legacy 610032650 vs new 940000008 | 16 -> TRANS_AMT: legacy 2000.0 vs new 5.0000; MBNO: legacy 610029925 vs new 940000008"
+  }
+ ]
+}

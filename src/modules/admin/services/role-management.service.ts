@@ -1,8 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { UserLevelMaster, MenuMaster, UserLevelDefaultRights } from '../../auth/entities';
 import { UpdateDefaultRightsDto } from '../dto/role-management.dto';
+import { MENU_ACTION_MAP } from '../../auth/menu-action-map';
 
 @Injectable()
 export class RoleManagementService {
@@ -18,6 +19,27 @@ export class RoleManagementService {
 
     async onModuleInit() {
         await this.seedStandardData();
+        await this.seedMenuActionRows();
+    }
+
+    /**
+     * Windows added after the legacy menu list (Report Pro, Report Head Order, Member Status, Group Insurance,
+     * Notification Centre, ...) exist in menu-action-map.ts but had no `menumaster` row, so they could not be granted
+     * or taken away on Configure UserLevel Default Rights (ES-105). Insert any missing row; existing rows are untouched.
+     */
+    private async seedMenuActionRows(): Promise<void> {
+        try {
+            for (const m of MENU_ACTION_MAP) {
+                await this.dataSource.query(
+                    `INSERT INTO menumaster (menuid, menuname, menudesc, visibleflag)
+                     SELECT $1, $2, $3, 'Y' WHERE NOT EXISTS (SELECT 1 FROM menumaster WHERE menuid = $1)`,
+                    [m.menuid, m.action, m.title],
+                );
+            }
+        } catch (e) {
+            // never block start-up because of the rights matrix
+            console.warn(`menumaster seed from menu-action-map skipped: ${(e as Error).message}`);
+        }
     }
 
     private async seedStandardData() {
@@ -139,7 +161,12 @@ export class RoleManagementService {
     }
 
     async updateDefaultRights(updateDto: UpdateDefaultRightsDto) {
-        const { userlevelid, menuIds } = updateDto;
+        const { userlevelid } = updateDto;
+        // A missing or malformed list is a client mistake (400), not a crash; duplicates are stored once (ES-302)
+        if (!Array.isArray(updateDto.menuIds) || updateDto.menuIds.some((m) => !Number.isInteger(m) || m < 0)) {
+            throw new BadRequestException('menuIds must be a list of menu ids');
+        }
+        const menuIds = [...new Set(updateDto.menuIds)];
 
         // Check if user level exists
         const userLevel = await this.userLevelRepository.findOne({

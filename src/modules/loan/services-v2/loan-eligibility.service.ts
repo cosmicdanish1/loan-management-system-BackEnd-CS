@@ -255,6 +255,11 @@ export class LoanEligibilityService {
          *  changed inside it and not yet committed (loan disbursement). */
         queryRunner?: QueryRunner,
     ): Promise<EligibilityStatus> {
+        // ES-406: a negative or non-numeric loan amount would create a negative requirement
+        if (typeof loanAmount !== 'number' ? !Number.isFinite(Number(loanAmount)) : !Number.isFinite(loanAmount)) {
+            throw new BadRequestException('Loan amount must be a number.');
+        }
+        if (Number(loanAmount) < 0) throw new BadRequestException('Loan amount cannot be negative.');
         // Loan Against RD (ELN) is secured by the member's own RD, so it has
         // its own rule instead of the RD%/Share% requirement below.
         if ((loanType || '').toString().toUpperCase() === 'ELN') {
@@ -557,6 +562,8 @@ export class LoanEligibilityService {
      * is withheld from the disbursement later (see getDisbursementDeductions).
      */
     async enforceEligibility(memberNo: string, loanAmount: number, loanType?: string): Promise<void> {
+        // ES-406: a loan to be approved needs a positive amount
+        if (!(Number(loanAmount) > 0)) throw new BadRequestException('Loan amount must be greater than 0.');
         const eligibility = await this.checkEligibility(memberNo, loanAmount, loanType);
         if (!eligibility.isEligible) {
             throw new BadRequestException(eligibility.message || 'Loan is not eligible.');
@@ -603,7 +610,7 @@ export class LoanEligibilityService {
             });
         }
 
-        if (!eligibility.ruleApplies || eligibility.totalShortfall <= 0) return deductions;
+        if (!eligibility.ruleApplies || eligibility.totalShortfall <= 0) return this.capDeductions(deductions, loanAmount);
 
         if (eligibility.shareShortfall > 0) {
             deductions.push({
@@ -621,7 +628,24 @@ export class LoanEligibilityService {
                 kind: 'RD',
             });
         }
-        return deductions;
+        return this.capDeductions(deductions, loanAmount);
+    }
+
+    /**
+     * ES-406: all deductions together can never be more than the loan itself. They are applied in the order they were
+     * built (negative RD first, then share, then RD); a deduction that no longer fits is cut down, and one that
+     * gets nothing is dropped.
+     */
+    private capDeductions<T extends { amount: number }>(deductions: T[], loanAmount: number): T[] {
+        let remaining = Math.max(0, Math.round(Number(loanAmount) * 100) / 100);
+        const out: T[] = [];
+        for (const d of deductions) {
+            const amount = Math.round(Math.min(d.amount, remaining) * 100) / 100;
+            if (amount <= 0) continue;
+            out.push({ ...d, amount });
+            remaining = Math.round((remaining - amount) * 100) / 100;
+        }
+        return out;
     }
 
     /**

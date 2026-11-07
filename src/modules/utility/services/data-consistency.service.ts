@@ -1,14 +1,5 @@
-import {
-  Injectable,
-  Logger,
-} from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
-import { Member } from '../../member/entities/member.entity';
-import { LoanAccount } from '../../loan/entities/loan-account.entity';
-import { LoanPayment } from '../../loan/entities/loan-payment.entity';
-import { FixedDeposit } from '../../deposit/entities/fixed-deposit.entity';
-import { Transaction } from '../../transaction/entities/transaction.entity';
+import { Injectable, Logger } from '@nestjs/common';
+import { DataSource } from 'typeorm';
 
 export interface ConsistencyCheckResult {
   checkName: string;
@@ -48,33 +39,23 @@ export interface BalanceDiscrepancy {
   lastTransaction: Date;
 }
 
+const SAMPLE = 20;
+
+/**
+ * Read-only data checks on the tables the society actually works in: member_master, member_balances,
+ * loan_master and ledger (ES-427). They used to run on the empty ORM tables, so the answer was always HEALTHY.
+ * Nothing here changes data. "fixAvailable" is false everywhere: the automatic correction tools are switched off
+ * (see DataCorrectionService) because a wrong automatic fix on real accounts is worse than a reported problem.
+ */
 @Injectable()
 export class DataConsistencyService {
   private readonly logger = new Logger(DataConsistencyService.name);
 
-  constructor(
-    @InjectRepository(Member)
-    private memberRepository: Repository<Member>,
-    @InjectRepository(LoanAccount)
-    private loanAccountRepository: Repository<LoanAccount>,
-    @InjectRepository(LoanPayment)
-    private loanPaymentRepository: Repository<LoanPayment>,
-    @InjectRepository(FixedDeposit)
-    private fixedDepositRepository: Repository<FixedDeposit>,
-    @InjectRepository(Transaction)
-    private transactionRepository: Repository<Transaction>,
-    private dataSource: DataSource,
-  ) { }
+  constructor(private dataSource: DataSource) { }
 
-  /**
-   * Run comprehensive data consistency checks
-   */
   async runConsistencyChecks(): Promise<DataConsistencyReport> {
-    this.logger.log('Starting comprehensive data consistency checks');
-
+    this.logger.log('Starting data consistency checks');
     const checks: ConsistencyCheckResult[] = [];
-
-    // Run all consistency checks
     checks.push(await this.checkOrphanedRecords());
     checks.push(await this.checkBalanceConsistency());
     checks.push(await this.checkDuplicateRecords());
@@ -84,21 +65,13 @@ export class DataConsistencyService {
     checks.push(await this.checkDateConsistency());
     checks.push(await this.checkNumericalConsistency());
 
-    // Calculate summary
     const passedChecks = checks.filter(c => c.status === 'PASS').length;
     const failedChecks = checks.filter(c => c.status === 'FAIL').length;
     const warningChecks = checks.filter(c => c.status === 'WARNING').length;
+    const overallStatus: DataConsistencyReport['overallStatus'] =
+      failedChecks > 0 ? 'CRITICAL_ISSUES' : warningChecks > 0 ? 'ISSUES_FOUND' : 'HEALTHY';
 
-    let overallStatus: 'HEALTHY' | 'ISSUES_FOUND' | 'CRITICAL_ISSUES' = 'HEALTHY';
-    if (failedChecks > 0) {
-      overallStatus = 'CRITICAL_ISSUES';
-    } else if (warningChecks > 0) {
-      overallStatus = 'ISSUES_FOUND';
-    }
-
-    const recommendations = this.generateRecommendations(checks);
-
-    const report: DataConsistencyReport = {
+    return {
       overallStatus,
       totalChecks: checks.length,
       passedChecks,
@@ -106,536 +79,202 @@ export class DataConsistencyService {
       warningChecks,
       checks,
       generatedAt: new Date(),
-      recommendations,
+      recommendations: this.generateRecommendations(checks),
     };
-
-    this.logger.log(`Data consistency check completed. Status: ${overallStatus}`);
-    return report;
   }
 
-  /**
-   * Check for orphaned records (records without valid parent references)
-   */
-  async checkOrphanedRecords(): Promise<ConsistencyCheckResult> {
+  /** Runs the queries of one check and turns their row counts into a result; a failing query is a FAIL, never a silent PASS. */
+  private async runCheck(
+    checkName: string,
+    issueStatus: 'FAIL' | 'WARNING',
+    parts: Array<{ label: string; countSql: string; sampleSql: string }>,
+    passMessage: string,
+  ): Promise<ConsistencyCheckResult> {
     try {
-      const orphanedData: OrphanedRecordsCheck = {
-        orphanedLoans: [],
-        orphanedDeposits: [],
-        orphanedPayments: [],
-        orphanedTransactions: [],
-      };
-
-      // Check orphaned loans (loans without valid member)
-      orphanedData.orphanedLoans = await this.loanAccountRepository
-        .createQueryBuilder('loan')
-        .leftJoin('loan.member', 'member')
-        .where('member.id IS NULL')
-        .getMany();
-
-      // Check orphaned deposits
-      orphanedData.orphanedDeposits = await this.fixedDepositRepository
-        .createQueryBuilder('deposit')
-        .leftJoin('deposit.member', 'member')
-        .where('member.id IS NULL')
-        .getMany();
-
-      // Check orphaned payments
-      orphanedData.orphanedPayments = await this.loanPaymentRepository
-        .createQueryBuilder('payment')
-        .leftJoin('payment.loanAccount', 'loan')
-        .where('loan.id IS NULL')
-        .getMany();
-
-      // Check orphaned transactions
-      // to stay safe, I will comment out the transaction orphan check for now until entity is verified
-      /*
-      orphanedData.orphanedTransactions = await this.transactionRepository
-        .createQueryBuilder('transaction')
-        .leftJoin('transaction.member', 'member')
-        .where('transaction.memberId IS NOT NULL AND member.id IS NULL')
-        .getMany();
-      */
-
-      const totalOrphaned =
-        orphanedData.orphanedLoans.length +
-        orphanedData.orphanedDeposits.length +
-        orphanedData.orphanedPayments.length +
-        orphanedData.orphanedTransactions.length;
-
-      return {
-        checkName: 'Orphaned Records Check',
-        status: totalOrphaned > 0 ? 'FAIL' : 'PASS',
-        message: totalOrphaned > 0
-          ? `Found ${totalOrphaned} orphaned records that need attention`
-          : 'No orphaned records found',
-        affectedRecords: totalOrphaned,
-        details: totalOrphaned > 0 ? [orphanedData] : undefined,
-        fixAvailable: true,
-      };
-    } catch (error) {
-      this.logger.error('Orphaned records check failed', error.stack);
-      return {
-        checkName: 'Orphaned Records Check',
-        status: 'FAIL',
-        message: `Check failed: ${error.message}`,
-        affectedRecords: 0,
-        fixAvailable: false,
-      };
-    }
-  }
-
-  /**
-   * Check balance consistency between calculated and recorded balances
-   */
-  async checkBalanceConsistency(): Promise<ConsistencyCheckResult> {
-    try {
-      const discrepancies: BalanceDiscrepancy[] = [];
-
-      // Check loan balance consistency
-      const loans = await this.loanAccountRepository.find({
-        relations: ['member', 'payments'],
-        where: { status: 'ACTIVE' },
-      });
-
-      for (const loan of loans) {
-        const totalPayments = loan.payments?.reduce((sum, payment) => sum + payment.amount, 0) || 0;
-        const calculatedBalance = loan.principalAmount - totalPayments;
-        const recordedBalance = loan.outstandingBalance;
-
-        if (Math.abs(calculatedBalance - recordedBalance) > 0.01) {
-          discrepancies.push({
-            memberId: loan.member.id,
-            memberName: `${loan.member.firstName} ${loan.member.lastName}`,
-            accountType: 'LOAN',
-            accountId: loan.id,
-            calculatedBalance,
-            recordedBalance,
-            discrepancy: calculatedBalance - recordedBalance,
-            lastTransaction: loan.payments?.length > 0
-              ? new Date(Math.max(...loan.payments.map(p => new Date(p.paymentDate).getTime())))
-              : loan.disbursementDate,
-          });
+      const details: any[] = [];
+      let total = 0;
+      const found: string[] = [];
+      for (const p of parts) {
+        const count = Number((await this.dataSource.query(p.countSql))[0]?.n) || 0;
+        if (count > 0) {
+          total += count;
+          found.push(`${count} ${p.label}`);
+          const sample = await this.dataSource.query(p.sampleSql);
+          details.push({ issue: p.label, count, sample });
         }
       }
-
       return {
-        checkName: 'Balance Consistency Check',
-        status: discrepancies.length > 0 ? 'FAIL' : 'PASS',
-        message: discrepancies.length > 0
-          ? `Found ${discrepancies.length} balance discrepancies`
-          : 'All balances are consistent',
-        affectedRecords: discrepancies.length,
-        details: discrepancies.length > 0 ? discrepancies : undefined,
-        fixAvailable: true,
-      };
-    } catch (error) {
-      this.logger.error('Balance consistency check failed', error.stack);
-      return {
-        checkName: 'Balance Consistency Check',
-        status: 'FAIL',
-        message: `Check failed: ${error.message}`,
-        affectedRecords: 0,
+        checkName,
+        status: total > 0 ? issueStatus : 'PASS',
+        message: total > 0 ? `Found ${found.join('; ')}` : passMessage,
+        affectedRecords: total,
+        details: total > 0 ? details : undefined,
         fixAvailable: false,
       };
+    } catch (error: any) {
+      this.logger.error(`${checkName} failed: ${error.message}`);
+      return { checkName, status: 'FAIL', message: 'This check could not be run. See the server log.', affectedRecords: 0, fixAvailable: false };
     }
   }
 
-  /**
-   * Check for duplicate records
-   */
+  async checkOrphanedRecords(): Promise<ConsistencyCheckResult> {
+    return this.runCheck('Orphaned Records Check', 'WARNING', [
+      {
+        label: 'loans whose member does not exist',
+        countSql: `SELECT count(*) AS n FROM loan_master l WHERE NOT EXISTS (SELECT 1 FROM member_master m WHERE m.mbno::text = l.mbno::text)`,
+        sampleSql: `SELECT l.mbno::text AS member_no, l.loancaseno::text AS loan_case_no, l.loantype FROM loan_master l WHERE NOT EXISTS (SELECT 1 FROM member_master m WHERE m.mbno::text = l.mbno::text) ORDER BY l.loancaseno LIMIT ${SAMPLE}`,
+      },
+      {
+        label: 'member balance rows whose member does not exist',
+        countSql: `SELECT count(*) AS n FROM member_balances b WHERE b.mbno IS NULL OR NOT EXISTS (SELECT 1 FROM member_master m WHERE m.mbno::text = b.mbno::text)`,
+        sampleSql: `SELECT b.mbno::text AS member_no, b.member_name FROM member_balances b WHERE b.mbno IS NULL OR NOT EXISTS (SELECT 1 FROM member_master m WHERE m.mbno::text = b.mbno::text) LIMIT ${SAMPLE}`,
+      },
+      {
+        label: 'ledger rows posted to a member that does not exist',
+        countSql: `SELECT count(*) AS n FROM ledger g WHERE g.mbno IS NOT NULL AND g.mbno > 0 AND NOT EXISTS (SELECT 1 FROM member_master m WHERE m.mbno = g.mbno)`,
+        sampleSql: `SELECT g.mbno::text AS member_no, count(*) AS rows FROM ledger g WHERE g.mbno IS NOT NULL AND g.mbno > 0 AND NOT EXISTS (SELECT 1 FROM member_master m WHERE m.mbno = g.mbno) GROUP BY g.mbno ORDER BY count(*) DESC LIMIT ${SAMPLE}`,
+      },
+    ], 'No loans, balances or postings point to a missing member');
+  }
+
+  /** Books must balance: total debits equal total credits across the whole ledger. */
+  async checkBalanceConsistency(): Promise<ConsistencyCheckResult> {
+    try {
+      const r = await this.dataSource.query(
+        `SELECT COALESCE(SUM(CASE WHEN trans_type = 'DR' THEN trans_amt ELSE 0 END), 0) AS dr,
+                COALESCE(SUM(CASE WHEN trans_type = 'CR' THEN trans_amt ELSE 0 END), 0) AS cr
+           FROM ledger`);
+      const dr = Number(r[0].dr), cr = Number(r[0].cr);
+      const diff = Math.round((dr - cr) * 100) / 100;
+      return {
+        checkName: 'Balance Consistency Check',
+        status: diff === 0 ? 'PASS' : 'WARNING',
+        message: diff === 0
+          ? 'Total debits equal total credits in the ledger'
+          : `Ledger debits and credits differ by ${Math.abs(diff).toLocaleString('en-IN')} (${diff > 0 ? 'debits higher' : 'credits higher'})`,
+        affectedRecords: diff === 0 ? 0 : 1,
+        details: diff === 0 ? undefined : [{ totalDebits: dr, totalCredits: cr, difference: diff }],
+        fixAvailable: false,
+      };
+    } catch (error: any) {
+      this.logger.error(`Balance consistency check failed: ${error.message}`);
+      return { checkName: 'Balance Consistency Check', status: 'FAIL', message: 'This check could not be run. See the server log.', affectedRecords: 0, fixAvailable: false };
+    }
+  }
+
   async checkDuplicateRecords(): Promise<ConsistencyCheckResult> {
-    try {
-      const duplicates: any[] = [];
-
-      // Check duplicate members (same phone number or email)
-      const duplicateMembers = await this.memberRepository
-        .createQueryBuilder('member')
-        .select(['member.phoneNumber', 'COUNT(*) as count'])
-        .groupBy('member.phoneNumber')
-        .having('COUNT(*) > 1')
-        .getRawMany();
-
-      if (duplicateMembers.length > 0) {
-        duplicates.push({
-          type: 'Members with duplicate phone numbers',
-          count: duplicateMembers.length,
-          details: duplicateMembers,
-        });
-      }
-
-      // Check duplicate account numbers
-      const duplicateLoanAccounts = await this.loanAccountRepository
-        .createQueryBuilder('loan')
-        .select(['loan.accountNumber', 'COUNT(*) as count'])
-        .groupBy('loan.accountNumber')
-        .having('COUNT(*) > 1')
-        .getRawMany();
-
-      if (duplicateLoanAccounts.length > 0) {
-        duplicates.push({
-          type: 'Duplicate loan account numbers',
-          count: duplicateLoanAccounts.length,
-          details: duplicateLoanAccounts,
-        });
-      }
-
-      const totalDuplicates = duplicates.reduce((sum, dup) => sum + dup.count, 0);
-
-      return {
-        checkName: 'Duplicate Records Check',
-        status: totalDuplicates > 0 ? 'WARNING' : 'PASS',
-        message: totalDuplicates > 0
-          ? `Found ${totalDuplicates} potential duplicate records`
-          : 'No duplicate records found',
-        affectedRecords: totalDuplicates,
-        details: totalDuplicates > 0 ? duplicates : undefined,
-        fixAvailable: true,
-      };
-    } catch (error) {
-      this.logger.error('Duplicate records check failed', error.stack);
-      return {
-        checkName: 'Duplicate Records Check',
-        status: 'FAIL',
-        message: `Check failed: ${error.message}`,
-        affectedRecords: 0,
-        fixAvailable: false,
-      };
-    }
+    return this.runCheck('Duplicate Records Check', 'WARNING', [
+      {
+        label: 'member numbers used more than once',
+        countSql: `SELECT count(*) AS n FROM (SELECT mbno FROM member_master GROUP BY mbno HAVING count(*) > 1) x`,
+        sampleSql: `SELECT mbno::text AS member_no, count(*) AS rows FROM member_master GROUP BY mbno HAVING count(*) > 1 ORDER BY mbno LIMIT ${SAMPLE}`,
+      },
+      {
+        label: 'loans repeated for the same member, case number and type',
+        countSql: `SELECT count(*) AS n FROM (SELECT 1 FROM loan_master GROUP BY mbno, loancaseno, loantype HAVING count(*) > 1) x`,
+        sampleSql: `SELECT mbno::text AS member_no, loancaseno::text AS loan_case_no, loantype, count(*) AS rows FROM loan_master GROUP BY mbno, loancaseno, loantype HAVING count(*) > 1 ORDER BY loancaseno LIMIT ${SAMPLE}`,
+      },
+      {
+        label: 'member balance rows repeated for one member',
+        countSql: `SELECT count(*) AS n FROM (SELECT mbno FROM member_balances WHERE mbno IS NOT NULL GROUP BY mbno HAVING count(*) > 1) x`,
+        sampleSql: `SELECT mbno::text AS member_no, count(*) AS rows FROM member_balances WHERE mbno IS NOT NULL GROUP BY mbno HAVING count(*) > 1 ORDER BY mbno LIMIT ${SAMPLE}`,
+      },
+    ], 'No repeated members, loans or balance rows');
   }
 
-  /**
-   * Check data integrity (null values, invalid formats, etc.)
-   */
   async checkDataIntegrity(): Promise<ConsistencyCheckResult> {
-    try {
-      const integrityIssues: any[] = [];
-
-      // Check for members with missing required fields
-      const membersWithMissingData = await this.memberRepository
-        .createQueryBuilder('member')
-        .where('member.firstName IS NULL OR member.firstName = :empty', { empty: '' })
-        .orWhere('member.lastName IS NULL OR member.lastName = :empty', { empty: '' })
-        .orWhere('member.phoneNumber IS NULL OR member.phoneNumber = :empty', { empty: '' })
-        .getMany();
-
-      if (membersWithMissingData.length > 0) {
-        integrityIssues.push({
-          type: 'Members with missing required data',
-          count: membersWithMissingData.length,
-          details: membersWithMissingData.map(m => ({
-            id: m.id,
-            memberNumber: m.memberNumber,
-            issues: [
-              !m.firstName ? 'Missing first name' : null,
-              !m.lastName ? 'Missing last name' : null,
-              !m.phoneNumber ? 'Missing phone number' : null,
-            ].filter(Boolean),
-          })),
-        });
-      }
-
-      // Check for loans with invalid amounts
-      const loansWithInvalidAmounts = await this.loanAccountRepository
-        .createQueryBuilder('loan')
-        .where('loan.principalAmount <= 0')
-        .orWhere('loan.outstandingBalance < 0')
-        .orWhere('loan.interestRate < 0 OR loan.interestRate > 100')
-        .getMany();
-
-      if (loansWithInvalidAmounts.length > 0) {
-        integrityIssues.push({
-          type: 'Loans with invalid amounts or rates',
-          count: loansWithInvalidAmounts.length,
-          details: loansWithInvalidAmounts.map(l => ({
-            id: l.id,
-            accountNumber: l.accountNumber,
-            principalAmount: l.principalAmount,
-            outstandingBalance: l.outstandingBalance,
-            interestRate: l.interestRate,
-          })),
-        });
-      }
-
-      const totalIssues = integrityIssues.reduce((sum, issue) => sum + issue.count, 0);
-
-      return {
-        checkName: 'Data Integrity Check',
-        status: totalIssues > 0 ? 'FAIL' : 'PASS',
-        message: totalIssues > 0
-          ? `Found ${totalIssues} data integrity issues`
-          : 'All data integrity checks passed',
-        affectedRecords: totalIssues,
-        details: totalIssues > 0 ? integrityIssues : undefined,
-        fixAvailable: true,
-      };
-    } catch (error) {
-      this.logger.error('Data integrity check failed', error.stack);
-      return {
-        checkName: 'Data Integrity Check',
-        status: 'FAIL',
-        message: `Check failed: ${error.message}`,
-        affectedRecords: 0,
-        fixAvailable: false,
-      };
-    }
+    return this.runCheck('Data Integrity Check', 'FAIL', [
+      {
+        label: 'members without a name',
+        countSql: `SELECT count(*) AS n FROM member_master WHERE COALESCE(TRIM(f_name), '') = ''`,
+        sampleSql: `SELECT mbno::text AS member_no FROM member_master WHERE COALESCE(TRIM(f_name), '') = '' ORDER BY mbno LIMIT ${SAMPLE}`,
+      },
+      {
+        label: 'open loans with a loan amount of zero or less',
+        countSql: `SELECT count(*) AS n FROM loan_master WHERE CAST(balance AS numeric) > 0 AND COALESCE(CAST(loan_amt AS numeric), 0) <= 0`,
+        sampleSql: `SELECT mbno::text AS member_no, loancaseno::text AS loan_case_no, loan_amt FROM loan_master WHERE CAST(balance AS numeric) > 0 AND COALESCE(CAST(loan_amt AS numeric), 0) <= 0 ORDER BY loancaseno LIMIT ${SAMPLE}`,
+      },
+      {
+        label: 'loans whose balance is more than the loan amount',
+        countSql: `SELECT count(*) AS n FROM loan_master WHERE CAST(balance AS numeric) > CAST(loan_amt AS numeric)`,
+        sampleSql: `SELECT mbno::text AS member_no, loancaseno::text AS loan_case_no, loan_amt, balance FROM loan_master WHERE CAST(balance AS numeric) > CAST(loan_amt AS numeric) ORDER BY loancaseno LIMIT ${SAMPLE}`,
+      },
+    ], 'Members and loans have the details they need');
   }
 
-  /**
-   * Check business rule violations
-   */
   async checkBusinessRuleViolations(): Promise<ConsistencyCheckResult> {
-    try {
-      const violations: any[] = [];
-
-      // Check for loans with maturity date before disbursement date
-      const loansWithInvalidDates = await this.loanAccountRepository
-        .createQueryBuilder('loan')
-        .where('loan.maturityDate <= loan.disbursementDate')
-        .getMany();
-
-      if (loansWithInvalidDates.length > 0) {
-        violations.push({
-          type: 'Loans with invalid date ranges',
-          count: loansWithInvalidDates.length,
-          details: loansWithInvalidDates.map(l => ({
-            id: l.id,
-            accountNumber: l.accountNumber,
-            disbursementDate: l.disbursementDate,
-            maturityDate: l.maturityDate,
-          })),
-        });
-      }
-
-      // Check for deposits with maturity amount less than principal
-      const depositsWithInvalidMaturity = await this.fixedDepositRepository
-        .createQueryBuilder('deposit')
-        .where('deposit.maturityAmount < deposit.principalAmount')
-        .getMany();
-
-      if (depositsWithInvalidMaturity.length > 0) {
-        violations.push({
-          type: 'Deposits with maturity amount less than principal',
-          count: depositsWithInvalidMaturity.length,
-          details: depositsWithInvalidMaturity.map(d => ({
-            id: d.id,
-            accountNumber: d.accountNumber,
-            principalAmount: d.principalAmount,
-            maturityAmount: d.maturityAmount,
-          })),
-        });
-      }
-
-      const totalViolations = violations.reduce((sum, violation) => sum + violation.count, 0);
-
-      return {
-        checkName: 'Business Rule Violations Check',
-        status: totalViolations > 0 ? 'FAIL' : 'PASS',
-        message: totalViolations > 0
-          ? `Found ${totalViolations} business rule violations`
-          : 'No business rule violations found',
-        affectedRecords: totalViolations,
-        details: totalViolations > 0 ? violations : undefined,
-        fixAvailable: true,
-      };
-    } catch (error) {
-      this.logger.error('Business rule violations check failed', error.stack);
-      return {
-        checkName: 'Business Rule Violations Check',
-        status: 'FAIL',
-        message: `Check failed: ${error.message}`,
-        affectedRecords: 0,
-        fixAvailable: false,
-      };
-    }
+    return this.runCheck('Business Rule Violations Check', 'WARNING', [
+      {
+        label: 'loans disbursed on a future date',
+        countSql: `SELECT count(*) AS n FROM loan_master WHERE payment_date > CURRENT_DATE + 1`,
+        sampleSql: `SELECT mbno::text AS member_no, loancaseno::text AS loan_case_no, payment_date FROM loan_master WHERE payment_date > CURRENT_DATE + 1 ORDER BY payment_date DESC LIMIT ${SAMPLE}`,
+      },
+      {
+        label: 'loans with an installment amount but no installment count',
+        countSql: `SELECT count(*) AS n FROM loan_master WHERE CAST(balance AS numeric) > 0 AND CAST(instal_amt AS numeric) > 0 AND COALESCE(no_of_instal, 0) <= 0`,
+        sampleSql: `SELECT mbno::text AS member_no, loancaseno::text AS loan_case_no, instal_amt, no_of_instal FROM loan_master WHERE CAST(balance AS numeric) > 0 AND CAST(instal_amt AS numeric) > 0 AND COALESCE(no_of_instal, 0) <= 0 ORDER BY loancaseno LIMIT ${SAMPLE}`,
+      },
+    ], 'No loan breaks a basic business rule');
   }
 
-  /**
-   * Check referential integrity
-   */
   async checkReferentialIntegrity(): Promise<ConsistencyCheckResult> {
-    try {
-      // This check is mostly handled by database constraints,
-      // but we can check for soft-deleted references
-      const integrityIssues: any[] = [];
-
-      // Check for active loans referencing inactive members
-      const loansWithInactiveMembers = await this.loanAccountRepository
-        .createQueryBuilder('loan')
-        .leftJoin('loan.member', 'member')
-        .where('loan.status = :loanStatus', { loanStatus: 'ACTIVE' })
-        .andWhere('member.status != :activeStatus', { activeStatus: 'ACTIVE' })
-        .getMany();
-
-      if (loansWithInactiveMembers.length > 0) {
-        integrityIssues.push({
-          type: 'Active loans with inactive members',
-          count: loansWithInactiveMembers.length,
-          details: loansWithInactiveMembers.map(l => ({
-            loanId: l.id,
-            accountNumber: l.accountNumber,
-            memberId: l.member?.id,
-          })),
-        });
-      }
-
-      const totalIssues = integrityIssues.reduce((sum, issue) => sum + issue.count, 0);
-
-      return {
-        checkName: 'Referential Integrity Check',
-        status: totalIssues > 0 ? 'WARNING' : 'PASS',
-        message: totalIssues > 0
-          ? `Found ${totalIssues} referential integrity issues`
-          : 'Referential integrity is maintained',
-        affectedRecords: totalIssues,
-        details: totalIssues > 0 ? integrityIssues : undefined,
-        fixAvailable: true,
-      };
-    } catch (error) {
-      this.logger.error('Referential integrity check failed', error.stack);
-      return {
-        checkName: 'Referential Integrity Check',
-        status: 'FAIL',
-        message: `Check failed: ${error.message}`,
-        affectedRecords: 0,
-        fixAvailable: false,
-      };
-    }
+    return this.runCheck('Referential Integrity Check', 'WARNING', [
+      {
+        label: 'loans with a balance for an inactive member',
+        countSql: `SELECT count(*) AS n FROM loan_master l JOIN member_master m ON m.mbno::text = l.mbno::text WHERE m.isactive = 'N' AND CAST(l.balance AS numeric) > 0`,
+        sampleSql: `SELECT l.mbno::text AS member_no, l.loancaseno::text AS loan_case_no, l.balance FROM loan_master l JOIN member_master m ON m.mbno::text = l.mbno::text WHERE m.isactive = 'N' AND CAST(l.balance AS numeric) > 0 ORDER BY l.loancaseno LIMIT ${SAMPLE}`,
+      },
+    ], 'No loan is left open for an inactive member');
   }
 
-  /**
-   * Check date consistency
-   */
   async checkDateConsistency(): Promise<ConsistencyCheckResult> {
-    try {
-      const dateIssues: any[] = [];
-
-      /*
-      // Check for future-dated transactions
-      const futureDatedTransactions = await this.transactionRepository
-        .createQueryBuilder('transaction')
-        .where('transaction.transactionDate > :now', { now: new Date() })
-        .getMany();
-
-      if (futureDatedTransactions.length > 0) {
-        dateIssues.push({
-          type: 'Future-dated transactions',
-          count: futureDatedTransactions.length,
-          details: futureDatedTransactions.map(t => ({
-            id: t.id,
-            transactionNumber: t.transactionNumber,
-            transactionDate: t.transactionDate,
-          })),
-        });
-      }
-      */
-
-      const totalIssues = dateIssues.reduce((sum, issue) => sum + issue.count, 0);
-
-      return {
-        checkName: 'Date Consistency Check',
-        status: totalIssues > 0 ? 'WARNING' : 'PASS',
-        message: totalIssues > 0
-          ? `Found ${totalIssues} date consistency issues`
-          : 'All dates are consistent',
-        affectedRecords: totalIssues,
-        details: totalIssues > 0 ? dateIssues : undefined,
-        fixAvailable: true,
-      };
-    } catch (error) {
-      this.logger.error('Date consistency check failed', error.stack);
-      return {
-        checkName: 'Date Consistency Check',
-        status: 'FAIL',
-        message: `Check failed: ${error.message}`,
-        affectedRecords: 0,
-        fixAvailable: false,
-      };
-    }
+    return this.runCheck('Date Consistency Check', 'WARNING', [
+      {
+        label: 'ledger rows dated in the future',
+        countSql: `SELECT count(*) AS n FROM ledger WHERE trans_date > CURRENT_DATE + 1`,
+        sampleSql: `SELECT trans_no::text AS trans_no, trans_date, trans_type, trans_amt, mbno::text AS member_no FROM ledger WHERE trans_date > CURRENT_DATE + 1 ORDER BY trans_date DESC LIMIT ${SAMPLE}`,
+      },
+      {
+        label: 'ledger rows dated before 1990',
+        countSql: `SELECT count(*) AS n FROM ledger WHERE trans_date < DATE '1990-01-01'`,
+        sampleSql: `SELECT trans_no::text AS trans_no, trans_date, trans_type, trans_amt FROM ledger WHERE trans_date < DATE '1990-01-01' ORDER BY trans_date LIMIT ${SAMPLE}`,
+      },
+    ], 'All ledger dates are sensible');
   }
 
-  /**
-   * Check numerical consistency
-   */
   async checkNumericalConsistency(): Promise<ConsistencyCheckResult> {
-    try {
-      const numericalIssues: any[] = [];
-
-      // Check for negative balances where they shouldn't exist
-      const depositsWithNegativeBalance = await this.fixedDepositRepository
-        .createQueryBuilder('deposit')
-        .where('deposit.principalAmount < 0 OR deposit.maturityAmount < 0')
-        .getMany();
-
-      if (depositsWithNegativeBalance.length > 0) {
-        numericalIssues.push({
-          type: 'Deposits with negative amounts',
-          count: depositsWithNegativeBalance.length,
-          details: depositsWithNegativeBalance.map(d => ({
-            id: d.id,
-            accountNumber: d.accountNumber,
-            principalAmount: d.principalAmount,
-            maturityAmount: d.maturityAmount,
-          })),
-        });
-      }
-
-      const totalIssues = numericalIssues.reduce((sum, issue) => sum + issue.count, 0);
-
-      return {
-        checkName: 'Numerical Consistency Check',
-        status: totalIssues > 0 ? 'FAIL' : 'PASS',
-        message: totalIssues > 0
-          ? `Found ${totalIssues} numerical consistency issues`
-          : 'All numerical values are consistent',
-        affectedRecords: totalIssues,
-        details: totalIssues > 0 ? numericalIssues : undefined,
-        fixAvailable: true,
-      };
-    } catch (error) {
-      this.logger.error('Numerical consistency check failed', error.stack);
-      return {
-        checkName: 'Numerical Consistency Check',
-        status: 'FAIL',
-        message: `Check failed: ${error.message}`,
-        affectedRecords: 0,
-        fixAvailable: false,
-      };
-    }
+    return this.runCheck('Numerical Consistency Check', 'FAIL', [
+      {
+        label: 'ledger rows with an amount of zero or less',
+        countSql: `SELECT count(*) AS n FROM ledger WHERE trans_amt <= 0`,
+        sampleSql: `SELECT trans_no::text AS trans_no, trans_date, trans_type, trans_amt, mbno::text AS member_no, narration FROM ledger WHERE trans_amt <= 0 ORDER BY trans_date DESC LIMIT ${SAMPLE}`,
+      },
+      {
+        label: 'loans with a negative balance',
+        countSql: `SELECT count(*) AS n FROM loan_master WHERE CAST(balance AS numeric) < 0`,
+        sampleSql: `SELECT mbno::text AS member_no, loancaseno::text AS loan_case_no, balance FROM loan_master WHERE CAST(balance AS numeric) < 0 ORDER BY loancaseno LIMIT ${SAMPLE}`,
+      },
+      {
+        label: 'members with a negative share or deposit balance',
+        countSql: `SELECT count(*) AS n FROM member_balances WHERE shares < 0 OR compulsory_deposit < 0 OR rd_amt < 0`,
+        sampleSql: `SELECT mbno::text AS member_no, shares, compulsory_deposit, rd_amt FROM member_balances WHERE shares < 0 OR compulsory_deposit < 0 OR rd_amt < 0 ORDER BY mbno LIMIT ${SAMPLE}`,
+      },
+    ], 'No amount is zero or negative where it should not be');
   }
 
-  /**
-   * Generate recommendations based on check results
-   */
   private generateRecommendations(checks: ConsistencyCheckResult[]): string[] {
     const recommendations: string[] = [];
-
-    const failedChecks = checks.filter(c => c.status === 'FAIL');
-    const warningChecks = checks.filter(c => c.status === 'WARNING');
-
-    if (failedChecks.length > 0) {
-      recommendations.push('Immediate attention required for failed consistency checks');
-      recommendations.push('Run data correction utilities to fix critical issues');
-      recommendations.push('Consider running a database backup before making corrections');
+    const failed = checks.filter(c => c.status === 'FAIL');
+    const warnings = checks.filter(c => c.status === 'WARNING');
+    if (failed.length > 0) {
+      recommendations.push('Review the failed checks first: they point at wrong amounts or missing details');
+      recommendations.push('Take a database backup before correcting any record by hand');
     }
-
-    if (warningChecks.length > 0) {
-      recommendations.push('Review warning issues and plan corrective actions');
-      recommendations.push('Monitor these issues to prevent them from becoming critical');
+    if (warnings.length > 0) recommendations.push('Review the warnings and decide which need a correction');
+    if (checks.some(c => c.checkName.includes('Balance') && c.status !== 'PASS')) {
+      recommendations.push('Find the entry that keeps debits and credits apart (Day Book / Ledger reports by date)');
     }
-
-    if (checks.some(c => c.checkName.includes('Balance'))) {
-      recommendations.push('Schedule regular balance reconciliation processes');
-    }
-
-    if (checks.some(c => c.checkName.includes('Duplicate'))) {
-      recommendations.push('Implement duplicate detection in data entry processes');
-    }
-
-    if (failedChecks.length === 0 && warningChecks.length === 0) {
-      recommendations.push('Data consistency is good - maintain regular monitoring');
-      recommendations.push('Consider scheduling automated consistency checks');
-    }
-
+    if (failed.length === 0 && warnings.length === 0) recommendations.push('Data looks consistent - keep checking regularly');
     return recommendations;
   }
 }

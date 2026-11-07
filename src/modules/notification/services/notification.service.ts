@@ -92,12 +92,18 @@ export class NotificationService {
             body: new URLSearchParams({
                 channel: 'whatsapp',
                 source: this.configService.get('WHATSAPP_SOURCE') || '',
-                destination: phone.startsWith('91') ? phone : `91${phone}`,
+                destination: this.whatsAppNumber(phone),
                 message: JSON.stringify({ type: 'text', text: message }),
                 'src.name': this.configService.get('WHATSAPP_APP_NAME') || 'FIBE',
             }),
         });
         if (!res.ok) throw new Error(`Gupshup ${res.status}: ${await res.text()}`);
+    }
+
+    /** Digits only; a 10 digit Indian mobile gets 91 in front (also when the mobile number itself starts with 91). */
+    private whatsAppNumber(phone: string): string {
+        const digits = String(phone ?? '').replace(/\D/g, '').replace(/^0+/, '');
+        return digits.length === 10 ? `91${digits}` : digits;
     }
 
     private escapeHtml(value: string): string {
@@ -135,6 +141,8 @@ export class NotificationService {
         const log = await this.notificationRepository.findOne({ where: { id } });
         if (!log) return { success: false, error: 'Not found' };
         if (log.status === NotificationStatus.SENT) return { success: true, logId: id };
+        // A cancelled message was withdrawn on purpose; Send / Retry / a batch must not send it after all (ES-430)
+        if (log.status === NotificationStatus.CANCELLED) return { success: false, error: 'Message was cancelled' };
 
         if (overrideChannel && overrideChannel !== log.channel) {
             log.channel = overrideChannel;
@@ -175,23 +183,29 @@ export class NotificationService {
     }
 
     async cancelNotifications(ids: number[]) {
-        await this.notificationRepository.update(
+        const result = await this.notificationRepository.update(
             { id: In(ids), status: NotificationStatus.PENDING },
             { status: NotificationStatus.CANCELLED },
         );
-        return { cancelled: ids.length };
+        // only PENDING rows are cancelled: report how many really were
+        return { cancelled: result?.affected ?? 0 };
     }
 
     // ── Queue with dedup ─────────────────────────────────────
 
     async queueNotification(data: Partial<NotificationLog> & { dedupeKey?: string }) {
+        return (await this.queueInternal(data)).log;
+    }
+
+    /** Like queueNotification, but also says whether a new row was really created (false = it was a duplicate). */
+    private async queueInternal(data: Partial<NotificationLog> & { dedupeKey?: string }): Promise<{ log: any; created: boolean }> {
         if (data.dedupeKey) {
             const existing = await this.notificationRepository.findOne({
                 where: { dedupeKey: data.dedupeKey },
             });
             if (existing) {
                 this.logger.debug(`Dedup skip: ${data.dedupeKey}`);
-                return existing;
+                return { log: existing, created: false };
             }
         }
 
@@ -202,11 +216,11 @@ export class NotificationService {
         });
 
         try {
-            return await this.notificationRepository.save(log);
+            return { log: await this.notificationRepository.save(log), created: true };
         } catch (e) {
             if (e.code === '23505') {
                 this.logger.debug(`Dedup constraint skip: ${data.dedupeKey}`);
-                return null;
+                return { log: null, created: false };
             }
             throw e;
         }
@@ -226,6 +240,8 @@ export class NotificationService {
     async queueTransactionAlert(data: {
         memberNo: string; transactionType: string;
         amount: number; recipient?: string; channel?: NotificationChannel;
+        /** Voucher / transaction number: the same event sent twice is then sent once. Without it every call is a new alert. */
+        reference?: string;
     }) {
         const memberInfo = await this.dataSource.query(`
             SELECT TRIM(COALESCE(f_name,'') || ' ' || COALESCE(l_name,'')) as name, phoneno as phone
@@ -233,6 +249,11 @@ export class NotificationService {
         `, [data.memberNo]);
         const name = memberInfo[0]?.name || 'Member';
         const phone = data.recipient || memberInfo[0]?.phone || '';
+        // No number, nothing to send an SMS to: do not queue a message that can only fail later (ES-430)
+        if (!String(phone).trim()) {
+            this.logger.warn(`No phone number for member ${data.memberNo}: transaction alert not queued`);
+            return null;
+        }
         const message = `Dear ${name}, your ${data.transactionType} of Rs.${data.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })} has been processed. — FIBE Credit Society`;
         const today = new Date().toISOString().slice(0, 10);
 
@@ -241,7 +262,9 @@ export class NotificationService {
             channel: data.channel || NotificationChannel.SMS,
             type: NotificationType.TRANSACTION,
             message, recipient: phone,
-            dedupeKey: this.generateDedupeKey(data.memberNo, data.channel || 'SMS', `TXN-${data.transactionType}-${data.amount}`, today),
+            // Same type + amount on the same day is NOT the same payment (two deposits of 500). Only an explicit
+            // reference identifies an event; otherwise every call gets its own key (ES-430).
+            dedupeKey: this.generateDedupeKey(data.memberNo, data.channel || 'SMS', `TXN-${data.reference ?? this.generateMsgRef()}`, today),
         });
     }
 
@@ -265,14 +288,14 @@ export class NotificationService {
             let queued = 0;
             for (const m of members) {
                 if (!m.phone) continue;
-                const result = await this.queueNotification({
+                const result = await this.queueInternal({
                     memberNo: m.mbno, channel: NotificationChannel.SMS,
                     type: NotificationType.EMI_ALERT,
                     message: `Dear ${m.name}, your EMI has a deficit of Rs.${parseFloat(m.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}. Please clear it. — FIBE`,
                     recipient: m.phone,
                     dedupeKey: this.generateDedupeKey(m.mbno, 'SMS', 'EMI_ALERT', today),
                 });
-                if (result) queued++;
+                if (result.created) queued++;
             }
             this.logger.log(`EMI alerts: ${queued} queued, ${members.length - queued} skipped (dedup)`);
             return { queued, total: members.length };
@@ -302,14 +325,14 @@ export class NotificationService {
             for (const d of deposits) {
                 if (!d.phone) continue;
                 const dt = new Date(d.mat_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-                const result = await this.queueNotification({
+                const result = await this.queueInternal({
                     memberNo: d.mbno, channel: NotificationChannel.SMS,
                     type: NotificationType.MATURITY_ALERT,
                     message: `Dear ${d.name}, your ${d.type} A/c ${d.acc_no} matures on ${dt}. Please visit the office. — FIBE`,
                     recipient: d.phone,
                     dedupeKey: this.generateDedupeKey(d.mbno, 'SMS', `MATURITY-${d.acc_no}`, today),
                 });
-                if (result) queued++;
+                if (result.created) queued++;
             }
             this.logger.log(`Maturity alerts: ${queued} queued`);
             return { queued, total: deposits.length };
@@ -328,7 +351,7 @@ export class NotificationService {
             const members = await this.dataSource.query(`
                 SELECT CAST(m.mbno AS text) as mbno,
                     TRIM(COALESCE(m.f_name,'') || ' ' || COALESCE(m.l_name,'')) as name, m.phoneno as phone
-                FROM member_master m WHERE m.isactive = 'Y' LIMIT 200
+                FROM member_master m WHERE m.isactive = 'Y' ORDER BY m.mbno
             `);
             const monthKey = `${today.getFullYear()}-${today.getMonth() + 1}`;
             const monthName = today.toLocaleString('default', { month: 'long', year: 'numeric' });

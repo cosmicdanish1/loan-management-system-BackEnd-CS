@@ -268,7 +268,8 @@ export class AuthService {
       userLevel,
       enableDisable: 'E',
       loginStatus: 'N',
-      passTransactionFlag: 'Y',
+      // Approval authority is off by default (maker-checker); an administrator switches it on per user in Create / Modify Users.
+      passTransactionFlag: 'N',
       dateOfCreation: new Date(),
       email: registerDto.email,
       firstName: registerDto.firstName,
@@ -293,6 +294,19 @@ export class AuthService {
       });
 
       this.logger.debug('Refresh token payload received');
+
+      // Revocation / rotation (ES-297): a refresh token works once. Logout revokes the whole session, and presenting a
+      // token that was already used means it was copied, so the whole session (every token of it) is revoked.
+      const presentedHash = this.hashToken(tokenRefreshDto.refreshToken);
+      const sessionHash = payload.sid ? this.hashToken(`sid:${payload.sid}`) : null;
+      const revoked = await this.userMasterRepository.query(
+        `SELECT token_hash FROM revoked_tokens WHERE token_hash = ANY($1::text[]) AND expires_at > NOW()`,
+        [sessionHash ? [presentedHash, sessionHash] : [presentedHash]],
+      );
+      if (revoked?.length) {
+        if (revoked.some((r: any) => r.token_hash === presentedHash)) await this.revokeSession(payload.sid, payload.sub, payload.exp);
+        throw new UnauthorizedException('Refresh token has been revoked');
+      }
 
       const userMaster = await this.userMasterRepository.findOne({
         where: { userid: payload.sub },
@@ -322,7 +336,12 @@ export class AuthService {
         throw new UnauthorizedException('User not found');
       }
 
-      const tokens = await this.generateTokens(user);
+      // rotate: the token just used can never be used again; the new pair stays in the same session
+      await this.userMasterRepository.query(
+        `INSERT INTO revoked_tokens (token_hash, user_id, expires_at) VALUES ($1, $2, $3) ON CONFLICT (token_hash) DO NOTHING`,
+        [presentedHash, user.id, payload.exp ? new Date(payload.exp * 1000) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)],
+      );
+      const tokens = await this.generateTokens(user, payload.sid);
 
       return {
         ...tokens,
@@ -350,6 +369,16 @@ export class AuthService {
   // rows per user), so revocation must be per-token, not a single account-wide
   // flag — a denylist keyed by the token's own hash, scoped to just the token
   // that called /auth/logout, leaves other devices/tabs logged in.
+  /** Ends a whole login session: its access token and every refresh token of it stop working. */
+  private async revokeSession(sid: string | undefined, userId: number, exp?: number): Promise<void> {
+    if (!sid) return;
+    const keepUntil = exp ? new Date(exp * 1000) : new Date(Date.now() + this.configService.get<number>('JWT_REFRESH_EXPIRES_IN', 604800) * 1000);
+    await this.userMasterRepository.query(
+      `INSERT INTO revoked_tokens (token_hash, user_id, expires_at) VALUES ($1, $2, $3) ON CONFLICT (token_hash) DO NOTHING`,
+      [this.hashToken(`sid:${sid}`), userId, keepUntil],
+    );
+  }
+
   private hashToken(token: string): string {
     return crypto.createHash('sha256').update(token).digest('hex');
   }
@@ -406,6 +435,8 @@ export class AuthService {
          ON CONFLICT (token_hash) DO NOTHING`,
         [this.hashToken(rawToken), userId, expiresAt],
       );
+      // the refresh token of the same login must die with it (it is not sent to /logout, so revoke by session id)
+      await this.revokeSession(decoded?.sid, userId, Math.floor(Date.now() / 1000) + this.configService.get<number>('JWT_REFRESH_EXPIRES_IN', 604800));
     }
 
     return { message: 'Logout successful' };
@@ -425,7 +456,7 @@ export class AuthService {
     return this.mapUserToResponseDto(mapUserMasterToUser(userMaster));
   }
 
-  private async generateTokens(user: User): Promise<{
+  private async generateTokens(user: User, sid: string = randomUUID()): Promise<{
     accessToken: string;
     refreshToken: string;
     tokenType: string;
@@ -436,6 +467,7 @@ export class AuthService {
       username: user.username,
       email: user.email,
       role: user.role,
+      sid,
     };
 
     const accessTokenExpiresIn = this.configService.get<number>('JWT_EXPIRES_IN', 3600);
@@ -562,7 +594,7 @@ export class AuthService {
     username: string,
     currentPassword: string,
     newPassword: string,
-  ): Promise<{ message: string }> {
+  ): Promise<{ message: string; accessToken: string; refreshToken: string; tokenType: string; expiresIn: number }> {
     // Find user in UserMaster table
     const userMaster = await this.userMasterRepository.findOne({
       where: { susername: username },
@@ -587,8 +619,13 @@ export class AuthService {
 
     // Update password (will be hashed automatically by entity)
     userMaster.spassword = newPassword;
+    // ES-297: every token issued before this moment stops working (other PCs, a stolen session). Truncated to the
+    // second because token "iat" has second precision, so the fresh pair issued below is still accepted.
+    userMaster.forceLogoutAt = new Date(Math.floor(Date.now() / 1000) * 1000);
     await this.userMasterRepository.save(userMaster);
 
-    return { message: 'Password changed successfully' };
+    // the person changing the password keeps working on this PC: hand them a new session
+    const fresh = await this.generateTokens(mapUserMasterToUser(userMaster));
+    return { message: 'Password changed successfully', ...fresh };
   }
 }

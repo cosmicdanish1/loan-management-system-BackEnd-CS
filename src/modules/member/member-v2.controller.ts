@@ -13,6 +13,7 @@ import {
     StreamableFile,
     Res,
     NotFoundException,
+    GoneException,
     ParseFilePipeBuilder,
     HttpStatus,
 } from '@nestjs/common';
@@ -50,11 +51,13 @@ export class MemberV2Controller {
 
     // ==================== CRUD Operations ====================
 
+    // Retired (ES-307): this wrote to the old `members` table, which the society does not use, so a member created here
+    // never appeared in Member Master. Members are created with POST /members/save-member (Member Master screen).
     @Post()
-    @ApiOperation({ summary: 'Create a new member' })
-    @ApiResponse({ status: 201, description: 'Member created successfully' })
-    async create(@Body() createMemberDto: CreateMemberDto): Promise<MemberResponseDto> {
-        return this.memberCrudService.create(createMemberDto);
+    @ApiOperation({ summary: 'Retired - use POST /members/save-member (Member Master)', deprecated: true })
+    @ApiResponse({ status: 410, description: 'Retired' })
+    async create(): Promise<never> {
+        throw new GoneException('Creating a member from this route is switched off. Add members from the Member Master screen.');
     }
 
     @Get()
@@ -94,10 +97,10 @@ export class MemberV2Controller {
     }
 
     @Get('generate/member-number')
-    @ApiOperation({ summary: 'Generate next sequential member number' })
+    @ApiOperation({ summary: 'Preview the next member number (read-only, does not consume the number)' })
     async generateMemberNumber() {
-        // This logic is in MemberCrudService.create but we expose it for form pre-filling
-        const memberNumber = await this.memberCrudService.generateNextMemberNumber();
+        // Form pre-filling only: the number is allocated when the member is saved (ES-310).
+        const memberNumber = await this.memberCrudService.peekNextMemberNumber();
         return { memberNumber };
     }
 
@@ -109,13 +112,12 @@ export class MemberV2Controller {
         return this.memberCrudService.findOne(id);
     }
 
+    // Retired (ES-307): it updated the old `members` table, so it failed for every real member number.
     @Patch(':id')
-    @ApiOperation({ summary: 'Update member' })
-    async update(
-        @Param('id', ParseIntPipe) id: number,
-        @Body() updateMemberDto: UpdateMemberDto,
-    ): Promise<MemberResponseDto> {
-        return this.memberCrudService.update(id, updateMemberDto);
+    @ApiOperation({ summary: 'Retired - change a member in Member Master', deprecated: true })
+    @ApiResponse({ status: 410, description: 'Retired' })
+    async update(): Promise<never> {
+        throw new GoneException('Changing a member from this route is switched off. Change members in the Member Master screen.');
     }
 
     @Delete(':id')

@@ -33,7 +33,7 @@ export class Ledger {
   @Column({ name: 'trans_amt', type: 'numeric', precision: 19, scale: 4, default: 0 })
   transactionAmount: number;
 
-  @Column({ name: 'receipt_vchr_no', type: 'varchar', length: 6, default: '' })
+  @Column({ name: 'receipt_vchr_no', type: 'varchar', length: 20, default: '' })
   receiptVoucherNumber: string;
 
   @Column({ name: 'vchr_type', type: 'varchar', length: 2, default: '' })

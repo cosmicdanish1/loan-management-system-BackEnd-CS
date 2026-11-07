@@ -80,6 +80,8 @@ jobs:
           cp package.json package-lock.json stage/
           cp -r database/migrations stage/migrations
           mkdir -p stage/scripts && cp -r scripts/update stage/scripts/update
+          # bundled font for the re-agreement PDF/PNG (read from <install>/assets/fonts)
+          cp -r assets stage/assets
           node -e '
             const fs = require("fs");
             fs.writeFileSync("stage/release-manifest.json", JSON.stringify({

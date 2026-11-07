@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { parseSafeDate } from '../../shared/utils/date-utils';
 
@@ -17,6 +17,11 @@ export class DividendReportsService {
    */
   async getDividendReport(dto: { year: number; wingNo?: string; officeNo?: string; dividendRate?: number; limit?: number; offset?: number }) {
     const { year, wingNo, officeNo, dividendRate = 10, limit, offset } = dto;
+    // A rate is a percentage of the share capital: 0 to 100 (ES-328). 250% or -5% would print wrong dividends.
+    const rate = Number(dividendRate);
+    if (!Number.isFinite(rate) || rate < 0 || rate > 100) {
+      throw new BadRequestException('dividendRate must be a number from 0 to 100');
+    }
 
     const baseQuery = `
       FROM member_master m
@@ -50,7 +55,7 @@ export class DividendReportsService {
     let query = `
       SELECT 
         m.mbno as member_no,
-        TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
+        REGEXP_REPLACE(TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')), '\\s+', ' ', 'g') as member_name,
         m.desig as designation,
         d.name as office_name,
         COALESCE(mb.shares, 0) as share_balance,
@@ -313,7 +318,7 @@ export class DividendReportsService {
     // Use interestpaid table
     const baseQuery = `
       FROM interestpaid ip
-      LEFT JOIN member_master m ON m.mbno = ip.mbno::text
+      LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(ip.mbno AS text)
       LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
       WHERE EXTRACT(YEAR FROM ip.paydate) = $1
     `;
@@ -385,7 +390,7 @@ export class DividendReportsService {
     const query = `
       SELECT 
         m.mbno as member_no,
-        TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
+        REGEXP_REPLACE(TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')), '\\s+', ' ', 'g') as member_name,
         m.pfno as pf_no,
         d.name as office_name,
         SUM(COALESCE(il.interest_amount, 0)) as total_interest

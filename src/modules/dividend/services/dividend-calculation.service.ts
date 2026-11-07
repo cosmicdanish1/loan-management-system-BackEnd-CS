@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { DividendRateRules, assertDividendRateAllowed, dividendRateRulesFrom } from '../dividend-rate-rules';
 import { DataSource } from 'typeorm';
 
 export interface FinancialYearMonth {
@@ -60,6 +61,22 @@ export class DividendCalculationService {
         return months;
     }
 
+    /** The dividend rate rules saved in Modify Business Rules, plus the proposed starting rate (Dividend Payout %). */
+    async getRateRules(): Promise<DividendRateRules> {
+        const rows = await this.dataSource.query(
+            `SELECT key, value FROM system_configs WHERE key LIKE 'RULE_DIVIDEND_%' AND "isActive" IS NOT FALSE`,
+        );
+        const map: Record<string, string> = {};
+        for (const r of rows) map[r.key] = r.value;
+        return dividendRateRulesFrom(map);
+    }
+
+    async getRateRulesWithDefault(): Promise<DividendRateRules & { payoutPercent: number }> {
+        const rules = await this.getRateRules();
+        const row = await this.dataSource.query(`SELECT value FROM system_configs WHERE key = 'RULE_DIVIDEND_PCT' AND "isActive" IS NOT FALSE LIMIT 1`);
+        return { ...rules, payoutPercent: Number(row[0]?.value) || 0 };
+    }
+
     /** Read-only preview of what committing this year's dividend calculation
      *  would produce, for every member with at least one Share snapshot in
      *  the financial year — safe to call repeatedly, writes nothing. */
@@ -70,7 +87,12 @@ export class DividendCalculationService {
         monthsExpected: number;
         members: MemberDividendPreview[];
     }> {
-        if (dividendRatePercent <= 0) throw new BadRequestException('Dividend rate must be greater than zero.');
+        const rate = Number(dividendRatePercent);
+        if (!Number.isFinite(rate) || rate <= 0 || rate > 100) {
+            throw new BadRequestException('Dividend rate must be a number greater than 0 and not more than 100.');
+        }
+        // ES-476: Fixed / Minimum / Maximum rate from Modify Business Rules (only the ones switched on apply)
+        assertDividendRateAllowed(rate, await this.getRateRules());
 
         const months = await this.getFinancialYearMonths(yearcode);
         const startRow = await this.dataSource.query(`SELECT start_date FROM yearend WHERE yearcode = $1`, [yearcode]);
@@ -123,6 +145,19 @@ export class DividendCalculationService {
     ): Promise<{ success: boolean; calculationYear: number; membersCommitted: number }> {
         const preview = await this.previewDividendForYear(yearcode, dividendRatePercent);
 
+        // ES-328: once any member of this year has been credited or paid, the year's rate is settled. Re-running at
+        // another rate would leave some members on the old rate and the rest on the new one.
+        const settled = await this.dataSource.query(
+            `SELECT dividend_rate FROM dividend_master
+              WHERE year = $1 AND (credited_at IS NOT NULL OR is_paid = 'Y') LIMIT 1`,
+            [preview.calculationYear],
+        );
+        if (settled.length > 0 && Number(settled[0].dividend_rate) !== Number(dividendRatePercent)) {
+            throw new BadRequestException(
+                `The ${preview.calculationYear} dividend was already credited or paid at ${Number(settled[0].dividend_rate)}%. It cannot be re-calculated at ${dividendRatePercent}%.`,
+            );
+        }
+
         const queryRunner = this.dataSource.createQueryRunner();
         await queryRunner.connect();
         await queryRunner.startTransaction();
@@ -135,7 +170,8 @@ export class DividendCalculationService {
                          SET share_amount = EXCLUDED.share_amount,
                              dividend_rate = EXCLUDED.dividend_rate,
                              dividend_amount = EXCLUDED.dividend_amount
-                     WHERE dividend_master.is_paid IS NULL OR dividend_master.is_paid != 'Y'`,
+                     WHERE (dividend_master.is_paid IS NULL OR dividend_master.is_paid != 'Y')
+                       AND dividend_master.credited_at IS NULL`, // ES-463: a dividend already credited to Share Value is never rewritten
                     [member.mbno, preview.calculationYear, member.totalProduct, dividendRatePercent, member.dividendAmount],
                 );
             }

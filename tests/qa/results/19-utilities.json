@@ -1,0 +1,441 @@
+{
+ "suite": "19-utilities",
+ "ranAt": "2026-11-03T09:54:25.969Z",
+ "seconds": 13.207,
+ "total": 72,
+ "failed": 15,
+ "results": [
+  {
+   "id": "UT-01",
+   "title": "GET /utilities/calculator/loan-rates -> 200 in under 3 s with data",
+   "ok": true,
+   "detail": "200 59ms"
+  },
+  {
+   "id": "UT-02",
+   "title": "GET /utilities/sb-accounts/holders -> 200 in under 3 s with data",
+   "ok": true,
+   "detail": "200 103ms"
+  },
+  {
+   "id": "UT-03",
+   "title": "GET /utilities/rd-accounts/holders -> 200 in under 3 s with data",
+   "ok": true,
+   "detail": "200 64ms"
+  },
+  {
+   "id": "UT-04",
+   "title": "GET /utilities/head-master -> 200 in under 3 s with data",
+   "ok": true,
+   "detail": "200 1543ms"
+  },
+  {
+   "id": "UT-05",
+   "title": "GET /utilities/divisions -> 200 in under 3 s with data",
+   "ok": true,
+   "detail": "200 45ms"
+  },
+  {
+   "id": "UT-06",
+   "title": "GET /utilities/financial-years -> 200 in under 3 s with data",
+   "ok": true,
+   "detail": "200 19ms"
+  },
+  {
+   "id": "UT-07",
+   "title": "GET /utilities/deposit-loan-slabs?type=RLN -> 200 in under 3 s with data",
+   "ok": true,
+   "detail": "200 17ms"
+  },
+  {
+   "id": "UT-08",
+   "title": "GET /utilities/demand-print-order -> 200 in under 3 s with data",
+   "ok": true,
+   "detail": "200 19ms"
+  },
+  {
+   "id": "UT-09",
+   "title": "GET /utilities/business-rules -> 200 in under 3 s with data",
+   "ok": true,
+   "detail": "200 34ms"
+  },
+  {
+   "id": "UT-10",
+   "title": "GET /utilities/head-opening-balance?yearcode=1 -> 200 in under 3 s with data",
+   "ok": true,
+   "detail": "200 26ms"
+  },
+  {
+   "id": "UT-11",
+   "title": "GET /utilities/preferences -> 200 in under 3 s with data",
+   "ok": true,
+   "detail": "200 21ms"
+  },
+  {
+   "id": "UT-12",
+   "title": "GET /utilities/financial-year/current -> 200 in under 3 s with data",
+   "ok": true,
+   "detail": "200 19ms"
+  },
+  {
+   "id": "UT-13",
+   "title": "Loan-rates calculator shows RLN, ALN and ELN with positive rates and limits",
+   "ok": false,
+   "detail": "[]"
+  },
+  {
+   "id": "UT-14",
+   "title": "'Current financial year' is the year that contains today (2026-11-03), not just the highest yearcode",
+   "ok": false,
+   "detail": "API says yearcode 2; the year containing today is 1; years: 1=01 Apr 2026 - 31 Mar 2027 | 2=01 Apr 2027 - 31 Mar 2028"
+  },
+  {
+   "id": "UT-15",
+   "title": "Deposit/Loan Slab and Demand Print Order screens have data (legacy had DEMANDPRINTORDER 6 rows)",
+   "ok": false,
+   "detail": "slabs 0, print order 0"
+  },
+  {
+   "id": "UT-16-0-unknownmember",
+   "title": "GET calculator/member-eligibility with unknown member: 4xx or empty result (no 5xx)",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+  },
+  {
+   "id": "UT-16-0-text",
+   "title": "GET calculator/member-eligibility with text: 4xx or empty result (no 5xx)",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+  },
+  {
+   "id": "UT-16-0-SQLtext",
+   "title": "GET calculator/member-eligibility with SQL text: 4xx or empty result (no 5xx)",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+  },
+  {
+   "id": "UT-16-0-empty",
+   "title": "GET calculator/member-eligibility with empty: 4xx or empty result (no 5xx)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:54:15.588Z\",\"path\":\"/api/v1/utilities/calculator/member"
+  },
+  {
+   "id": "UT-16-0-hugenumber",
+   "title": "GET calculator/member-eligibility with huge number: 4xx or empty result (no 5xx)",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+  },
+  {
+   "id": "UT-16-1-unknownmember",
+   "title": "GET member/balance with unknown member: 4xx or empty result (no 5xx)",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+  },
+  {
+   "id": "UT-16-1-text",
+   "title": "GET member/balance with text: 4xx or empty result (no 5xx)",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+  },
+  {
+   "id": "UT-16-1-SQLtext",
+   "title": "GET member/balance with SQL text: 4xx or empty result (no 5xx)",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+  },
+  {
+   "id": "UT-16-1-empty",
+   "title": "GET member/balance with empty: 4xx or empty result (no 5xx)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:54:16.199Z\",\"path\":\"/api/v1/utilities/member/balance?me"
+  },
+  {
+   "id": "UT-16-1-hugenumber",
+   "title": "GET member/balance with huge number: 4xx or empty result (no 5xx)",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+  },
+  {
+   "id": "UT-16-2-unknownmember",
+   "title": "GET fd-accounts/member with unknown member: 4xx or empty result (no 5xx)",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+  },
+  {
+   "id": "UT-16-2-text",
+   "title": "GET fd-accounts/member with text: 4xx or empty result (no 5xx)",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+  },
+  {
+   "id": "UT-16-2-SQLtext",
+   "title": "GET fd-accounts/member with SQL text: 4xx or empty result (no 5xx)",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+  },
+  {
+   "id": "UT-16-2-empty",
+   "title": "GET fd-accounts/member with empty: 4xx or empty result (no 5xx)",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+  },
+  {
+   "id": "UT-16-2-hugenumber",
+   "title": "GET fd-accounts/member with huge number: 4xx or empty result (no 5xx)",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+  },
+  {
+   "id": "UT-16-3-unknownmember",
+   "title": "GET dividend/pending with unknown member: 4xx or empty result (no 5xx)",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+  },
+  {
+   "id": "UT-16-3-text",
+   "title": "GET dividend/pending with text: 4xx or empty result (no 5xx)",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+  },
+  {
+   "id": "UT-16-3-SQLtext",
+   "title": "GET dividend/pending with SQL text: 4xx or empty result (no 5xx)",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+  },
+  {
+   "id": "UT-16-3-empty",
+   "title": "GET dividend/pending with empty: 4xx or empty result (no 5xx)",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+  },
+  {
+   "id": "UT-16-3-hugenumber",
+   "title": "GET dividend/pending with huge number: 4xx or empty result (no 5xx)",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+  },
+  {
+   "id": "UT-17",
+   "title": "GET /utilities/head-balance/ZZZ999: handled without 5xx",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+  },
+  {
+   "id": "UT-18",
+   "title": "GET /utilities/head-balance/L1004'%20OR%201=1: handled without 5xx",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+  },
+  {
+   "id": "UT-19",
+   "title": "GET /utilities/head-opening-balance?yearcode=999: handled without 5xx",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":[{\"code\":\"\",\"pa"
+  },
+  {
+   "id": "UT-20",
+   "title": "GET /utilities/head-opening-balance?yearcode=abc: handled without 5xx",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":[{\"code\":\"\",\"pa"
+  },
+  {
+   "id": "UT-21",
+   "title": "GET /utilities/deposit-loan-slabs?type=ZZZ: handled without 5xx",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+  },
+  {
+   "id": "UT-22",
+   "title": "GET /utilities/system-settings/nonexistent_key: handled without 5xx",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+  },
+  {
+   "id": "UT-23",
+   "title": "Head balance L1004 equals the ledger net for that head",
+   "ok": true,
+   "detail": "API 57419241 vs ledger CR-DR -57419241.0000"
+  },
+  {
+   "id": "UT-24",
+   "title": "Preferences: valid change saved",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "id": "UT-25",
+   "title": "Preferences: fontScale 99 refused",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:54:19.060Z\",\"path\":\"/api/v1/utiliti"
+  },
+  {
+   "id": "UT-26",
+   "title": "Preferences: invalid interfaceMode refused",
+   "ok": true,
+   "detail": "400"
+  },
+  {
+   "id": "UT-27",
+   "title": "Preferences: unknown field refused",
+   "ok": true,
+   "detail": "400"
+  },
+  {
+   "id": "UT-28",
+   "title": "Business rules: saving the unchanged rules does not change any value (round trip)",
+   "ok": true,
+   "detail": "201; changed: "
+  },
+  {
+   "id": "UT-29",
+   "title": "Business rules: a NEGATIVE loan rate is refused (restored if it was accepted)",
+   "ok": false,
+   "detail": "201; stored value was -5.00"
+  },
+  {
+   "id": "UT-30",
+   "title": "Business rules: a TEXT loan rate is refused (restored if it was accepted)",
+   "ok": true,
+   "detail": "500; stored 0.00"
+  },
+  {
+   "id": "UT-31",
+   "title": "Business rules end this suite exactly as they started",
+   "ok": true,
+   "detail": "compared all keys"
+  },
+  {
+   "id": "UT-32",
+   "title": "Create QA head under an existing parent",
+   "ok": false,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:54:19.762Z\",\"path\":\"/api/v1/utilities/head-master\",\"method\":\"POST\",\"error\":"
+  },
+  {
+   "id": "UT-33",
+   "title": "Head with parent that does not exist: refused (4xx) and not stored",
+   "ok": true,
+   "detail": "400; stored=0; {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:54:19.871Z\",\"path\":\"/api/v1/utilities/head-ma"
+  },
+  {
+   "id": "UT-34",
+   "title": "Head with empty code: refused (4xx) and not stored",
+   "ok": false,
+   "detail": "400; stored=1; {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:54:19.949Z\",\"path\":\"/api/v1/utilities/head-ma"
+  },
+  {
+   "id": "UT-35",
+   "title": "Head with head name of 3000 characters: refused (4xx) and not stored",
+   "ok": true,
+   "detail": "400; stored=0; {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:54:20.030Z\",\"path\":\"/api/v1/utilities/head-ma"
+  },
+  {
+   "id": "UT-36",
+   "title": "Head with a head that is its own parent: refused (4xx) and not stored",
+   "ok": true,
+   "detail": "400; stored=0; {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:54:20.095Z\",\"path\":\"/api/v1/utilities/head-ma"
+  },
+  {
+   "id": "UT-37",
+   "title": "Head with text opening balance: refused (4xx) and not stored",
+   "ok": true,
+   "detail": "400; stored=0; {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:54:20.169Z\",\"path\":\"/api/v1/utilities/head-ma"
+  },
+  {
+   "id": "UT-38",
+   "title": "Deleting a head that has ledger postings is refused (409)",
+   "ok": true,
+   "detail": "journal 400; delete 404 {\"statusCode\":404,\"timestamp\":\"2026-11-03T09:54:20.321Z\",\"path\":\"/api/v1/utilities/head-master/ZQ597"
+  },
+  {
+   "id": "UT-39",
+   "title": "Deleting a real head with children/postings (L1004) is refused and the head still exists",
+   "ok": true,
+   "detail": "409; exists=1"
+  },
+  {
+   "id": "UT-40",
+   "title": "Deleting a head that does not exist -> 404",
+   "ok": true,
+   "detail": "404"
+  },
+  {
+   "id": "UT-41",
+   "title": "Deleting an unused own QA head works",
+   "ok": false,
+   "detail": "404"
+  },
+  {
+   "id": "UT-42",
+   "title": "Balance transfer with amount 0: refused (4xx), nothing posted",
+   "ok": false,
+   "detail": "201; ledger rows 0 -> 2; {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "UT-43",
+   "title": "Balance transfer with negative amount: refused (4xx), nothing posted",
+   "ok": false,
+   "detail": "201; ledger rows 2 -> 4; {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "UT-44",
+   "title": "Balance transfer with text amount: refused (4xx), nothing posted",
+   "ok": false,
+   "detail": "500; ledger rows 4 -> 4; {\"statusCode\":500,\"timestamp\":\"2026-11-03T09:54:22.579Z\",\"path\":\"/api/v1/utiliti"
+  },
+  {
+   "id": "UT-45",
+   "title": "Balance transfer with same from and to: refused (4xx), nothing posted",
+   "ok": false,
+   "detail": "201; ledger rows 4 -> 6; {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "UT-46",
+   "title": "Balance transfer with unknown to-account: refused (4xx), nothing posted",
+   "ok": false,
+   "detail": "201; ledger rows 6 -> 7; {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "UT-47",
+   "title": "Balance transfer with invalid date: refused (4xx), nothing posted",
+   "ok": false,
+   "detail": "500; ledger rows 7 -> 7; {\"statusCode\":500,\"timestamp\":\"2026-11-03T09:54:24.150Z\",\"path\":\"/api/v1/utiliti"
+  },
+  {
+   "id": "UT-48",
+   "title": "Balance transfer with amount 1e12: refused (4xx), nothing posted",
+   "ok": false,
+   "detail": "201; ledger rows 7 -> 9; {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "UT-49",
+   "title": "Valid transfer of 100 posts one DR on the sender and one CR on the receiver",
+   "ok": false,
+   "detail": "201 [{\"trans_type\":\"DR\",\"trans_amt\":\"0.0000\",\"mbno\":\"9999962655\"},{\"trans_type\":\"CR\",\"trans_amt\":\"0.0000\",\"mbno\":\"9999962656\"},{\"trans_type\":\"DR\",\"trans_amt\":\"-100.0000\",\"mbno\":\"9999962655\"},{\"trans_type\":\"CR\",\"trans_amt\":\"-100.0000\",\"mbno\":\"9999962656\"},{\"trans_type\":\"DR\",\"trans_amt\":\"100.0000\",\"mbno\":\"9999962655\"},{\"trans_type\":\"CR\",\"trans_amt\":\"100.0000\",\"mbno\":\"9999962655\"},{\"trans_type\":\"DR\","
+  },
+  {
+   "id": "UT-50-receipt",
+   "title": "POST /utilities/receipt with empty and junk bodies: 4xx, never 5xx",
+   "ok": true,
+   "detail": "empty 400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:54:25.596Z\",\"path\":\"/api/ | junk 400"
+  },
+  {
+   "id": "UT-50-receipt-voucher",
+   "title": "POST /utilities/receipt-voucher with empty and junk bodies: 4xx, never 5xx",
+   "ok": true,
+   "detail": "empty 400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:54:25.698Z\",\"path\":\"/api/ | junk 400"
+  },
+  {
+   "id": "UT-50-payment-voucher",
+   "title": "POST /utilities/payment-voucher with empty and junk bodies: 4xx, never 5xx",
+   "ok": true,
+   "detail": "empty 400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:54:25.858Z\",\"path\":\"/api/ | junk 400"
+  },
+  {
+   "id": "UT-50-loan/entry",
+   "title": "POST /utilities/loan/entry with empty and junk bodies: 4xx, never 5xx",
+   "ok": true,
+   "detail": "empty 400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:54:25.923Z\",\"path\":\"/api/ | junk 400"
+  }
+ ]
+}

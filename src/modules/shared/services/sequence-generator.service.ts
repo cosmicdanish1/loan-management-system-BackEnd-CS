@@ -56,19 +56,57 @@ export class SequenceGeneratorService {
     }
 
     /**
+     * Show the member number the next Save will receive WITHOUT consuming it (ES-310).
+     * generateNextMemberNumber() increments the counter, so calling it for a screen preview burned a number
+     * on every open and the number shown never matched the one saved.
+     */
+    async peekNextMemberNumber(): Promise<string> {
+        const rows = await this.dataSource.query(`SELECT last_value FROM sequence_master WHERE sequence_key = 'MEMBER_NO'`);
+        const next = rows.length ? parseInt(rows[0].last_value, 10) + 1 : 1;
+        return next.toString().padStart(8, '0');
+    }
+
+    /**
      * Generate next sequential loan case number
      */
     async generateNextLoanCaseNo(): Promise<string> {
-        const { value } = await this.getNextValue('LOAN_CASE');
-        return value.toString();
+        // ES-391: case numbers of migrated loans are shared between members, and a few legacy numbers sit above the
+        // counter. A new number is only handed out when no loan (sanctioned or pending) already uses it.
+        for (let attempt = 0; attempt < 1000; attempt++) {
+            const { value } = await this.getNextValue('LOAN_CASE');
+            const used = await this.dataSource.query(
+                `SELECT 1 FROM loan_master WHERE loancaseno::text = $1
+                 UNION ALL
+                 SELECT 1 FROM loan_pending WHERE loancaseno::text = $1
+                 LIMIT 1`,
+                [value.toString()],
+            );
+            if (used.length === 0) return value.toString();
+        }
+        throw new Error('Could not find a free loan case number. Please contact support.');
     }
 
     /**
      * Get next sequential voucher number
      */
     async getNextVoucherNumber(): Promise<string> {
-        const { value, prefix } = await this.getNextValue('VOUCHER_NO', 'VCH', true);
-        return `${prefix}${value.toString().padStart(3, '0')}`;
+        // ES-460: the counter restarts at 1 each new year (reset_yearly), but voucher numbers are unique. Without a check
+        // the first voucher of the new year was VCH001 again, which already exists, so every create failed with a 500
+        // until the counter had climbed past the old numbers. Like generateVoucherNo and generateNextLoanCaseNo, a number
+        // that is already used (voucher header, staged or posted rows) is skipped. The reset rule itself is not changed:
+        // whether numbers should restart each year at all is an owner decision (see ES-465).
+        for (let attempt = 0; attempt < 100000; attempt++) {
+            const { value, prefix } = await this.getNextValue('VOUCHER_NO', 'VCH', true);
+            const candidate = `${prefix}${value.toString().padStart(3, '0')}`;
+            const used = await this.dataSource.query(
+                `SELECT 1 WHERE EXISTS (SELECT 1 FROM vouchers WHERE "voucherNumber" = $1)
+                          OR EXISTS (SELECT 1 FROM transactions WHERE receipt_vchr_no = $1)
+                          OR EXISTS (SELECT 1 FROM ledger WHERE receipt_vchr_no = $1)`,
+                [candidate],
+            );
+            if (!used || used.length === 0) return candidate;
+        }
+        throw new Error('Could not find a free voucher number. Please contact support.');
     }
 
     /**

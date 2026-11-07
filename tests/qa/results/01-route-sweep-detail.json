@@ -18,10 +18,10 @@
   "path": "/api/v1/admin/backup/list",
   "url": "http://localhost:3001/api/v1/admin/backup/list",
   "noToken": 401,
-  "noTokenMs": 14,
+  "noTokenMs": 22,
   "badToken": 401,
   "auth": 0,
-  "authMs": 60016,
+  "authMs": 60030,
   "authSnippet": "TimeoutError: The operation was aborted due to timeout",
   "public": false
  },
@@ -37,10 +37,10 @@
   "path": "/api/v1/admin/backup/verify/{filename}",
   "url": "http://localhost:3001/api/v1/admin/backup/verify/1",
   "noToken": 401,
-  "noTokenMs": 15,
+  "noTokenMs": 17,
   "badToken": 401,
-  "auth": 200,
-  "authMs": 72,
+  "auth": 400,
+  "authMs": 136,
   "public": false
  },
  {
@@ -55,10 +55,10 @@
   "path": "/api/v1/admin/cast-categories/{id}",
   "url": "http://localhost:3001/api/v1/admin/cast-categories/1",
   "noToken": 401,
-  "noTokenMs": 17,
+  "noTokenMs": 41,
   "badToken": 401,
-  "auth": 404,
-  "authMs": 67,
+  "auth": 200,
+  "authMs": 113,
   "public": false
  },
  {
@@ -73,10 +73,10 @@
   "path": "/api/v1/admin/cast-categories",
   "url": "http://localhost:3001/api/v1/admin/cast-categories",
   "noToken": 401,
-  "noTokenMs": 19,
+  "noTokenMs": 54,
   "badToken": 401,
   "auth": 200,
-  "authMs": 67,
+  "authMs": 131,
   "public": false
  },
  {
@@ -98,10 +98,10 @@
   "path": "/api/v1/admin/certificate-templates/{id}",
   "url": "http://localhost:3001/api/v1/admin/certificate-templates/1",
   "noToken": 401,
-  "noTokenMs": 14,
+  "noTokenMs": 12,
   "badToken": 401,
   "auth": 404,
-  "authMs": 117,
+  "authMs": 250,
   "public": false
  },
  {
@@ -116,10 +116,10 @@
   "path": "/api/v1/admin/certificate-templates/default",
   "url": "http://localhost:3001/api/v1/admin/certificate-templates/default",
   "noToken": 401,
-  "noTokenMs": 13,
+  "noTokenMs": 11,
   "badToken": 401,
   "auth": 404,
-  "authMs": 124,
+  "authMs": 308,
   "public": false
  },
  {
@@ -127,10 +127,10 @@
   "path": "/api/v1/admin/certificate-templates",
   "url": "http://localhost:3001/api/v1/admin/certificate-templates",
   "noToken": 401,
-  "noTokenMs": 16,
+  "noTokenMs": 23,
   "badToken": 401,
   "auth": 200,
-  "authMs": 87,
+  "authMs": 178,
   "public": false
  },
  {
@@ -152,10 +152,10 @@
   "path": "/api/v1/admin/config/business-rules",
   "url": "http://localhost:3001/api/v1/admin/config/business-rules",
   "noToken": 401,
-  "noTokenMs": 12,
+  "noTokenMs": 34,
   "badToken": 401,
   "auth": 200,
-  "authMs": 170,
+  "authMs": 208,
   "public": false
  },
  {
@@ -170,10 +170,10 @@
   "path": "/api/v1/admin/config/deposit-slabs/{id}",
   "url": "http://localhost:3001/api/v1/admin/config/deposit-slabs/1",
   "noToken": 401,
-  "noTokenMs": 12,
+  "noTokenMs": 17,
   "badToken": 401,
   "auth": 404,
-  "authMs": 112,
+  "authMs": 292,
   "public": false
  },
  {
@@ -195,10 +195,10 @@
   "path": "/api/v1/admin/config/deposit-slabs",
   "url": "http://localhost:3001/api/v1/admin/config/deposit-slabs",
   "noToken": 401,
-  "noTokenMs": 11,
+  "noTokenMs": 25,
   "badToken": 401,
   "auth": 200,
-  "authMs": 110,
+  "authMs": 280,
   "public": false
  },
  {
@@ -220,10 +220,10 @@
   "path": "/api/v1/admin/config/interest-rates/{id}",
   "url": "http://localhost:3001/api/v1/admin/config/interest-rates/1",
   "noToken": 401,
-  "noTokenMs": 23,
+  "noTokenMs": 21,
   "badToken": 401,
   "auth": 404,
-  "authMs": 112,
+  "authMs": 286,
   "public": false
  },
  {
@@ -238,10 +238,10 @@
   "path": "/api/v1/admin/config/interest-rates",
   "url": "http://localhost:3001/api/v1/admin/config/interest-rates",
   "noToken": 401,
-  "noTokenMs": 17,
+  "noTokenMs": 15,
   "badToken": 401,
   "auth": 200,
-  "authMs": 116,
+  "authMs": 282,
   "public": false
  },
  {
@@ -277,10 +277,10 @@
   "path": "/api/v1/admin/config/system/key/{key}",
   "url": "http://localhost:3001/api/v1/admin/config/system/key/1",
   "noToken": 401,
-  "noTokenMs": 12,
+  "noTokenMs": 20,
   "badToken": 401,
   "auth": 404,
-  "authMs": 135,
+  "authMs": 147,
   "public": false
  },
  {
@@ -288,10 +288,10 @@
   "path": "/api/v1/admin/config/system",
   "url": "http://localhost:3001/api/v1/admin/config/system",
   "noToken": 401,
-  "noTokenMs": 22,
+  "noTokenMs": 69,
   "badToken": 401,
   "auth": 200,
-  "authMs": 171,
+  "authMs": 196,
   "public": false
  },
  {
@@ -306,10 +306,10 @@
   "path": "/api/v1/admin/dashboard",
   "url": "http://localhost:3001/api/v1/admin/dashboard",
   "noToken": 401,
-  "noTokenMs": 22,
+  "noTokenMs": 20,
   "badToken": 401,
   "auth": 200,
-  "authMs": 116,
+  "authMs": 466,
   "public": false
  },
  {
@@ -331,10 +331,10 @@
   "path": "/api/v1/admin/day-end/processes/{id}/interest-calculations",
   "url": "http://localhost:3001/api/v1/admin/day-end/processes/1/interest-calculations",
   "noToken": 401,
-  "noTokenMs": 14,
+  "noTokenMs": 22,
   "badToken": 401,
   "auth": 200,
-  "authMs": 99,
+  "authMs": 220,
   "public": false
  },
  {
@@ -342,10 +342,10 @@
   "path": "/api/v1/admin/day-end/processes/{id}/summary",
   "url": "http://localhost:3001/api/v1/admin/day-end/processes/1/summary",
   "noToken": 401,
-  "noTokenMs": 11,
+  "noTokenMs": 21,
   "badToken": 401,
   "auth": 200,
-  "authMs": 85,
+  "authMs": 192,
   "public": false
  },
  {
@@ -353,10 +353,10 @@
   "path": "/api/v1/admin/day-end/processes/{id}",
   "url": "http://localhost:3001/api/v1/admin/day-end/processes/1",
   "noToken": 401,
-  "noTokenMs": 17,
+  "noTokenMs": 46,
   "badToken": 401,
   "auth": 200,
-  "authMs": 96,
+  "authMs": 270,
   "public": false
  },
  {
@@ -364,10 +364,10 @@
   "path": "/api/v1/admin/day-end/processes",
   "url": "http://localhost:3001/api/v1/admin/day-end/processes",
   "noToken": 401,
-  "noTokenMs": 9,
+  "noTokenMs": 19,
   "badToken": 401,
   "auth": 200,
-  "authMs": 110,
+  "authMs": 337,
   "public": false
  },
  {
@@ -375,10 +375,10 @@
   "path": "/api/v1/admin/day-end/summary",
   "url": "http://localhost:3001/api/v1/admin/day-end/summary",
   "noToken": 401,
-  "noTokenMs": 8,
+  "noTokenMs": 21,
   "badToken": 401,
   "auth": 200,
-  "authMs": 157,
+  "authMs": 394,
   "public": false
  },
  {
@@ -400,10 +400,10 @@
   "path": "/api/v1/admin/deposit-loan-slabs/{id}",
   "url": "http://localhost:3001/api/v1/admin/deposit-loan-slabs/1",
   "noToken": 401,
-  "noTokenMs": 21,
+  "noTokenMs": 13,
   "badToken": 401,
   "auth": 404,
-  "authMs": 127,
+  "authMs": 145,
   "public": false
  },
  {
@@ -418,10 +418,10 @@
   "path": "/api/v1/admin/deposit-loan-slabs",
   "url": "http://localhost:3001/api/v1/admin/deposit-loan-slabs",
   "noToken": 401,
-  "noTokenMs": 21,
+  "noTokenMs": 13,
   "badToken": 401,
   "auth": 200,
-  "authMs": 129,
+  "authMs": 154,
   "public": false
  },
  {
@@ -443,10 +443,10 @@
   "path": "/api/v1/admin/designations/{code}",
   "url": "http://localhost:3001/api/v1/admin/designations/1",
   "noToken": 401,
-  "noTokenMs": 16,
+  "noTokenMs": 56,
   "badToken": 401,
   "auth": 404,
-  "authMs": 53,
+  "authMs": 115,
   "public": false
  },
  {
@@ -461,10 +461,10 @@
   "path": "/api/v1/admin/designations",
   "url": "http://localhost:3001/api/v1/admin/designations",
   "noToken": 401,
-  "noTokenMs": 17,
+  "noTokenMs": 72,
   "badToken": 401,
   "auth": 200,
-  "authMs": 67,
+  "authMs": 129,
   "public": false
  },
  {
@@ -500,10 +500,10 @@
   "path": "/api/v1/admin/financial-year/closing-entries/{yearCode}",
   "url": "http://localhost:3001/api/v1/admin/financial-year/closing-entries/1",
   "noToken": 401,
-  "noTokenMs": 9,
+  "noTokenMs": 49,
   "badToken": 401,
   "auth": 200,
-  "authMs": 124,
+  "authMs": 534,
   "public": false
  },
  {
@@ -518,10 +518,10 @@
   "path": "/api/v1/admin/financial-year/current",
   "url": "http://localhost:3001/api/v1/admin/financial-year/current",
   "noToken": 401,
-  "noTokenMs": 7,
+  "noTokenMs": 42,
   "badToken": 401,
   "auth": 200,
-  "authMs": 80,
+  "authMs": 283,
   "public": false
  },
  {
@@ -529,10 +529,10 @@
   "path": "/api/v1/admin/financial-year/list",
   "url": "http://localhost:3001/api/v1/admin/financial-year/list",
   "noToken": 401,
-  "noTokenMs": 7,
+  "noTokenMs": 30,
   "badToken": 401,
   "auth": 200,
-  "authMs": 83,
+  "authMs": 295,
   "public": false
  },
  {
@@ -554,10 +554,10 @@
   "path": "/api/v1/admin/member-balances/{memberNo}",
   "url": "http://localhost:3001/api/v1/admin/member-balances/1",
   "noToken": 401,
-  "noTokenMs": 18,
+  "noTokenMs": 40,
   "badToken": 401,
   "auth": 404,
-  "authMs": 60,
+  "authMs": 142,
   "public": false
  },
  {
@@ -572,10 +572,10 @@
   "path": "/api/v1/admin/member-funds/{memberNo}",
   "url": "http://localhost:3001/api/v1/admin/member-funds/1",
   "noToken": 401,
-  "noTokenMs": 8,
+  "noTokenMs": 24,
   "badToken": 401,
   "auth": 200,
-  "authMs": 41,
+  "authMs": 190,
   "public": false
  },
  {
@@ -590,10 +590,10 @@
   "path": "/api/v1/admin/member-funds/list",
   "url": "http://localhost:3001/api/v1/admin/member-funds/list",
   "noToken": 401,
-  "noTokenMs": 7,
+  "noTokenMs": 14,
   "badToken": 401,
   "auth": 200,
-  "authMs": 96,
+  "authMs": 338,
   "public": false
  },
  {
@@ -601,10 +601,10 @@
   "path": "/api/v1/admin/members/{memberNo}",
   "url": "http://localhost:3001/api/v1/admin/members/1",
   "noToken": 401,
-  "noTokenMs": 13,
+  "noTokenMs": 10,
   "badToken": 401,
   "auth": 404,
-  "authMs": 58,
+  "authMs": 255,
   "public": false
  },
  {
@@ -612,6 +612,131 @@
   "path": "/api/v1/admin/members/transfer",
   "url": "http://localhost:3001/api/v1/admin/members/transfer",
   "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/mobile/activation-requests/{id}/approve",
+  "url": "http://localhost:3001/api/v1/admin/mobile/activation-requests/1/approve",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/mobile/activation-requests/{id}/called-back",
+  "url": "http://localhost:3001/api/v1/admin/mobile/activation-requests/1/called-back",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/mobile/activation-requests/{id}/reject",
+  "url": "http://localhost:3001/api/v1/admin/mobile/activation-requests/1/reject",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/mobile/activation-requests",
+  "url": "http://localhost:3001/api/v1/admin/mobile/activation-requests",
+  "noToken": 401,
+  "noTokenMs": 31,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 412,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/mobile/members/{mbno}/activation-code",
+  "url": "http://localhost:3001/api/v1/admin/mobile/members/1/activation-code",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/mobile/members/{mbno}/block",
+  "url": "http://localhost:3001/api/v1/admin/mobile/members/1/block",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/mobile/members/{mbno}/reset-mpin",
+  "url": "http://localhost:3001/api/v1/admin/mobile/members/1/reset-mpin",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/mobile/members/{mbno}/sign-out-all",
+  "url": "http://localhost:3001/api/v1/admin/mobile/members/1/sign-out-all",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/mobile/members/{mbno}/unblock",
+  "url": "http://localhost:3001/api/v1/admin/mobile/members/1/unblock",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/mobile/members/{mbno}/unlock",
+  "url": "http://localhost:3001/api/v1/admin/mobile/members/1/unlock",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/admin/mobile/members/{mbno}/verify-app-code",
+  "url": "http://localhost:3001/api/v1/admin/mobile/members/1/verify-app-code",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/mobile/members/{mbno}",
+  "url": "http://localhost:3001/api/v1/admin/mobile/members/1",
+  "noToken": 401,
+  "noTokenMs": 44,
+  "badToken": 401,
+  "auth": 404,
+  "authMs": 110,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/mobile/members",
+  "url": "http://localhost:3001/api/v1/admin/mobile/members",
+  "noToken": 401,
+  "noTokenMs": 48,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 56,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/mobile/phone-quality/members",
+  "url": "http://localhost:3001/api/v1/admin/mobile/phone-quality/members",
+  "noToken": 401,
+  "noTokenMs": 36,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 495,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/admin/mobile/phone-quality",
+  "url": "http://localhost:3001/api/v1/admin/mobile/phone-quality",
+  "noToken": 401,
+  "noTokenMs": 37,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 459,
   "public": false
  },
  {
@@ -626,10 +751,10 @@
   "path": "/api/v1/admin/offices/{id}",
   "url": "http://localhost:3001/api/v1/admin/offices/1",
   "noToken": 401,
-  "noTokenMs": 17,
+  "noTokenMs": 41,
   "badToken": 401,
   "auth": 200,
-  "authMs": 51,
+  "authMs": 121,
   "public": false
  },
  {
@@ -647,7 +772,7 @@
   "noTokenMs": 13,
   "badToken": 401,
   "auth": 200,
-  "authMs": 64,
+  "authMs": 155,
   "public": false
  },
  {
@@ -669,10 +794,10 @@
   "path": "/api/v1/admin/passbook-templates/{id}",
   "url": "http://localhost:3001/api/v1/admin/passbook-templates/1",
   "noToken": 401,
-  "noTokenMs": 15,
+  "noTokenMs": 44,
   "badToken": 401,
   "auth": 404,
-  "authMs": 121,
+  "authMs": 390,
   "public": false
  },
  {
@@ -687,10 +812,10 @@
   "path": "/api/v1/admin/passbook-templates/default",
   "url": "http://localhost:3001/api/v1/admin/passbook-templates/default",
   "noToken": 401,
-  "noTokenMs": 12,
+  "noTokenMs": 49,
   "badToken": 401,
   "auth": 404,
-  "authMs": 150,
+  "authMs": 438,
   "public": false
  },
  {
@@ -698,10 +823,10 @@
   "path": "/api/v1/admin/passbook-templates",
   "url": "http://localhost:3001/api/v1/admin/passbook-templates",
   "noToken": 401,
-  "noTokenMs": 14,
+  "noTokenMs": 16,
   "badToken": 401,
   "auth": 200,
-  "authMs": 138,
+  "authMs": 248,
   "public": false
  },
  {
@@ -716,10 +841,10 @@
   "path": "/api/v1/admin/roles/defaults/{levelId}",
   "url": "http://localhost:3001/api/v1/admin/roles/defaults/1",
   "noToken": 401,
-  "noTokenMs": 14,
+  "noTokenMs": 60,
   "badToken": 401,
   "auth": 200,
-  "authMs": 104,
+  "authMs": 318,
   "public": false
  },
  {
@@ -734,10 +859,10 @@
   "path": "/api/v1/admin/roles/levels",
   "url": "http://localhost:3001/api/v1/admin/roles/levels",
   "noToken": 401,
-  "noTokenMs": 14,
+  "noTokenMs": 19,
   "badToken": 401,
   "auth": 200,
-  "authMs": 102,
+  "authMs": 397,
   "public": false
  },
  {
@@ -745,10 +870,10 @@
   "path": "/api/v1/admin/roles/menus",
   "url": "http://localhost:3001/api/v1/admin/roles/menus",
   "noToken": 401,
-  "noTokenMs": 14,
+  "noTokenMs": 49,
   "badToken": 401,
   "auth": 200,
-  "authMs": 130,
+  "authMs": 406,
   "public": false
  },
  {
@@ -763,10 +888,10 @@
   "path": "/api/v1/admin/sb-accounts/{id}",
   "url": "http://localhost:3001/api/v1/admin/sb-accounts/1",
   "noToken": 401,
-  "noTokenMs": 12,
+  "noTokenMs": 42,
   "badToken": 401,
   "auth": 404,
-  "authMs": 42,
+  "authMs": 65,
   "public": false
  },
  {
@@ -781,10 +906,10 @@
   "path": "/api/v1/admin/sb-accounts/next-number",
   "url": "http://localhost:3001/api/v1/admin/sb-accounts/next-number",
   "noToken": 401,
-  "noTokenMs": 11,
+  "noTokenMs": 50,
   "badToken": 401,
   "auth": 200,
-  "authMs": 48,
+  "authMs": 97,
   "public": false
  },
  {
@@ -792,10 +917,10 @@
   "path": "/api/v1/admin/sb-accounts",
   "url": "http://localhost:3001/api/v1/admin/sb-accounts",
   "noToken": 401,
-  "noTokenMs": 9,
+  "noTokenMs": 53,
   "badToken": 401,
   "auth": 200,
-  "authMs": 53,
+  "authMs": 107,
   "public": false
  },
  {
@@ -810,10 +935,10 @@
   "path": "/api/v1/admin/system-info",
   "url": "http://localhost:3001/api/v1/admin/system-info",
   "noToken": 401,
-  "noTokenMs": 20,
+  "noTokenMs": 14,
   "badToken": 401,
   "auth": 200,
-  "authMs": 106,
+  "authMs": 104,
   "public": false
  },
  {
@@ -821,10 +946,10 @@
   "path": "/api/v1/admin/users/{id}/activities",
   "url": "http://localhost:3001/api/v1/admin/users/1/activities",
   "noToken": 401,
-  "noTokenMs": 15,
+  "noTokenMs": 41,
   "badToken": 401,
   "auth": 200,
-  "authMs": 161,
+  "authMs": 240,
   "public": false
  },
  {
@@ -839,10 +964,10 @@
   "path": "/api/v1/admin/users/{id}/login-history",
   "url": "http://localhost:3001/api/v1/admin/users/1/login-history",
   "noToken": 401,
-  "noTokenMs": 18,
+  "noTokenMs": 59,
   "badToken": 401,
   "auth": 404,
-  "authMs": 148,
+  "authMs": 183,
   "public": false
  },
  {
@@ -871,10 +996,10 @@
   "path": "/api/v1/admin/users/{id}",
   "url": "http://localhost:3001/api/v1/admin/users/1",
   "noToken": 401,
-  "noTokenMs": 17,
+  "noTokenMs": 19,
   "badToken": 401,
   "auth": 404,
-  "authMs": 138,
+  "authMs": 565,
   "public": false
  },
  {
@@ -889,10 +1014,10 @@
   "path": "/api/v1/admin/users/active-sessions/matrix",
   "url": "http://localhost:3001/api/v1/admin/users/active-sessions/matrix",
   "noToken": 401,
-  "noTokenMs": 26,
+  "noTokenMs": 65,
   "badToken": 401,
   "auth": 200,
-  "authMs": 264,
+  "authMs": 247,
   "public": false
  },
  {
@@ -907,10 +1032,10 @@
   "path": "/api/v1/admin/users/activities",
   "url": "http://localhost:3001/api/v1/admin/users/activities",
   "noToken": 401,
-  "noTokenMs": 10,
+  "noTokenMs": 12,
   "badToken": 401,
   "auth": 200,
-  "authMs": 132,
+  "authMs": 266,
   "public": false
  },
  {
@@ -925,10 +1050,10 @@
   "path": "/api/v1/admin/users/roles/permissions",
   "url": "http://localhost:3001/api/v1/admin/users/roles/permissions",
   "noToken": 401,
-  "noTokenMs": 9,
+  "noTokenMs": 15,
   "badToken": 401,
   "auth": 200,
-  "authMs": 145,
+  "authMs": 223,
   "public": false
  },
  {
@@ -936,10 +1061,10 @@
   "path": "/api/v1/admin/users",
   "url": "http://localhost:3001/api/v1/admin/users",
   "noToken": 401,
-  "noTokenMs": 18,
+  "noTokenMs": 14,
   "badToken": 401,
   "auth": 200,
-  "authMs": 192,
+  "authMs": 321,
   "public": false
  },
  {
@@ -961,10 +1086,10 @@
   "path": "/api/v1/admin/wings/{id}",
   "url": "http://localhost:3001/api/v1/admin/wings/1",
   "noToken": 401,
-  "noTokenMs": 10,
+  "noTokenMs": 56,
   "badToken": 401,
   "auth": 200,
-  "authMs": 42,
+  "authMs": 72,
   "public": false
  },
  {
@@ -979,16 +1104,23 @@
   "path": "/api/v1/admin/wings",
   "url": "http://localhost:3001/api/v1/admin/wings",
   "noToken": 401,
-  "noTokenMs": 15,
+  "noTokenMs": 49,
   "badToken": 401,
   "auth": 200,
-  "authMs": 54,
+  "authMs": 119,
   "public": false
  },
  {
   "method": "POST",
   "path": "/api/v1/admin/wings",
   "url": "http://localhost:3001/api/v1/admin/wings",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/ai-chat",
+  "url": "http://localhost:3001/api/v1/ai-chat",
   "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
   "public": false
  },
@@ -1025,10 +1157,10 @@
   "path": "/api/v1/alert-settings/online",
   "url": "http://localhost:3001/api/v1/alert-settings/online",
   "noToken": 401,
-  "noTokenMs": 7,
+  "noTokenMs": 52,
   "badToken": 401,
   "auth": 200,
-  "authMs": 25,
+  "authMs": 1007,
   "public": false
  },
  {
@@ -1043,10 +1175,10 @@
   "path": "/api/v1/alert-settings",
   "url": "http://localhost:3001/api/v1/alert-settings",
   "noToken": 401,
-  "noTokenMs": 11,
+  "noTokenMs": 44,
   "badToken": 401,
   "auth": 200,
-  "authMs": 32,
+  "authMs": 1034,
   "public": false
  },
  {
@@ -1054,10 +1186,10 @@
   "path": "/api/v1/auth/2fa/access",
   "url": "http://localhost:3001/api/v1/auth/2fa/access",
   "noToken": 401,
-  "noTokenMs": 4,
+  "noTokenMs": 25,
   "badToken": 401,
   "auth": 200,
-  "authMs": 19,
+  "authMs": 83,
   "public": false
  },
  {
@@ -1079,10 +1211,10 @@
   "path": "/api/v1/auth/2fa/admin/users",
   "url": "http://localhost:3001/api/v1/auth/2fa/admin/users",
   "noToken": 401,
-  "noTokenMs": 4,
+  "noTokenMs": 11,
   "badToken": 401,
   "auth": 200,
-  "authMs": 26,
+  "authMs": 132,
   "public": false
  },
  {
@@ -1097,10 +1229,10 @@
   "path": "/api/v1/auth/2fa/audit",
   "url": "http://localhost:3001/api/v1/auth/2fa/audit",
   "noToken": 401,
-  "noTokenMs": 4,
+  "noTokenMs": 11,
   "badToken": 401,
   "auth": 200,
-  "authMs": 37,
+  "authMs": 124,
   "public": false
  },
  {
@@ -1129,10 +1261,10 @@
   "path": "/api/v1/auth/2fa/forgot/methods",
   "url": "http://localhost:3001/api/v1/auth/2fa/forgot/methods",
   "noToken": 200,
-  "noTokenMs": 101,
+  "noTokenMs": 117,
   "badToken": 200,
   "auth": 200,
-  "authMs": 316,
+  "authMs": 31,
   "public": false
  },
  {
@@ -1154,10 +1286,10 @@
   "path": "/api/v1/auth/2fa/guards",
   "url": "http://localhost:3001/api/v1/auth/2fa/guards",
   "noToken": 401,
-  "noTokenMs": 17,
+  "noTokenMs": 32,
   "badToken": 401,
   "auth": 200,
-  "authMs": 304,
+  "authMs": 380,
   "public": false
  },
  {
@@ -1200,10 +1332,10 @@
   "path": "/api/v1/auth/2fa/settings",
   "url": "http://localhost:3001/api/v1/auth/2fa/settings",
   "noToken": 401,
-  "noTokenMs": 73,
+  "noTokenMs": 86,
   "badToken": 401,
   "auth": 200,
-  "authMs": 570,
+  "authMs": 356,
   "public": false
  },
  {
@@ -1218,10 +1350,10 @@
   "path": "/api/v1/auth/2fa/status",
   "url": "http://localhost:3001/api/v1/auth/2fa/status",
   "noToken": 401,
-  "noTokenMs": 73,
+  "noTokenMs": 82,
   "badToken": 401,
   "auth": 200,
-  "authMs": 266,
+  "authMs": 519,
   "public": false
  },
  {
@@ -1264,10 +1396,10 @@
   "path": "/api/v1/auth/me",
   "url": "http://localhost:3001/api/v1/auth/me",
   "noToken": 401,
-  "noTokenMs": 62,
+  "noTokenMs": 60,
   "badToken": 401,
   "auth": 200,
-  "authMs": 79,
+  "authMs": 206,
   "public": false
  },
  {
@@ -1289,10 +1421,10 @@
   "path": "/api/v1/auth/usernames",
   "url": "http://localhost:3001/api/v1/auth/usernames",
   "noToken": 401,
-  "noTokenMs": 72,
+  "noTokenMs": 73,
   "badToken": 401,
   "auth": 200,
-  "authMs": 308,
+  "authMs": 375,
   "public": false
  },
  {
@@ -1300,10 +1432,10 @@
   "path": "/api/v1/auth/users-list",
   "url": "http://localhost:3001/api/v1/auth/users-list",
   "noToken": 401,
-  "noTokenMs": 68,
+  "noTokenMs": 66,
   "badToken": 401,
   "auth": 200,
-  "authMs": 310,
+  "authMs": 217,
   "public": false
  },
  {
@@ -1325,10 +1457,10 @@
   "path": "/api/v1/backup/database-info",
   "url": "http://localhost:3001/api/v1/backup/database-info",
   "noToken": 401,
-  "noTokenMs": 7,
+  "noTokenMs": 64,
   "badToken": 401,
   "auth": 200,
-  "authMs": 76,
+  "authMs": 222,
   "public": false
  },
  {
@@ -1336,10 +1468,10 @@
   "path": "/api/v1/backup/list",
   "url": "http://localhost:3001/api/v1/backup/list",
   "noToken": 401,
-  "noTokenMs": 6,
+  "noTokenMs": 134,
   "badToken": 401,
   "auth": 200,
-  "authMs": 98,
+  "authMs": 391,
   "public": false
  },
  {
@@ -1347,10 +1479,10 @@
   "path": "/api/v1/backup/test-connection",
   "url": "http://localhost:3001/api/v1/backup/test-connection",
   "noToken": 401,
-  "noTokenMs": 7,
+  "noTokenMs": 139,
   "badToken": 401,
   "auth": 200,
-  "authMs": 1899,
+  "authMs": 970,
   "public": false
  },
  {
@@ -1365,10 +1497,10 @@
   "path": "/api/v1/cashbook/interest-rate",
   "url": "http://localhost:3001/api/v1/cashbook/interest-rate",
   "noToken": 401,
-  "noTokenMs": 8,
+  "noTokenMs": 51,
   "badToken": 401,
   "auth": 200,
-  "authMs": 53,
+  "authMs": 406,
   "public": false
  },
  {
@@ -1376,10 +1508,10 @@
   "path": "/api/v1/cashbook/member/balance",
   "url": "http://localhost:3001/api/v1/cashbook/member/balance",
   "noToken": 401,
-  "noTokenMs": 9,
+  "noTokenMs": 73,
   "badToken": 401,
   "auth": 200,
-  "authMs": 125,
+  "authMs": 410,
   "public": false
  },
  {
@@ -1387,10 +1519,10 @@
   "path": "/api/v1/cashbook/members/active",
   "url": "http://localhost:3001/api/v1/cashbook/members/active",
   "noToken": 401,
-  "noTokenMs": 46,
+  "noTokenMs": 65,
   "badToken": 401,
   "auth": 200,
-  "authMs": 537,
+  "authMs": 854,
   "public": false
  },
  {
@@ -1398,10 +1530,10 @@
   "path": "/api/v1/cashbook/report",
   "url": "http://localhost:3001/api/v1/cashbook/report",
   "noToken": 401,
-  "noTokenMs": 44,
+  "noTokenMs": 88,
   "badToken": 401,
   "auth": 400,
-  "authMs": 35,
+  "authMs": 204,
   "public": false
  },
  {
@@ -1416,10 +1548,10 @@
   "path": "/api/v1/cashbook/transactions",
   "url": "http://localhost:3001/api/v1/cashbook/transactions",
   "noToken": 401,
-  "noTokenMs": 30,
+  "noTokenMs": 75,
   "badToken": 401,
   "auth": 200,
-  "authMs": 33,
+  "authMs": 393,
   "public": false
  },
  {
@@ -1434,10 +1566,10 @@
   "path": "/api/v1/consolidation/report",
   "url": "http://localhost:3001/api/v1/consolidation/report",
   "noToken": 401,
-  "noTokenMs": 28,
+  "noTokenMs": 110,
   "badToken": 401,
   "auth": 400,
-  "authMs": 47,
+  "authMs": 567,
   "public": false
  },
  {
@@ -1459,10 +1591,10 @@
   "path": "/api/v1/dashboard-notices",
   "url": "http://localhost:3001/api/v1/dashboard-notices",
   "noToken": 401,
-  "noTokenMs": 27,
+  "noTokenMs": 24,
   "badToken": 401,
   "auth": 200,
-  "authMs": 48,
+  "authMs": 254,
   "public": false
  },
  {
@@ -1477,10 +1609,10 @@
   "path": "/api/v1/dashboard-summary",
   "url": "http://localhost:3001/api/v1/dashboard-summary",
   "noToken": 401,
-  "noTokenMs": 10,
+  "noTokenMs": 65,
   "badToken": 401,
   "auth": 200,
-  "authMs": 333,
+  "authMs": 1061,
   "public": false
  },
  {
@@ -1488,10 +1620,10 @@
   "path": "/api/v1/daybook/active-members",
   "url": "http://localhost:3001/api/v1/daybook/active-members",
   "noToken": 401,
-  "noTokenMs": 6,
+  "noTokenMs": 38,
   "badToken": 401,
   "auth": 200,
-  "authMs": 287,
+  "authMs": 959,
   "public": false
  },
  {
@@ -1506,10 +1638,10 @@
   "path": "/api/v1/daybook/interest-rate",
   "url": "http://localhost:3001/api/v1/daybook/interest-rate",
   "noToken": 401,
-  "noTokenMs": 3,
+  "noTokenMs": 51,
   "badToken": 401,
   "auth": 200,
-  "authMs": 221,
+  "authMs": 667,
   "public": false
  },
  {
@@ -1524,10 +1656,10 @@
   "path": "/api/v1/daybook/report/sb",
   "url": "http://localhost:3001/api/v1/daybook/report/sb",
   "noToken": 401,
-  "noTokenMs": 4,
+  "noTokenMs": 77,
   "badToken": 401,
   "auth": 400,
-  "authMs": 18,
+  "authMs": 335,
   "public": false
  },
  {
@@ -1535,10 +1667,10 @@
   "path": "/api/v1/daybook/report",
   "url": "http://localhost:3001/api/v1/daybook/report",
   "noToken": 401,
-  "noTokenMs": 6,
+  "noTokenMs": 46,
   "badToken": 401,
   "auth": 400,
-  "authMs": 18,
+  "authMs": 248,
   "public": false
  },
  {
@@ -1553,10 +1685,10 @@
   "path": "/api/v1/deposits/certificates/download/{fileName}",
   "url": "http://localhost:3001/api/v1/deposits/certificates/download/1",
   "noToken": 401,
-  "noTokenMs": 10,
+  "noTokenMs": 98,
   "badToken": 401,
   "auth": 404,
-  "authMs": 66,
+  "authMs": 422,
   "public": false
  },
  {
@@ -1585,10 +1717,10 @@
   "path": "/api/v1/deposits/fixed-deposits/{id}",
   "url": "http://localhost:3001/api/v1/deposits/fixed-deposits/1",
   "noToken": 401,
-  "noTokenMs": 11,
+  "noTokenMs": 263,
   "badToken": 401,
   "auth": 404,
-  "authMs": 102,
+  "authMs": 906,
   "public": false
  },
  {
@@ -1603,10 +1735,10 @@
   "path": "/api/v1/deposits/fixed-deposits",
   "url": "http://localhost:3001/api/v1/deposits/fixed-deposits",
   "noToken": 401,
-  "noTokenMs": 8,
+  "noTokenMs": 149,
   "badToken": 401,
   "auth": 200,
-  "authMs": 85,
+  "authMs": 762,
   "public": false
  },
  {
@@ -1621,10 +1753,10 @@
   "path": "/api/v1/deposits/member/{memberNo}",
   "url": "http://localhost:3001/api/v1/deposits/member/1",
   "noToken": 401,
-  "noTokenMs": 11,
+  "noTokenMs": 78,
   "badToken": 401,
   "auth": 404,
-  "authMs": 90,
+  "authMs": 791,
   "public": false
  },
  {
@@ -1632,10 +1764,10 @@
   "path": "/api/v1/deposits/members/{memberId}/fixed-deposits",
   "url": "http://localhost:3001/api/v1/deposits/members/1/fixed-deposits",
   "noToken": 401,
-  "noTokenMs": 11,
+  "noTokenMs": 299,
   "badToken": 401,
   "auth": 200,
-  "authMs": 104,
+  "authMs": 608,
   "public": false
  },
  {
@@ -1643,10 +1775,10 @@
   "path": "/api/v1/deposits/members/{memberId}/recurring-deposits",
   "url": "http://localhost:3001/api/v1/deposits/members/1/recurring-deposits",
   "noToken": 401,
-  "noTokenMs": 11,
+  "noTokenMs": 120,
   "badToken": 401,
   "auth": 200,
-  "authMs": 81,
+  "authMs": 566,
   "public": false
  },
  {
@@ -1682,10 +1814,10 @@
   "path": "/api/v1/deposits/recurring-deposits/{id}",
   "url": "http://localhost:3001/api/v1/deposits/recurring-deposits/1",
   "noToken": 401,
-  "noTokenMs": 17,
+  "noTokenMs": 123,
   "badToken": 401,
   "auth": 404,
-  "authMs": 75,
+  "authMs": 724,
   "public": false
  },
  {
@@ -1693,10 +1825,10 @@
   "path": "/api/v1/deposits/recurring-deposits",
   "url": "http://localhost:3001/api/v1/deposits/recurring-deposits",
   "noToken": 401,
-  "noTokenMs": 15,
+  "noTokenMs": 163,
   "badToken": 401,
   "auth": 200,
-  "authMs": 90,
+  "authMs": 844,
   "public": false
  },
  {
@@ -1718,10 +1850,10 @@
   "path": "/api/v1/dividend/calculation/preview",
   "url": "http://localhost:3001/api/v1/dividend/calculation/preview",
   "noToken": 401,
-  "noTokenMs": 8,
+  "noTokenMs": 84,
   "badToken": 401,
   "auth": 400,
-  "authMs": 45,
+  "authMs": 343,
   "public": false
  },
  {
@@ -1736,10 +1868,10 @@
   "path": "/api/v1/dividend/credit/preview",
   "url": "http://localhost:3001/api/v1/dividend/credit/preview",
   "noToken": 401,
-  "noTokenMs": 7,
+  "noTokenMs": 119,
   "badToken": 401,
   "auth": 400,
-  "authMs": 41,
+  "authMs": 225,
   "public": false
  },
  {
@@ -1747,10 +1879,10 @@
   "path": "/api/v1/dividend/share-snapshot/history/{mbno}",
   "url": "http://localhost:3001/api/v1/dividend/share-snapshot/history/1",
   "noToken": 401,
-  "noTokenMs": 7,
+  "noTokenMs": 89,
   "badToken": 401,
   "auth": 200,
-  "authMs": 68,
+  "authMs": 557,
   "public": false
  },
  {
@@ -1758,10 +1890,10 @@
   "path": "/api/v1/dividend/share-snapshot/report",
   "url": "http://localhost:3001/api/v1/dividend/share-snapshot/report",
   "noToken": 401,
-  "noTokenMs": 12,
+  "noTokenMs": 51,
   "badToken": 401,
   "auth": 400,
-  "authMs": 34,
+  "authMs": 216,
   "public": false
  },
  {
@@ -1776,10 +1908,10 @@
   "path": "/api/v1/general-ledger/head-masters",
   "url": "http://localhost:3001/api/v1/general-ledger/head-masters",
   "noToken": 401,
-  "noTokenMs": 6,
+  "noTokenMs": 41,
   "badToken": 401,
   "auth": 200,
-  "authMs": 44,
+  "authMs": 362,
   "public": false
  },
  {
@@ -1787,10 +1919,10 @@
   "path": "/api/v1/general-ledger/report",
   "url": "http://localhost:3001/api/v1/general-ledger/report",
   "noToken": 401,
-  "noTokenMs": 12,
+  "noTokenMs": 38,
   "badToken": 401,
   "auth": 400,
-  "authMs": 23,
+  "authMs": 350,
   "public": false
  },
  {
@@ -1798,10 +1930,10 @@
   "path": "/api/v1/group-insurance/context",
   "url": "http://localhost:3001/api/v1/group-insurance/context",
   "noToken": 401,
-  "noTokenMs": 5,
+  "noTokenMs": 29,
   "badToken": 401,
   "auth": 200,
-  "authMs": 101,
+  "authMs": 326,
   "public": false
  },
  {
@@ -1823,10 +1955,10 @@
   "path": "/api/v1/group-insurance/runs/{id}",
   "url": "http://localhost:3001/api/v1/group-insurance/runs/1",
   "noToken": 401,
-  "noTokenMs": 5,
+  "noTokenMs": 10,
   "badToken": 401,
   "auth": 404,
-  "authMs": 79,
+  "authMs": 305,
   "public": false
  },
  {
@@ -1834,10 +1966,10 @@
   "path": "/api/v1/health",
   "url": "http://localhost:3001/api/v1/health",
   "noToken": 200,
-  "noTokenMs": 117,
+  "noTokenMs": 108,
   "badToken": 200,
   "auth": 200,
-  "authMs": 13,
+  "authMs": 70,
   "public": true
  },
  {
@@ -1845,10 +1977,10 @@
   "path": "/api/v1/interest/current-rate",
   "url": "http://localhost:3001/api/v1/interest/current-rate",
   "noToken": 401,
-  "noTokenMs": 3,
+  "noTokenMs": 112,
   "badToken": 401,
   "auth": 200,
-  "authMs": 160,
+  "authMs": 210,
   "public": false
  },
  {
@@ -1856,10 +1988,10 @@
   "path": "/api/v1/interest/history",
   "url": "http://localhost:3001/api/v1/interest/history",
   "noToken": 401,
-  "noTokenMs": 3,
+  "noTokenMs": 42,
   "badToken": 401,
   "auth": 200,
-  "authMs": 166,
+  "authMs": 234,
   "public": false
  },
  {
@@ -1902,10 +2034,10 @@
   "path": "/api/v1/jotting-report/head-masters",
   "url": "http://localhost:3001/api/v1/jotting-report/head-masters",
   "noToken": 401,
-  "noTokenMs": 3,
+  "noTokenMs": 25,
   "badToken": 401,
   "auth": 200,
-  "authMs": 16,
+  "authMs": 380,
   "public": false
  },
  {
@@ -1913,10 +2045,10 @@
   "path": "/api/v1/jotting-report/offices",
   "url": "http://localhost:3001/api/v1/jotting-report/offices",
   "noToken": 401,
-  "noTokenMs": 3,
+  "noTokenMs": 178,
   "badToken": 401,
   "auth": 200,
-  "authMs": 13,
+  "authMs": 466,
   "public": false
  },
  {
@@ -1924,10 +2056,10 @@
   "path": "/api/v1/jotting-report/wings",
   "url": "http://localhost:3001/api/v1/jotting-report/wings",
   "noToken": 401,
-  "noTokenMs": 3,
+  "noTokenMs": 39,
   "badToken": 401,
   "auth": 200,
-  "authMs": 14,
+  "authMs": 553,
   "public": false
  },
  {
@@ -1935,10 +2067,10 @@
   "path": "/api/v1/jotting-report",
   "url": "http://localhost:3001/api/v1/jotting-report",
   "noToken": 401,
-  "noTokenMs": 4,
+  "noTokenMs": 91,
   "badToken": 401,
   "auth": 200,
-  "authMs": 232,
+  "authMs": 794,
   "public": false
  },
  {
@@ -1953,10 +2085,10 @@
   "path": "/api/v1/license/list",
   "url": "http://localhost:3001/api/v1/license/list",
   "noToken": 401,
-  "noTokenMs": 8,
+  "noTokenMs": 85,
   "badToken": 401,
   "auth": 200,
-  "authMs": 156,
+  "authMs": 354,
   "public": false
  },
  {
@@ -1964,10 +2096,10 @@
   "path": "/api/v1/license/status",
   "url": "http://localhost:3001/api/v1/license/status",
   "noToken": 200,
-  "noTokenMs": 33,
+  "noTokenMs": 217,
   "badToken": 200,
   "auth": 200,
-  "authMs": 23,
+  "authMs": 100,
   "public": true
  },
  {
@@ -1989,10 +2121,10 @@
   "path": "/api/v1/loans/case/{caseNo}/consolidation-chain",
   "url": "http://localhost:3001/api/v1/loans/case/1/consolidation-chain",
   "noToken": 401,
-  "noTokenMs": 16,
+  "noTokenMs": 28,
   "badToken": 401,
   "auth": 400,
-  "authMs": 39,
+  "authMs": 123,
   "public": false
  },
  {
@@ -2000,10 +2132,10 @@
   "path": "/api/v1/loans/case/{caseNo}/repayment-summary",
   "url": "http://localhost:3001/api/v1/loans/case/1/repayment-summary",
   "noToken": 401,
-  "noTokenMs": 8,
+  "noTokenMs": 92,
   "badToken": 401,
   "auth": 200,
-  "authMs": 96,
+  "authMs": 489,
   "public": false
  },
  {
@@ -2011,10 +2143,10 @@
   "path": "/api/v1/loans/case/{caseNo}",
   "url": "http://localhost:3001/api/v1/loans/case/1",
   "noToken": 401,
-  "noTokenMs": 13,
+  "noTokenMs": 40,
   "badToken": 401,
   "auth": 200,
-  "authMs": 52,
+  "authMs": 207,
   "public": false
  },
  {
@@ -2022,10 +2154,11 @@
   "path": "/api/v1/loans/cases",
   "url": "http://localhost:3001/api/v1/loans/cases",
   "noToken": 401,
-  "noTokenMs": 8,
+  "noTokenMs": 38,
   "badToken": 401,
-  "auth": 200,
-  "authMs": 825,
+  "auth": 500,
+  "authMs": 5871,
+  "authSnippet": "{\"statusCode\":500,\"timestamp\":\"2026-11-03T09:43:05.353Z\",\"path\":\"/api/v1/loans/cases\",\"method\":\"GET\",\"error\":\"Error\",\"message\":\"timeout exceeded when trying to connect\"}",
   "public": false
  },
  {
@@ -2033,10 +2166,10 @@
   "path": "/api/v1/loans/due-status/{caseNo}",
   "url": "http://localhost:3001/api/v1/loans/due-status/1",
   "noToken": 401,
-  "noTokenMs": 9,
+  "noTokenMs": 50,
   "badToken": 401,
   "auth": 200,
-  "authMs": 201,
+  "authMs": 1187,
   "public": false
  },
  {
@@ -2058,10 +2191,11 @@
   "path": "/api/v1/loans/eligibility/{memberNo}",
   "url": "http://localhost:3001/api/v1/loans/eligibility/1",
   "noToken": 401,
-  "noTokenMs": 123,
+  "noTokenMs": 44,
   "badToken": 401,
-  "auth": 200,
-  "authMs": 799,
+  "auth": 500,
+  "authMs": 6194,
+  "authSnippet": "{\"statusCode\":500,\"timestamp\":\"2026-11-03T09:43:05.328Z\",\"path\":\"/api/v1/loans/eligibility/1\",\"method\":\"GET\",\"error\":\"Error\",\"message\":\"timeout exceeded when trying to connect\"}",
   "public": false
  },
  {
@@ -2069,10 +2203,10 @@
   "path": "/api/v1/loans/generate/loan-case-number",
   "url": "http://localhost:3001/api/v1/loans/generate/loan-case-number",
   "noToken": 401,
-  "noTokenMs": 7,
+  "noTokenMs": 425,
   "badToken": 401,
   "auth": 200,
-  "authMs": 71,
+  "authMs": 234,
   "public": false
  },
  {
@@ -2087,10 +2221,10 @@
   "path": "/api/v1/loans/master/{caseNo}/emi-schedule",
   "url": "http://localhost:3001/api/v1/loans/master/1/emi-schedule",
   "noToken": 401,
-  "noTokenMs": 12,
+  "noTokenMs": 37,
   "badToken": 401,
   "auth": 404,
-  "authMs": 50,
+  "authMs": 302,
   "public": false
  },
  {
@@ -2098,10 +2232,10 @@
   "path": "/api/v1/loans/master/{caseNo}",
   "url": "http://localhost:3001/api/v1/loans/master/1",
   "noToken": 401,
-  "noTokenMs": 12,
+  "noTokenMs": 36,
   "badToken": 401,
   "auth": 200,
-  "authMs": 62,
+  "authMs": 176,
   "public": false
  },
  {
@@ -2109,10 +2243,10 @@
   "path": "/api/v1/loans/member/{mbno}/repayment-history",
   "url": "http://localhost:3001/api/v1/loans/member/1/repayment-history",
   "noToken": 401,
-  "noTokenMs": 12,
+  "noTokenMs": 79,
   "badToken": 401,
   "auth": 200,
-  "authMs": 54,
+  "authMs": 538,
   "public": false
  },
  {
@@ -2120,10 +2254,10 @@
   "path": "/api/v1/loans/member/{memberNo}/all",
   "url": "http://localhost:3001/api/v1/loans/member/1/all",
   "noToken": 401,
-  "noTokenMs": 12,
+  "noTokenMs": 58,
   "badToken": 401,
   "auth": 200,
-  "authMs": 57,
+  "authMs": 161,
   "public": false
  },
  {
@@ -2131,10 +2265,11 @@
   "path": "/api/v1/loans/member/{memberNo}/cases",
   "url": "http://localhost:3001/api/v1/loans/member/1/cases",
   "noToken": 401,
-  "noTokenMs": 10,
+  "noTokenMs": 53,
   "badToken": 401,
-  "auth": 200,
-  "authMs": 684,
+  "auth": 500,
+  "authMs": 5635,
+  "authSnippet": "{\"statusCode\":500,\"timestamp\":\"2026-11-03T09:43:05.355Z\",\"path\":\"/api/v1/loans/member/1/cases\",\"method\":\"GET\",\"error\":\"Error\",\"message\":\"timeout exceeded when trying to connect\"}",
   "public": false
  },
  {
@@ -2142,10 +2277,10 @@
   "path": "/api/v1/loans/member/{memberNo}/master",
   "url": "http://localhost:3001/api/v1/loans/member/1/master",
   "noToken": 401,
-  "noTokenMs": 9,
+  "noTokenMs": 48,
   "badToken": 401,
   "auth": 200,
-  "authMs": 149,
+  "authMs": 754,
   "public": false
  },
  {
@@ -2153,10 +2288,10 @@
   "path": "/api/v1/loans/member/{memberNo}/pending",
   "url": "http://localhost:3001/api/v1/loans/member/1/pending",
   "noToken": 401,
-  "noTokenMs": 15,
+  "noTokenMs": 30,
   "badToken": 401,
   "auth": 200,
-  "authMs": 696,
+  "authMs": 5675,
   "public": false
  },
  {
@@ -2164,10 +2299,10 @@
   "path": "/api/v1/loans/member/{memberNo}/surety-cases",
   "url": "http://localhost:3001/api/v1/loans/member/1/surety-cases",
   "noToken": 401,
-  "noTokenMs": 18,
+  "noTokenMs": 43,
   "badToken": 401,
   "auth": 200,
-  "authMs": 70,
+  "authMs": 218,
   "public": false
  },
  {
@@ -2175,10 +2310,10 @@
   "path": "/api/v1/loans/month-end/history/{mbno}",
   "url": "http://localhost:3001/api/v1/loans/month-end/history/1",
   "noToken": 401,
-  "noTokenMs": 7,
+  "noTokenMs": 175,
   "badToken": 401,
   "auth": 200,
-  "authMs": 49,
+  "authMs": 215,
   "public": false
  },
  {
@@ -2186,10 +2321,10 @@
   "path": "/api/v1/loans/month-end/report",
   "url": "http://localhost:3001/api/v1/loans/month-end/report",
   "noToken": 401,
-  "noTokenMs": 8,
+  "noTokenMs": 237,
   "badToken": 401,
   "auth": 400,
-  "authMs": 27,
+  "authMs": 293,
   "public": false
  },
  {
@@ -2204,10 +2339,10 @@
   "path": "/api/v1/loans/pending/{caseNo}",
   "url": "http://localhost:3001/api/v1/loans/pending/1",
   "noToken": 401,
-  "noTokenMs": 10,
+  "noTokenMs": 41,
   "badToken": 401,
   "auth": 200,
-  "authMs": 70,
+  "authMs": 144,
   "public": false
  },
  {
@@ -2215,10 +2350,10 @@
   "path": "/api/v1/loans/position/{mbno}/{caseNo}",
   "url": "http://localhost:3001/api/v1/loans/position/1/1",
   "noToken": 401,
-  "noTokenMs": 11,
+  "noTokenMs": 35,
   "badToken": 401,
   "auth": 404,
-  "authMs": 97,
+  "authMs": 706,
   "public": false
  },
  {
@@ -2240,10 +2375,10 @@
   "path": "/api/v1/loans/reagreement/{id}/document",
   "url": "http://localhost:3001/api/v1/loans/reagreement/1/document",
   "noToken": 401,
-  "noTokenMs": 9,
+  "noTokenMs": 56,
   "badToken": 401,
   "auth": 404,
-  "authMs": 77,
+  "authMs": 119,
   "public": false
  },
  {
@@ -2251,10 +2386,10 @@
   "path": "/api/v1/loans/reagreement/{id}/draft",
   "url": "http://localhost:3001/api/v1/loans/reagreement/1/draft",
   "noToken": 401,
-  "noTokenMs": 9,
+  "noTokenMs": 45,
   "badToken": 401,
   "auth": 404,
-  "authMs": 77,
+  "authMs": 128,
   "public": false
  },
  {
@@ -2262,10 +2397,10 @@
   "path": "/api/v1/loans/reagreement/{id}/log",
   "url": "http://localhost:3001/api/v1/loans/reagreement/1/log",
   "noToken": 401,
-  "noTokenMs": 11,
+  "noTokenMs": 24,
   "badToken": 401,
   "auth": 200,
-  "authMs": 88,
+  "authMs": 173,
   "public": false
  },
  {
@@ -2273,10 +2408,10 @@
   "path": "/api/v1/loans/reagreement/{id}",
   "url": "http://localhost:3001/api/v1/loans/reagreement/1",
   "noToken": 401,
-  "noTokenMs": 18,
+  "noTokenMs": 58,
   "badToken": 401,
   "auth": 404,
-  "authMs": 79,
+  "authMs": 300,
   "public": false
  },
  {
@@ -2291,10 +2426,10 @@
   "path": "/api/v1/loans/reagreement/by-case/{caseNo}",
   "url": "http://localhost:3001/api/v1/loans/reagreement/by-case/1",
   "noToken": 401,
-  "noTokenMs": 9,
+  "noTokenMs": 44,
   "badToken": 401,
   "auth": 200,
-  "authMs": 90,
+  "authMs": 369,
   "public": false
  },
  {
@@ -2302,10 +2437,10 @@
   "path": "/api/v1/loans/reagreement/eligibility/{caseNo}",
   "url": "http://localhost:3001/api/v1/loans/reagreement/eligibility/1",
   "noToken": 401,
-  "noTokenMs": 9,
+  "noTokenMs": 15,
   "badToken": 401,
   "auth": 400,
-  "authMs": 80,
+  "authMs": 386,
   "public": false
  },
  {
@@ -2313,10 +2448,10 @@
   "path": "/api/v1/loans/reagreement/history/{mbno}/{caseNo}",
   "url": "http://localhost:3001/api/v1/loans/reagreement/history/1/1",
   "noToken": 401,
-  "noTokenMs": 13,
+  "noTokenMs": 22,
   "badToken": 401,
   "auth": 200,
-  "authMs": 125,
+  "authMs": 502,
   "public": false
  },
  {
@@ -2324,10 +2459,10 @@
   "path": "/api/v1/loans/reagreement/member/{mbno}/loans",
   "url": "http://localhost:3001/api/v1/loans/reagreement/member/1/loans",
   "noToken": 401,
-  "noTokenMs": 6,
+  "noTokenMs": 145,
   "badToken": 401,
   "auth": 200,
-  "authMs": 125,
+  "authMs": 471,
   "public": false
  },
  {
@@ -2335,10 +2470,10 @@
   "path": "/api/v1/loans/reagreement/open",
   "url": "http://localhost:3001/api/v1/loans/reagreement/open",
   "noToken": 401,
-  "noTokenMs": 11,
+  "noTokenMs": 21,
   "badToken": 401,
   "auth": 200,
-  "authMs": 109,
+  "authMs": 378,
   "public": false
  },
  {
@@ -2367,10 +2502,10 @@
   "path": "/api/v1/loans/sanctioned",
   "url": "http://localhost:3001/api/v1/loans/sanctioned",
   "noToken": 401,
-  "noTokenMs": 8,
+  "noTokenMs": 60,
   "badToken": 401,
   "auth": 200,
-  "authMs": 117,
+  "authMs": 276,
   "public": false
  },
  {
@@ -2378,10 +2513,10 @@
   "path": "/api/v1/loans/search/member-loans",
   "url": "http://localhost:3001/api/v1/loans/search/member-loans",
   "noToken": 401,
-  "noTokenMs": 11,
+  "noTokenMs": 38,
   "badToken": 401,
   "auth": 200,
-  "authMs": 90,
+  "authMs": 323,
   "public": false
  },
  {
@@ -2389,10 +2524,10 @@
   "path": "/api/v1/loans/surety/{caseNo}",
   "url": "http://localhost:3001/api/v1/loans/surety/1",
   "noToken": 401,
-  "noTokenMs": 9,
+  "noTokenMs": 31,
   "badToken": 401,
   "auth": 200,
-  "authMs": 68,
+  "authMs": 208,
   "public": false
  },
  {
@@ -2407,10 +2542,10 @@
   "path": "/api/v1/loans/surety/validate/{memberNo}",
   "url": "http://localhost:3001/api/v1/loans/surety/validate/1",
   "noToken": 401,
-  "noTokenMs": 14,
+  "noTokenMs": 33,
   "badToken": 401,
   "auth": 200,
-  "authMs": 58,
+  "authMs": 195,
   "public": false
  },
  {
@@ -2418,10 +2553,10 @@
   "path": "/api/v1/member-ledger/detail-columnar",
   "url": "http://localhost:3001/api/v1/member-ledger/detail-columnar",
   "noToken": 401,
-  "noTokenMs": 35,
+  "noTokenMs": 435,
   "badToken": 401,
   "auth": 400,
-  "authMs": 57,
+  "authMs": 200,
   "public": false
  },
  {
@@ -2429,10 +2564,10 @@
   "path": "/api/v1/member-ledger/detail-report",
   "url": "http://localhost:3001/api/v1/member-ledger/detail-report",
   "noToken": 401,
-  "noTokenMs": 35,
+  "noTokenMs": 456,
   "badToken": 401,
   "auth": 400,
-  "authMs": 46,
+  "authMs": 194,
   "public": false
  },
  {
@@ -2440,10 +2575,10 @@
   "path": "/api/v1/member-ledger/head-masters",
   "url": "http://localhost:3001/api/v1/member-ledger/head-masters",
   "noToken": 401,
-  "noTokenMs": 22,
+  "noTokenMs": 79,
   "badToken": 401,
   "auth": 200,
-  "authMs": 58,
+  "authMs": 437,
   "public": false
  },
  {
@@ -2451,10 +2586,10 @@
   "path": "/api/v1/member-ledger/member-context",
   "url": "http://localhost:3001/api/v1/member-ledger/member-context",
   "noToken": 401,
-  "noTokenMs": 6,
+  "noTokenMs": 97,
   "badToken": 401,
   "auth": 400,
-  "authMs": 75,
+  "authMs": 265,
   "public": false
  },
  {
@@ -2462,10 +2597,10 @@
   "path": "/api/v1/member-ledger/report",
   "url": "http://localhost:3001/api/v1/member-ledger/report",
   "noToken": 401,
-  "noTokenMs": 34,
+  "noTokenMs": 107,
   "badToken": 401,
   "auth": 400,
-  "authMs": 44,
+  "authMs": 580,
   "public": false
  },
  {
@@ -2473,10 +2608,10 @@
   "path": "/api/v1/member-ledger/validate-member",
   "url": "http://localhost:3001/api/v1/member-ledger/validate-member",
   "noToken": 401,
-  "noTokenMs": 7,
+  "noTokenMs": 78,
   "badToken": 401,
   "auth": 400,
-  "authMs": 101,
+  "authMs": 235,
   "public": false
  },
  {
@@ -2484,10 +2619,10 @@
   "path": "/api/v1/member-status/{memberNo}/check",
   "url": "http://localhost:3001/api/v1/member-status/1/check",
   "noToken": 401,
-  "noTokenMs": 3,
+  "noTokenMs": 19,
   "badToken": 401,
   "auth": 404,
-  "authMs": 39,
+  "authMs": 158,
   "public": false
  },
  {
@@ -2495,10 +2630,10 @@
   "path": "/api/v1/member-status/{memberNo}/history",
   "url": "http://localhost:3001/api/v1/member-status/1/history",
   "noToken": 401,
-  "noTokenMs": 4,
+  "noTokenMs": 20,
   "badToken": 401,
   "auth": 200,
-  "authMs": 178,
+  "authMs": 138,
   "public": false
  },
  {
@@ -2520,10 +2655,10 @@
   "path": "/api/v1/member-status/list",
   "url": "http://localhost:3001/api/v1/member-status/list",
   "noToken": 401,
-  "noTokenMs": 5,
+  "noTokenMs": 33,
   "badToken": 401,
   "auth": 400,
-  "authMs": 27,
+  "authMs": 159,
   "public": false
  },
  {
@@ -2531,10 +2666,10 @@
   "path": "/api/v1/member-status/summary",
   "url": "http://localhost:3001/api/v1/member-status/summary",
   "noToken": 401,
-  "noTokenMs": 5,
+  "noTokenMs": 4,
   "badToken": 401,
   "auth": 200,
-  "authMs": 161,
+  "authMs": 228,
   "public": false
  },
  {
@@ -2549,10 +2684,10 @@
   "path": "/api/v1/members/{id}/signature",
   "url": "http://localhost:3001/api/v1/members/1/signature",
   "noToken": 401,
-  "noTokenMs": 11,
+  "noTokenMs": 12,
   "badToken": 401,
   "auth": 404,
-  "authMs": 70,
+  "authMs": 97,
   "public": false
  },
  {
@@ -2574,10 +2709,10 @@
   "path": "/api/v1/members/{id}",
   "url": "http://localhost:3001/api/v1/members/1",
   "noToken": 401,
-  "noTokenMs": 7,
+  "noTokenMs": 21,
   "badToken": 401,
   "auth": 404,
-  "authMs": 65,
+  "authMs": 92,
   "public": false
  },
  {
@@ -2592,10 +2727,10 @@
   "path": "/api/v1/members/balance/{memberNo}/quick",
   "url": "http://localhost:3001/api/v1/members/balance/1/quick",
   "noToken": 401,
-  "noTokenMs": 11,
+  "noTokenMs": 14,
   "badToken": 401,
   "auth": 200,
-  "authMs": 83,
+  "authMs": 99,
   "public": false
  },
  {
@@ -2603,11 +2738,10 @@
   "path": "/api/v1/members/balance/{memberNo}",
   "url": "http://localhost:3001/api/v1/members/balance/1",
   "noToken": 401,
-  "noTokenMs": 8,
+  "noTokenMs": 10,
   "badToken": 401,
-  "auth": 500,
-  "authMs": 90,
-  "authSnippet": "{\"statusCode\":500,\"timestamp\":\"2026-10-16T17:25:42.681Z\",\"path\":\"/api/v1/members/balance/1\",\"method\":\"GET\",\"error\":\"Error\",\"message\":\"Member not found\"}",
+  "auth": 404,
+  "authMs": 103,
   "public": false
  },
  {
@@ -2615,10 +2749,10 @@
   "path": "/api/v1/members/details/{memberNo}",
   "url": "http://localhost:3001/api/v1/members/details/1",
   "noToken": 401,
-  "noTokenMs": 7,
+  "noTokenMs": 17,
   "badToken": 401,
   "auth": 200,
-  "authMs": 61,
+  "authMs": 101,
   "public": false
  },
  {
@@ -2629,7 +2763,7 @@
   "noTokenMs": 9,
   "badToken": 401,
   "auth": 200,
-  "authMs": 57,
+  "authMs": 73,
   "public": false
  },
  {
@@ -2637,10 +2771,10 @@
   "path": "/api/v1/members/generate/member-number",
   "url": "http://localhost:3001/api/v1/members/generate/member-number",
   "noToken": 401,
-  "noTokenMs": 9,
+  "noTokenMs": 13,
   "badToken": 401,
   "auth": 200,
-  "authMs": 86,
+  "authMs": 74,
   "public": false
  },
  {
@@ -2648,10 +2782,10 @@
   "path": "/api/v1/members/lookup",
   "url": "http://localhost:3001/api/v1/members/lookup",
   "noToken": 401,
-  "noTokenMs": 5,
+  "noTokenMs": 14,
   "badToken": 401,
   "auth": 200,
-  "authMs": 159,
+  "authMs": 225,
   "public": false
  },
  {
@@ -2666,10 +2800,10 @@
   "path": "/api/v1/members/master/{mbno}/document/{id}",
   "url": "http://localhost:3001/api/v1/members/master/1/document/1",
   "noToken": 401,
-  "noTokenMs": 18,
+  "noTokenMs": 15,
   "badToken": 401,
   "auth": 404,
-  "authMs": 111,
+  "authMs": 103,
   "public": false
  },
  {
@@ -2684,10 +2818,10 @@
   "path": "/api/v1/members/master/{mbno}/documents",
   "url": "http://localhost:3001/api/v1/members/master/1/documents",
   "noToken": 401,
-  "noTokenMs": 15,
+  "noTokenMs": 16,
   "badToken": 401,
   "auth": 200,
-  "authMs": 118,
+  "authMs": 111,
   "public": false
  },
  {
@@ -2702,10 +2836,10 @@
   "path": "/api/v1/members/master/{mbno}/photo/{type}",
   "url": "http://localhost:3001/api/v1/members/master/1/photo/1",
   "noToken": 401,
-  "noTokenMs": 17,
+  "noTokenMs": 18,
   "badToken": 401,
   "auth": 400,
-  "authMs": 72,
+  "authMs": 84,
   "public": false
  },
  {
@@ -2727,10 +2861,10 @@
   "path": "/api/v1/members/master/{mbno}/signature",
   "url": "http://localhost:3001/api/v1/members/master/1/signature",
   "noToken": 401,
-  "noTokenMs": 13,
+  "noTokenMs": 15,
   "badToken": 401,
   "auth": 404,
-  "authMs": 94,
+  "authMs": 96,
   "public": false
  },
  {
@@ -2752,10 +2886,10 @@
   "path": "/api/v1/members/statistics",
   "url": "http://localhost:3001/api/v1/members/statistics",
   "noToken": 401,
-  "noTokenMs": 4,
+  "noTokenMs": 17,
   "badToken": 401,
   "auth": 200,
-  "authMs": 22,
+  "authMs": 116,
   "public": false
  },
  {
@@ -2763,10 +2897,10 @@
   "path": "/api/v1/members",
   "url": "http://localhost:3001/api/v1/members",
   "noToken": 401,
-  "noTokenMs": 4,
+  "noTokenMs": 12,
   "badToken": 401,
   "auth": 200,
-  "authMs": 15,
+  "authMs": 64,
   "public": false
  },
  {
@@ -2774,6 +2908,176 @@
   "path": "/api/v1/members",
   "url": "http://localhost:3001/api/v1/members",
   "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/mobile/accounts",
+  "url": "http://localhost:3001/api/v1/mobile/accounts",
+  "noToken": 401,
+  "noTokenMs": 4125,
+  "badToken": 401,
+  "auth": 401,
+  "authMs": 47,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/mobile/auth/activate/complete",
+  "url": "http://localhost:3001/api/v1/mobile/auth/activate/complete",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/mobile/auth/activate",
+  "url": "http://localhost:3001/api/v1/mobile/auth/activate",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/mobile/auth/activation-request",
+  "url": "http://localhost:3001/api/v1/mobile/auth/activation-request",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/mobile/auth/login",
+  "url": "http://localhost:3001/api/v1/mobile/auth/login",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": true
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/mobile/auth/logout",
+  "url": "http://localhost:3001/api/v1/mobile/auth/logout",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/mobile/auth/refresh",
+  "url": "http://localhost:3001/api/v1/mobile/auth/refresh",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": true
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/mobile/auth/step-up",
+  "url": "http://localhost:3001/api/v1/mobile/auth/step-up",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/mobile/config",
+  "url": "http://localhost:3001/api/v1/mobile/config",
+  "noToken": 200,
+  "noTokenMs": 3728,
+  "badToken": 200,
+  "auth": 200,
+  "authMs": 5,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/mobile/home",
+  "url": "http://localhost:3001/api/v1/mobile/home",
+  "noToken": 401,
+  "noTokenMs": 4165,
+  "badToken": 401,
+  "auth": 401,
+  "authMs": 50,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/mobile/ledger",
+  "url": "http://localhost:3001/api/v1/mobile/ledger",
+  "noToken": 401,
+  "noTokenMs": 54,
+  "badToken": 401,
+  "auth": 401,
+  "authMs": 8,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/mobile/loans/{loanType}/{caseNo}/payments",
+  "url": "http://localhost:3001/api/v1/mobile/loans/1/1/payments",
+  "noToken": 401,
+  "noTokenMs": 334,
+  "badToken": 401,
+  "auth": 401,
+  "authMs": 55,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/mobile/loans/{loanType}/{caseNo}/schedule",
+  "url": "http://localhost:3001/api/v1/mobile/loans/1/1/schedule",
+  "noToken": 401,
+  "noTokenMs": 358,
+  "badToken": 401,
+  "auth": 401,
+  "authMs": 55,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/mobile/loans/{loanType}/{caseNo}",
+  "url": "http://localhost:3001/api/v1/mobile/loans/1/1",
+  "noToken": 401,
+  "noTokenMs": 362,
+  "badToken": 401,
+  "auth": 401,
+  "authMs": 54,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/mobile/loans",
+  "url": "http://localhost:3001/api/v1/mobile/loans",
+  "noToken": 401,
+  "noTokenMs": 4013,
+  "badToken": 401,
+  "auth": 401,
+  "authMs": 49,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/mobile/notices",
+  "url": "http://localhost:3001/api/v1/mobile/notices",
+  "noToken": 401,
+  "noTokenMs": 50,
+  "badToken": 401,
+  "auth": 401,
+  "authMs": 9,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/mobile/profile",
+  "url": "http://localhost:3001/api/v1/mobile/profile",
+  "noToken": 401,
+  "noTokenMs": 4138,
+  "badToken": 401,
+  "auth": 401,
+  "authMs": 46,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/mobile/status",
+  "url": "http://localhost:3001/api/v1/mobile/status",
+  "noToken": 200,
+  "noTokenMs": 206,
+  "badToken": 200,
+  "auth": 200,
+  "authMs": 20,
   "public": false
  },
  {
@@ -2795,10 +3099,10 @@
   "path": "/api/v1/notification-centre/list",
   "url": "http://localhost:3001/api/v1/notification-centre/list",
   "noToken": 401,
-  "noTokenMs": 5,
+  "noTokenMs": 148,
   "badToken": 401,
   "auth": 200,
-  "authMs": 316,
+  "authMs": 378,
   "public": false
  },
  {
@@ -2813,10 +3117,10 @@
   "path": "/api/v1/notification-centre/summary",
   "url": "http://localhost:3001/api/v1/notification-centre/summary",
   "noToken": 401,
-  "noTokenMs": 4,
+  "noTokenMs": 63,
   "badToken": 401,
   "auth": 200,
-  "authMs": 269,
+  "authMs": 414,
   "public": false
  },
  {
@@ -2838,10 +3142,10 @@
   "path": "/api/v1/notifications/channel-status",
   "url": "http://localhost:3001/api/v1/notifications/channel-status",
   "noToken": 401,
-  "noTokenMs": 7,
+  "noTokenMs": 25,
   "badToken": 401,
   "auth": 200,
-  "authMs": 37,
+  "authMs": 99,
   "public": false
  },
  {
@@ -2849,10 +3153,10 @@
   "path": "/api/v1/notifications/history",
   "url": "http://localhost:3001/api/v1/notifications/history",
   "noToken": 401,
-  "noTokenMs": 8,
+  "noTokenMs": 34,
   "badToken": 401,
   "auth": 200,
-  "authMs": 64,
+  "authMs": 211,
   "public": false
  },
  {
@@ -2895,10 +3199,10 @@
   "path": "/api/v1/notifications/stats",
   "url": "http://localhost:3001/api/v1/notifications/stats",
   "noToken": 401,
-  "noTokenMs": 9,
+  "noTokenMs": 69,
   "badToken": 401,
   "auth": 200,
-  "authMs": 53,
+  "authMs": 149,
   "public": false
  },
  {
@@ -2917,8 +3221,40 @@
  },
  {
   "method": "POST",
+  "path": "/api/v1/onboarding/checklist/show",
+  "url": "http://localhost:3001/api/v1/onboarding/checklist/show",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/onboarding/checklist",
+  "url": "http://localhost:3001/api/v1/onboarding/checklist",
+  "noToken": 401,
+  "noTokenMs": 8,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 94,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/onboarding/checklist",
+  "url": "http://localhost:3001/api/v1/onboarding/checklist",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
   "path": "/api/v1/onboarding/complete",
   "url": "http://localhost:3001/api/v1/onboarding/complete",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/onboarding/event",
+  "url": "http://localhost:3001/api/v1/onboarding/event",
   "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
   "public": false
  },
@@ -2941,10 +3277,21 @@
   "path": "/api/v1/onboarding/profile",
   "url": "http://localhost:3001/api/v1/onboarding/profile",
   "noToken": 401,
-  "noTokenMs": 4,
+  "noTokenMs": 13,
   "badToken": 401,
   "auth": 200,
-  "authMs": 28,
+  "authMs": 105,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/onboarding/report",
+  "url": "http://localhost:3001/api/v1/onboarding/report",
+  "noToken": 401,
+  "noTokenMs": 11,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 117,
   "public": false
  },
  {
@@ -2952,10 +3299,10 @@
   "path": "/api/v1/onboarding/status",
   "url": "http://localhost:3001/api/v1/onboarding/status",
   "noToken": 401,
-  "noTokenMs": 4,
+  "noTokenMs": 20,
   "badToken": 401,
   "auth": 200,
-  "authMs": 42,
+  "authMs": 85,
   "public": false
  },
  {
@@ -2977,10 +3324,10 @@
   "path": "/api/v1/onboarding/terms",
   "url": "http://localhost:3001/api/v1/onboarding/terms",
   "noToken": 401,
-  "noTokenMs": 3,
+  "noTokenMs": 11,
   "badToken": 401,
   "auth": 200,
-  "authMs": 52,
+  "authMs": 152,
   "public": false
  },
  {
@@ -2991,14 +3338,21 @@
   "public": false
  },
  {
+  "method": "POST",
+  "path": "/api/v1/onboarding/whats-new/seen",
+  "url": "http://localhost:3001/api/v1/onboarding/whats-new/seen",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
   "method": "GET",
   "path": "/api/v1/print-voucher/{voucherNo}",
   "url": "http://localhost:3001/api/v1/print-voucher/1",
   "noToken": 401,
-  "noTokenMs": 3,
+  "noTokenMs": 37,
   "badToken": 401,
   "auth": 404,
-  "authMs": 14,
+  "authMs": 125,
   "public": false
  },
  {
@@ -3006,10 +3360,10 @@
   "path": "/api/v1/print-voucher/journal/{voucherNo}",
   "url": "http://localhost:3001/api/v1/print-voucher/journal/1",
   "noToken": 401,
-  "noTokenMs": 18,
+  "noTokenMs": 42,
   "badToken": 401,
   "auth": 200,
-  "authMs": 23,
+  "authMs": 436,
   "public": false
  },
  {
@@ -3017,10 +3371,10 @@
   "path": "/api/v1/print-voucher/journal/list/all",
   "url": "http://localhost:3001/api/v1/print-voucher/journal/list/all",
   "noToken": 401,
-  "noTokenMs": 4,
+  "noTokenMs": 80,
   "badToken": 401,
   "auth": 200,
-  "authMs": 3341,
+  "authMs": 2780,
   "public": false
  },
  {
@@ -3028,10 +3382,10 @@
   "path": "/api/v1/print-voucher/journal/list/by-date",
   "url": "http://localhost:3001/api/v1/print-voucher/journal/list/by-date",
   "noToken": 401,
-  "noTokenMs": 4,
+  "noTokenMs": 52,
   "badToken": 401,
   "auth": 200,
-  "authMs": 10862,
+  "authMs": 6560,
   "public": false
  },
  {
@@ -3039,10 +3393,10 @@
   "path": "/api/v1/print-voucher/list/all",
   "url": "http://localhost:3001/api/v1/print-voucher/list/all",
   "noToken": 401,
-  "noTokenMs": 6,
+  "noTokenMs": 43,
   "badToken": 401,
   "auth": 200,
-  "authMs": 58,
+  "authMs": 380,
   "public": false
  },
  {
@@ -3050,10 +3404,10 @@
   "path": "/api/v1/print-voucher/list/by-date",
   "url": "http://localhost:3001/api/v1/print-voucher/list/by-date",
   "noToken": 401,
-  "noTokenMs": 7,
+  "noTokenMs": 112,
   "badToken": 401,
   "auth": 200,
-  "authMs": 57,
+  "authMs": 313,
   "public": false
  },
  {
@@ -3061,10 +3415,10 @@
   "path": "/api/v1/rd/balance/{mbno}/{yearcode}/current",
   "url": "http://localhost:3001/api/v1/rd/balance/1/1/current",
   "noToken": 401,
-  "noTokenMs": 30,
+  "noTokenMs": 36,
   "badToken": 401,
   "auth": 200,
-  "authMs": 353,
+  "authMs": 1258,
   "public": false
  },
  {
@@ -3072,10 +3426,10 @@
   "path": "/api/v1/rd/balance/{mbno}/{yearcode}/timeline",
   "url": "http://localhost:3001/api/v1/rd/balance/1/1/timeline",
   "noToken": 401,
-  "noTokenMs": 10,
+  "noTokenMs": 28,
   "badToken": 401,
   "auth": 200,
-  "authMs": 103,
+  "authMs": 415,
   "public": false
  },
  {
@@ -3097,10 +3451,11 @@
   "path": "/api/v1/rd/closing/{mbno}/{yearcode}/preview",
   "url": "http://localhost:3001/api/v1/rd/closing/1/1/preview",
   "noToken": 401,
-  "noTokenMs": 18,
+  "noTokenMs": 29,
   "badToken": 401,
-  "auth": 200,
-  "authMs": 1014,
+  "auth": 500,
+  "authMs": 6487,
+  "authSnippet": "{\"statusCode\":500,\"timestamp\":\"2026-11-03T09:43:05.336Z\",\"path\":\"/api/v1/rd/closing/1/1/preview\",\"method\":\"GET\",\"error\":\"Error\",\"message\":\"timeout exceeded when trying to connect\"}",
   "public": false
  },
  {
@@ -3115,10 +3470,10 @@
   "path": "/api/v1/rd/closing/{yearcode}/members",
   "url": "http://localhost:3001/api/v1/rd/closing/1/members",
   "noToken": 401,
-  "noTokenMs": 10,
+  "noTokenMs": 96,
   "badToken": 401,
   "auth": 200,
-  "authMs": 159,
+  "authMs": 504,
   "public": false
  },
  {
@@ -3126,10 +3481,11 @@
   "path": "/api/v1/rd/closing/{yearcode}/preview",
   "url": "http://localhost:3001/api/v1/rd/closing/1/preview",
   "noToken": 401,
-  "noTokenMs": 7,
+  "noTokenMs": 25,
   "badToken": 401,
-  "auth": 200,
-  "authMs": 1046,
+  "auth": 500,
+  "authMs": 2596,
+  "authSnippet": "{\"statusCode\":500,\"timestamp\":\"2026-11-03T09:43:01.355Z\",\"path\":\"/api/v1/rd/closing/1/preview\",\"method\":\"GET\",\"error\":\"Error\",\"message\":\"timeout exceeded when trying to connect\"}",
   "public": false
  },
  {
@@ -3137,10 +3493,10 @@
   "path": "/api/v1/rd/interest/{mbno}/{yearcode}/preview",
   "url": "http://localhost:3001/api/v1/rd/interest/1/1/preview",
   "noToken": 401,
-  "noTokenMs": 9,
+  "noTokenMs": 30,
   "badToken": 401,
   "auth": 200,
-  "authMs": 422,
+  "authMs": 1338,
   "public": false
  },
  {
@@ -3148,10 +3504,10 @@
   "path": "/api/v1/rd/member-config/{mbno}/{yearcode}/current",
   "url": "http://localhost:3001/api/v1/rd/member-config/1/1/current",
   "noToken": 401,
-  "noTokenMs": 8,
+  "noTokenMs": 53,
   "badToken": 401,
   "auth": 200,
-  "authMs": 88,
+  "authMs": 296,
   "public": false
  },
  {
@@ -3159,10 +3515,10 @@
   "path": "/api/v1/rd/member-config/{mbno}/{yearcode}/history",
   "url": "http://localhost:3001/api/v1/rd/member-config/1/1/history",
   "noToken": 401,
-  "noTokenMs": 8,
+  "noTokenMs": 35,
   "badToken": 401,
   "auth": 200,
-  "authMs": 89,
+  "authMs": 445,
   "public": false
  },
  {
@@ -3177,10 +3533,10 @@
   "path": "/api/v1/rd/pattern/{mbno}/{yearcode}",
   "url": "http://localhost:3001/api/v1/rd/pattern/1/1",
   "noToken": 401,
-  "noTokenMs": 10,
+  "noTokenMs": 22,
   "badToken": 401,
   "auth": 200,
-  "authMs": 422,
+  "authMs": 638,
   "public": false
  },
  {
@@ -3188,10 +3544,11 @@
   "path": "/api/v1/rd/repayment/{mbno}/{yearcode}/pending",
   "url": "http://localhost:3001/api/v1/rd/repayment/1/1/pending",
   "noToken": 401,
-  "noTokenMs": 18,
+  "noTokenMs": 115,
   "badToken": 401,
-  "auth": 200,
-  "authMs": 997,
+  "auth": 500,
+  "authMs": 6337,
+  "authSnippet": "{\"statusCode\":500,\"timestamp\":\"2026-11-03T09:43:05.349Z\",\"path\":\"/api/v1/rd/repayment/1/1/pending\",\"method\":\"GET\",\"error\":\"Error\",\"message\":\"timeout exceeded when trying to connect\"}",
   "public": false
  },
  {
@@ -3213,10 +3570,10 @@
   "path": "/api/v1/report-head-order",
   "url": "http://localhost:3001/api/v1/report-head-order",
   "noToken": 401,
-  "noTokenMs": 6,
+  "noTokenMs": 201,
   "badToken": 401,
   "auth": 200,
-  "authMs": 231,
+  "authMs": 692,
   "public": false
  },
  {
@@ -3231,11 +3588,10 @@
   "path": "/api/v1/reports/account-closing",
   "url": "http://localhost:3001/api/v1/reports/account-closing",
   "noToken": 401,
-  "noTokenMs": 19,
+  "noTokenMs": 27,
   "badToken": 401,
-  "auth": 500,
-  "authMs": 29,
-  "authSnippet": "{\"statusCode\":500,\"timestamp\":\"2026-10-16T17:25:46.501Z\",\"path\":\"/api/v1/reports/account-closing\",\"method\":\"GET\",\"error\":\"TypeError\",\"message\":\"Cannot read properties of undefined (reading 'toString')\"}",
+  "auth": 400,
+  "authMs": 600,
   "public": false
  },
  {
@@ -3243,11 +3599,10 @@
   "path": "/api/v1/reports/adhoc-reports",
   "url": "http://localhost:3001/api/v1/reports/adhoc-reports",
   "noToken": 401,
-  "noTokenMs": 15,
+  "noTokenMs": 39,
   "badToken": 401,
-  "auth": 500,
-  "authMs": 121,
-  "authSnippet": "{\"statusCode\":500,\"timestamp\":\"2026-10-16T17:25:46.142Z\",\"path\":\"/api/v1/reports/adhoc-reports\",\"method\":\"GET\",\"error\":\"Error\",\"message\":\"Unsupported report type\"}",
+  "auth": 400,
+  "authMs": 183,
   "public": false
  },
  {
@@ -3255,10 +3610,10 @@
   "path": "/api/v1/reports/annual-member-statement",
   "url": "http://localhost:3001/api/v1/reports/annual-member-statement",
   "noToken": 401,
-  "noTokenMs": 15,
+  "noTokenMs": 20,
   "badToken": 401,
   "auth": 200,
-  "authMs": 157,
+  "authMs": 466,
   "public": false
  },
  {
@@ -3266,10 +3621,10 @@
   "path": "/api/v1/reports/balance-sheet",
   "url": "http://localhost:3001/api/v1/reports/balance-sheet",
   "noToken": 401,
-  "noTokenMs": 5,
+  "noTokenMs": 19,
   "badToken": 401,
   "auth": 200,
-  "authMs": 4069,
+  "authMs": 3467,
   "public": false
  },
  {
@@ -3284,10 +3639,10 @@
   "path": "/api/v1/reports/banks",
   "url": "http://localhost:3001/api/v1/reports/banks",
   "noToken": 401,
-  "noTokenMs": 8,
+  "noTokenMs": 31,
   "badToken": 401,
   "auth": 200,
-  "authMs": 50,
+  "authMs": 100,
   "public": false
  },
  {
@@ -3330,10 +3685,10 @@
   "path": "/api/v1/reports/diagnostic",
   "url": "http://localhost:3001/api/v1/reports/diagnostic",
   "noToken": 401,
-  "noTokenMs": 5,
+  "noTokenMs": 89,
   "badToken": 401,
   "auth": 200,
-  "authMs": 66,
+  "authMs": 1126,
   "public": false
  },
  {
@@ -3341,10 +3696,10 @@
   "path": "/api/v1/reports/dividend-paid",
   "url": "http://localhost:3001/api/v1/reports/dividend-paid",
   "noToken": 401,
-  "noTokenMs": 17,
+  "noTokenMs": 73,
   "badToken": 401,
   "auth": 200,
-  "authMs": 64,
+  "authMs": 107,
   "public": false
  },
  {
@@ -3352,10 +3707,10 @@
   "path": "/api/v1/reports/dividend-report",
   "url": "http://localhost:3001/api/v1/reports/dividend-report",
   "noToken": 401,
-  "noTokenMs": 20,
+  "noTokenMs": 152,
   "badToken": 401,
   "auth": 200,
-  "authMs": 269,
+  "authMs": 2308,
   "public": false
  },
  {
@@ -3363,10 +3718,10 @@
   "path": "/api/v1/reports/dividend-warrant",
   "url": "http://localhost:3001/api/v1/reports/dividend-warrant",
   "noToken": 401,
-  "noTokenMs": 15,
+  "noTokenMs": 51,
   "badToken": 401,
   "auth": 200,
-  "authMs": 48,
+  "authMs": 2097,
   "public": false
  },
  {
@@ -3374,10 +3729,10 @@
   "path": "/api/v1/reports/divisions",
   "url": "http://localhost:3001/api/v1/reports/divisions",
   "noToken": 401,
-  "noTokenMs": 17,
+  "noTokenMs": 65,
   "badToken": 401,
   "auth": 200,
-  "authMs": 39,
+  "authMs": 342,
   "public": false
  },
  {
@@ -3385,10 +3740,10 @@
   "path": "/api/v1/reports/financial-summary",
   "url": "http://localhost:3001/api/v1/reports/financial-summary",
   "noToken": 401,
-  "noTokenMs": 5,
+  "noTokenMs": 103,
   "badToken": 401,
   "auth": 400,
-  "authMs": 31,
+  "authMs": 197,
   "public": false
  },
  {
@@ -3396,10 +3751,10 @@
   "path": "/api/v1/reports/heads",
   "url": "http://localhost:3001/api/v1/reports/heads",
   "noToken": 401,
-  "noTokenMs": 7,
+  "noTokenMs": 36,
   "badToken": 401,
   "auth": 200,
-  "authMs": 56,
+  "authMs": 113,
   "public": false
  },
  {
@@ -3414,10 +3769,10 @@
   "path": "/api/v1/reports/interest-list",
   "url": "http://localhost:3001/api/v1/reports/interest-list",
   "noToken": 401,
-  "noTokenMs": 7,
+  "noTokenMs": 19,
   "badToken": 401,
   "auth": 400,
-  "authMs": 39,
+  "authMs": 739,
   "public": false
  },
  {
@@ -3439,10 +3794,10 @@
   "path": "/api/v1/reports/lien-account-information",
   "url": "http://localhost:3001/api/v1/reports/lien-account-information",
   "noToken": 401,
-  "noTokenMs": 8,
+  "noTokenMs": 48,
   "badToken": 401,
   "auth": 200,
-  "authMs": 91,
+  "authMs": 227,
   "public": false
  },
  {
@@ -3450,11 +3805,10 @@
   "path": "/api/v1/reports/loan-contributions-register",
   "url": "http://localhost:3001/api/v1/reports/loan-contributions-register",
   "noToken": 401,
-  "noTokenMs": 15,
+  "noTokenMs": 33,
   "badToken": 401,
-  "auth": 500,
-  "authMs": 137,
-  "authSnippet": "{\"statusCode\":500,\"timestamp\":\"2026-10-16T17:25:46.133Z\",\"path\":\"/api/v1/reports/loan-contributions-register\",\"method\":\"GET\",\"error\":\"Error\",\"message\":\"Member not found\"}",
+  "auth": 404,
+  "authMs": 126,
   "public": false
  },
  {
@@ -3462,10 +3816,10 @@
   "path": "/api/v1/reports/loan-nil-certificate/{memberNo}",
   "url": "http://localhost:3001/api/v1/reports/loan-nil-certificate/1",
   "noToken": 401,
-  "noTokenMs": 14,
+  "noTokenMs": 66,
   "badToken": 401,
   "auth": 400,
-  "authMs": 84,
+  "authMs": 192,
   "public": false
  },
  {
@@ -3473,10 +3827,10 @@
   "path": "/api/v1/reports/loan-types",
   "url": "http://localhost:3001/api/v1/reports/loan-types",
   "noToken": 401,
-  "noTokenMs": 11,
+  "noTokenMs": 78,
   "badToken": 401,
   "auth": 200,
-  "authMs": 80,
+  "authMs": 199,
   "public": false
  },
  {
@@ -3498,10 +3852,10 @@
   "path": "/api/v1/reports/member-balance-range",
   "url": "http://localhost:3001/api/v1/reports/member-balance-range",
   "noToken": 401,
-  "noTokenMs": 7,
+  "noTokenMs": 22,
   "badToken": 401,
   "auth": 200,
-  "authMs": 34,
+  "authMs": 80,
   "public": false
  },
  {
@@ -3509,10 +3863,10 @@
   "path": "/api/v1/reports/member-ledger",
   "url": "http://localhost:3001/api/v1/reports/member-ledger",
   "noToken": 401,
-  "noTokenMs": 9,
+  "noTokenMs": 66,
   "badToken": 401,
   "auth": 200,
-  "authMs": 50,
+  "authMs": 81,
   "public": false
  },
  {
@@ -3520,10 +3874,10 @@
   "path": "/api/v1/reports/member-loan-detail",
   "url": "http://localhost:3001/api/v1/reports/member-loan-detail",
   "noToken": 401,
-  "noTokenMs": 13,
+  "noTokenMs": 33,
   "badToken": 401,
   "auth": 200,
-  "authMs": 2710,
+  "authMs": 5793,
   "public": false
  },
  {
@@ -3531,10 +3885,10 @@
   "path": "/api/v1/reports/member/{memberNo}/loan-cases",
   "url": "http://localhost:3001/api/v1/reports/member/1/loan-cases",
   "noToken": 401,
-  "noTokenMs": 9,
+  "noTokenMs": 23,
   "badToken": 401,
   "auth": 200,
-  "authMs": 136,
+  "authMs": 176,
   "public": false
  },
  {
@@ -3556,10 +3910,10 @@
   "path": "/api/v1/reports/member/profile/{memberNo}",
   "url": "http://localhost:3001/api/v1/reports/member/profile/1",
   "noToken": 401,
-  "noTokenMs": 9,
+  "noTokenMs": 49,
   "badToken": 401,
-  "auth": 200,
-  "authMs": 40,
+  "auth": 404,
+  "authMs": 53,
   "public": false
  },
  {
@@ -3574,10 +3928,10 @@
   "path": "/api/v1/reports/offices",
   "url": "http://localhost:3001/api/v1/reports/offices",
   "noToken": 401,
-  "noTokenMs": 17,
+  "noTokenMs": 45,
   "badToken": 401,
   "auth": 200,
-  "authMs": 40,
+  "authMs": 303,
   "public": false
  },
  {
@@ -3585,11 +3939,10 @@
   "path": "/api/v1/reports/passbook-printing",
   "url": "http://localhost:3001/api/v1/reports/passbook-printing",
   "noToken": 401,
-  "noTokenMs": 5,
+  "noTokenMs": 47,
   "badToken": 401,
-  "auth": 500,
-  "authMs": 72,
-  "authSnippet": "{\"statusCode\":500,\"timestamp\":\"2026-10-16T17:25:46.407Z\",\"path\":\"/api/v1/reports/passbook-printing\",\"method\":\"GET\",\"error\":\"Error\",\"message\":\"Member not found\"}",
+  "auth": 404,
+  "authMs": 117,
   "public": false
  },
  {
@@ -3604,11 +3957,10 @@
   "path": "/api/v1/reports/recovery-details",
   "url": "http://localhost:3001/api/v1/reports/recovery-details",
   "noToken": 401,
-  "noTokenMs": 5,
+  "noTokenMs": 64,
   "badToken": 401,
-  "auth": 500,
-  "authMs": 38,
-  "authSnippet": "{\"statusCode\":500,\"timestamp\":\"2026-10-16T17:25:46.535Z\",\"path\":\"/api/v1/reports/recovery-details\",\"method\":\"GET\",\"error\":\"Error\",\"message\":\"Invalid month 'undefined'\"}",
+  "auth": 400,
+  "authMs": 904,
   "public": false
  },
  {
@@ -3616,10 +3968,10 @@
   "path": "/api/v1/reports/recurring-details",
   "url": "http://localhost:3001/api/v1/reports/recurring-details",
   "noToken": 401,
-  "noTokenMs": 11,
+  "noTokenMs": 648,
   "badToken": 401,
   "auth": 200,
-  "authMs": 22,
+  "authMs": 28,
   "public": false
  },
  {
@@ -3634,10 +3986,10 @@
   "path": "/api/v1/reports/schedule/{id}",
   "url": "http://localhost:3001/api/v1/reports/schedule/1",
   "noToken": 401,
-  "noTokenMs": 49,
+  "noTokenMs": 36,
   "badToken": 401,
   "auth": 200,
-  "authMs": 38,
+  "authMs": 149,
   "public": false
  },
  {
@@ -3652,10 +4004,10 @@
   "path": "/api/v1/reports/schedule",
   "url": "http://localhost:3001/api/v1/reports/schedule",
   "noToken": 401,
-  "noTokenMs": 49,
+  "noTokenMs": 47,
   "badToken": 401,
   "auth": 200,
-  "authMs": 40,
+  "authMs": 223,
   "public": false
  },
  {
@@ -3670,10 +4022,10 @@
   "path": "/api/v1/reports/share-certificate",
   "url": "http://localhost:3001/api/v1/reports/share-certificate",
   "noToken": 401,
-  "noTokenMs": 5,
+  "noTokenMs": 152,
   "badToken": 401,
   "auth": 200,
-  "authMs": 27,
+  "authMs": 561,
   "public": false
  },
  {
@@ -3681,10 +4033,10 @@
   "path": "/api/v1/reports/share-warrant",
   "url": "http://localhost:3001/api/v1/reports/share-warrant",
   "noToken": 401,
-  "noTokenMs": 7,
+  "noTokenMs": 37,
   "badToken": 401,
   "auth": 200,
-  "authMs": 29,
+  "authMs": 1390,
   "public": false
  },
  {
@@ -3692,10 +4044,10 @@
   "path": "/api/v1/reports/surety-register",
   "url": "http://localhost:3001/api/v1/reports/surety-register",
   "noToken": 401,
-  "noTokenMs": 9,
+  "noTokenMs": 77,
   "badToken": 401,
   "auth": 200,
-  "authMs": 16159,
+  "authMs": 17464,
   "public": false
  },
  {
@@ -3703,10 +4055,10 @@
   "path": "/api/v1/reports/voters-list",
   "url": "http://localhost:3001/api/v1/reports/voters-list",
   "noToken": 401,
-  "noTokenMs": 7,
+  "noTokenMs": 9,
   "badToken": 401,
   "auth": 200,
-  "authMs": 368,
+  "authMs": 823,
   "public": false
  },
  {
@@ -3714,10 +4066,10 @@
   "path": "/api/v1/reports/wings",
   "url": "http://localhost:3001/api/v1/reports/wings",
   "noToken": 401,
-  "noTokenMs": 11,
+  "noTokenMs": 51,
   "badToken": 401,
   "auth": 200,
-  "authMs": 24,
+  "authMs": 372,
   "public": false
  },
  {
@@ -3725,10 +4077,10 @@
   "path": "/api/v1/reports/yearly-member-statement",
   "url": "http://localhost:3001/api/v1/reports/yearly-member-statement",
   "noToken": 401,
-  "noTokenMs": 6,
+  "noTokenMs": 50,
   "badToken": 401,
   "auth": 200,
-  "authMs": 153,
+  "authMs": 409,
   "public": false
  },
  {
@@ -3736,10 +4088,10 @@
   "path": "/api/v1/search/global",
   "url": "http://localhost:3001/api/v1/search/global",
   "noToken": 401,
-  "noTokenMs": 76,
+  "noTokenMs": 289,
   "badToken": 401,
   "auth": 200,
-  "authMs": 28,
+  "authMs": 147,
   "public": false
  },
  {
@@ -3747,10 +4099,10 @@
   "path": "/api/v1/search/suggestions",
   "url": "http://localhost:3001/api/v1/search/suggestions",
   "noToken": 401,
-  "noTokenMs": 49,
+  "noTokenMs": 123,
   "badToken": 401,
   "auth": 200,
-  "authMs": 25,
+  "authMs": 158,
   "public": false
  },
  {
@@ -3765,10 +4117,10 @@
   "path": "/api/v1/support-queries/{id}",
   "url": "http://localhost:3001/api/v1/support-queries/1",
   "noToken": 401,
-  "noTokenMs": 4,
+  "noTokenMs": 22,
   "badToken": 401,
   "auth": 200,
-  "authMs": 25,
+  "authMs": 56,
   "public": false
  },
  {
@@ -3776,10 +4128,10 @@
   "path": "/api/v1/support-queries/admin/all",
   "url": "http://localhost:3001/api/v1/support-queries/admin/all",
   "noToken": 401,
-  "noTokenMs": 5,
+  "noTokenMs": 13,
   "badToken": 401,
   "auth": 200,
-  "authMs": 73,
+  "authMs": 123,
   "public": false
  },
  {
@@ -3787,10 +4139,10 @@
   "path": "/api/v1/support-queries/mine",
   "url": "http://localhost:3001/api/v1/support-queries/mine",
   "noToken": 401,
-  "noTokenMs": 4,
+  "noTokenMs": 34,
   "badToken": 401,
   "auth": 200,
-  "authMs": 38,
+  "authMs": 1038,
   "public": false
  },
  {
@@ -3801,14 +4153,75 @@
   "public": false
  },
  {
+  "method": "POST",
+  "path": "/api/v1/system-update/apply",
+  "url": "http://localhost:3001/api/v1/system-update/apply",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/system-update/pending",
+  "url": "http://localhost:3001/api/v1/system-update/pending",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/system-update/remote/check",
+  "url": "http://localhost:3001/api/v1/system-update/remote/check",
+  "noToken": 401,
+  "noTokenMs": 47,
+  "badToken": 401,
+  "auth": 400,
+  "authMs": 144,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/system-update/remote/download",
+  "url": "http://localhost:3001/api/v1/system-update/remote/download",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/system-update/remote/progress",
+  "url": "http://localhost:3001/api/v1/system-update/remote/progress",
+  "noToken": 401,
+  "noTokenMs": 8,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 68,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/system-update/status",
+  "url": "http://localhost:3001/api/v1/system-update/status",
+  "noToken": 401,
+  "noTokenMs": 15,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 156,
+  "public": false
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/system-update/upload",
+  "url": "http://localhost:3001/api/v1/system-update/upload",
+  "skipped": "mutating route: never probed by the sweep; covered by domain suites on self-created records",
+  "public": false
+ },
+ {
   "method": "GET",
   "path": "/api/v1/transactions/cd/income-heads",
   "url": "http://localhost:3001/api/v1/transactions/cd/income-heads",
   "noToken": 401,
-  "noTokenMs": 10,
+  "noTokenMs": 36,
   "badToken": 401,
   "auth": 200,
-  "authMs": 37,
+  "authMs": 117,
   "public": false
  },
  {
@@ -3816,10 +4229,10 @@
   "path": "/api/v1/transactions/cd/members",
   "url": "http://localhost:3001/api/v1/transactions/cd/members",
   "noToken": 401,
-  "noTokenMs": 9,
+  "noTokenMs": 51,
   "badToken": 401,
   "auth": 200,
-  "authMs": 132,
+  "authMs": 426,
   "public": false
  },
  {
@@ -3862,10 +4275,10 @@
   "path": "/api/v1/transactions/dividend/pending/{memberNo}",
   "url": "http://localhost:3001/api/v1/transactions/dividend/pending/1",
   "noToken": 401,
-  "noTokenMs": 12,
+  "noTokenMs": 73,
   "badToken": 401,
   "auth": 200,
-  "authMs": 39,
+  "authMs": 63,
   "public": false
  },
  {
@@ -3887,10 +4300,10 @@
   "path": "/api/v1/transactions/ledger-posting/summary",
   "url": "http://localhost:3001/api/v1/transactions/ledger-posting/summary",
   "noToken": 401,
-  "noTokenMs": 13,
+  "noTokenMs": 26,
   "badToken": 401,
   "auth": 200,
-  "authMs": 58,
+  "authMs": 177,
   "public": false
  },
  {
@@ -3933,10 +4346,10 @@
   "path": "/api/v1/transactions/short-recovery",
   "url": "http://localhost:3001/api/v1/transactions/short-recovery",
   "noToken": 401,
-  "noTokenMs": 12,
+  "noTokenMs": 41,
   "badToken": 401,
   "auth": 200,
-  "authMs": 61,
+  "authMs": 210,
   "public": false
  },
  {
@@ -3951,10 +4364,10 @@
   "path": "/api/v1/transactions/voucher/{voucherNo}",
   "url": "http://localhost:3001/api/v1/transactions/voucher/1",
   "noToken": 401,
-  "noTokenMs": 14,
+  "noTokenMs": 103,
   "badToken": 401,
   "auth": 200,
-  "authMs": 128,
+  "authMs": 3107,
   "public": false
  },
  {
@@ -3969,10 +4382,10 @@
   "path": "/api/v1/transactions/vouchers/pending",
   "url": "http://localhost:3001/api/v1/transactions/vouchers/pending",
   "noToken": 401,
-  "noTokenMs": 9,
+  "noTokenMs": 121,
   "badToken": 401,
   "auth": 200,
-  "authMs": 140,
+  "authMs": 3011,
   "public": false
  },
  {
@@ -3987,11 +4400,10 @@
   "path": "/api/v1/utilities/balance/account/{accountType}/{accountId}",
   "url": "http://localhost:3001/api/v1/utilities/balance/account/1/1",
   "noToken": 401,
-  "noTokenMs": 7,
+  "noTokenMs": 9,
   "badToken": 401,
-  "auth": 500,
-  "authMs": 79,
-  "authSnippet": "{\"statusCode\":500,\"timestamp\":\"2026-10-16T17:25:45.412Z\",\"path\":\"/api/v1/utilities/balance/account/1/1\",\"method\":\"GET\",\"error\":\"Error\",\"message\":\"Invalid account type\"}",
+  "auth": 400,
+  "authMs": 302,
   "public": false
  },
  {
@@ -3999,11 +4411,10 @@
   "path": "/api/v1/utilities/balance/member/{memberId}/accounts",
   "url": "http://localhost:3001/api/v1/utilities/balance/member/1/accounts",
   "noToken": 401,
-  "noTokenMs": 10,
+  "noTokenMs": 9,
   "badToken": 401,
-  "auth": 500,
-  "authMs": 100,
-  "authSnippet": "{\"statusCode\":500,\"timestamp\":\"2026-10-16T17:25:45.442Z\",\"path\":\"/api/v1/utilities/balance/member/1/accounts\",\"method\":\"GET\",\"error\":\"Error\",\"message\":\"Member not found\"}",
+  "auth": 404,
+  "authMs": 449,
   "public": false
  },
  {
@@ -4011,11 +4422,10 @@
   "path": "/api/v1/utilities/balance/member/{memberId}/realtime",
   "url": "http://localhost:3001/api/v1/utilities/balance/member/1/realtime",
   "noToken": 401,
-  "noTokenMs": 10,
+  "noTokenMs": 11,
   "badToken": 401,
-  "auth": 500,
-  "authMs": 99,
-  "authSnippet": "{\"statusCode\":500,\"timestamp\":\"2026-10-16T17:25:45.444Z\",\"path\":\"/api/v1/utilities/balance/member/1/realtime\",\"method\":\"GET\",\"error\":\"Error\",\"message\":\"Member not found\"}",
+  "auth": 404,
+  "authMs": 466,
   "public": false
  },
  {
@@ -4023,11 +4433,10 @@
   "path": "/api/v1/utilities/balance/member/{memberId}",
   "url": "http://localhost:3001/api/v1/utilities/balance/member/1",
   "noToken": 401,
-  "noTokenMs": 9,
+  "noTokenMs": 8,
   "badToken": 401,
-  "auth": 500,
-  "authMs": 82,
-  "authSnippet": "{\"statusCode\":500,\"timestamp\":\"2026-10-16T17:25:45.406Z\",\"path\":\"/api/v1/utilities/balance/member/1\",\"method\":\"GET\",\"error\":\"Error\",\"message\":\"Member not found\"}",
+  "auth": 404,
+  "authMs": 321,
   "public": false
  },
  {
@@ -4035,10 +4444,10 @@
   "path": "/api/v1/utilities/business-rules",
   "url": "http://localhost:3001/api/v1/utilities/business-rules",
   "noToken": 401,
-  "noTokenMs": 19,
+  "noTokenMs": 132,
   "badToken": 401,
   "auth": 200,
-  "authMs": 471,
+  "authMs": 807,
   "public": false
  },
  {
@@ -4053,10 +4462,10 @@
   "path": "/api/v1/utilities/calculator/loan-rates",
   "url": "http://localhost:3001/api/v1/utilities/calculator/loan-rates",
   "noToken": 401,
-  "noTokenMs": 10,
+  "noTokenMs": 366,
   "badToken": 401,
   "auth": 200,
-  "authMs": 45,
+  "authMs": 806,
   "public": false
  },
  {
@@ -4064,10 +4473,10 @@
   "path": "/api/v1/utilities/calculator/member-eligibility",
   "url": "http://localhost:3001/api/v1/utilities/calculator/member-eligibility",
   "noToken": 401,
-  "noTokenMs": 7,
+  "noTokenMs": 298,
   "badToken": 401,
   "auth": 400,
-  "authMs": 26,
+  "authMs": 866,
   "public": false
  },
  {
@@ -4075,10 +4484,10 @@
   "path": "/api/v1/utilities/data-consistency/check",
   "url": "http://localhost:3001/api/v1/utilities/data-consistency/check",
   "noToken": 401,
-  "noTokenMs": 14,
+  "noTokenMs": 28,
   "badToken": 401,
   "auth": 200,
-  "authMs": 222,
+  "authMs": 1517,
   "public": false
  },
  {
@@ -4128,10 +4537,10 @@
   "path": "/api/v1/utilities/demand-print-order",
   "url": "http://localhost:3001/api/v1/utilities/demand-print-order",
   "noToken": 401,
-  "noTokenMs": 56,
+  "noTokenMs": 38,
   "badToken": 401,
   "auth": 200,
-  "authMs": 493,
+  "authMs": 641,
   "public": false
  },
  {
@@ -4146,10 +4555,10 @@
   "path": "/api/v1/utilities/deposit-loan-slabs",
   "url": "http://localhost:3001/api/v1/utilities/deposit-loan-slabs",
   "noToken": 401,
-  "noTokenMs": 42,
+  "noTokenMs": 30,
   "badToken": 401,
   "auth": 200,
-  "authMs": 207,
+  "authMs": 327,
   "public": false
  },
  {
@@ -4171,10 +4580,10 @@
   "path": "/api/v1/utilities/dividend/pending",
   "url": "http://localhost:3001/api/v1/utilities/dividend/pending",
   "noToken": 401,
-  "noTokenMs": 11,
+  "noTokenMs": 57,
   "badToken": 401,
   "auth": 200,
-  "authMs": 42,
+  "authMs": 409,
   "public": false
  },
  {
@@ -4182,10 +4591,10 @@
   "path": "/api/v1/utilities/divisions",
   "url": "http://localhost:3001/api/v1/utilities/divisions",
   "noToken": 401,
-  "noTokenMs": 8,
+  "noTokenMs": 244,
   "badToken": 401,
   "auth": 200,
-  "authMs": 70,
+  "authMs": 465,
   "public": false
  },
  {
@@ -4193,10 +4602,10 @@
   "path": "/api/v1/utilities/fd-accounts/member",
   "url": "http://localhost:3001/api/v1/utilities/fd-accounts/member",
   "noToken": 401,
-  "noTokenMs": 12,
+  "noTokenMs": 46,
   "badToken": 401,
   "auth": 200,
-  "authMs": 55,
+  "authMs": 647,
   "public": false
  },
  {
@@ -4211,10 +4620,10 @@
   "path": "/api/v1/utilities/fd-rd-sb/accounts",
   "url": "http://localhost:3001/api/v1/utilities/fd-rd-sb/accounts",
   "noToken": 401,
-  "noTokenMs": 3,
+  "noTokenMs": 111,
   "badToken": 401,
   "auth": 200,
-  "authMs": 387,
+  "authMs": 464,
   "public": false
  },
  {
@@ -4236,10 +4645,10 @@
   "path": "/api/v1/utilities/financial-year/current",
   "url": "http://localhost:3001/api/v1/utilities/financial-year/current",
   "noToken": 401,
-  "noTokenMs": 66,
+  "noTokenMs": 58,
   "badToken": 401,
   "auth": 200,
-  "authMs": 59,
+  "authMs": 566,
   "public": false
  },
  {
@@ -4254,10 +4663,10 @@
   "path": "/api/v1/utilities/financial-years",
   "url": "http://localhost:3001/api/v1/utilities/financial-years",
   "noToken": 401,
-  "noTokenMs": 18,
+  "noTokenMs": 49,
   "badToken": 401,
   "auth": 200,
-  "authMs": 161,
+  "authMs": 445,
   "public": false
  },
  {
@@ -4265,10 +4674,10 @@
   "path": "/api/v1/utilities/head-balance/{code}",
   "url": "http://localhost:3001/api/v1/utilities/head-balance/1",
   "noToken": 401,
-  "noTokenMs": 9,
+  "noTokenMs": 103,
   "badToken": 401,
   "auth": 200,
-  "authMs": 2488,
+  "authMs": 1880,
   "public": false
  },
  {
@@ -4290,10 +4699,10 @@
   "path": "/api/v1/utilities/head-master",
   "url": "http://localhost:3001/api/v1/utilities/head-master",
   "noToken": 401,
-  "noTokenMs": 8,
+  "noTokenMs": 177,
   "badToken": 401,
   "auth": 200,
-  "authMs": 5191,
+  "authMs": 3057,
   "public": false
  },
  {
@@ -4315,10 +4724,10 @@
   "path": "/api/v1/utilities/head-opening-balance",
   "url": "http://localhost:3001/api/v1/utilities/head-opening-balance",
   "noToken": 401,
-  "noTokenMs": 28,
+  "noTokenMs": 207,
   "badToken": 401,
   "auth": 200,
-  "authMs": 445,
+  "authMs": 491,
   "public": false
  },
  {
@@ -4340,10 +4749,10 @@
   "path": "/api/v1/utilities/health/alerts/all",
   "url": "http://localhost:3001/api/v1/utilities/health/alerts/all",
   "noToken": 401,
-  "noTokenMs": 16,
+  "noTokenMs": 89,
   "badToken": 401,
   "auth": 200,
-  "authMs": 76,
+  "authMs": 544,
   "public": true
  },
  {
@@ -4351,10 +4760,10 @@
   "path": "/api/v1/utilities/health/alerts",
   "url": "http://localhost:3001/api/v1/utilities/health/alerts",
   "noToken": 401,
-  "noTokenMs": 17,
+  "noTokenMs": 30,
   "badToken": 401,
   "auth": 200,
-  "authMs": 89,
+  "authMs": 375,
   "public": true
  },
  {
@@ -4362,10 +4771,10 @@
   "path": "/api/v1/utilities/health/diagnostics",
   "url": "http://localhost:3001/api/v1/utilities/health/diagnostics",
   "noToken": 401,
-  "noTokenMs": 10,
+  "noTokenMs": 56,
   "badToken": 401,
   "auth": 200,
-  "authMs": 249,
+  "authMs": 4254,
   "public": true
  },
  {
@@ -4373,10 +4782,10 @@
   "path": "/api/v1/utilities/health/history",
   "url": "http://localhost:3001/api/v1/utilities/health/history",
   "noToken": 401,
-  "noTokenMs": 11,
+  "noTokenMs": 26,
   "badToken": 401,
   "auth": 200,
-  "authMs": 95,
+  "authMs": 441,
   "public": true
  },
  {
@@ -4384,10 +4793,10 @@
   "path": "/api/v1/utilities/health/performance",
   "url": "http://localhost:3001/api/v1/utilities/health/performance",
   "noToken": 401,
-  "noTokenMs": 17,
+  "noTokenMs": 71,
   "badToken": 401,
   "auth": 200,
-  "authMs": 75,
+  "authMs": 530,
   "public": true
  },
  {
@@ -4395,10 +4804,10 @@
   "path": "/api/v1/utilities/health/status",
   "url": "http://localhost:3001/api/v1/utilities/health/status",
   "noToken": 401,
-  "noTokenMs": 9,
+  "noTokenMs": 37,
   "badToken": 401,
   "auth": 200,
-  "authMs": 281,
+  "authMs": 4600,
   "public": true
  },
  {
@@ -4413,10 +4822,10 @@
   "path": "/api/v1/utilities/member/balance",
   "url": "http://localhost:3001/api/v1/utilities/member/balance",
   "noToken": 401,
-  "noTokenMs": 6,
+  "noTokenMs": 103,
   "badToken": 401,
   "auth": 400,
-  "authMs": 28,
+  "authMs": 789,
   "public": false
  },
  {
@@ -4431,10 +4840,10 @@
   "path": "/api/v1/utilities/preferences",
   "url": "http://localhost:3001/api/v1/utilities/preferences",
   "noToken": 401,
-  "noTokenMs": 6,
+  "noTokenMs": 308,
   "badToken": 401,
   "auth": 200,
-  "authMs": 68,
+  "authMs": 865,
   "public": false
  },
  {
@@ -4449,10 +4858,10 @@
   "path": "/api/v1/utilities/rd-accounts/holders",
   "url": "http://localhost:3001/api/v1/utilities/rd-accounts/holders",
   "noToken": 401,
-  "noTokenMs": 6,
+  "noTokenMs": 63,
   "badToken": 401,
   "auth": 200,
-  "authMs": 788,
+  "authMs": 569,
   "public": false
  },
  {
@@ -4474,10 +4883,10 @@
   "path": "/api/v1/utilities/saving/account/{accountNo}",
   "url": "http://localhost:3001/api/v1/utilities/saving/account/1",
   "noToken": 401,
-  "noTokenMs": 13,
+  "noTokenMs": 343,
   "badToken": 401,
   "auth": 200,
-  "authMs": 66,
+  "authMs": 571,
   "public": false
  },
  {
@@ -4492,38 +4901,16 @@
   "path": "/api/v1/utilities/sb-accounts/holders",
   "url": "http://localhost:3001/api/v1/utilities/sb-accounts/holders",
   "noToken": 401,
-  "noTokenMs": 319,
+  "noTokenMs": 41,
   "badToken": 401,
   "auth": 200,
-  "authMs": 234,
+  "authMs": 618,
   "public": false
  },
  {
   "method": "GET",
   "path": "/api/v1/utilities/search/deposits",
   "url": "http://localhost:3001/api/v1/utilities/search/deposits",
-  "noToken": 401,
-  "noTokenMs": 13,
-  "badToken": 401,
-  "auth": 200,
-  "authMs": 62,
-  "public": false
- },
- {
-  "method": "GET",
-  "path": "/api/v1/utilities/search/global",
-  "url": "http://localhost:3001/api/v1/utilities/search/global",
-  "noToken": 401,
-  "noTokenMs": 13,
-  "badToken": 401,
-  "auth": 400,
-  "authMs": 105,
-  "public": false
- },
- {
-  "method": "GET",
-  "path": "/api/v1/utilities/search/loans",
-  "url": "http://localhost:3001/api/v1/utilities/search/loans",
   "noToken": 401,
   "noTokenMs": 12,
   "badToken": 401,
@@ -4533,13 +4920,35 @@
  },
  {
   "method": "GET",
+  "path": "/api/v1/utilities/search/global",
+  "url": "http://localhost:3001/api/v1/utilities/search/global",
+  "noToken": 401,
+  "noTokenMs": 23,
+  "badToken": 401,
+  "auth": 400,
+  "authMs": 160,
+  "public": false
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/utilities/search/loans",
+  "url": "http://localhost:3001/api/v1/utilities/search/loans",
+  "noToken": 401,
+  "noTokenMs": 22,
+  "badToken": 401,
+  "auth": 200,
+  "authMs": 76,
+  "public": false
+ },
+ {
+  "method": "GET",
   "path": "/api/v1/utilities/search/members",
   "url": "http://localhost:3001/api/v1/utilities/search/members",
   "noToken": 401,
-  "noTokenMs": 17,
+  "noTokenMs": 25,
   "badToken": 401,
   "auth": 200,
-  "authMs": 64,
+  "authMs": 76,
   "public": false
  },
  {
@@ -4547,10 +4956,10 @@
   "path": "/api/v1/utilities/search/sb-accounts",
   "url": "http://localhost:3001/api/v1/utilities/search/sb-accounts",
   "noToken": 401,
-  "noTokenMs": 6,
+  "noTokenMs": 174,
   "badToken": 401,
   "auth": 400,
-  "authMs": 36,
+  "authMs": 915,
   "public": false
  },
  {
@@ -4558,10 +4967,10 @@
   "path": "/api/v1/utilities/search/transactions",
   "url": "http://localhost:3001/api/v1/utilities/search/transactions",
   "noToken": 401,
-  "noTokenMs": 8,
+  "noTokenMs": 10,
   "badToken": 401,
   "auth": 400,
-  "authMs": 78,
+  "authMs": 292,
   "public": false
  },
  {
@@ -4576,11 +4985,10 @@
   "path": "/api/v1/utilities/statement/member/{memberId}",
   "url": "http://localhost:3001/api/v1/utilities/statement/member/1",
   "noToken": 401,
-  "noTokenMs": 21,
+  "noTokenMs": 13,
   "badToken": 401,
-  "auth": 500,
-  "authMs": 93,
-  "authSnippet": "{\"statusCode\":500,\"timestamp\":\"2026-10-16T17:25:45.468Z\",\"path\":\"/api/v1/utilities/statement/member/1\",\"method\":\"GET\",\"error\":\"Error\",\"message\":\"Member not found\"}",
+  "auth": 404,
+  "authMs": 478,
   "public": false
  },
  {
@@ -4588,10 +4996,10 @@
   "path": "/api/v1/utilities/system-settings/{key}",
   "url": "http://localhost:3001/api/v1/utilities/system-settings/1",
   "noToken": 401,
-  "noTokenMs": 7,
+  "noTokenMs": 300,
   "badToken": 401,
   "auth": 200,
-  "authMs": 48,
+  "authMs": 330,
   "public": false
  },
  {
@@ -4606,10 +5014,10 @@
   "path": "/api/v1/utilities",
   "url": "http://localhost:3001/api/v1/utilities",
   "noToken": 401,
-  "noTokenMs": 6,
+  "noTokenMs": 87,
   "badToken": 401,
   "auth": 200,
-  "authMs": 76,
+  "authMs": 626,
   "public": false
  },
  {
@@ -4617,10 +5025,10 @@
   "path": "/api/v1",
   "url": "http://localhost:3001/api/v1",
   "noToken": 200,
-  "noTokenMs": 17,
+  "noTokenMs": 32,
   "badToken": 200,
   "auth": 200,
-  "authMs": 51,
+  "authMs": 42,
   "public": false
  }
 ]

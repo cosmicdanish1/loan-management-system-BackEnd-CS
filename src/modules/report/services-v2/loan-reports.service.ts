@@ -1,6 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { isRealDate } from './ledger-types';
 import { DataSource } from 'typeorm';
 import { parseSafeDate } from '../../shared/utils/date-utils';
+import { LoanRepaymentService } from '../../loan/services-v2/loan-repayment.service';
 
 /**
  * Loan Reports Service - Handles loan-focused reports.
@@ -10,81 +12,152 @@ import { parseSafeDate } from '../../shared/utils/date-utils';
  */
 @Injectable()
 export class LoanReportsService {
-  constructor(private readonly dataSource: DataSource) { }
+  // The overdue test runs the loan due/penalty engine for every candidate loan, so one computed list is
+  // reused for a short while (the screen asks for a page, then for everything, in quick succession).
+  // Several lists (by minimum balance / loan type) are kept. A list younger than FRESH is served as is; an older one is
+  // still served at once (up to STALE_MAX) while one background run refreshes it, so the Dashboard widget never waits
+  // for the ~15 s calculation after the first run of the day; simultaneous requests share one run.
+  private defaulterCache = new Map<string, { at: number; rows: any[]; unresolved: number }>();
+  private defaulterRuns = new Map<string, Promise<{ rows: any[]; unresolved: number }>>();
+  private static readonly DEFAULTER_FRESH_MS = 5 * 60_000;
+  private static readonly DEFAULTER_STALE_MAX_MS = 6 * 60 * 60_000;
+
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly repayment: LoanRepaymentService,
+  ) { }
 
   /**
-   * Get defaulter list
+   * Defaulter list (ES-184).
+   *
+   * A defaulter is a loan that has at least one unpaid installment past its due month, or past the grace day
+   * inside it. The unpaid installments and the penal due come from the same engine the Loan Repayment screen
+   * uses, so the list and the screen always agree (penal due is 0 while the tiered-penalty rule is off). Rows carry the oldest overdue age (monthsOverdue) and the
+   * total penal due; they are ordered by months overdue, then balance, then case no (stable between pages).
+   * Loans below the minimum balance, or whose installments are all paid / still inside grace, are not listed.
    */
   async getDefaulterList(dto: { minBalance?: number; loanType?: string; limit?: number; offset?: number }) {
-    const minBalance = dto.minBalance || 0;
+    const minBalance = Number(dto.minBalance) || 0;
     const { limit, offset } = dto;
+    if (limit !== undefined && (!Number.isInteger(limit) || limit < 0)) throw new BadRequestException('limit must be a whole number');
+    if (offset !== undefined && (!Number.isInteger(offset) || offset < 0)) throw new BadRequestException('offset must be a whole number');
 
-    const baseQuery = `
-      FROM loan_master loan
-      LEFT JOIN member_master member ON member.mbno = loan.mbno
-      LEFT JOIN division_master d ON member.officeno = d.officeno AND member.wingno = d.wingno
-      WHERE CAST(loan.balance AS numeric) > $1
-    `;
-
-    const params: any[] = [minBalance];
-    let whereClause = '';
-
-    if (dto.loanType) {
-      whereClause += ` AND loan.loantype = $${params.length + 1}`;
-      params.push(dto.loanType);
-    }
-
-    // Get total count
-    const totalCountRes = await this.dataSource.query(`SELECT COUNT(*) ${baseQuery} ${whereClause}`, params);
-    const totalCount = parseInt(totalCountRes[0].count);
-
-    let query = `
-      SELECT 
-        loan.mbno as member_no,
-        member.f_name || ' ' || COALESCE(member.l_name, '') as member_name,
-        d.name as office_name,
-        loan.loantype as loan_type,
-        loan.loancaseno as loan_case_no,
-        CAST(loan.loan_amt AS numeric) as loan_amount,
-        CAST(loan.balance AS numeric) as balance,
-        loan.no_of_instal as installments,
-        loan.payment_date as last_payment_date
-      ${baseQuery} ${whereClause}
-      ORDER BY CAST(loan.balance AS numeric) DESC
-    `;
-
-    const queryParams = [...params];
-    if (limit !== undefined) {
-      query += ` LIMIT $${queryParams.length + 1}`;
-      queryParams.push(limit);
-    }
-
-    if (offset !== undefined) {
-      query += ` OFFSET $${queryParams.length + 1}`;
-      queryParams.push(offset);
-    }
-
-    const result = await this.dataSource.query(query, queryParams);
+    const { rows, unresolved } = await this.computeDefaulters(minBalance, dto.loanType);
+    const totalCount = rows.length;
+    const start = offset || 0;
+    const page = limit !== undefined ? rows.slice(start, start + limit) : rows.slice(start);
 
     return {
       metadata: {
         totalCount,
-        limit: limit || totalCount,
-        offset: offset || 0
+        limit: limit ?? totalCount,
+        offset: start,
+        // Loans sharing a case number with another loan are not checked: the due engine finds a loan by case no
+        // only, so it could read the wrong one. They are counted here so the screen can say so.
+        unresolvedLoans: unresolved,
       },
-      data: result.map((d: any, idx: number) => ({
-        key: ((offset || 0) + idx).toString(),
-        memberNo: d.member_no,
-        memberName: d.member_name?.trim() || '',
-        officeName: d.office_name,
-        loanType: d.loan_type,
-        loanCaseNo: d.loan_case_no,
-        loanAmount: parseFloat(d.loan_amount) || 0,
-        balance: parseFloat(d.balance) || 0,
-        installments: d.installments,
-        lastPaymentDate: d.last_payment_date
-      }))
+      data: page.map((d: any, idx: number) => ({ ...d, key: (start + idx).toString() })),
     };
+  }
+
+  /**
+   * Whole months an installment is past its due month; 0 = inside its due month but past the grace day;
+   * -1 = not overdue (still before the grace day, or not yet due).
+   */
+  private static monthsPastDue(dueDate: string, asOf: Date, graceDay: number): number {
+    const [y, m] = dueDate.split('-').map(Number);
+    if (!y || !m) return -1;
+    const months = (asOf.getFullYear() - y) * 12 + (asOf.getMonth() + 1 - m);
+    if (months > 0) return months;
+    if (months < 0) return -1;
+    const lastDay = new Date(y, m, 0).getDate();
+    return asOf.getDate() > Math.min(graceDay, lastDay) ? 0 : -1;
+  }
+
+  private async computeDefaulters(minBalance: number, loanType?: string): Promise<{ rows: any[]; unresolved: number }> {
+    const key = `${minBalance}|${loanType ?? ''}|${new Date().toDateString()}`;
+    const cached = this.defaulterCache.get(key);
+    const age = cached ? Date.now() - cached.at : Infinity;
+    if (cached && age < LoanReportsService.DEFAULTER_FRESH_MS) return { rows: cached.rows, unresolved: cached.unresolved };
+    // one run per key at a time; callers wait for it only when there is nothing recent to show
+    let run = this.defaulterRuns.get(key);
+    if (!run) {
+      run = this.runDefaulters(key, minBalance, loanType).finally(() => this.defaulterRuns.delete(key));
+      this.defaulterRuns.set(key, run);
+    }
+    if (cached && age < LoanReportsService.DEFAULTER_STALE_MAX_MS) { run.catch(() => undefined); return { rows: cached.rows, unresolved: cached.unresolved }; }
+    return run;
+  }
+
+  private async runDefaulters(key: string, minBalance: number, loanType?: string): Promise<{ rows: any[]; unresolved: number }> {
+    const params: any[] = [minBalance];
+    let where = '';
+    if (loanType) { where = ' AND loan.loantype = $2'; params.push(loanType); }
+    const candidates: any[] = await this.dataSource.query(
+      `SELECT loan.mbno AS member_no,
+              member.f_name || ' ' || COALESCE(member.l_name, '') AS member_name,
+              d.name AS office_name,
+              loan.loantype AS loan_type,
+              loan.loancaseno::text AS loan_case_no,
+              CAST(loan.loan_amt AS numeric) AS loan_amount,
+              CAST(loan.balance AS numeric) AS balance,
+              loan.no_of_instal AS installments,
+              loan.payment_date AS last_payment_date,
+              loan.gracedays AS grace_days,
+              (SELECT COUNT(*) FROM loan_master x WHERE x.loancaseno = loan.loancaseno) AS case_loans
+         FROM loan_master loan
+         LEFT JOIN member_master member ON member.mbno = loan.mbno
+         LEFT JOIN division_master d ON member.officeno = d.officeno AND member.wingno = d.wingno
+        WHERE CAST(loan.balance AS numeric) > $1 ${where}`,
+      params,
+    );
+
+    const asOf = new Date();
+    const result: any[] = [];
+    let unresolved = 0;
+    const CONCURRENCY = 8;
+    let next = 0;
+    const worker = async () => {
+      while (next < candidates.length) {
+        const c = candidates[next++];
+        if (Number(c.case_loans) > 1) { unresolved++; continue; }
+        let status: any;
+        try {
+          status = await this.repayment.getDueStatus(c.loan_case_no, asOf);
+        } catch {
+          continue; // a loan whose schedule cannot be read is not guessed at
+        }
+        // Overdue by date, not by the penal tier: the tier stays 0 while the tiered-penalty rule is switched off,
+        // which would hide loans that are years behind. Past its due month, or past the grace day inside it.
+        const grace = parseInt(c.grace_days, 10) || 0;
+        const overdue = (status.unpaidInstallments || [])
+          .map((u: any) => ({ ...u, months: LoanReportsService.monthsPastDue(String(u.dueDate), asOf, grace) }))
+          .filter((u: any) => u.months >= 0);
+        if (overdue.length === 0) continue;
+        result.push({
+          memberNo: c.member_no,
+          memberName: c.member_name?.trim() || '',
+          officeName: c.office_name,
+          loanType: c.loan_type,
+          loanCaseNo: c.loan_case_no,
+          loanAmount: parseFloat(c.loan_amount) || 0,
+          balance: parseFloat(c.balance) || 0,
+          installments: c.installments,
+          lastPaymentDate: c.last_payment_date,
+          monthsOverdue: Math.max(...overdue.map((u: any) => u.months)),
+          unpaidInstallments: overdue.length,
+          penalDue: Math.round(overdue.reduce((s: number, u: any) => s + (Number(u.penalDue) || 0), 0) * 100) / 100,
+        });
+      }
+    };
+    await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+
+    result.sort((a, b) =>
+      b.monthsOverdue - a.monthsOverdue || b.balance - a.balance || String(a.loanCaseNo).localeCompare(String(b.loanCaseNo)));
+    // keep only today's lists (the key carries the date) so the map cannot grow
+    for (const k of this.defaulterCache.keys()) if (!k.endsWith(new Date().toDateString())) this.defaulterCache.delete(k);
+    this.defaulterCache.set(key, { at: Date.now(), rows: result, unresolved });
+    return { rows: result, unresolved };
   }
 
   /**
@@ -92,6 +165,14 @@ export class LoanReportsService {
    */
   async getNewLoanDisbursed(dto: { fromDate: string; toDate: string; loanType?: string; limit?: number; offset?: number }) {
     const { fromDate, toDate, loanType, limit, offset } = dto;
+
+    // The dates went to the database sliced to 10 characters without any check (ES-303 / ES-370)
+    if (!isRealDate(fromDate) || !isRealDate(toDate)) {
+      throw new BadRequestException('fromDate and toDate must be real dates (YYYY-MM-DD)');
+    }
+    if (String(fromDate).slice(0, 10) > String(toDate).slice(0, 10)) {
+      throw new BadRequestException('fromDate cannot be after toDate');
+    }
 
     const baseQuery = `
       FROM loan_master loan
@@ -429,7 +510,7 @@ export class LoanReportsService {
     let query = `
       SELECT 
         loan.mbno as member_no,
-        TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
+        REGEXP_REPLACE(TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')), '\\s+', ' ', 'g') as member_name,
         d.name as office_name,
         loan.loantype as loan_type,
         loan.loancaseno as loan_case_no,
@@ -748,7 +829,7 @@ export class LoanReportsService {
 
     // Get member info
     const memberRes = await this.dataSource.query(`
-      SELECT TRIM(COALESCE(f_name, '') || ' ' || COALESCE(l_name, '')) as member_name, doj
+      SELECT TRIM(COALESCE(f_name, '') || ' ' || COALESCE(l_name, '')) as member_name, memb_date as doj
       FROM member_master WHERE mbno = $1
     `, [memberNo]);
 
@@ -790,7 +871,7 @@ export class LoanReportsService {
     `, [memberNo]);
 
     if (memberRes.length === 0) {
-      throw new Error('Member not found');
+      throw new NotFoundException('Member not found');
     }
 
     const member = memberRes[0];

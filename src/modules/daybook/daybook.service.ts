@@ -1,10 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Transactions } from '../cashbook/entities/transactions.entity';
 import { Ledger } from '../cashbook/entities/ledger.entity';
 import { MemberMaster } from '../member/entities/member-master.entity';
 import { InterestMaster } from '../interest/entities/interest-master.entity';
+import { joinName } from '../shared/utils/name-utils';
 import {
   GetDayBookDto,
   DayBookSummaryDto,
@@ -112,7 +113,7 @@ export class DayBookService {
                 where: { mbno: mbNoStr }
               });
               if (member) {
-                memberName = `${member.f_name || ''} ${member.m_name || ''} ${member.l_name || ''}`.trim();
+                memberName = joinName(member.f_name, member.m_name, member.l_name);
               }
             } catch (error) {
               this.logger.warn(`Failed to fetch member ${l.mbno}:`, error.message);
@@ -204,11 +205,11 @@ export class DayBookService {
           CAST(l.trans_amt AS numeric)                      AS amount,
           COALESCE(l.receipt_vchr_no, '')                   AS voucher_no,
           COALESCE(l.username, '')                          AS username,
-          TRIM(
+          REGEXP_REPLACE(TRIM(
             COALESCE(m.f_name,'') || ' ' ||
             COALESCE(m.m_name,'') || ' ' ||
             COALESCE(m.l_name,'')
-          )                                                 AS member_name
+          ), '\\s+', ' ', 'g')                                                 AS member_name
         FROM ledger l
         LEFT JOIN headmaster      h  ON h.code   = l.code
         LEFT JOIN member_master   m  ON CAST(m.mbno AS text) = CAST(l.mbno AS text)
@@ -295,11 +296,11 @@ export class DayBookService {
           l.ledgerid                                             AS tr_no,
           COALESCE(CAST(l.acc_no AS text), '')                  AS acc_no,
           COALESCE(
-            NULLIF(TRIM(
+            NULLIF(REGEXP_REPLACE(TRIM(
               COALESCE(m.f_name,'') || ' ' ||
               COALESCE(m.m_name,'') || ' ' ||
               COALESCE(m.l_name,'')
-            ), ''),
+            ), '\\s+', ' ', 'g'), ''),
             'Member ' || CAST(l.mbno AS text)
           )                                                      AS ac_name,
           l.trans_type,
@@ -387,7 +388,7 @@ export class DayBookService {
 
       return members.map(member => ({
         memberCode: member.mbno.toString(),
-        memberName: `${member.f_name || ''} ${member.m_name || ''} ${member.l_name || ''}`.trim(),
+        memberName: joinName(member.f_name, member.m_name, member.l_name),
         status: member.isactive
       }));
 
@@ -419,7 +420,7 @@ export class DayBookService {
       let runningBalance = 0;
       let totalDays = 0;
       let balanceSum = 0;
-      let minBalance = 0;
+      let minBalance: number | null = null; // null until the first row, so a balance that really touches 0 stays the minimum
 
       for (const entry of ledgerEntries) {
         const amount = this.parseMoneyAmount(entry.trans_amt.toString());
@@ -429,7 +430,7 @@ export class DayBookService {
           runningBalance -= amount;
         }
 
-        if (minBalance === 0 || runningBalance < minBalance) {
+        if (minBalance === null || runningBalance < minBalance) {
           minBalance = runningBalance;
         }
 
@@ -441,7 +442,8 @@ export class DayBookService {
       const interestRate = dto.interestRate || await this.getCurrentInterestRate();
 
       // Calculate interest on minimum balance (conservative approach)
-      const principalAmount = Math.max(0, minBalance);
+      const lowestBalance = minBalance ?? 0;
+      const principalAmount = Math.max(0, lowestBalance);
       const daysDiff = Math.ceil((toDate.getTime() - fromDate.getTime()) / (1000 * 60 * 60 * 24));
       const interestAmount = (principalAmount * interestRate * daysDiff) / (365 * 100);
 
@@ -450,7 +452,7 @@ export class DayBookService {
         fromDate: dto.fromDate,
         toDate: dto.toDate,
         daysDiff,
-        minBalance,
+        minBalance: lowestBalance,
         averageBalance,
         interestRate,
         principalAmount,
@@ -468,6 +470,10 @@ export class DayBookService {
     try {
       const memberCode = Number(dto.memberCode);
       const paymentDate = new Date(dto.paymentDate);
+      const interestAmount = Number(dto.interestAmount);
+      if (dto.interestAmount === null || (dto.interestAmount as any) === '' || !Number.isFinite(interestAmount) || interestAmount <= 0) {
+        throw new BadRequestException('interestAmount must be a number greater than 0');
+      }
 
       // Get next transaction number
       const nextTransNo = await this.getNextTransactionNumber();
@@ -480,7 +486,7 @@ export class DayBookService {
         mbno: memberCode,
         acc_no: 0,
         acc_type: 'SB',
-        trans_amt: dto.interestAmount.toString(),
+        trans_amt: interestAmount.toString(),
         receipt_vchr_no: `INT${nextTransNo}`,
         vchr_type: 'R',
         modeofpay: 'C',
@@ -490,7 +496,7 @@ export class DayBookService {
         bankname: '',
         pass_flag: 'N',
         cashier_flag: 'N',
-        code: 'A1001', // Savings account code
+        code: 'A001', // member savings head (A1001 is Cash In Hand)
         narration: dto.narration || 'Saving Interest',
         username: 'system',
         cust_bank_name: null
@@ -503,11 +509,11 @@ export class DayBookService {
         trans_no: nextTransNo,
         trans_date: paymentDate,
         trans_type: 'CR',
-        code: 'A1001',
+        code: 'A001',
         mbno: memberCode,
         acc_no: 0,
         acc_type: 'SB',
-        trans_amt: dto.interestAmount,
+        trans_amt: interestAmount,
         receipt_vchr_no: `INT${nextTransNo}`,
         vchr_type: 'R',
         modeofpay: 'C',
@@ -522,13 +528,14 @@ export class DayBookService {
       return {
         transactionNo: nextTransNo,
         memberCode: dto.memberCode,
-        interestAmount: dto.interestAmount,
+        interestAmount,
         paymentDate: dto.paymentDate,
         voucherNo: `INT${nextTransNo}`,
         status: 'completed'
       };
 
     } catch (error) {
+      if (error instanceof BadRequestException) throw error; // a bad request keeps its message
       this.logger.error('Error processing interest payment:', error);
       throw new Error('Failed to process interest payment');
     }

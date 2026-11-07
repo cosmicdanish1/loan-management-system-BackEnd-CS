@@ -1,4 +1,5 @@
-import { Injectable, Logger, BadRequestException, ConflictException, HttpException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, ConflictException, HttpException, NotFoundException } from '@nestjs/common';
+import { assertPostingDateOpen } from '../shared/utils/posting-date';
 import { DataSource, Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { UserPreference } from './entities/user-preference.entity';
@@ -7,6 +8,9 @@ import { UpdateUserPreferenceDto } from './dto/update-user-preference.dto';
 import { RD_RULE_DEFAULTS, RD_RULE_KEYS, RD_BOOLEAN_RULE_KEYS } from '../rd/rd-business-rules';
 import { HEAD_BALANCES_SELECT } from './head-balances.sql';
 import { generateVoucherNo } from '../shared/utils/voucher-utils';
+import { parseBusinessDate } from '../shared/utils/date-utils';
+import { lockLedgerIds } from '../shared/utils/ledger-lock';
+import { DIVIDEND_RATE_KEYS, dividendRateRulesFrom, validateDividendRateRuleSettings } from '../dividend/dividend-rate-rules';
 
 /**
  * A stored day-of-month setting, forced into 1-31. Deliberately NOT validated
@@ -423,7 +427,31 @@ export class UtilitiesService {
     await queryRunner.startTransaction();
 
     try {
-      const transDate = data.transferDate ? new Date(data.transferDate) : new Date();
+      // ES-357: refuse a bad request with a reason before anything is written
+      const body: any = data ?? {};
+      const from = String(body.fromAccount ?? '').trim();
+      const to = String(body.toAccount ?? '').trim();
+      if (!/^[0-9]{1,12}$/.test(from)) throw new BadRequestException('From account must be a member number (digits only).');
+      if (!/^[0-9]{1,12}$/.test(to)) throw new BadRequestException('To account must be a member number (digits only).');
+      if (from === to) throw new BadRequestException('From and To account cannot be the same.');
+      const amount = typeof body.amount === 'string' ? (body.amount.trim() === '' ? NaN : Number(body.amount)) : body.amount;
+      if (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0) {
+        throw new BadRequestException('Amount must be a number greater than 0.');
+      }
+      if (amount > 999_999_999.99) throw new BadRequestException('Amount cannot be more than 99,99,99,999.99.');
+      if (Math.abs(Math.round(amount * 100) - amount * 100) > 1e-6) throw new BadRequestException('Amount can have at most 2 decimal places.');
+      data = { ...body, fromAccount: from, toAccount: to, amount };
+      const transDate = parseBusinessDate(body.transferDate, 'Transfer date');
+      await assertPostingDateOpen(queryRunner, transDate); // ES-458
+      const known = await queryRunner.query(`SELECT mbno::text AS mbno FROM member_master WHERE mbno::text = ANY($1)`, [[from, to]]);
+      const knownSet = new Set(known.map((r: any) => r.mbno));
+      if (!knownSet.has(from)) throw new BadRequestException(`From account ${from} is not a member.`);
+      if (!knownSet.has(to)) throw new BadRequestException(`To account ${to} is not a member.`);
+
+      // two transfers (or a transfer and another posting) must not take the same numbers
+      await queryRunner.query(`SELECT pg_advisory_xact_lock(hashtext('ledger'))`);
+      await queryRunner.query(`SELECT pg_advisory_xact_lock(hashtext('ledger.trans_no_ledgerid'))`);
+      await lockLedgerIds(queryRunner); // ES-445: the one shared ledger id lock
 
       // Get next trans_no and ledgerid (both plain NUMERIC/INTEGER, no sequence)
       const maxResult = await queryRunner.query(
@@ -454,9 +482,9 @@ export class UtilitiesService {
       };
     } catch (error) {
       await queryRunner.rollbackTransaction();
-      throw new Error(
-        `Balance transfer failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      );
+      if (error instanceof HttpException) throw error; // a 400/404 keeps its own message
+      this.logger.error(`Balance transfer failed: ${error instanceof Error ? error.message : error}`);
+      throw new Error('Balance transfer could not be saved. Please try again; if it keeps failing contact support.');
     } finally {
       await queryRunner.release();
     }
@@ -482,19 +510,49 @@ export class UtilitiesService {
     await queryRunner.startTransaction();
 
     try {
+      // ES-302: refuse a bad request with a reason before anything is read or written
+      const body: any = data ?? {};
+      const accountNo = String(body.accountNo ?? '').trim();
+      if (!accountNo) throw new BadRequestException('Account number is required.');
+      if (body.transactionType !== 'deposit' && body.transactionType !== 'withdrawal') {
+        throw new BadRequestException("Transaction type must be 'deposit' or 'withdrawal'.");
+      }
+      if (body.paymentMode !== 'cash' && body.paymentMode !== 'bank') {
+        throw new BadRequestException("Payment mode must be 'cash' or 'bank'.");
+      }
+      const amountIn = typeof body.amount === 'string' ? (body.amount.trim() === '' ? NaN : Number(body.amount)) : body.amount;
+      if (typeof amountIn !== 'number' || !Number.isFinite(amountIn) || amountIn <= 0) {
+        throw new BadRequestException('Amount must be a number greater than 0.');
+      }
+      if (amountIn > 999_999_999.99) throw new BadRequestException('Amount cannot be more than 99,99,99,999.99.');
+      if (Math.abs(Math.round(amountIn * 100) - amountIn * 100) > 1e-6) throw new BadRequestException('Amount can have at most 2 decimal places.');
+      const parsedDate = parseBusinessDate(body.transDate, 'Transaction date');
+      await assertPostingDateOpen(queryRunner, parsedDate); // ES-458
+      data = { ...body, accountNo, amount: amountIn };
       this.logger.log(`[SavingTxn] Saving ${data.transactionType} for account=${data.accountNo} amount=${data.amount}`);
 
       // Get account details
       const accountResult = await queryRunner.query(
-        `SELECT acc_no, mbno, balance FROM sbmaster WHERE acc_no = $1`,
+        // ES-453: FOR UPDATE, so two withdrawals on one account run one after the other: the second one re-reads the
+        // balance after the first has committed, and the overdraft check below sees the real figure.
+        `SELECT acc_no, mbno, balance FROM sbmaster WHERE acc_no = $1 FOR UPDATE`,
         [data.accountNo]
       );
 
       if (!accountResult || accountResult.length === 0) {
-        throw new Error(`Account ${data.accountNo} not found`);
+        throw new NotFoundException(`Saving account ${data.accountNo} was not found.`);
       }
 
       const account = accountResult[0];
+      // the balance column is NUMERIC, which the driver returns as text: "1000.00" + 5 would join the text (ES-302)
+      const currentBalance = Number(account.balance) || 0;
+      if (data.transactionType === 'withdrawal' && data.amount > currentBalance) {
+        throw new BadRequestException(`Withdrawal of ${data.amount} is more than the balance of ${currentBalance.toFixed(2)}.`);
+      }
+      // two postings must not take the same numbers
+      await queryRunner.query(`SELECT pg_advisory_xact_lock(hashtext('ledger'))`);
+      await queryRunner.query(`SELECT pg_advisory_xact_lock(hashtext('ledger.trans_no_ledgerid'))`);
+      await lockLedgerIds(queryRunner); // ES-445: the one shared ledger id lock
       const memberNo = account.mbno;
 
       // Get next trans_no and ledgerid
@@ -515,13 +573,16 @@ export class UtilitiesService {
         voucherNo = await generateVoucherNo(queryRunner, isDeposit ? 'R' : 'P');
       }
 
-      const transDate = data.transDate ? new Date(data.transDate) : new Date();
+      const transDate = parsedDate;
       const modeOfPay = data.paymentMode === 'cash' ? 'C' : 'B';
+      // the ledger has no cheque columns, so the cheque details travel in the narration
+      const chequeBits = [data.chequeNo ? `Cheque ${String(data.chequeNo).slice(0, 20)}` : '', data.chequeDate ? `dt ${String(data.chequeDate).slice(0, 10)}` : ''].filter(Boolean).join(' ');
+      const narrationText = [data.narration || '', chequeBits].filter(Boolean).join(' - ').slice(0, 100);
 
       // Member SB account leg — CR on deposit (balance increases), DR on withdrawal
       await queryRunner.query(
-        `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid, cheque_no, cheque_date, bank_name)
-         VALUES ($1, $2, $3, 'A1001', $4, $5, 'SB', $6, $7, $8, $9, 0, $10, $11, $12, $13, $14, $15)`,
+        `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid, cust_bank_name)
+         VALUES ($1, $2, $3, 'A1001', $4, $5, 'SB', $6, $7, $8, $9, 0, $10, $11, $12, $13)`,
         [
           nextTransNo,
           transDate,
@@ -532,12 +593,10 @@ export class UtilitiesService {
           voucherNo,
           vchrType,
           modeOfPay,
-          data.narration || '',
+          narrationText,
           username,
           nextLedgerId,
-          data.chequeNo || null,
-          data.chequeDate ? new Date(data.chequeDate) : null,
-          data.bankName || null
+          data.bankName ? String(data.bankName).slice(0, 100) : null
         ]
       );
 
@@ -546,8 +605,8 @@ export class UtilitiesService {
       const cashCode = modeOfPay === 'B' ? 'A1008' : 'A1001';
       const cashTransType = isDeposit ? 'DR' : 'CR';
       await queryRunner.query(
-        `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid, cheque_no, cheque_date, bank_name)
-         VALUES ($1, $2, $3, $4, $5, 0, $6, $7, $8, $9, $10, 0, $11, $12, $13, $14, $15, $16)`,
+        `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid, cust_bank_name)
+         VALUES ($1, $2, $3, $4, $5, 0, $6, $7, $8, $9, $10, 0, $11, $12, $13, $14)`,
         [
           nextTransNo + 1,
           transDate,
@@ -559,19 +618,15 @@ export class UtilitiesService {
           voucherNo,
           vchrType,
           modeOfPay,
-          data.narration || '',
+          narrationText,
           username,
           nextLedgerId + 1,
-          data.chequeNo || null,
-          data.chequeDate ? new Date(data.chequeDate) : null,
-          data.bankName || null
+          data.bankName ? String(data.bankName).slice(0, 100) : null
         ]
       );
 
       // Update sbmaster balance
-      const newBalance = isDeposit 
-        ? account.balance + data.amount 
-        : account.balance - data.amount;
+      const newBalance = Math.round((isDeposit ? currentBalance + data.amount : currentBalance - data.amount) * 100) / 100;
 
       await queryRunner.query(
         `UPDATE sbmaster SET balance = $1 WHERE acc_no = $2`,
@@ -589,6 +644,7 @@ export class UtilitiesService {
       };
     } catch (error) {
       await queryRunner.rollbackTransaction();
+      if (error instanceof HttpException) throw error; // a 400/404 keeps its own message
       this.logger.error(`[SavingTxn] Failed:`, error);
       throw new Error(`Failed to save transaction: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
@@ -685,6 +741,7 @@ export class UtilitiesService {
       this.logger.log(`[FDInterest] Posting interest for FD ${data.accountNumber} amount=${data.interestAmount}`);
 
       // Get next trans_no and ledgerid
+      await lockLedgerIds(queryRunner); // ES-445
       const maxResult = await queryRunner.query(
         `SELECT COALESCE(MAX(trans_no), 0) + 1 AS next_trans_no, COALESCE(MAX(ledgerid), 0) + 1 AS next_ledger_id FROM ledger`
       );
@@ -777,6 +834,7 @@ export class UtilitiesService {
       const accountNumber = Number(maxAccResult[0]?.next_acc ?? 500001);
 
       // Get next trans_no and ledgerid
+      await lockLedgerIds(queryRunner); // ES-445
       const maxResult = await queryRunner.query(
         `SELECT COALESCE(MAX(trans_no), 0) + 1 AS next_trans_no, COALESCE(MAX(ledgerid), 0) + 1 AS next_ledger_id FROM ledger`
       );
@@ -866,6 +924,24 @@ export class UtilitiesService {
     },
     username: string = 'system',
   ): Promise<{ success: boolean; voucherNo: string; message: string }> {
+    // ES-449: the request is checked BEFORE anything is read or written. Before, an empty id list with any amount (even a
+    // negative one) was posted as a balanced voucher, and a dividend that was already paid could be paid again.
+    const body: any = data ?? {};
+    const memberNoText = String(body.memberNo ?? '').trim();
+    if (!/^\d+$/.test(memberNoText) || Number(memberNoText) <= 0) throw new BadRequestException('memberNo must be a valid member number.');
+    const idList: number[] = Array.isArray(body.dividendIds) ? body.dividendIds.map((x: any) => Number(x)) : [];
+    if (idList.length === 0 || idList.some((x) => !Number.isInteger(x) || x <= 0)) {
+      throw new BadRequestException('Select at least one dividend to pay (dividendIds must be a list of valid ids).');
+    }
+    if (new Set(idList).size !== idList.length) throw new BadRequestException('dividendIds contains the same dividend twice.');
+    const paymentTotal = typeof body.totalAmount === 'string' ? (body.totalAmount.trim() === '' ? NaN : Number(body.totalAmount)) : body.totalAmount;
+    if (typeof paymentTotal !== 'number' || !Number.isFinite(paymentTotal) || paymentTotal <= 0) {
+      throw new BadRequestException('totalAmount must be a number greater than 0.');
+    }
+    if (paymentTotal > 999_999_999.99) throw new BadRequestException('totalAmount is too large.');
+    if (Math.abs(Math.round(paymentTotal * 100) - paymentTotal * 100) > 1e-6) throw new BadRequestException('totalAmount can have at most 2 decimals.');
+    data = { ...data, totalAmount: paymentTotal };
+
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -873,7 +949,27 @@ export class UtilitiesService {
     try {
       this.logger.log(`[Dividend] Processing payment for member ${data.memberNo} amount=${data.totalAmount}`);
 
-      // Get next trans_no and ledgerid
+      // ES-449: lock the selected dividend rows and make the payment match them exactly: every row must belong to this
+      // member, be unpaid and not credited to Share Value, and the amount must equal their sum (the client amount is
+      // never trusted on its own).
+      const pending = await queryRunner.query(
+        `SELECT id, dividend_amount FROM dividend_master
+          WHERE id = ANY($1::int[]) AND mbno = $2 AND credited_at IS NULL AND (is_paid IS NULL OR is_paid <> 'Y')
+          FOR UPDATE`,
+        [idList, memberNoText],
+      );
+      if (pending.length !== idList.length) {
+        throw new BadRequestException(
+          `${idList.length - pending.length} of the ${idList.length} selected dividend(s) are not payable: already paid, already credited to Share Value, or not this member's. Refresh and try again.`,
+        );
+      }
+      const pendingTotal = Math.round(pending.reduce((s: number, r: any) => s + Number(r.dividend_amount), 0) * 100) / 100;
+      if (Math.abs(pendingTotal - paymentTotal) > 0.005) {
+        throw new BadRequestException(`totalAmount ${paymentTotal} does not match the selected dividends (${pendingTotal}).`);
+      }
+
+      // Get next trans_no and ledgerid (ES-445: shared ledger id lock first)
+      await lockLedgerIds(queryRunner);
       const maxResult = await queryRunner.query(
         `SELECT COALESCE(MAX(trans_no), 0) + 1 AS next_trans_no, COALESCE(MAX(ledgerid), 0) + 1 AS next_ledger_id FROM ledger`
       );
@@ -884,6 +980,7 @@ export class UtilitiesService {
       const voucherNo = await generateVoucherNo(queryRunner, 'R');
 
       const transDate = new Date();
+      await assertPostingDateOpen(queryRunner, transDate); // ES-458
       const modeOfPay = data.paymentMode === 'bank' ? 'B' : 'C';
       const memberNoInt = parseInt(data.memberNo);
 
@@ -916,7 +1013,7 @@ export class UtilitiesService {
       if (data.dividendIds && data.dividendIds.length > 0) {
         const updateResult = await queryRunner.query(
           `UPDATE dividend_master SET is_paid = 'Y', payment_date = $1, payment_mode = $2, cheque_no = $3, voucher_no = $4
-           WHERE id = ANY($5) AND credited_at IS NULL
+           WHERE id = ANY($5) AND credited_at IS NULL AND (is_paid IS NULL OR is_paid <> 'Y')
            RETURNING id`,
           [transDate, data.paymentMode, data.chequeNo || '', voucherNo, data.dividendIds]
         );
@@ -939,10 +1036,52 @@ export class UtilitiesService {
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error(`[Dividend] Failed:`, error);
+      if (error instanceof HttpException) throw error; // ES-449: a clear 400 stays a 400
       throw new Error(`Failed to process dividend: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       await queryRunner.release();
     }
+  }
+
+  /**
+   * Input check for the screens that post straight to the ledger (Receipt, Voucher Payment, Receipt voucher). (ES-359)
+   * An empty or junk body used to give HTTP 500, or - for the payment voucher - a success with nothing in it.
+   */
+  async assertVoucherInput(data: any): Promise<void> {
+    if (!data || typeof data !== 'object') throw new BadRequestException('Request body is required.');
+    const memberNo = Number(data.memberNo);
+    if (!Number.isInteger(memberNo) || memberNo <= 0) throw new BadRequestException('memberNo must be a valid member number.');
+    const member = await this.dataSource.query(`SELECT 1 FROM member_master WHERE mbno = $1`, [memberNo]);
+    if (member.length === 0) throw new BadRequestException(`Member ${memberNo} does not exist.`);
+    if (data.transDate && Number.isNaN(new Date(data.transDate).getTime())) throw new BadRequestException('transDate is not a valid date.');
+    if (!Array.isArray(data.rows) || data.rows.length === 0) throw new BadRequestException('At least one row is required.');
+    const codes = new Set<string>();
+    data.rows.forEach((row: any, i: number) => {
+      const amount = Number(row?.amount);
+      if (!row || typeof row.code !== 'string' || !row.code.trim()) throw new BadRequestException(`Row ${i + 1}: head code is required.`);
+      if (!Number.isFinite(amount) || amount <= 0 || amount > 1_000_000_000) throw new BadRequestException(`Row ${i + 1}: amount must be a number greater than 0.`);
+      if (Math.abs(amount * 100 - Math.round(amount * 100)) > 1e-6) throw new BadRequestException(`Row ${i + 1}: amount can have at most 2 decimals.`);
+      row.amount = amount;
+      codes.add(row.code.trim());
+    });
+    const known = await this.dataSource.query(`SELECT TRIM(code) AS code FROM headmaster WHERE TRIM(code) = ANY($1)`, [[...codes]]);
+    const knownSet = new Set(known.map((h: any) => h.code));
+    const unknown = [...codes].filter(c => !knownSet.has(c));
+    if (unknown.length > 0) throw new BadRequestException(`Unknown head code(s): ${unknown.join(', ')}`);
+  }
+
+  /** Input check for the legacy Loan Entry screen. (ES-359) */
+  async assertLoanEntryInput(data: any): Promise<void> {
+    if (!data || typeof data !== 'object') throw new BadRequestException('Request body is required.');
+    const memberNo = Number(data.memberNo);
+    if (!Number.isInteger(memberNo) || memberNo <= 0) throw new BadRequestException('memberNo must be a valid member number.');
+    const member = await this.dataSource.query(`SELECT 1 FROM member_master WHERE mbno = $1`, [memberNo]);
+    if (member.length === 0) throw new BadRequestException(`Member ${memberNo} does not exist.`);
+    const amount = Number(data.loanAmount), rate = Number(data.rate), n = Number(data.noOfInstal);
+    if (!Number.isFinite(amount) || amount <= 0 || amount > 1_000_000_000) throw new BadRequestException('loanAmount must be a number greater than 0.');
+    if (!Number.isFinite(rate) || rate < 0 || rate > 100) throw new BadRequestException('rate must be a number from 0 to 100.');
+    if (!Number.isInteger(n) || n < 1 || n > 600) throw new BadRequestException('noOfInstal must be a whole number from 1 to 600.');
+    if (data.paymentDate && Number.isNaN(new Date(data.paymentDate).getTime())) throw new BadRequestException('paymentDate is not a valid date.');
   }
 
   async saveReceipt(
@@ -970,6 +1109,7 @@ export class UtilitiesService {
       this.logger.log(`[Receipt] Saving receipt for member ${data.memberNo} rows=${data.rows.length}`);
 
       // Get next trans_no and ledgerid
+      await lockLedgerIds(queryRunner); // ES-445
       const maxResult = await queryRunner.query(
         `SELECT COALESCE(MAX(trans_no), 0) + 1 AS next_trans_no, COALESCE(MAX(ledgerid), 0) + 1 AS next_ledger_id FROM ledger`
       );
@@ -984,6 +1124,7 @@ export class UtilitiesService {
       }
 
       const transDate = data.transDate ? new Date(data.transDate) : new Date();
+      await assertPostingDateOpen(queryRunner, transDate); // ES-458
       const totalAmount = data.rows.reduce((s, r) => s + r.amount, 0);
       const modeOfPay = data.modeOfPay || 'B';
       const bankCode = data.bankCode || 'A1008';
@@ -1018,6 +1159,7 @@ export class UtilitiesService {
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error(`[Receipt] Failed:`, error);
+      if (error instanceof HttpException) throw error; // ES-458: a clear 400 (closed day / closed year) stays a 400
       throw new Error(`Failed to save receipt: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       await queryRunner.release();
@@ -1061,6 +1203,7 @@ export class UtilitiesService {
       }
 
       const transDate = data.transDate ? new Date(data.transDate) : new Date();
+      await assertPostingDateOpen(queryRunner, transDate); // ES-458
       const totalAmount = data.rows.reduce((s, r) => s + r.amount, 0);
       const modeOfPay = data.modeOfPay || 'C';
 
@@ -1137,6 +1280,7 @@ export class UtilitiesService {
       this.logger.log(`[PaymentVoucher] Saving payment for member ${data.memberNo} rows=${data.rows?.length}`);
 
       // Get next trans_no and ledgerid
+      await lockLedgerIds(queryRunner); // ES-445
       const maxResult = await queryRunner.query(
         `SELECT COALESCE(MAX(trans_no), 0) + 1 AS next_trans_no, COALESCE(MAX(ledgerid), 0) + 1 AS next_ledger_id FROM ledger`
       );
@@ -1151,6 +1295,7 @@ export class UtilitiesService {
       }
 
       const transDate = data.transDate ? new Date(data.transDate) : new Date();
+      await assertPostingDateOpen(queryRunner, transDate); // ES-458
       const rows = data.rows || [];
 
       // DR one row per breakdown item (expense/asset accounts being paid out)
@@ -1180,6 +1325,7 @@ export class UtilitiesService {
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error(`[PaymentVoucher] Failed:`, error);
+      if (error instanceof HttpException) throw error; // ES-458
       throw new Error(`Failed to save payment voucher: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       await queryRunner.release();
@@ -1307,6 +1453,7 @@ export class UtilitiesService {
       const { accType, code } = typeMap[data.entryType] ?? { accType: 'CD', code: 'L1004' };
 
       // Get next trans_no and ledgerid
+      await lockLedgerIds(queryRunner); // ES-445
       const maxResult = await queryRunner.query(
         `SELECT COALESCE(MAX(trans_no), 0) + 1 AS next_trans_no, COALESCE(MAX(ledgerid), 0) + 1 AS next_ledger_id FROM ledger`
       );
@@ -1314,6 +1461,7 @@ export class UtilitiesService {
       const nextLedgerId = Number(maxResult[0]?.next_ledger_id ?? 1);
 
       const transDate = data.transDate ? new Date(data.transDate) : new Date();
+      await assertPostingDateOpen(queryRunner, transDate); // ES-458
 
       // acc_no is always 0 — legacy never uses it for CD/MD/MD1
       await queryRunner.query(
@@ -1444,6 +1592,37 @@ export class UtilitiesService {
   }
 
   async saveHeadMaster(data: any): Promise<{ success: boolean; message: string }> {
+    // Input checks (ES-358): headmaster.code is varchar(5), name varchar(100). Bad input is a 400, not a 500 from the INSERT,
+    // and an empty code must never be stored.
+    const text = (v: any) => (v === undefined || v === null ? '' : String(v).trim());
+    data.code = text(data.code);
+    if (!/^[A-Za-z0-9]{1,5}$/.test(data.code)) {
+      throw new BadRequestException('Head code must be 1 to 5 letters or digits.');
+    }
+    data.headName = text(data.headName);
+    if (!data.headName || data.headName.length > 100) {
+      throw new BadRequestException('Head name is required and can be at most 100 characters.');
+    }
+    if (data.opBal !== undefined && data.opBal !== null && data.opBal !== '' && !Number.isFinite(Number(data.opBal))) {
+      throw new BadRequestException('Opening balance must be a number.');
+    }
+    for (const [field, max] of [['headType', 4], ['interest', 4], ['pflag', 4], ['hposition', 12]] as const) {
+      if (data[field] !== undefined && data[field] !== null && String(data[field]).length > max) {
+        throw new BadRequestException(`${field} can be at most ${max} characters.`);
+      }
+    }
+    {
+      const current = await this.dataSource.query(`SELECT parent_code FROM headmaster WHERE code = $1`, [data.code]);
+      const parent = text(data.parentCode);
+      const parentChanged = current.length === 0 || text(current[0].parent_code) !== parent;
+      if (parentChanged) {
+        if (!parent || parent.length > 5) throw new BadRequestException('Parent head code is required (1 to 5 characters).');
+        if (parent === data.code) throw new BadRequestException('A head cannot be its own parent.');
+        const p = await this.dataSource.query(`SELECT 1 FROM headmaster WHERE code = $1`, [parent]);
+        if (p.length === 0) throw new BadRequestException(`Parent head ${parent} does not exist.`);
+      }
+      data.parentCode = parent;
+    }
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -1505,6 +1684,24 @@ export class UtilitiesService {
   }
 
   async saveDepositLoanSlabs(rows: any[], type: string): Promise<{ success: boolean; message: string }> {
+    // ES-302: a missing or malformed body is a 400 with a reason, not a 500
+    const slabType = typeof type === 'string' ? type.trim().toUpperCase() : '';
+    if (!slabType || slabType.length > 30) {
+      throw new BadRequestException('Slab type is required (for example RD or LOAN).');
+    }
+    if (!Array.isArray(rows)) throw new BadRequestException('rows must be a list of slab rows.');
+    rows.forEach((row, i) => {
+      if (row === null || typeof row !== 'object') throw new BadRequestException(`Row ${i + 1}: must be a slab entry.`);
+      for (const f of ['fromAmount', 'uptoAmount', 'fromPeriod', 'uptoPeriod', 'interestRate', 'prematureInterestRate']) {
+        const v = row[f];
+        if (v === undefined || v === null || v === '') continue;
+        if (!Number.isFinite(Number(v)) || Number(v) < 0) throw new BadRequestException(`Row ${i + 1}: ${f} must be a number, zero or more.`);
+      }
+      if (Number(row.interestRate) > 100 || Number(row.prematureInterestRate) > 100) throw new BadRequestException(`Row ${i + 1}: an interest rate cannot be more than 100.`);
+      if (row.uptoAmount && Number(row.uptoAmount) < Number(row.fromAmount || 0)) throw new BadRequestException(`Row ${i + 1}: 'Upto amount' is less than 'From amount'.`);
+      if (row.uptoPeriod && Number(row.uptoPeriod) < Number(row.fromPeriod || 0)) throw new BadRequestException(`Row ${i + 1}: 'Upto period' is less than 'From period'.`);
+    });
+    type = slabType;
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -1554,6 +1751,13 @@ export class UtilitiesService {
   }
 
   async saveDemandPrintOrder(rows: any[]): Promise<{ success: boolean; message: string }> {
+    // ES-302: a missing or malformed body is a 400 with a reason, not a 500
+    if (!Array.isArray(rows)) throw new BadRequestException('rows must be a list of print-order rows.');
+    rows.forEach((row, i) => {
+      if (row === null || typeof row !== 'object') throw new BadRequestException(`Row ${i + 1}: must be a print-order entry.`);
+      if (!String(row.headCode ?? '').trim()) throw new BadRequestException(`Row ${i + 1}: head code is required.`);
+      if (!Number.isInteger(Number(row.printOrder)) || Number(row.printOrder) < 0) throw new BadRequestException(`Row ${i + 1}: print order must be a whole number, zero or more.`);
+    });
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -1669,6 +1873,8 @@ export class UtilitiesService {
   private async fetchSystemConfigRules(): Promise<Record<string, any>> {
     const keys = [
       'RULE_FUND_INT_RATE', 'RULE_DIVIDEND_PCT', 'RULE_GRP_INSURANCE_AMT', 'RULE_CD_INTEREST_CHART',
+      // Dividend rate rules: Fixed / Minimum / Maximum, each with an Active checkbox (ES-476)
+      ...DIVIDEND_RATE_KEYS,
       // Nightly automatic Day-End switch — day-end.service.ts runs the job only when this is on.
       'SYS_DAYEND_AUTO_CLOSE',
       // RD/Share Value eligibility rule (loan-eligibility.service.ts) — these
@@ -1726,6 +1932,9 @@ export class UtilitiesService {
     const out: Record<string, any> = {
       RULE_FUND_INT_RATE: 0,
       RULE_DIVIDEND_PCT: 0,
+      RULE_DIVIDEND_FIXED_PCT: 0, RULE_DIVIDEND_FIXED_ACTIVE: false,
+      RULE_DIVIDEND_MIN_PCT: 0, RULE_DIVIDEND_MIN_ACTIVE: false,
+      RULE_DIVIDEND_MAX_PCT: 0, RULE_DIVIDEND_MAX_ACTIVE: false,
       RULE_GRP_INSURANCE_AMT: 0,
       RULE_CD_INTEREST_CHART: '[]',
       SYS_DAYEND_AUTO_CLOSE: false,
@@ -1816,6 +2025,9 @@ export class UtilitiesService {
   }
 
   async updateBusinessRules(data: Record<string, any>): Promise<{ success: boolean; message: string }> {
+    // ES-476: refuse a dividend rate rule that contradicts itself before anything is saved
+    const sentDividendRules = DIVIDEND_RATE_KEYS.some((k) => data[k] !== undefined);
+    if (sentDividendRules) validateDividendRateRuleSettings(dividendRateRulesFrom(data));
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -1949,6 +2161,14 @@ export class UtilitiesService {
         // client that omits them can't zero them.
         ...(data.RULE_FUND_INT_RATE !== undefined ? [{ key: 'RULE_FUND_INT_RATE', value: String(Math.max(0, Number(data.RULE_FUND_INT_RATE) || 0)), dataType: 'percentage' as const }] : []),
         ...(data.RULE_DIVIDEND_PCT !== undefined ? [{ key: 'RULE_DIVIDEND_PCT', value: String(Math.max(0, Number(data.RULE_DIVIDEND_PCT) || 0)), dataType: 'percentage' as const }] : []),
+        ...(sentDividendRules ? [
+          { key: 'RULE_DIVIDEND_FIXED_PCT', value: String(Number(data.RULE_DIVIDEND_FIXED_PCT) || 0), dataType: 'percentage' as const },
+          { key: 'RULE_DIVIDEND_FIXED_ACTIVE', value: data.RULE_DIVIDEND_FIXED_ACTIVE === true ? 'true' : 'false', dataType: 'boolean' as const },
+          { key: 'RULE_DIVIDEND_MIN_PCT', value: String(Number(data.RULE_DIVIDEND_MIN_PCT) || 0), dataType: 'percentage' as const },
+          { key: 'RULE_DIVIDEND_MIN_ACTIVE', value: data.RULE_DIVIDEND_MIN_ACTIVE === true ? 'true' : 'false', dataType: 'boolean' as const },
+          { key: 'RULE_DIVIDEND_MAX_PCT', value: String(Number(data.RULE_DIVIDEND_MAX_PCT) || 0), dataType: 'percentage' as const },
+          { key: 'RULE_DIVIDEND_MAX_ACTIVE', value: data.RULE_DIVIDEND_MAX_ACTIVE === true ? 'true' : 'false', dataType: 'boolean' as const },
+        ] : []),
         ...(data.RULE_GRP_INSURANCE_AMT !== undefined ? [{ key: 'RULE_GRP_INSURANCE_AMT', value: String(Math.max(0, Number(data.RULE_GRP_INSURANCE_AMT) || 0)), dataType: 'number' as const }] : []),
         ...(data.RULE_CD_INTEREST_CHART !== undefined ? [{ key: 'RULE_CD_INTEREST_CHART', value: this.normaliseInterestChart(data.RULE_CD_INTEREST_CHART), dataType: 'json' as const }] : []),
         // RD system rules — new dedicated tab in Modify Business Rules.
@@ -1964,6 +2184,7 @@ export class UtilitiesService {
       return { success: true, message: 'Business rules saved successfully.' };
     } catch (error) {
       await queryRunner.rollbackTransaction();
+      if (error instanceof HttpException) throw error;
       throw new Error(`Failed to save business rules: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       await queryRunner.release();
@@ -2065,7 +2286,7 @@ export class UtilitiesService {
     const query = `
       SELECT
         f.mbno as "memberNo",
-        TRIM(COALESCE(m.f_name,'') || ' ' || COALESCE(m.m_name,'') || ' ' || COALESCE(m.l_name,'')) as "memberName",
+        REGEXP_REPLACE(TRIM(COALESCE(m.f_name,'') || ' ' || COALESCE(m.m_name,'') || ' ' || COALESCE(m.l_name,'')), '\\s+', ' ', 'g') as "memberName",
         f.account_number as "accountNumber",
         f.fdamount as "monthlyInstallment"
       FROM fdmaster f
@@ -2081,7 +2302,7 @@ export class UtilitiesService {
     const query = `
       SELECT
         s.mbno as "memberNo",
-        TRIM(COALESCE(m.f_name,'') || ' ' || COALESCE(m.m_name,'') || ' ' || COALESCE(m.l_name,'')) as "memberName",
+        REGEXP_REPLACE(TRIM(COALESCE(m.f_name,'') || ' ' || COALESCE(m.m_name,'') || ' ' || COALESCE(m.l_name,'')), '\\s+', ' ', 'g') as "memberName",
         s.acc_no as "accountNumber",
         s.balance
       FROM sbmaster s
@@ -2109,6 +2330,10 @@ export class UtilitiesService {
     await queryRunner.connect();
     await queryRunner.startTransaction();
     try {
+      const exists = await queryRunner.query(`SELECT 1 FROM headmaster WHERE code = $1`, [code]);
+      if (exists.length === 0) {
+        throw new NotFoundException(`Head ${code} not found.`);
+      }
       const children = await queryRunner.query(
         `SELECT COUNT(*)::int AS cnt FROM headmaster WHERE parent_code = $1`, [code]
       );

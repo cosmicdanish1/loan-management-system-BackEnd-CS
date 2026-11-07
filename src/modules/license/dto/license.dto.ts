@@ -3,8 +3,9 @@ import { IsString, IsNotEmpty, IsOptional, Matches } from 'class-validator';
 export class ActivateLicenseDto {
   @IsString()
   @IsNotEmpty()
-  @Matches(/^PWT0-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/i, {
-    message: 'License key must be in format PWT0-XXXX-XXXX-XXXX-XXXX',
+  // PWT0-XXXX-XXXX-XXXX-XXXX (old format) or PWT1-... (signed key, about 120 characters, may contain spaces or line breaks)
+  @Matches(/^\s*(PWT0-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}|PWT1-[A-Z0-9\s-]{20,300})\s*$/i, {
+    message: 'License key must look like PWT1-XXXX-XXXX-... (or the old PWT0-XXXX-XXXX-XXXX-XXXX)',
   })
   key: string;
 

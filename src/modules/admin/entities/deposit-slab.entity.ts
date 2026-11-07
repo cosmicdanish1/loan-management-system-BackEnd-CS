@@ -5,6 +5,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { endOfEffectiveDay } from './effective-dates';
 
 export enum DepositSlabType {
   FIXED_DEPOSIT = 'fixed_deposit',
@@ -70,7 +71,7 @@ export class DepositSlab {
 
     // Check effective date range
     if (date < this.effectiveFrom) return false;
-    if (this.effectiveTo && date > this.effectiveTo) return false;
+    if (this.effectiveTo && date > endOfEffectiveDay(this.effectiveTo)) return false; // the end date itself is still valid
 
     // Check amount range
     if (amount < this.minAmount || amount > this.maxAmount) return false;

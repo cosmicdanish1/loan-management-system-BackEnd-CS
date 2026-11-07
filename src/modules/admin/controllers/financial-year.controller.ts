@@ -7,6 +7,7 @@ import { Roles } from '../../auth/decorators/roles.decorator';
 import { RequirePermissions } from '../../auth/decorators/permissions.decorator';
 import { UserRole, UserPermission } from '../../auth/entities/user.entity';
 import { FinancialYearService } from '../services/financial-year.service';
+import { RequireMenuAction } from '../../auth/guards/menu-right.guard';
 
 @ApiTags('Financial Year Management')
 @ApiBearerAuth()
@@ -24,6 +25,7 @@ export class FinancialYearController {
 
     // yearend starts empty and nothing else could create the first row —
     // see FinancialYearService.createFinancialYear for the full story.
+    @RequireMenuAction('FIN_YEAR_CLOSING')
     @Post('create')
     @Roles(UserRole.ADMIN)
     @RequirePermissions(UserPermission.MANAGE_SYSTEM_CONFIG)
@@ -34,6 +36,7 @@ export class FinancialYearController {
     }
 
     // Admin cleanup for a mistakenly-created year — service refuses if closed/archived.
+    @RequireMenuAction('FIN_YEAR_CLOSING')
     @Delete(':yearCode')
     @Roles(UserRole.ADMIN)
     @RequirePermissions(UserPermission.MANAGE_SYSTEM_CONFIG)
@@ -49,6 +52,7 @@ export class FinancialYearController {
         return this.financialYearService.getCurrentFinancialYear();
     }
 
+    @RequireMenuAction('FIN_YEAR_TRANSFER')
     @Post('transfer-entries')
     @Roles(UserRole.ADMIN)
     @RequirePermissions(UserPermission.MANAGE_SYSTEM_CONFIG)
@@ -58,6 +62,7 @@ export class FinancialYearController {
         return this.financialYearService.initiateTransfer(yearCode, username);
     }
 
+    @RequireMenuAction('FIN_YEAR_BALANCE_TRANSFER')
     @Post('balance-transfer')
     @Roles(UserRole.ADMIN)
     @RequirePermissions(UserPermission.MANAGE_SYSTEM_CONFIG)
@@ -74,6 +79,7 @@ export class FinancialYearController {
         return this.financialYearService.getClosingEntriesPreview(yearCode);
     }
 
+    @RequireMenuAction('FIN_YEAR_PL_PROCESS')
     @Post('pl-year-end-process')
     @Roles(UserRole.ADMIN)
     @RequirePermissions(UserPermission.MANAGE_SYSTEM_CONFIG)
@@ -85,6 +91,7 @@ export class FinancialYearController {
 
     // BUG FIX 4: New endpoint — formally closes a financial year by stamping closed_at.
     // This is the action that FinancialYearClosing.tsx triggers after the admin confirms.
+    @RequireMenuAction('FIN_YEAR_CLOSING')
     @Post('close-year')
     @Roles(UserRole.ADMIN)
     @RequirePermissions(UserPermission.MANAGE_SYSTEM_CONFIG)

@@ -30,6 +30,7 @@ import {
   RestoreResultDto,
   BackupVerificationDto,
 } from '../dto';
+import { RequireMenuAction } from '../../auth/guards/menu-right.guard';
 
 @ApiTags('Backup & Restore')
 @ApiBearerAuth()
@@ -38,6 +39,7 @@ import {
 export class BackupController {
   constructor(private readonly backupService: BackupService) {}
 
+  @RequireMenuAction('DATABASE_BACKUP')
   @Post('create')
   @Roles(UserRole.ADMIN)
   @RequirePermissions(UserPermission.PERFORM_BACKUP)
@@ -57,6 +59,7 @@ export class BackupController {
     return this.backupService.createDatabaseBackup(createBackupDto.backupName);
   }
 
+  @RequireMenuAction('DATABASE_BACKUP')
   @Post('restore')
   @Roles(UserRole.ADMIN)
   @RequirePermissions(UserPermission.PERFORM_BACKUP)
@@ -106,8 +109,8 @@ export class BackupController {
   async verifyBackup(
     @Param('filename') filename: string,
   ): Promise<BackupVerificationDto> {
-    const backupPath = `./backups/${filename}`;
-    const isValid = await this.backupService.verifyBackupIntegrity(backupPath);
+    // the service checks the name and looks in the configured backup folder (the path used to be built here from the raw name)
+    const isValid = await this.backupService.verifyBackupByName(filename);
     
     return {
       filename,
@@ -116,6 +119,7 @@ export class BackupController {
     };
   }
 
+  @RequireMenuAction('DATABASE_BACKUP')
   @Delete(':filename')
   @Roles(UserRole.ADMIN)
   @RequirePermissions(UserPermission.PERFORM_BACKUP)

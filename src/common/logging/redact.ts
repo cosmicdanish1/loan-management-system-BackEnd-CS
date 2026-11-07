@@ -2,8 +2,13 @@
 // backend-originated logs) and ClientLogsService (for frontend logs, which
 // bypass winston entirely and are written directly to file + service_log).
 export const REDACT_PATTERNS = [
-  { regex: /("?password"?\s*[:=]\s*)"[^"]*"/gi, replacement: '$1"[REDACTED]"' },
-  { regex: /("?token"?\s*[:=]\s*)"[^"]*"/gi, replacement: '$1"[REDACTED]"' },
+  // Secret-looking fields, whatever the quoting: "k":"v", 'k':'v' and unquoted k=v (form / query string).
+  // The key may carry a prefix (refreshToken, accessToken, client_secret); otp, pin, mpin and the
+  // auth code are matched as whole words so ordinary words that merely end in "pin" are left alone.
+  {
+    regex: /(["']?\b(?:[\w-]*(?:password|passwd|token|secret)|otp|pin|mpin|auth[-_ ]?code|x-auth-code)["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s&,;}"']+)/gi,
+    replacement: '$1"[REDACTED]"',
+  },
   { regex: /("?aadhaar"?\s*[:=]\s*)"?\d{4}\s?\d{4}\s?\d{4}"?/gi, replacement: '$1"[REDACTED]"' },
   { regex: /("?pan"?\s*[:=]\s*)"?[A-Z]{5}\d{4}[A-Z]"?/gi, replacement: '$1"[REDACTED]"' },
   { regex: /Bearer\s+[A-Za-z0-9\-._~+\/]+=*/g, replacement: 'Bearer [REDACTED]' },

@@ -1,3 +1,4 @@
+import { lockLedgerIds } from '../../shared/utils/ledger-lock';
 import {
     Injectable,
     NotFoundException,
@@ -19,6 +20,7 @@ import { SequenceGeneratorService } from '../../shared/services';
 import { SystemConfigService } from '../../admin/services/system-config.service';
 import { RdMemberConfigService } from '../../rd/services/rd-member-config.service';
 import { isDebitNormal } from '../../shared/utils/balance-direction';
+import type { FieldProblem } from '../../../common/validation/friendly-validation';
 
 /**
  * Member CRUD Service - Handles Create, Read, Update, Delete operations for members.
@@ -44,6 +46,11 @@ export class MemberCrudService {
      */
     async generateNextMemberNumber(): Promise<string> {
         return this.sequenceGenerator.generateNextMemberNumber();
+    }
+
+    /** Read-only preview of the number the next Save will get (does not consume it). */
+    async peekNextMemberNumber(): Promise<string> {
+        return this.sequenceGenerator.peekNextMemberNumber();
     }
 
     /**
@@ -244,16 +251,14 @@ export class MemberCrudService {
     /**
      * Find member by ID
      */
-    async findOne(id: number): Promise<MemberResponseDto> {
-        const member = await this.memberRepository.findOne({
-            where: { id },
-        });
-
-        if (!member) {
-            throw new NotFoundException(`Member with ID ${id} not found`);
+    async findOne(id: number): Promise<any> {
+        // Members live in member_master (keyed by member number). The old query read a legacy `members` table that does
+        // not exist, so every call failed with 'Database Error'. (ES-312) `id` is the member number here.
+        const rows = await this.dataSource.query(`SELECT * FROM member_master WHERE mbno = $1`, [id]);
+        if (!rows || rows.length === 0) {
+            throw new NotFoundException(`Member ${id} not found`);
         }
-
-        return new MemberResponseDto(member);
+        return rows[0];
     }
 
     /**
@@ -268,8 +273,8 @@ export class MemberCrudService {
             throw new NotFoundException(`Member with ID ${id} not found`);
         }
 
-        // Validate updated data
-        const validation = MemberValidationUtil.validateMemberData(updateMemberDto);
+        // Validate only what was sent (a partial update must not demand every required field again)
+        const validation = MemberValidationUtil.validateMemberUpdate(updateMemberDto);
         if (!validation.isValid) {
             throw new BadRequestException(validation.errors);
         }
@@ -334,21 +339,82 @@ export class MemberCrudService {
      * Delete member
      */
     async remove(id: number): Promise<void> {
-        const member = await this.memberRepository.findOne({
-            where: { id },
-        });
-
-        if (!member) {
-            throw new NotFoundException(`Member with ID ${id} not found`);
+        // Delete a member only while it has no accounts or history; otherwise refuse and say what holds it. (ES-312)
+        const existing = await this.dataSource.query(`SELECT mbno FROM member_master WHERE mbno = $1`, [id]);
+        if (!existing || existing.length === 0) {
+            throw new NotFoundException(`Member ${id} not found`);
         }
 
-        await this.memberRepository.remove(member);
+        const holders: Array<[string, string]> = [
+            ['ledger entries', `SELECT COUNT(*)::int AS n FROM ledger WHERE mbno = $1`],
+            ['loans', `SELECT COUNT(*)::int AS n FROM loan_master WHERE mbno = $1`],
+            ['loan applications', `SELECT COUNT(*)::int AS n FROM loan_pending WHERE mbno = $1`],
+            ['savings accounts', `SELECT COUNT(*)::int AS n FROM sbmaster WHERE mbno = $1`],
+            ['RD instalments', `SELECT COUNT(*)::int AS n FROM rd_installment_ledger WHERE mbno::text = $1::text`],
+            ['transactions', `SELECT COUNT(*)::int AS n FROM transactions WHERE mbno = $1`],
+        ];
+        const blocking: string[] = [];
+        for (const [label, sql] of holders) {
+            const r = await this.dataSource.query(sql, [id]);
+            if (Number(r[0]?.n) > 0) blocking.push(`${r[0].n} ${label}`);
+        }
+        const funds = await this.dataSource.query(
+            `SELECT COALESCE(ABS(mdamt),0)+COALESCE(ABS(cdamt),0)+COALESCE(ABS(shareamt),0) AS total FROM fundsmaster WHERE mbno = $1`, [id]);
+        if (Number(funds[0]?.total) > 0) blocking.push('a non-zero share / deposit balance');
+        if (blocking.length > 0) {
+            throw new ConflictException(`Member ${id} cannot be deleted: it has ${blocking.join(', ')}.`);
+        }
+
+        const qr = this.dataSource.createQueryRunner();
+        await qr.connect();
+        await qr.startTransaction();
+        try {
+            await qr.query(`DELETE FROM fundsmaster WHERE mbno = $1`, [id]);
+            await qr.query(`DELETE FROM member_balances WHERE mbno = $1`, [id]);
+            await qr.query(`DELETE FROM rd_member_config WHERE mbno::text = $1::text`, [id]);
+            await qr.query(`DELETE FROM member_master WHERE mbno = $1`, [id]);
+            await qr.commitTransaction();
+        } catch (e) {
+            await qr.rollbackTransaction();
+            throw e;
+        } finally {
+            await qr.release();
+        }
     }
 
     /**
      * Save or update member master (legacy table support)
      */
+    /** ES-481: plain field messages (same shape as the global validation pipe) instead of "Database operation failed". */
+    private assertMemberFields(d: any): void {
+        const problems: FieldProblem[] = [];
+        const blank = (v: any) => v === undefined || v === null || String(v).trim() === '';
+        const req = (field: string, label: string) => {
+            if (blank(d?.[field])) problems.push({ field, label, code: 'FIELD_REQUIRED', message: `${label} is required.` });
+        };
+        req('f_name', 'First name');
+        req('officeno', 'Office');
+        for (const [field, label] of [['age', 'Age'], ['gross_salary', 'Gross salary'], ['basic_pay', 'Basic pay'],
+            ['compulsory_deposit', 'Compulsory deposit'], ['share_amount', 'Share amount'], ['insureamt', 'Insurance amount']] as const) {
+            const v = d?.[field];
+            if (blank(v)) continue;
+            if (!Number.isFinite(Number(v))) problems.push({ field, label, code: 'FIELD_NUMBER', message: `${label} must be a number.` });
+            else if (Number(v) < 0) problems.push({ field, label, code: 'FIELD_MIN', message: `${label} cannot be less than 0.`, params: { min: 0 } });
+        }
+        for (const [field, label] of [['dob', 'Date of birth'], ['dor', 'Retirement date'], ['memb_date', 'Membership date']] as const) {
+            const v = d?.[field];
+            if (!blank(v) && Number.isNaN(new Date(v).getTime())) problems.push({ field, label, code: 'FIELD_DATE', message: `${label} must be a valid date.` });
+        }
+        if (problems.length) {
+            throw new BadRequestException({
+                statusCode: 400, error: 'Bad Request', code: 'VALIDATION_FAILED',
+                message: problems.map((p) => p.message), errors: problems,
+            });
+        }
+    }
+
     async saveMemberMaster(memberData: any) {
+        this.assertMemberFields(memberData);
         try {
             // ES-99: date_of_retirement is the single retirement date. Clients may still
             // send it as `dor`; accept either and write the same value to both columns.
@@ -386,8 +452,13 @@ export class MemberCrudService {
                     memberData.share_amount || 0, memberData.cast_category || ''
                 ]);
 
-                // Return raw row — TransformInterceptor handles the { success, data } envelope
-                return result[0];
+                // A pg UPDATE ... RETURNING through TypeORM answers [rows, rowCount]; unwrap it so an update returns the
+                // same single row object as a create, and an unknown member number is a 404, not a silent 201. (ES-311)
+                const updatedRows: any[] = Array.isArray(result[0]) ? result[0] : result;
+                if (!updatedRows || updatedRows.length === 0) {
+                    throw new NotFoundException(`Member ${memberData.mbno} not found`);
+                }
+                return updatedRows[0];
             } else {
                 // Insert new member - use shared sequence generator
                 const memberNumber = await this.sequenceGenerator.generateNextMemberNumber();
@@ -520,6 +591,7 @@ export class MemberCrudService {
             [nextVchrId, voucherNo, amount, 'Initial Compulsory Deposit - New Member'],
         );
 
+        await lockLedgerIds(queryRunner); // ES-445
         const nextLedgerId = (await queryRunner.query(`SELECT COALESCE(MAX(ledgerid), 0) + 1 as next_id FROM ledger`))[0].next_id;
         await queryRunner.query(
             `INSERT INTO ledger (trans_date, trans_type, code, mbno, trans_amt, receipt_vchr_no, vchr_type, pl_balance, narration, username, ledgerid)

@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
+import { assertPostingDateOpen } from '../../shared/utils/posting-date';
 import { DataSource, QueryRunner } from 'typeorm';
 import { LoanEligibilityService } from './loan-eligibility.service';
 import { RdBalanceEventsService } from '../../rd/services/rd-balance-events.service';
@@ -17,6 +18,10 @@ export interface RepaymentDto {
     paymentYear?: number;
     paymentAmount: number;
     receiptNo?: string;
+    /** ES-451: set by the HTTP door. When true, a receiptNo that is already recorded for this member's loan is refused
+     *  instead of being posted a second time. Internal callers (legacy replay, scripts) leave it off: they reuse receipt
+     *  numbers on purpose. */
+    rejectDuplicateReceipt?: boolean;
     narration?: string;
     username?: string;
     /** Test-only clock override for simulating "today" during penal/overdue
@@ -748,14 +753,28 @@ export class LoanRepaymentService {
             const loanRows = await queryRunner.query(
                 `SELECT mbno, loantype, loan_amt, balance, instal_amt, no_of_instal, penalrate, gracedays, smpenalpct, smpenaldiv,
                         payment_date, delay_months, payroll_lag_watch_until, payroll_lag_old_principal, payroll_lag_old_interest, loan_payment_model, intt_amount
-                 FROM loan_master WHERE ${whereParts.join(' AND ')}`,
+                 FROM loan_master WHERE ${whereParts.join(' AND ')}
+                 FOR UPDATE`, // ES-321: locked, so two payments can not both read the same balance
                 params
             );
             if (loanRows.length === 0) {
                 throw new BadRequestException(`Loan case ${dto.loancaseno} not found in loan_master${dto.mbno ? ` for member ${dto.mbno}` : ''}`);
             }
         const loan = loanRows[0];
+        // ES-451: this runs after the loan row is locked (FOR UPDATE above), so two requests with the same receipt number
+        // can not both pass: the second one waits, then finds the first one's rows and is refused.
+        const receiptText = String(dto.receiptNo ?? '').trim();
+        if (dto.rejectDuplicateReceipt && receiptText) {
+            const already = await queryRunner.query(
+                `SELECT 1 FROM loan_repayment_ledger WHERE receipt_no = $1 AND loancaseno::text = $2 AND mbno::text = $3 LIMIT 1`,
+                [receiptText, String(dto.loancaseno), String(loan.mbno)],
+            );
+            if (already.length > 0) {
+                throw new BadRequestException(`Receipt number ${receiptText} is already recorded for this loan. If this is a new payment, use a different receipt number.`);
+            }
+        }
         const asOf = dto.asOfDate && !isNaN(dto.asOfDate.getTime()) ? dto.asOfDate : new Date();
+        await assertPostingDateOpen(queryRunner, asOf); // ES-458: no repayment on a closed day or in a closed financial year
         const repaymentTotals = await this.getLedgerHistoryTotals(queryRunner, dto.loancaseno, asOf, loan.mbno, loan.loantype);
         const scheduleVersion = await this.getCurrentScheduleVersion(
             queryRunner, dto.loancaseno, loan, asOf,
@@ -778,9 +797,13 @@ export class LoanRepaymentService {
             : repaymentTotals.totalPayrollLagPrincipal > 0
                 ? Math.max(0, round2((parseFloat(loan.loan_amt) || 0) - repaymentTotals.totalPrincipalPaid))
                 : (parseFloat(loan.balance || 0));
-        const payment = parseFloat(dto.paymentAmount as any);
-
-            if (payment <= 0) throw new BadRequestException('Payment amount must be greater than zero');
+        // ES-320: parseFloat('12abc') was 12 and NaN slipped past "<= 0"; the amount must be a real number in range
+        const paymentGiven = dto.paymentAmount !== undefined && dto.paymentAmount !== null && (dto.paymentAmount as any) !== '';
+        const payment = paymentGiven ? Number(dto.paymentAmount) : NaN;
+        if (paymentGiven || dto.principalAmount === undefined) {
+            if (!Number.isFinite(payment) || payment <= 0) throw new BadRequestException('Payment amount must be a number greater than zero');
+            if (payment > 999_999_999.99) throw new BadRequestException('Payment amount is too large');
+        }
             // A predecessor payroll-lag credit is an audit receipt, not a
             // repayment against this loan. BSP can deliver it after the
             // current loan's principal has already been settled, so it must
@@ -809,6 +832,11 @@ export class LoanRepaymentService {
             const isPayrollLagCredit = dto.isPayrollLagCredit === true;
             const total = round2(principal + interest + penal);
             if (total <= 0) throw new BadRequestException('Explicit repayment components must total more than zero');
+            // ES-320: the balance is reduced by the principal, so the principal can not be more than what is outstanding
+            // (the excess used to be dropped silently while the ledger row kept the full amount)
+            if (!isPayrollLagCredit && principal > round2(currentBalance) + 0.005) {
+                throw new BadRequestException(`Principal ${principal} is more than the outstanding balance ${round2(currentBalance)} of loan ${dto.loancaseno}.`);
+            }
             await queryRunner.query(
                 `INSERT INTO loan_repayment_ledger
                     (mbno, loancaseno, loantype, payment_date, payment_month, payment_year, payment_amount,
@@ -1741,9 +1769,9 @@ export class LoanRepaymentService {
             const loanRows = await queryRunner.query(
                 mbno
                     ? `SELECT mbno, loantype, loan_amt, balance, instal_amt, no_of_instal, rate, penalrate, gracedays, smpenalpct, smpenaldiv, payment_date, delay_months, loan_payment_model
-                       FROM loan_master WHERE loancaseno::text = $1 AND mbno = $2`
+                       FROM loan_master WHERE loancaseno::text = $1 AND mbno = $2 FOR UPDATE`
                     : `SELECT mbno, loantype, loan_amt, balance, instal_amt, no_of_instal, rate, penalrate, gracedays, smpenalpct, smpenaldiv, payment_date, delay_months, loan_payment_model
-                       FROM loan_master WHERE loancaseno::text = $1`,
+                       FROM loan_master WHERE loancaseno::text = $1 FOR UPDATE`,
                 mbno ? [loancaseno, mbno] : [loancaseno]
             );
             if (loanRows.length === 0) {
@@ -1751,10 +1779,22 @@ export class LoanRepaymentService {
             }
             const loan = loanRows[0];
             const asOf = closureDate && !isNaN(closureDate.getTime()) ? closureDate : new Date();
+            await assertPostingDateOpen(queryRunner, asOf); // ES-458
             const currentBalance = parseFloat(loan.balance) || 0;
             if (currentBalance <= 0) {
                 throw new BadRequestException(`Loan ${loancaseno} is already fully repaid`);
             }
+
+            // ES-322: the closure adjustment must be a real number, and a reduction can never be more than what is
+            // still outstanding (a huge negative figure would close the loan for almost nothing)
+            const adjustmentValue = typeof adjustment === 'string' && (adjustment as string).trim() === '' ? NaN : Number(adjustment);
+            if (!Number.isFinite(adjustmentValue)) {
+                throw new BadRequestException('The closure adjustment must be a number.');
+            }
+            if (Math.abs(adjustmentValue) > 999_999_999.99 || adjustmentValue < -round2(currentBalance)) {
+                throw new BadRequestException(`The closure adjustment ${adjustmentValue} is not allowed: a reduction can not be more than the outstanding balance ${round2(currentBalance)}.`);
+            }
+            adjustment = adjustmentValue;
 
             // A loan with an open re-agreement (applied / sanctioned / vouchered, not yet passed) cannot be
             // closed early: closing it would strand the re-agreement, which still points at this case.
@@ -1846,6 +1886,25 @@ export class LoanRepaymentService {
             // reconciles against — without it the posted rows would no longer
             // sum to finalClosureAmount.
             let rawPrincipalPosted = 0;
+
+            // ES-450: the principal rows posted below must add up to the principal that is really outstanding. After
+            // advance payments the per-installment schedule still showed full principal for installments that advance
+            // payments had already covered, so closing the loan posted that principal a second time (a 50,000 loan ended
+            // with 58,333 of principal in the ledger) and one large negative "Rounding Adjustment" row hid the
+            // difference. Any excess is taken off the LAST future installments first (then off due ones), so the rows
+            // sum to outstandingPrincipal. A shortfall is not invented: it stops at the rounding guard below.
+            {
+                const rowsToPost = installments.filter((i) => !(i.isFullyPaid || (!i.isDue && i.principalDue <= 0)));
+                let excess = round2(rowsToPost.reduce((s, i) => s + i.principalDue, 0) - outstandingPrincipal);
+                if (excess > 0.01) {
+                    for (const inst of [...rowsToPost].sort((a, b) => Number(a.isDue) - Number(b.isDue) || b.installmentNo - a.installmentNo)) {
+                        if (excess <= 0.004) break;
+                        const cut = Math.min(inst.principalDue, excess);
+                        inst.principalDue = round2(inst.principalDue - cut);
+                        excess = round2(excess - cut);
+                    }
+                }
+            }
 
             for (const inst of installments) {
                 if (inst.isFullyPaid || (!inst.isDue && inst.principalDue <= 0)) continue;
@@ -1962,6 +2021,17 @@ export class LoanRepaymentService {
             const postedSoFar = rawPrincipalPosted + rawInterestPosted + rawPenalInterest
                 + (futureInstallmentCount > 0 ? apInterest : 0) + adjustment;
             const roundingDelta = Math.round((finalClosureAmount - postedSoFar) * 100) / 100;
+            // ES-450: rounding to a whole rupee can move the figure by less than one rupee. Anything bigger means the
+            // posted rows do not add up to the closure amount, and a "rounding" row must never hide that: stop, roll back.
+            // ES-493: the closure figure is the sum of components that are each rounded (outstanding principal,
+            // interest, penal, then the final amount again), while the posted rows carry the raw values. With the
+            // UP/DOWN modes every one of those four roundings can move up to a whole rupee, so the allowed difference
+            // is 4 rupees. A real mismatch (e.g. the old 8,333 case) is far larger and is still refused.
+            if (Math.abs(roundingDelta) > 4.01) {
+                throw new BadRequestException(
+                    `Early closure of loan ${loancaseno} was stopped for review: the posted rows differ from the closure amount by ₹${roundingDelta.toFixed(2)}, which is more than rounding. Nothing was posted.`,
+                );
+            }
             if (roundingDelta !== 0) {
                 await queryRunner.query(
                     `INSERT INTO loan_repayment_ledger
@@ -2060,6 +2130,14 @@ export class LoanRepaymentService {
         );
         if (loanRows.length === 0) {
             throw new BadRequestException(`Loan case ${loancaseno} not found in loan_master`);
+        }
+        // ES-391: case numbers of migrated loans are shared between members, and everything below reads the
+        // installments and payments by case number alone. For a shared number the figures would mix two members'
+        // loans, so refuse instead of showing (or collecting) another member's dues.
+        if (loanRows.length > 1) {
+            throw new BadRequestException(
+                `Loan case number ${loancaseno} is used by ${loanRows.length} members in the migrated data, so its dues cannot be calculated safely. Give the loan a unique case number first.`,
+            );
         }
         const loan = loanRows[0];
         const asOf = asOfDate && !isNaN(asOfDate.getTime()) ? asOfDate : new Date();

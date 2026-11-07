@@ -100,6 +100,12 @@ export class BackupService implements OnApplicationBootstrap {
           if (!existing) {
             const filePath = path.join(defaultBackupPath, file);
             const stats = fs.statSync(filePath);
+            // The admin backup service (also the 02:00 cron) writes <file>.meta with the measured duration (ES-35)
+            let durationMs = 0;
+            try {
+              const metaPath = filePath + '.meta';
+              if (fs.existsSync(metaPath)) durationMs = Math.max(0, Number(JSON.parse(fs.readFileSync(metaPath, 'utf8')).durationMs) || 0);
+            } catch { /* no usable metadata: keep 0 */ }
 
             await this.backupLogRepository.save({
               fileName: file,
@@ -107,7 +113,7 @@ export class BackupService implements OnApplicationBootstrap {
               fileSize: stats.size.toString(),
               backupType: this.determineBackupType(file),
               status: 'success',
-              durationMs: 0,
+              durationMs,
               createdAt: stats.birthtime,
             });
             this.logger.debug(`Synced legacy backup file: ${file}`);

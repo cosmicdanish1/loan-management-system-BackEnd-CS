@@ -1,0 +1,418 @@
+[
+ {
+  "route": "/reports/heads",
+  "url": "/reports/heads",
+  "status": 200,
+  "ms": 18,
+  "rows": 154,
+  "problems": ""
+ },
+ {
+  "route": "/reports/banks",
+  "url": "/reports/banks",
+  "status": 200,
+  "ms": 17,
+  "rows": 27,
+  "problems": ""
+ },
+ {
+  "route": "/reports/member/profile/610022986",
+  "url": "/reports/member/profile/610022986",
+  "status": 200,
+  "ms": 21,
+  "rows": null,
+  "problems": ""
+ },
+ {
+  "route": "/reports/voters-list",
+  "url": "/reports/voters-list?limit=20&offset=0",
+  "status": 200,
+  "ms": 74,
+  "rows": 20,
+  "problems": ""
+ },
+ {
+  "route": "/reports/member-balance-range",
+  "url": "/reports/member-balance-range?fromAccountNo=1&toAccountNo=100",
+  "status": 200,
+  "ms": 40,
+  "rows": 0,
+  "problems": ""
+ },
+ {
+  "route": "/reports/member-ledger",
+  "url": "/reports/member-ledger?memberNo=610022986&fromDate=2026-09-01&toDate=2026-09-30&headCode=L1004",
+  "status": 200,
+  "ms": 15,
+  "rows": 0,
+  "problems": ""
+ },
+ {
+  "route": "/reports/annual-member-statement",
+  "url": "/reports/annual-member-statement?wingNo=1&officeNo=1",
+  "status": 200,
+  "ms": 11,
+  "rows": null,
+  "problems": ""
+ },
+ {
+  "route": "/reports/yearly-member-statement",
+  "url": "/reports/yearly-member-statement?fromDate=2026-09-01&toDate=2026-09-30&wingNo=1&officeNo=1&fromMemberNo=610022986&toMemberNo=610022986",
+  "status": 200,
+  "ms": 20,
+  "rows": 1,
+  "problems": ""
+ },
+ {
+  "route": "/reports/member/610022986/loan-cases",
+  "url": "/reports/member/610022986/loan-cases",
+  "status": 200,
+  "ms": 17,
+  "rows": 13,
+  "problems": ""
+ },
+ {
+  "route": "/reports/member-loan-detail",
+  "url": "/reports/member-loan-detail?memberFrom=610022986&memberTo=610022986&loanType=RLN",
+  "status": 200,
+  "ms": 107,
+  "rows": 1,
+  "problems": ""
+ },
+ {
+  "route": "/reports/loan-contributions-register",
+  "url": "/reports/loan-contributions-register?memberNo=610022986&fromDate=2026-09-01&toDate=2026-09-30",
+  "status": 200,
+  "ms": 29,
+  "rows": null,
+  "problems": ""
+ },
+ {
+  "route": "/reports/surety-register",
+  "url": "/reports/surety-register?memberFrom=610022986&memberTo=610022986&limit=20&offset=0",
+  "status": 200,
+  "ms": 284,
+  "rows": 12,
+  "problems": ""
+ },
+ {
+  "route": "/reports/loan-types",
+  "url": "/reports/loan-types",
+  "status": 200,
+  "ms": 19,
+  "rows": 3,
+  "problems": ""
+ },
+ {
+  "route": "/reports/loan-nil-certificate/610022986",
+  "url": "/reports/loan-nil-certificate/610022986",
+  "status": 400,
+  "ms": 14,
+  "rows": null,
+  "problems": "400 with realistic params: {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:51:37.209Z\",\"path\":\"/api/v1/reports"
+ },
+ {
+  "route": "/reports/dividend-report",
+  "url": "/reports/dividend-report?year=2026&financialYear=2026-2027&wingName=BHILAI&officeName=BHILAI&dividendRate=10&limit=20&offset=0",
+  "status": 400,
+  "ms": 9,
+  "rows": null,
+  "problems": "400 with realistic params: {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:51:37.219Z\",\"path\":\"/api/v1/reports"
+ },
+ {
+  "route": "/reports/dividend-paid",
+  "url": "/reports/dividend-paid?wingName=BHILAI&fromDate=2026-09-01&toDate=2026-09-30&limit=20&offset=0",
+  "status": 200,
+  "ms": 14,
+  "rows": 0,
+  "problems": ""
+ },
+ {
+  "route": "/reports/dividend-warrant",
+  "url": "/reports/dividend-warrant?wingName=BHILAI&officeName=BHILAI&fromDate=2026-09-01&uptoDate=2026-09-30",
+  "status": 400,
+  "ms": 12,
+  "rows": null,
+  "problems": "400 with realistic params: {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:51:37.243Z\",\"path\":\"/api/v1/reports"
+ },
+ {
+  "route": "/reports/interest-list",
+  "url": "/reports/interest-list?financialYear=2026-2027&wingName=BHILAI&accountType=RD&limit=20&offset=0",
+  "status": 400,
+  "ms": 19,
+  "rows": null,
+  "problems": "400 with realistic params: {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:51:37.261Z\",\"path\":\"/api/v1/reports"
+ },
+ {
+  "route": "/reports/share-warrant",
+  "url": "/reports/share-warrant?memberFrom=610022986&memberTo=610022986&warrantDate=2026-09-30",
+  "status": 200,
+  "ms": 28,
+  "rows": 1,
+  "problems": ""
+ },
+ {
+  "route": "/reports/share-certificate",
+  "url": "/reports/share-certificate?memberNo=610022986&certificateNo=1",
+  "status": 200,
+  "ms": 12,
+  "rows": null,
+  "problems": ""
+ },
+ {
+  "route": "/reports/recurring-details",
+  "url": "/reports/recurring-details?memberNo=610022986",
+  "status": 200,
+  "ms": 25,
+  "rows": 0,
+  "problems": ""
+ },
+ {
+  "route": "/reports/lien-account-information",
+  "url": "/reports/lien-account-information",
+  "status": 200,
+  "ms": 21,
+  "rows": 7,
+  "problems": ""
+ },
+ {
+  "route": "/reports/passbook-printing",
+  "url": "/reports/passbook-printing?memberNo=610022986",
+  "status": 200,
+  "ms": 332,
+  "rows": null,
+  "problems": ""
+ },
+ {
+  "route": "/reports/balance-sheet",
+  "url": "/reports/balance-sheet?asOnDate=2026-09-30",
+  "status": 200,
+  "ms": 980,
+  "rows": null,
+  "problems": ""
+ },
+ {
+  "route": "/reports/wings",
+  "url": "/reports/wings",
+  "status": 200,
+  "ms": 7,
+  "rows": 1,
+  "problems": ""
+ },
+ {
+  "route": "/reports/offices",
+  "url": "/reports/offices?wingNo=1",
+  "status": 200,
+  "ms": 6,
+  "rows": 6,
+  "problems": ""
+ },
+ {
+  "route": "/reports/divisions",
+  "url": "/reports/divisions?wingNo=1",
+  "status": 200,
+  "ms": 7,
+  "rows": 6,
+  "problems": ""
+ },
+ {
+  "route": "/reports/financial-summary",
+  "url": "/reports/financial-summary",
+  "status": 400,
+  "ms": 8,
+  "rows": null,
+  "problems": "400 with realistic params: {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:51:38.692Z\",\"path\":\"/api/v1/reports"
+ },
+ {
+  "route": "/reports/account-closing",
+  "url": "/reports/account-closing?month=SEP&year=2026&accountType=RD",
+  "status": 400,
+  "ms": 8,
+  "rows": null,
+  "problems": "400 with realistic params: {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:51:38.700Z\",\"path\":\"/api/v1/reports"
+ },
+ {
+  "route": "/reports/recovery-details",
+  "url": "/reports/recovery-details?memberNo=610022986&month=SEP&year=2026",
+  "status": 404,
+  "ms": 75,
+  "rows": null,
+  "problems": ""
+ },
+ {
+  "route": "/reports/adhoc-reports",
+  "url": "/reports/adhoc-reports?fromDate=2026-09-01&toDate=2026-09-30",
+  "status": 400,
+  "ms": 7,
+  "rows": null,
+  "problems": "400 with realistic params: {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:51:38.783Z\",\"path\":\"/api/v1/reports"
+ },
+ {
+  "route": "/print-voucher/list/all",
+  "url": "/print-voucher/list/all",
+  "status": 200,
+  "ms": 14,
+  "rows": 176,
+  "problems": ""
+ },
+ {
+  "route": "/print-voucher/list/by-date",
+  "url": "/print-voucher/list/by-date?date=2026-09-16",
+  "status": 200,
+  "ms": 10,
+  "rows": 176,
+  "problems": ""
+ },
+ {
+  "route": "/print-voucher/journal/list/all",
+  "url": "/print-voucher/journal/list/all",
+  "status": 200,
+  "ms": 797,
+  "rows": 29771,
+  "problems": ""
+ },
+ {
+  "route": "/print-voucher/journal/list/by-date",
+  "url": "/print-voucher/journal/list/by-date?date=2026-09-16",
+  "status": 200,
+  "ms": 3619,
+  "rows": 29806,
+  "problems": ""
+ },
+ {
+  "route": "/member-ledger/head-masters",
+  "url": "/member-ledger/head-masters",
+  "status": 200,
+  "ms": 24,
+  "rows": 154,
+  "problems": ""
+ },
+ {
+  "route": "/member-ledger/validate-member",
+  "url": "/member-ledger/validate-member?memberNumber=610022986",
+  "status": 200,
+  "ms": 12,
+  "rows": null,
+  "problems": ""
+ },
+ {
+  "route": "/member-ledger/member-context",
+  "url": "/member-ledger/member-context?memberNumber=610022986",
+  "status": 200,
+  "ms": 1214,
+  "rows": null,
+  "problems": ""
+ },
+ {
+  "route": "/member-ledger/detail-columnar",
+  "url": "/member-ledger/detail-columnar?memberNumber=610022986&fromDate=2026-09-01&toDate=2026-09-30",
+  "status": 200,
+  "ms": 463,
+  "rows": 0,
+  "problems": ""
+ },
+ {
+  "route": "/daybook/report/sb",
+  "url": "/daybook/report/sb?date=2026-09-16",
+  "status": 200,
+  "ms": 878,
+  "rows": null,
+  "problems": ""
+ },
+ {
+  "route": "/daybook/active-members",
+  "url": "/daybook/active-members",
+  "status": 200,
+  "ms": 126,
+  "rows": 7472,
+  "problems": ""
+ },
+ {
+  "route": "/daybook/interest-rate",
+  "url": "/daybook/interest-rate",
+  "status": 200,
+  "ms": 16,
+  "rows": null,
+  "problems": ""
+ },
+ {
+  "route": "/cashbook/members/active",
+  "url": "/cashbook/members/active",
+  "status": 200,
+  "ms": 89,
+  "rows": 7472,
+  "problems": ""
+ },
+ {
+  "route": "/cashbook/interest-rate",
+  "url": "/cashbook/interest-rate",
+  "status": 200,
+  "ms": 11,
+  "rows": null,
+  "problems": ""
+ },
+ {
+  "route": "/cashbook/member/balance",
+  "url": "/cashbook/member/balance?memberCode=610022986",
+  "status": 200,
+  "ms": 9,
+  "rows": null,
+  "problems": ""
+ },
+ {
+  "route": "/cashbook/transactions",
+  "url": "/cashbook/transactions?startDate=2026-09-01&endDate=2026-09-30",
+  "status": 200,
+  "ms": 12,
+  "rows": 54,
+  "problems": ""
+ },
+ {
+  "route": "/general-ledger/head-masters",
+  "url": "/general-ledger/head-masters",
+  "status": 200,
+  "ms": 11,
+  "rows": 154,
+  "problems": ""
+ },
+ {
+  "route": "/jotting-report",
+  "url": "/jotting-report",
+  "status": 200,
+  "ms": 63,
+  "rows": 7474,
+  "problems": ""
+ },
+ {
+  "route": "/consolidation/report",
+  "url": "/consolidation/report",
+  "status": 400,
+  "ms": 16,
+  "rows": null,
+  "problems": "400 with realistic params: {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:51:46.445Z\",\"path\":\"/api/v1/consoli"
+ },
+ {
+  "route": "/report-head-order",
+  "url": "/report-head-order",
+  "status": 200,
+  "ms": 27,
+  "rows": 153,
+  "problems": ""
+ },
+ {
+  "route": "/dashboard-summary",
+  "url": "/dashboard-summary",
+  "status": 200,
+  "ms": 190,
+  "rows": null,
+  "problems": ""
+ },
+ {
+  "route": "/utilities/search/deposits",
+  "url": "/utilities/search/deposits",
+  "status": 200,
+  "ms": 55,
+  "rows": 0,
+  "problems": ""
+ }
+]

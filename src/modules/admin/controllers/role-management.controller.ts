@@ -24,6 +24,7 @@ import { RoleManagementService } from '../services/role-management.service';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { AlertBridge } from '../../alerts/alert-bridge';
 import { UpdateDefaultRightsDto, UserLevelResponseDto, MenuResponseDto } from '../dto/role-management.dto';
+import { RequireMenuAction } from '../../auth/guards/menu-right.guard';
 
 @ApiTags('Role Management')
 @ApiBearerAuth()
@@ -70,6 +71,7 @@ export class RoleManagementController {
         return this.roleManagementService.getDefaultRights(levelId);
     }
 
+    @RequireMenuAction('ROLE_MANAGEMENT')
     @Post('defaults')
     @Roles(UserRole.ADMIN, 'sample_1' as any)
     @RequirePermissions(UserPermission.MANAGE_USERS)

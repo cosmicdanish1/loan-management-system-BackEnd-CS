@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CastCategory } from '../entities/cast-category.entity';
@@ -12,6 +12,10 @@ export class CastCategoryService {
     ) { }
 
     async create(createCastCategoryDto: CreateCastCategoryDto): Promise<CastCategory> {
+        // save() on an existing primary key silently overwrites that category; creating must never do that (ES-299)
+        if (createCastCategoryDto.id !== undefined && await this.castCategoryRepository.findOne({ where: { id: createCastCategoryDto.id } })) {
+            throw new ConflictException(`Cast category ${createCastCategoryDto.id} already exists. Use update to change it.`);
+        }
         const castCategory = this.castCategoryRepository.create(createCastCategoryDto);
         return this.castCategoryRepository.save(castCategory);
     }

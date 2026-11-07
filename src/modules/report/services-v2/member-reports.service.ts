@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { CREDIT_TYPES_SQL, DEBIT_TYPES_SQL, isCreditType, isDebitType } from './ledger-types';
 import { DataSource } from 'typeorm';
 import { parseSafeDate } from '../../shared/utils/date-utils';
 
@@ -17,12 +18,15 @@ export class MemberReportsService {
    */
   async getMemberProfile(dto: { memberNo: string }) {
     const { memberNo } = dto;
+    if (typeof memberNo !== 'string' || memberNo.trim() === '') {
+      throw new BadRequestException('memberNo is required');
+    }
 
     const query = `
       SELECT 
         m.mbno, m.f_name, m.m_name, m.l_name, m.desig, m.present_address, m.dob, m.date_of_retirement AS dor, m.pfno, m.basic_pay,
         m.nominee_name, m.nominee_address, m.nominee_relation, m.isactive,
-        TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) as full_name,
+        REGEXP_REPLACE(TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')), '\\s+', ' ', 'g') as full_name,
         d.name as office_name,
         COALESCE(mb.shares, 0) as share_balance,
         COALESCE(mb.compulsory_deposit, 0) as cd_balance,
@@ -34,10 +38,10 @@ export class MemberReportsService {
       WHERE m.mbno = $1
     `;
 
-    const result = await this.dataSource.query(query, [memberNo]);
+    const result = await this.dataSource.query(query, [memberNo.trim()]);
 
     if (result.length === 0) {
-      return null;
+      throw new NotFoundException(`Member ${memberNo.trim()} not found`);
     }
 
     const member = result[0];
@@ -76,7 +80,7 @@ export class MemberReportsService {
     const memberQuery = `
       SELECT 
         m.mbno,
-        TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
+        REGEXP_REPLACE(TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')), '\\s+', ' ', 'g') as member_name,
         d.name as office_name
       FROM member_master m
       LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
@@ -85,7 +89,7 @@ export class MemberReportsService {
     const memberResult = await this.dataSource.query(memberQuery, [memberNo]);
 
     if (memberResult.length === 0) {
-      return null;
+      throw new NotFoundException(`Member ${memberNo} not found`);
     }
 
     const member = memberResult[0];
@@ -155,7 +159,7 @@ export class MemberReportsService {
       fromDate: fromDate || 'Start',
       toDate: toDate || 'End',
       transactions: transactions.map((t: any, idx: number) => ({
-        key: (offset || 0 + idx).toString(),
+        key: ((offset || 0) + idx).toString(),
         date: t.date,
         type: t.type,
         code: t.code,
@@ -205,7 +209,7 @@ export class MemberReportsService {
       // Search by member number or name
       whereClause += ` AND (
         CAST(m.mbno AS TEXT) ILIKE $${params.length + 1} OR
-        TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) ILIKE $${params.length + 1}
+        REGEXP_REPLACE(TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')), '\\s+', ' ', 'g') ILIKE $${params.length + 1}
       )`;
       params.push(`%${search}%`);
     }
@@ -232,7 +236,7 @@ export class MemberReportsService {
       SELECT 
         ROW_NUMBER() OVER (ORDER BY ${orderBy}) as row_num,
         m.mbno as member_no,
-        TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
+        REGEXP_REPLACE(TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')), '\\s+', ' ', 'g') as member_name,
         m.desig as designation,
         d.name as office_name,
         m.officeno as office_no,
@@ -284,6 +288,12 @@ export class MemberReportsService {
    */
   async getMemberBalanceRangeReport(dto: { minBalance: number; maxBalance: number; limit?: number; offset?: number }) {
     const { minBalance, maxBalance, limit, offset } = dto;
+    if (!Number.isFinite(Number(minBalance)) || !Number.isFinite(Number(maxBalance))) {
+      throw new BadRequestException('minBalance and maxBalance must be numbers');
+    }
+    if (Number(minBalance) > Number(maxBalance)) {
+      throw new BadRequestException('minBalance cannot be greater than maxBalance');
+    }
 
     const baseQuery = `
       FROM member_master m
@@ -357,7 +367,7 @@ export class MemberReportsService {
         COALESCE(a.rlbalance, 0) as "regularLoanBalance",
         COALESCE(a.tlbalance, 0) as "termLoanBalance",
         mm.mbno as "memberNo",
-        TRIM(COALESCE(mm.f_name, '') || ' ' || COALESCE(mm.m_name, '') || ' ' || COALESCE(mm.l_name, '')) as "memberName",
+        REGEXP_REPLACE(TRIM(COALESCE(mm.f_name, '') || ' ' || COALESCE(mm.m_name, '') || ' ' || COALESCE(mm.l_name, '')), '\\s+', ' ', 'g') as "memberName",
         mm.wingno as "wingNo",
         mm.officeno as "officeNo"
       FROM annualstatement a
@@ -515,9 +525,10 @@ export class MemberReportsService {
       const amount = parseFloat(item.transAmt || 0);
 
       // Update running balance based on transaction type
-      if (item.transType === 'CR') {
+      // legacy rows: R = credit, P = debit (same rule as everywhere else, ES-424)
+      if (isCreditType(item.transType)) {
         runningBalance += amount;
-      } else if (item.transType === 'DR') {
+      } else if (isDebitType(item.transType)) {
         runningBalance -= amount;
       }
 

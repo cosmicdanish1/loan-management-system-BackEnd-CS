@@ -1,0 +1,674 @@
+[
+  {
+    "key": "ES-394",
+    "fixedOn": "2026-11-02",
+    "files": "src/common/logging/redact.ts",
+    "change": "One pattern now masks password/passwd/token/secret fields (with any prefix such as refreshToken), otp, pin, mpin and auth code, in double-quoted, single-quoted and unquoted (key=value) form.",
+    "tests": "masks a password written as key=value without quotes; masks a single-quoted password; masks a refresh token / secret field",
+    "result": "3 of 3 now PASS; whole phase 1 re-run: 229 tests, 226 passed, 3 failed (other issues)"
+  },
+  {
+    "key": "ES-395",
+    "fixedOn": "2026-11-02",
+    "files": "src/modules/auth/auth.service.ts",
+    "change": "register() now creates the user with passTransactionFlag 'N' (Transaction Auth is switched on per user by an administrator).",
+    "tests": "a new user does not get Transaction Auth (pass transactions) by default",
+    "result": "PASS; phases 2-8 re-run, no new failures"
+  },
+  {
+    "key": "ES-297",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/auth/auth.service.ts; src/modules/auth/strategies/jwt.strategy.ts; src/modules/auth/auth.controller.ts; Frontend ChangePassword/hook/useChangePassword.ts",
+    "change": "Every login gets a session id (sid) shared by its access and refresh token. Logout revokes the session, so the refresh token dies too. A refresh token now works once (rotation: the used token is revoked, the new pair keeps the same sid); presenting a used token revokes the whole session. Change password sets forceLogoutAt (all older tokens stop working) and returns a fresh token pair so this PC keeps working.",
+    "tests": "a refresh token that was already used (or logged out) is rejected; changePassword ends the user's other sessions; + 8 new scenario tests in tests/unit/auth/session-revocation.spec.ts",
+    "result": "Before: 11 of 65 auth tests failed. After: 164 of 164 auth tests pass. Phases 1-8 re-run: no new failures (phase 1 now 238 tests, 1 failed = ES-393)"
+  },
+  {
+    "key": "ES-297 (admin reset)",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/admin/services/user-management.service.ts",
+    "change": "adminChangeUserPassword and updateUser (with a password) now set forceLogoutAt, truncated to the second, so every token of the target user issued before the reset stops working. A refused reset (target is an administrator or yourself) changes nothing.",
+    "tests": "an admin password reset ends the target user's existing sessions; + 2 new tests in admin/user-management.service.spec.ts",
+    "result": "Before: 3 of 3 session tests failed. After: all pass. Phase 2 now 405 tests, 51 failed (was 402 / 52); phases 1,3-8 unchanged"
+  },
+  {
+    "key": "ES-393",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/license/license.service.ts; generate-license.js",
+    "change": "Removed the hard-coded fallback signing secret. The secret now comes only from LICENSE_SECRET in .env; if it is missing (or blank) activation is refused with 503 and nothing is saved. generate-license.js refuses to run without it.",
+    "tests": "the signing secret is not the hard-coded default; + 5 new tests (503 when missing, blank counts as missing, old-default key rejected under a different secret, configured secret works, generator has no default)",
+    "result": "Before: 4 of these 5-6 tests failed. After: license suite all pass (phase 1: 243 tests, 0 failed)"
+  },
+  {
+    "key": "ES-293 / ES-356",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/admin/services/system-config.service.ts",
+    "change": "setConfigValue and bulkUpdateBusinessRules now validate type and the setting's min/max (numbers must be real numbers: \"12abc\" and \"\" refused). Bulk update checks every rule first and saves nothing if one is bad. Only RULE_/SYS_ keys can be created from a request; arrays / non-objects refused.",
+    "tests": "setConfigValue rejects text for a number setting; honours the validation rules (max); bulk update rejects a non numeric value; rejects a negative rate when min 0; does not create settings with unknown keys; + 10 new tests",
+    "result": "Before: 13 of the 14 config tests failed. After: all pass. Phase 2: 417 tests, 46 failed (was 51)"
+  },
+  {
+    "key": "ES-393 (option B)",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/license/license-crypto.ts (new); license.service.ts; dto/license.dto.ts; entities/license-key.entity.ts; license-key-lib.js (new); generate-license.js; database/migrations/widen-license-key-column.sql; .env.example; Frontend LicenseActivation.tsx",
+    "change": "Keys are now signed with an Ed25519 private key that only the issuer holds (~/.pwt-license/license-private.pem, outside the project); the backend only has the public key and cannot make keys. New format PWT1-CCCC-DDDD-<signature>. Old PWT0 keys are accepted only until LICENSE_LEGACY_UNTIL. Fixed generation password removed from the generator. License key column widened to 200.",
+    "tests": "license-signed-keys.spec.ts (22 new tests): signed key activates, wrong signer / tampered customer or expiry / damaged signature rejected, forged with the old secret rejected, key-pair rotation, legacy overlap rules, column widening, request format, no private key in code",
+    "result": "License suite 42 of 42 pass; phase 1: 262 tests, 0 failed; phases 2-8 unchanged. Real generator key verified against the built-in public key."
+  },
+  {
+    "key": "ES-399",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/admin/entities/effective-dates.ts (new); interest-rate.entity.ts; deposit-slab.entity.ts; src/modules/admin/services/system-config.service.ts",
+    "change": "A rate or slab valid \"until\" a date now applies for the whole of that day (compared with the end of the day, not midnight). replaceDepositSlabs refuses slabs of one type that overlap in amount, tenure and period (inclusive ends), naming the two rows, and deletes nothing.",
+    "tests": "a rate whose end date is 31 March still applies during 31 March; a deposit slab whose end date is today still applies today; rejects overlapping slabs inside one request; + 15 new tests",
+    "result": "Before: these 3 failed. After: system-config suite 62 of 62 pass; phase 2: 432 tests, 43 failed (was 46); other phases unchanged"
+  },
+  {
+    "key": "ES-307 (partial update)",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/member/utils/member-validation.util.ts; src/modules/member/services-v2/member-crud.service.ts",
+    "change": "Member update now validates only the fields that are sent (new validateMemberUpdate). A phone-only change no longer demands name, address and date of birth; a sent field must still be valid and a required field cannot be blanked.",
+    "tests": "update with only a phone change must not demand the other required fields (partial update); + 4 new",
+    "result": "PASS"
+  },
+  {
+    "key": "ES-402 (member lookup)",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/member/services-v2/member-lookup.service.ts",
+    "change": "Lookup limit/offset are sanitised (negative, zero, text, NaN fall back to 500 / 0; max 1000) and a database error is thrown to the caller instead of returning an empty list.",
+    "tests": "a negative limit is not sent to the database as LIMIT -5; a database error is reported to the caller and not hidden as an empty list; + 4 new",
+    "result": "PASS"
+  },
+  {
+    "key": "ES-403 (upload order)",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/member/services-v2/signature.service.ts",
+    "change": "Signature and photo uploads now update member_master first and delete the old file only after that worked; if the update fails the new upload is removed and the old file stays.",
+    "tests": "master signature: the old file is kept when the database update fails; + 5 new",
+    "result": "PASS"
+  },
+  {
+    "key": "ES-302 (SB opening balance, role menus)",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/admin/services/sb-account.service.ts; role-management.service.ts",
+    "change": "SB opening balance: non-numeric refused (was treated as 0), above 100,00,00,000 refused. Default rights: menuIds must be a list of whole numbers (400 otherwise) and duplicates are stored once.",
+    "tests": "rejects a non numeric opening balance; rejects an absurd opening balance (1e12); duplicate menu ids stored once; a missing menuIds list is a clean 400; + 7 new",
+    "result": "PASS. Phase 2: 452 tests, 35 failed (was 43)"
+  },
+  {
+    "key": "ES-393 (hardening)",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/license/license-crypto.ts",
+    "change": "A signed key written with different base32 padding bits is no longer accepted (only the exact issued string).",
+    "tests": "a damaged signature, a truncated key and junk are rejected (was flaky)",
+    "result": "42 of 42, stable over 6 runs"
+  },
+  {
+    "key": "ES-400 / ES-258",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/admin/services/user-management.service.ts; controllers/user-management.controller.ts",
+    "change": "updateUser refuses to demote or disable the last enabled administrator; deleteUser refuses to delete your own account (controller passes the signed-in user id); forceLogoutUser matches the name literally (% _ and backslash escaped).",
+    "tests": "the last enabled administrator cannot be demoted through update either; cannot be disabled; a signed in user cannot delete his own account; a user name that contains SQL LIKE wildcards is matched literally; + 9 new",
+    "result": "PASS"
+  },
+  {
+    "key": "ES-299",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/admin/services/office.service.ts; wing.service.ts; cast-category.service.ts; designation.service.ts",
+    "change": "Creating an office, wing, cast category or designation with a key that exists now returns 409 instead of overwriting the original. A designation that members hold cannot be deleted (409 with the count).",
+    "tests": "create with an existing office id / wing id / code / id is refused; a designation that members use cannot be deleted; + 3 new",
+    "result": "PASS"
+  },
+  {
+    "key": "ES-300 (part)",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/admin/services/member-funds.service.ts; member-balance.service.ts",
+    "change": "Member funds and member balances are created only for a member that exists in member_master (404 otherwise); an existing row is updated as before.",
+    "tests": "updating the funds of a member that does not exist is refused; update of a member without balances row creates one for a REAL member only; + 4 new",
+    "result": "PASS. Still open on ES-300: duplicate rows, negative/huge amounts, path validation, audit. Phase 2: 467 tests, 24 failed (was 35)"
+  },
+  {
+    "key": "ES-404 (part)",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/admin/services/saakh-score.service.ts",
+    "change": "Saakh Score repaid percentage is kept between 0 and 100. A balance above the opening balance (penalty/interest added) gave a negative percentage that dragged the average repayment score down; a negative balance gave more than 100.",
+    "tests": "repaidPct is never negative or above 100; + 6 new (saakh-repaid-pct.spec.ts)",
+    "result": "PASS. Still open on ES-404: rounding of ledger/balance totals to 2 decimals, double space in names with no middle name"
+  },
+  {
+    "key": "ES-430",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/notification/services/notification.service.ts; controllers/notification.controller.ts",
+    "change": "A cancelled message is never sent; WhatsApp numbers are normalised to 91 + 10 digits (also for mobiles starting 91); cancel reports the rows really cancelled; transaction alerts dedupe by an optional reference (otherwise every call is its own alert) and are not queued without a phone number; EMI/maturity counts include only new messages; month-end summaries go to every active member (no LIMIT 200).",
+    "tests": "7 tests (cancelled, WhatsApp 91, cancel count, same-amount payments, no phone, repeat run count, monthly 200) + 10 new",
+    "result": "PASS"
+  },
+  {
+    "key": "ES-431",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/onboarding/onboarding.service.ts",
+    "change": "Version check regex fixed to /^d+.d+.d+$/ (was missing the backslashes, so 1.8.0 was rejected).",
+    "tests": "accepts a normal version like 1.8.0; accepts a multi-digit version; + 2 new",
+    "result": "PASS"
+  },
+  {
+    "key": "ES-432",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/ai-chat/ai-chat.service.ts",
+    "change": "Only user and assistant messages (max 15, 4000 characters each) go to the providers; a client system message is dropped; nothing usable gives a polite reply without a provider call; the Gemini key is sent in the x-goog-api-key header, not in the URL.",
+    "tests": "system role not passed on; very long message cut; Gemini key not in the URL; + 7 new",
+    "result": "PASS"
+  },
+  {
+    "key": "ES-433",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/support/services/jira-client.service.ts",
+    "change": "Jira create (15 s) and attachment upload (30 s) calls now have a timeout signal.",
+    "tests": "requests to Jira have a timeout; + 3 new",
+    "result": "PASS"
+  },
+  {
+    "key": "ES-434",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/notice/controllers/notice.controller.ts; src/modules/alerts/telegram-client.service.ts",
+    "change": "Notice poster comes from the signed-in user, not the body. Telegram HTML alerts are cut at a safe point (no half tag or entity) and open tags are closed (new safeHtmlCut).",
+    "tests": "create takes the poster from the logged-in user; a long message is cut at 4000 characters without breaking an HTML tag; + 7 new",
+    "result": "PASS"
+  },
+  {
+    "key": "ES-371 (notice part)",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/notice/controllers/notice.controller.ts",
+    "change": "Dashboard notice create: title/message required (title max 200), type must be info/warning/success, reorder takes whole numbers only; all 400 instead of a database error.",
+    "tests": "reorder with non-numbers is a 400; create rejects empty title or message; create rejects an unknown notice type; + 7 new",
+    "result": "PASS. Still open on ES-371: dividend pay, short-recovery adjust, change loan surety"
+  },
+  {
+    "key": "ES-426 / ES-374 / ES-303 (backup)",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/admin/services/backup.service.ts; src/modules/admin/controllers/backup.controller.ts",
+    "change": "Backup file names are checked (plain name.sql inside the backup folder; no folders, .., odd characters) for delete, restore and verify, and the backup name for create (it was also part of the pg_dump command line). Dumps are made with --clean --if-exists; restore runs psql with ON_ERROR_STOP and one transaction; a backup made without --clean is refused over a database that already has data. A missing backup is a 404 (not wrapped into 400). The verify endpoint no longer builds ./backups/<name> from the raw request.",
+    "tests": "the dump includes --clean --if-exists; a file name that climbs out of the backup folder is refused; a missing file is a 404; never deletes a file outside the backup folder; + 18 new (backup-safety.spec.ts)",
+    "result": "PASS (19 + 18 = 37 of 37). Phase 7: 194 tests, 8 failed (was 12). ES-374 still needs a test on the spare copy database and a row-count check after restore"
+  },
+  {
+    "key": "ES-428",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/utility/services/data-correction.service.ts",
+    "change": "All five correction batches are all-or-nothing: one failed fix rolls everything back and the result says 0 corrected with the problem named. Unknown record / account types are errors. removeDuplicateRecords says \"not supported; nothing changed\" for loans and deposits (no connection opened). rollbackAvailable is false on every committed result (there is no undo).",
+    "tests": "when one of the fixes fails the whole batch is rolled back; an unknown record type is reported as an error; a committed result does not claim a rollback; removeDuplicateRecords for loans or deposits says it is not supported; + 12 new",
+    "result": "PASS"
+  },
+  {
+    "key": "ES-427 (part: system health)",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/utility/services/system-health-monitoring.service.ts",
+    "change": "Business health numbers (members, active loans and amount, deposits, daily transactions, defaulters) now come from member_master, loan_master, fdmaster, ledger and demand_master in one query instead of the empty ORM tables (members, loan_accounts, transactions). The service no longer injects those repositories.",
+    "tests": "the daily transaction count reads the table the society actually posts to (ledger); the business metrics read the live member and loan tables; + 4 new",
+    "result": "PASS. Still open on ES-427: balance/statement, data consistency, data correction and day-end interest still read the ORM tables"
+  },
+  {
+    "key": "ES-303 (balance not found)",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/utility/services/balance.service.ts",
+    "change": "A missing account in getAccountBalance and generateAccountStatement is a 404 NotFoundException (was a plain Error = HTTP 500).",
+    "tests": "a missing account is a 404 NotFoundException, not a plain Error (500)",
+    "result": "PASS"
+  },
+  {
+    "key": "ES-429",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/admin/services/day-end.service.ts",
+    "change": "Starting a day-end now runs the completed check, the in-progress check, the next-id read and the insert in ONE transaction under pg_advisory_xact_lock(hashtext(day_end_processes)), so two requests at the same moment cannot both start (or take the same id). A refused or failed request rolls back and releases the lock and the connection.",
+    "tests": "allocating the process id and the in-progress check are done under a lock; + 8 new concurrency tests with a real in-memory lock (day-end-lock.spec.ts)",
+    "result": "PASS. Phase 7: 214 tests, 0 failed"
+  },
+  {
+    "key": "ES-328",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/report/services-v2/ledger-types.ts (new); dividend-reports, loan-reports, member-reports, cash-book-reports, utility-reports .service.ts",
+    "change": "Dividend rate must be a number from 0 to 100, otherwise 400.",
+    "tests": "rejects unreasonable dividend rates (> 100% or negative)",
+    "result": "PASS; phase 6 re-run: 135 tests, 135 passed, 0 failed"
+  },
+  {
+    "key": "ES-370",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/report/services-v2/ledger-types.ts (new); dividend-reports, loan-reports, member-reports, cash-book-reports, utility-reports .service.ts",
+    "change": "New Loan Disbursed refuses text/impossible dates and from-after-to with 400.",
+    "tests": "getNewLoanDisbursed date checks",
+    "result": "PASS; phase 6 re-run: 135 tests, 135 passed, 0 failed"
+  },
+  {
+    "key": "ES-424",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/report/services-v2/ledger-types.ts (new); dividend-reports, loan-reports, member-reports, cash-book-reports, utility-reports .service.ts",
+    "change": "Legacy ledger rows (R = credit, P = debit) are read like CR/DR in the daily cash book, detail ledger, bank ledger, member ledger running balance and financial summary (shared ledger-types.ts).",
+    "tests": "cash book daily / detail ledger / bank ledger / member ledger / financial summary R-P tests",
+    "result": "PASS; phase 6 re-run: 135 tests, 135 passed, 0 failed"
+  },
+  {
+    "key": "ES-425",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/report/services-v2/ledger-types.ts (new); dividend-reports, loan-reports, member-reports, cash-book-reports, utility-reports .service.ts",
+    "change": "Member statement row keys continue from the offset (offset + index).",
+    "tests": "getMemberStatement key precedence",
+    "result": "PASS; phase 6 re-run: 135 tests, 135 passed, 0 failed"
+  },
+  {
+    "key": "ES-303",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/report/services-v2/ledger-types.ts (new); dividend-reports, loan-reports, member-reports, cash-book-reports, utility-reports .service.ts",
+    "change": "Member profile/statement: unknown member is 404, empty member number 400; detail ledger needs head_code; balance range min>max is 400.",
+    "tests": "member profile/statement not-found, empty memberNo, empty head_code, min>max",
+    "result": "PASS; phase 6 re-run: 135 tests, 135 passed, 0 failed"
+  },
+  {
+    "key": "ES-397",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/shared/utils/date-utils.ts",
+    "change": "parseSafeDate no longer moves 31-02-2026 to 3 March or turns unreadable text into today: impossible dates and unparseable text give 400. Empty input (undefined/null/'') still means today.",
+    "tests": "an impossible date is not silently moved; unparseable text must not silently become today",
+    "result": "2 of 2 PASS (tests updated to expect the 400); phases 1-8 re-run, no new failures"
+  },
+  {
+    "key": "ES-398",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/shared/utils/number-to-words.ts",
+    "change": "Rewritten: 0 = 'Zero Only'; 100 crore and above is spelled out ('One Hundred Crore Only'); paise are written ('... Rupees and Fifty Paise Only'); NaN/Infinity give ''; negatives get 'Minus'.",
+    "tests": "zero is written as Zero; 100 crore or more not 'overflow'; fractional amount not empty",
+    "result": "3 of 3 PASS; phases 1-8 re-run, no new failures"
+  },
+  {
+    "key": "ES-416",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/daybook/daybook.service.ts",
+    "change": "calculateMemberInterest keeps the true minimum balance: the first row sets it and the lowest running balance wins (a balance that falls to 0 stays 0).",
+    "tests": "keeps the true minimum balance when a withdrawal brings the balance to zero",
+    "result": "PASS; phases 5-8 re-run"
+  },
+  {
+    "key": "ES-121",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/daybook/daybook.service.ts",
+    "change": "payInterestToMember posts savings interest to the member savings head A001 (was A1001 = Cash In Hand). Ticket stays Pending for the wider GL head decision.",
+    "tests": "credits the member savings head, not Cash-In-Hand",
+    "result": "PASS"
+  },
+  {
+    "key": "ES-353",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/daybook/daybook.service.ts",
+    "change": "payInterestToMember refuses non-numeric, empty, zero, negative and infinite interest amounts with 400 (Day Book part only; RD endpoints still open).",
+    "tests": "rejects a non-numeric interest amount instead of posting NaN",
+    "result": "PASS"
+  },
+  {
+    "key": "ES-422",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/jotting-report/jotting-report.service.ts",
+    "change": "Jotting report member balance counts legacy R (credit) and P (debit) rows and uses the head's own direction (pflag A/E = debit-normal, so a loan owed shows positive).",
+    "tests": "counts legacy receipt/payment rows; uses the head's own normal direction",
+    "result": "2 of 2 PASS (+2 new tests); SQL checked read-only on the real DB"
+  },
+  {
+    "key": "ES-402",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/search/search.service.ts",
+    "change": "Global search and suggestions: limit must be a whole number 1-500 (text, negative, 0, NaN use the default, huge values capped); a database failure is thrown to the caller instead of an empty list; missing query text no longer crashes.",
+    "tests": "huge limit capped; non-numeric/negative limit; database failure reported (global search and suggestions)",
+    "result": "4 of 4 PASS (+4 new tests)"
+  },
+  {
+    "key": "ES-404",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/search/search.service.ts",
+    "change": "Member title and suggestions skip empty name parts (single spaces when there is no middle name).",
+    "tests": "the member title has single spaces when there is no middle name",
+    "result": "PASS"
+  },
+  {
+    "key": "ES-328",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/dividend/services/dividend-calculation.service.ts",
+    "change": "Dividend preview and commit refuse a rate that is not a number greater than 0 and not more than 100 (before: 500% was accepted and rewrote all dividend rows).",
+    "tests": "rate 0/negative/NaN/over 100 refused; commit refuses 500%",
+    "result": "2 of 2 PASS (+2 new tests)"
+  },
+  {
+    "key": "ES-410",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/dividend/services/dividend-credit.service.ts",
+    "change": "Crediting a dividend now stops (and rolls back) when the member has no member_balances row, instead of marking it credited while the share balance never increased.",
+    "tests": "a member without a member_balances row is not marked credited",
+    "result": "PASS"
+  },
+  {
+    "key": "ES-370",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/dividend/services/share-month-end.service.ts",
+    "change": "Share month-end snapshot refuses month outside 1-12 and year outside 1900-2100 or non-whole numbers with 400.",
+    "tests": "month 13, month 0, year 1800 and non numeric month are refused",
+    "result": "PASS (+2 new tests)"
+  },
+  {
+    "key": "ES-422",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/consolidation/consolidation.service.ts",
+    "change": "Consolidation: legacy R = receipt, P = payment in the head groups; cash in hand opening/day SQL counts DR/P as debit and CR/R as credit.",
+    "tests": "treats legacy R/P rows as receipts/payments like the Day Book does",
+    "result": "PASS (+2 new tests)"
+  },
+  {
+    "key": "ES-402",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/general-ledger/general-ledger.service.ts",
+    "change": "getHeadMasters throws on a database failure instead of returning an empty list.",
+    "tests": "fails instead of returning an empty head list when the database is unavailable",
+    "result": "PASS"
+  },
+  {
+    "key": "ES-408",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/interest/interest.service.ts",
+    "change": "Interest run: one shared check for dates, 365-day period and rate 0-50 (also text/NaN) used by both validate and the real run; a failing member stops and rolls back the run (named in the error); advisory lock per account type before the overlap check; a negative balance never gives negative interest.",
+    "tests": "rejects invalid dates; rejects bad rate; period not longer than one year; failing member stops the run; two runs cannot both pass the overlap check; validate rejects invalid dates/rate; negative balance",
+    "result": "7 of 7 PASS (+6 new tests)"
+  },
+  {
+    "key": "ES-121",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/interest/interest.service.ts",
+    "change": "Interest run default credit heads: SB A001 (member savings), RD L1004 (RD head); no longer A1001 CASH IN HAND / A1002 REGULAR LOAN. FD keeps its placeholder (on hold). Ticket stays Pending for the business decision.",
+    "tests": "interest on Saving and RD accounts is not credited to the cash-in-hand / regular-loan heads",
+    "result": "PASS (existing test that asserted the old heads updated)"
+  },
+  {
+    "key": "ES-404",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/member-ledger/member-ledger.service.ts",
+    "change": "Member Ledger report: member name skips empty parts (single spaces); money is rounded to paise at each step (0.10 + 0.20 = 0.30).",
+    "tests": "member name is joined without extra spaces; amounts are summed exactly",
+    "result": "2 of 2 PASS (+3 new tests)"
+  },
+  {
+    "key": "ES-303",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/member-ledger/member-ledger.service.ts",
+    "change": "Member Ledger report: invalid, missing or reversed dates give 400 instead of 'Failed to generate member ledger report'.",
+    "tests": "a bad date in the request is answered with a clean 400",
+    "result": "PASS"
+  },
+  {
+    "key": "ES-411",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/deposit/services/certificate.service.ts",
+    "change": "Certificate number random part is now 6 digits from crypto.randomInt and is re-drawn if already issued by this server or already used in a saved certificate file name. DB sequence (ticket's expected fix) still open.",
+    "tests": "certificate numbers are unique (two numbers made in the same month never repeat)",
+    "result": "PASS (+2 new tests)"
+  },
+  {
+    "key": "ES-313",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/transaction/services-v2/voucher.service.ts",
+    "change": "createVoucher: only RECEIPT/PAYMENT; each amount > 0 and <= 999,999,999.99; memberId must exist. Dates and 2-decimal rule still open.",
+    "tests": "zero/negative/absurd amounts; voucher types; unknown member",
+    "result": "3 of 3 PASS"
+  },
+  {
+    "key": "ES-413",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/transaction/services-v2/voucher.service.ts; transaction-v2.controller.ts",
+    "change": "Ids taken on the voucher's own transaction under an advisory lock; username = signed-in user (controller sets createdBy); no SMS at staging time.",
+    "tests": "signed-in user recorded; no notification before pass; ids on the transactional connection",
+    "result": "3 of 3 PASS (2 old tests that expected the SMS / shared-connection id updated)"
+  },
+  {
+    "key": "ES-319",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/transaction/services-v2/voucher.service.ts",
+    "change": "generateLoanVoucher: one pending voucher per case (lock + check); amount = sanctioned, a client amount only lower; breakdown must add up to the total.",
+    "tests": "second voucher refused; amount capped at sanctioned; breakdown sum",
+    "result": "3 of 3 PASS"
+  },
+  {
+    "key": "ES-404",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/transaction/services-v2/voucher.service.ts",
+    "change": "Pending voucher list: member name without double spaces.",
+    "tests": "maps a pending loan voucher and its staged breakdown",
+    "result": "PASS"
+  },
+  {
+    "key": "ES-414",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/transaction/services-v2/ledger-posting.service.ts",
+    "change": "Month lock before reading the pending demand (read on the posting transaction); one DR/CR pair per head (principal, interest, savings) with its own amount. GL head codes (A1003/L1028/L1001) still need a business decision.",
+    "tests": "two simultaneous postings; posts all heads",
+    "result": "2 of 2 PASS (3 old tests rewritten for per-head posting)"
+  },
+  {
+    "key": "ES-415",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/transaction/services-v2/pass-transaction.service.ts",
+    "change": "A voucher line without a head code is refused (400) before anything is posted, instead of posting to GL000.",
+    "tests": "rejects a journal line without a head code",
+    "result": "PASS"
+  },
+  {
+    "key": "ES-417",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/transaction/services-v2/demand-import.service.ts",
+    "change": "Preview and save use one tolerance (0.01) for parts vs total.",
+    "tests": "keeps the preview and the save tolerance consistent",
+    "result": "PASS"
+  },
+  {
+    "key": "ES-418",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/transaction/services-v2/short-recovery.service.ts",
+    "change": "List shows the middle name; adjusting a legacy demand row with serial 0 first gives that row a real serial (MAX+1 under a table lock) and links the audit row to it.",
+    "tests": "maps a legacy demand row; audit row traceable when serial is zero",
+    "result": "2 of 2 PASS"
+  },
+  {
+    "key": "ES-421",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/transaction/services-v2/member-balance-transfer.service.ts",
+    "change": "post refuses (400) when part of a balance is above the credit limit and no excess head is chosen (that leg was silently skipped, unbalanced voucher). The two listed tests had wrong set-up (balance keyed on the wrong head, excess head not passed) and were corrected.",
+    "tests": "generate excess; post recomputes from the ledger",
+    "result": "2 of 2 PASS (+2 new tests)"
+  },
+  {
+    "key": "ES-419",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/transaction/services-v2/dividend-payment.service.ts",
+    "change": "Payment needs at least one warrant (no duplicates); the warrants are read and locked (unpaid, this member) and the total must equal their amounts.",
+    "tests": "empty warrant list; total mismatch",
+    "result": "2 of 2 PASS"
+  },
+  {
+    "key": "ES-423",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/transaction/services-v2/demand-report.service.ts",
+    "change": "Month read trimmed and case-insensitive; year must be exactly 4 digits (400 otherwise).",
+    "tests": "year with trailing junk; lower-case month",
+    "result": "2 of 2 PASS (old test for 'nope' year updated to expect 400)"
+  },
+  {
+    "key": "ES-420",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/transaction/services-v2/compulsory-deposit.service.ts",
+    "change": "Header total must equal the sum of member amounts; audit ledger row written on L1004; advisory lock before every MAX()+1 (and the voucher number).",
+    "tests": "header total; CD head code; lock before MAX",
+    "result": "3 of 3 PASS"
+  },
+  {
+    "key": "ES-402",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/loan/services-v2/loan-sanction.service.ts; loan-application.service.ts",
+    "change": "Sanctioned-cases and application list screens throw on a database failure instead of returning an empty list.",
+    "tests": "getSanctionedLoanCases / list screens report a database failure",
+    "result": "2 of 2 PASS"
+  },
+  {
+    "key": "ES-318",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/loan/services-v2/loan-sanction.service.ts",
+    "change": "updateLoanSanction: amount > 0 and not above the applied amount, installments a whole number > 0, a paid-out or already disbursed case is refused (400s, nothing written). Member limit / product installment limits not added.",
+    "tests": "negative/zero/text amount; above applied; 0/negative/text installments; already paid out",
+    "result": "4 of 4 PASS (+3 new tests)"
+  },
+  {
+    "key": "ES-317",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/loan/services-v2/loan-application.service.ts",
+    "change": "saveLoanApplication: amount must be a real number > 0, installments a whole number > 0 (default 60 only when missing), invalid application date refused (400). Unknown member / non-existent surety / unknown loan type / future date not added.",
+    "tests": "amount 0/negative/text; 0/negative installments; application date not a date",
+    "result": "3 of 3 PASS"
+  },
+  {
+    "key": "ES-405",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/loan/services-v2/loan-application.service.ts; loan-surety.service.ts",
+    "change": "Surety cannot be the borrower, the two sureties must differ (application and change surety); change surety updates suretymaster by case, refuses a disbursed case, locks the case row, does not roll back a transaction that never started; validateSurety throws on a database error.",
+    "tests": "all 8 listed surety tests",
+    "result": "8 of 8 PASS"
+  },
+  {
+    "key": "ES-316",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/loan/services-v2/loan-application.service.ts",
+    "change": "An existing case number of another member is refused (400) and an already sanctioned/paid application can no longer be edited; the case row is locked while saving. (Full application body is still logged.)",
+    "tests": "re-posting another member's case; sanctioned application edit",
+    "result": "2 of 2 PASS"
+  },
+  {
+    "key": "ES-391",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/loan/services-v2/loan-query.service.ts; loan-v2.controller.ts",
+    "change": "GET /loans/master/:caseNo and /loans/pending/:caseNo accept ?memberNo=; without it an ambiguous case number returns null instead of another member's loan. EMI schedule, /loans/case and other callers not changed.",
+    "tests": "a case number alone is not enough",
+    "result": "PASS (+2 new tests; old test updated for the second parameter)"
+  },
+  {
+    "key": "ES-370",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/loan/services-v2/loan-month-end.service.ts",
+    "change": "Loan month-end snapshot: month 1-12 and year 1900-2100 whole numbers only (400).",
+    "tests": "month 13/0/year 1800 refused; non numeric month refused",
+    "result": "2 of 2 PASS (+1 new test)"
+  },
+  {
+    "key": "ES-406",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/loan/services-v2/loan-eligibility.service.ts",
+    "change": "Deductions together are capped at the loan amount (negative RD first, then share, then RD); negative or non-numeric loan amount refused, enforceEligibility needs an amount > 0.",
+    "tests": "negative loan amount not eligible; deductions never exceed the loan",
+    "result": "2 of 2 PASS"
+  },
+  {
+    "key": "ES-320",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/loan/services-v2/loan-repayment.service.ts",
+    "change": "Payment amount must be a real number > 0 and at most 999,999,999.99 (NaN, Infinity, 1e12 refused); explicit principal above the outstanding balance is refused instead of silently discarded. An ordinary payment above the amount due is still capped by the waterfall, not refused.",
+    "tests": "non numeric / infinite / absurd payment; principal above outstanding; ledger row equals deduction",
+    "result": "4 of 4 PASS"
+  },
+  {
+    "key": "ES-321",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/loan/services-v2/loan-repayment.service.ts",
+    "change": "recordLoanRepayment and executeEarlyClosure read the loan_master row FOR UPDATE, so two simultaneous payments cannot both read the same balance. Needs a live concurrent test.",
+    "tests": "loan row locked before the balance is read (repayment and closure)",
+    "result": "2 of 2 PASS (mock only)"
+  },
+  {
+    "key": "ES-322",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/loan/services-v2/loan-repayment.service.ts",
+    "change": "Early closure adjustment must be a number, at most 999,999,999.99, and a reduction can not exceed the outstanding balance. Reason/approver and quote check not added.",
+    "tests": "huge negative adjustment; non numeric adjustment",
+    "result": "2 of 2 PASS"
+  },
+  {
+    "key": "ES-407",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/loan/services-v2/loan-rb-schedule.util.ts",
+    "change": "Last instalment principal = the balance that is really left, so the principal column adds up to the loan amount and the schedule closes to exactly 0.",
+    "tests": "principal column adds up; schedule closes to zero",
+    "result": "2 of 2 PASS (+ test over 48 amount/tenure combinations)"
+  },
+  {
+    "key": "ES-401",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/admin/services/financial-year.service.ts",
+    "change": "createFinancialYear: a period must be 28 to 367 days (a 10-year or few-day 'year' is refused); initiateTransfer refuses a year that is already closed.",
+    "tests": "a period longer than one year is not accepted; a closed year cannot be transferred again",
+    "result": "2 of 2 PASS (+2 new tests)"
+  },
+  {
+    "key": "ES-357",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/admin/services/financial-year.service.ts",
+    "change": "performBalanceTransfer: an amount of 1 crore or more is refused unless the request has confirmLargeAmount: true (the Balance Transfer screen does not send it yet).",
+    "tests": "an amount of one crore or more asks for confirmation",
+    "result": "PASS (+1 new test)"
+  },
+  {
+    "key": "ES-353",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/rd/services/rd-balance-events.service.ts; rd-member-config.service.ts; rd-repayment.service.ts",
+    "change": "RD: withdrawal, opening balance, monthly amount and counter payment must be real numbers (NaN/Infinity/text refused), above 0 and not absurd; counter payment also needs a month of the financial year (1-12, year 2000-2100) and at most 10 times the configured instalment. (RD counter rule 'amount exactly as entered' relaxed per the QA ticket.)",
+    "tests": "withdrawal NaN; opening balance zero/negative; monthly amount NaN and 1e12; payment NaN, 1e12 / 70,000 on 700, month 13/0/1900, month outside the year",
+    "result": "8 of 8 PASS (+5 new tests)"
+  },
+  {
+    "key": "ES-409",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/rd/services/rd-financial-year-closing.service.ts",
+    "change": "closeMemberYear: an authority override needs a reason and an approver (400); a per-member advisory lock is taken inside the transaction and the closed flag is checked again, so two simultaneous closings cannot both credit the interest.",
+    "tests": "an override without a reason is refused; two simultaneous closings (lock inside the transaction)",
+    "result": "2 of 2 PASS"
+  },
+  {
+    "key": "ES-403",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/member/config/multer.config.ts",
+    "change": "Photo, document and signature uploads: the stored file extension comes from the content type that passed the filter (.jpg/.png/.pdf), never from the client's file name, so evil.html / shell.php / double extensions are never stored with that extension.",
+    "tests": "dangerous extension with an image content type; double extension .php",
+    "result": "2 of 2 PASS (+2 new tests)"
+  },
+  {
+    "key": "ES-396",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/member/services-v2/member-balance.service.ts",
+    "change": "Member balance: a loan present in member_balances and loan_master is counted once (loan_master only adds types member_balances has no column for); quick balance uses the same asset (share, CD, RD, FRS) and loan rules so both give the same net.",
+    "tests": "loan in both sources counted once; emergency loan in both; quick and full agree",
+    "result": "3 of 3 PASS (+2 new tests; quick-balance test mock extended with RD/FRS fields)"
+  },
+  {
+    "key": "ES-404",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/member/services-v2/member-balance.service.ts",
+    "change": "Member balance totals rounded to paise (0.10 + 0.20 = 0.30).",
+    "tests": "sums are exact to the paisa",
+    "result": "PASS"
+  },
+  {
+    "key": "ES-402",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/member/services-v2/member-balance.service.ts",
+    "change": "getQuickBalance throws on a database failure instead of returning zeros.",
+    "tests": "a database failure is reported, not shown as a zero balance",
+    "result": "PASS"
+  },
+  {
+    "key": "ES-404",
+    "fixedOn": "2026-11-03",
+    "files": "src/modules/shared/utils/name-utils.ts (new); daybook.service.ts; member-ledger.service.ts; 44 SQL name expressions in report/loan/member/transaction services",
+    "change": "Names with an empty middle name no longer get a double space: JS names use joinName, SQL names collapse repeated spaces (REGEXP_REPLACE). Re-tested; ticket moved to Done.",
+    "tests": "member name joined without extra spaces; title single spaces; joinName",
+    "result": "PASS (+1 new test); SQL checked on the real DB"
+  }
+]

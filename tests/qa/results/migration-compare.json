@@ -3,8 +3,8 @@
   "Nothing to migrate": 36,
   "Not migrated (scratch/backup)": 29,
   "Migrated, equal": 60,
-  "Not migrated (review)": 41,
-  "Migrated, differs": 28,
+  "Not migrated (review)": 40,
+  "Migrated, differs": 29,
   "Empty in legacy": 7
  },
  "tableRows": [
@@ -345,9 +345,9 @@
    "Legacy table": "BUSRULES",
    "New (Postgres) table": "busrules",
    "Legacy rows": 4025,
-   "New rows": 4100,
-   "Difference (new - legacy)": 75,
-   "Difference %": 1.86,
+   "New rows": 4113,
+   "Difference (new - legacy)": 88,
+   "Difference %": 2.19,
    "Status": "DIFFERS - new has MORE rows"
   },
   {
@@ -435,9 +435,9 @@
    "Legacy table": "DEMAND_MASTER",
    "New (Postgres) table": "demand_master",
    "Legacy rows": 330988,
-   "New rows": 329150,
-   "Difference (new - legacy)": -1838,
-   "Difference %": -0.56,
+   "New rows": 329165,
+   "Difference (new - legacy)": -1823,
+   "Difference %": -0.55,
    "Status": "DIFFERS - new has FEWER rows"
   },
   {
@@ -804,9 +804,9 @@
    "Legacy table": "FUNDSMASTER",
    "New (Postgres) table": "fundsmaster",
    "Legacy rows": 7304,
-   "New rows": 7330,
-   "Difference (new - legacy)": 26,
-   "Difference %": 0.36,
+   "New rows": 7325,
+   "Difference (new - legacy)": 21,
+   "Difference %": 0.29,
    "Status": "DIFFERS - new has MORE rows"
   },
   {
@@ -867,9 +867,9 @@
    "Legacy table": "GETWORKINGDATE",
    "New (Postgres) table": "getworkingdate",
    "Legacy rows": 2319,
-   "New rows": 11,
-   "Difference (new - legacy)": -2308,
-   "Difference %": -99.53,
+   "New rows": 12,
+   "Difference (new - legacy)": -2307,
+   "Difference %": -99.48,
    "Status": "DIFFERS - new has FEWER rows"
   },
   {
@@ -885,9 +885,9 @@
    "Legacy table": "HEADMASTER",
    "New (Postgres) table": "headmaster",
    "Legacy rows": 151,
-   "New rows": 153,
-   "Difference (new - legacy)": 2,
-   "Difference %": 1.32,
+   "New rows": 154,
+   "Difference (new - legacy)": 3,
+   "Difference %": 1.99,
    "Status": "DIFFERS - new has MORE rows"
   },
   {
@@ -903,8 +903,8 @@
    "Legacy table": "InterestMaster",
    "New (Postgres) table": "interestmaster",
    "Legacy rows": 0,
-   "New rows": 3,
-   "Difference (new - legacy)": 3,
+   "New rows": 5,
+   "Difference (new - legacy)": 5,
    "Difference %": "",
    "Status": "Empty in legacy; new has rows"
   },
@@ -912,8 +912,8 @@
    "Legacy table": "InterestPaid",
    "New (Postgres) table": "interestpaid",
    "Legacy rows": 0,
-   "New rows": 3,
-   "Difference (new - legacy)": 3,
+   "New rows": 4,
+   "Difference (new - legacy)": 4,
    "Difference %": "",
    "Status": "Empty in legacy; new has rows"
   },
@@ -957,8 +957,8 @@
    "Legacy table": "LEDGER",
    "New (Postgres) table": "ledger",
    "Legacy rows": 1582482,
-   "New rows": 1576589,
-   "Difference (new - legacy)": -5893,
+   "New rows": 1576686,
+   "Difference (new - legacy)": -5796,
    "Difference %": -0.37,
    "Status": "DIFFERS - new has FEWER rows"
   },
@@ -1011,9 +1011,9 @@
    "Legacy table": "LOAN_MASTER",
    "New (Postgres) table": "loan_master",
    "Legacy rows": 20034,
-   "New rows": 20093,
-   "Difference (new - legacy)": 59,
-   "Difference %": 0.29,
+   "New rows": 20106,
+   "Difference (new - legacy)": 72,
+   "Difference %": 0.36,
    "Status": "DIFFERS - new has MORE rows"
   },
   {
@@ -1074,9 +1074,9 @@
    "Legacy table": "LOAN_PENDING",
    "New (Postgres) table": "loan_pending",
    "Legacy rows": 19044,
-   "New rows": 19109,
-   "Difference (new - legacy)": 65,
-   "Difference %": 0.34,
+   "New rows": 19168,
+   "Difference (new - legacy)": 124,
+   "Difference %": 0.65,
    "Status": "DIFFERS - new has MORE rows"
   },
   {
@@ -1128,9 +1128,9 @@
    "Legacy table": "LOGINTIME",
    "New (Postgres) table": "logintime",
    "Legacy rows": 23974,
-   "New rows": 3097,
-   "Difference (new - legacy)": -20877,
-   "Difference %": -87.08,
+   "New rows": 3795,
+   "Difference (new - legacy)": -20179,
+   "Difference %": -84.17,
    "Status": "DIFFERS - new has FEWER rows"
   },
   {
@@ -1146,9 +1146,9 @@
    "Legacy table": "Member_Balances",
    "New (Postgres) table": "member_balances",
    "Legacy rows": 6505,
-   "New rows": 6577,
-   "Difference (new - legacy)": 72,
-   "Difference %": 1.11,
+   "New rows": 6602,
+   "Difference (new - legacy)": 97,
+   "Difference %": 1.49,
    "Status": "DIFFERS - new has MORE rows"
   },
   {
@@ -1182,9 +1182,9 @@
    "Legacy table": "member_master",
    "New (Postgres) table": "member_master",
    "Legacy rows": 7302,
-   "New rows": 7389,
-   "Difference (new - legacy)": 87,
-   "Difference %": 1.19,
+   "New rows": 7572,
+   "Difference (new - legacy)": 270,
+   "Difference %": 3.7,
    "Status": "DIFFERS - new has MORE rows"
   },
   {
@@ -1281,9 +1281,9 @@
    "Legacy table": "MENUMASTER",
    "New (Postgres) table": "menumaster",
    "Legacy rows": 92,
-   "New rows": 135,
-   "Difference (new - legacy)": 43,
-   "Difference %": 46.74,
+   "New rows": 141,
+   "Difference (new - legacy)": 49,
+   "Difference %": 53.26,
    "Status": "DIFFERS - new has MORE rows"
   },
   {
@@ -1479,10 +1479,10 @@
    "Legacy table": "SuretyMaster",
    "New (Postgres) table": "suretymaster",
    "Legacy rows": 6,
-   "New rows": 0,
-   "Difference (new - legacy)": -6,
-   "Difference %": -100,
-   "Status": "NOT MIGRATED - new table is empty"
+   "New rows": 5,
+   "Difference (new - legacy)": -1,
+   "Difference %": -16.67,
+   "Status": "DIFFERS - new has FEWER rows"
   },
   {
    "Legacy table": "sysdiagrams",
@@ -1497,9 +1497,9 @@
    "Legacy table": "tblCashBook",
    "New (Postgres) table": "tblcashbook",
    "Legacy rows": 8,
-   "New rows": 766,
-   "Difference (new - legacy)": 758,
-   "Difference %": 9475,
+   "New rows": 805,
+   "Difference (new - legacy)": 797,
+   "Difference %": 9962.5,
    "Status": "DIFFERS - new has MORE rows"
   },
   {
@@ -1695,8 +1695,8 @@
    "Legacy table": "TRANSACTIONS",
    "New (Postgres) table": "transactions",
    "Legacy rows": 0,
-   "New rows": 179,
-   "Difference (new - legacy)": 179,
+   "New rows": 332,
+   "Difference (new - legacy)": 332,
    "Difference %": "",
    "Status": "Empty in legacy; new has rows"
   },
@@ -1722,9 +1722,9 @@
    "Legacy table": "USERINFO",
    "New (Postgres) table": "userinfo",
    "Legacy rows": 1,
-   "New rows": 25,
-   "Difference (new - legacy)": 24,
-   "Difference %": 2400,
+   "New rows": 39,
+   "Difference (new - legacy)": 38,
+   "Difference %": 3800,
    "Status": "DIFFERS - new has MORE rows"
   },
   {
@@ -1740,27 +1740,27 @@
    "Legacy table": "USERLEVELMASTER",
    "New (Postgres) table": "userlevelmaster",
    "Legacy rows": 9,
-   "New rows": 11,
-   "Difference (new - legacy)": 2,
-   "Difference %": 22.22,
+   "New rows": 13,
+   "Difference (new - legacy)": 4,
+   "Difference %": 44.44,
    "Status": "DIFFERS - new has MORE rows"
   },
   {
    "Legacy table": "USERMASTER",
    "New (Postgres) table": "usermaster",
    "Legacy rows": 27,
-   "New rows": 38,
-   "Difference (new - legacy)": 11,
-   "Difference %": 40.74,
+   "New rows": 40,
+   "Difference (new - legacy)": 13,
+   "Difference %": 48.15,
    "Status": "DIFFERS - new has MORE rows"
   },
   {
    "Legacy table": "USERRIGHTS",
    "New (Postgres) table": "userrights",
    "Legacy rows": 2242,
-   "New rows": 2066,
-   "Difference (new - legacy)": -176,
-   "Difference %": -7.85,
+   "New rows": 2138,
+   "Difference (new - legacy)": -104,
+   "Difference %": -4.64,
    "Status": "DIFFERS - new has FEWER rows"
   },
   {
@@ -1986,8 +1986,8 @@
    "New table": "busrules",
    "Column": "RLNMAXLOANAMT",
    "Legacy SUM": 681904000,
-   "New SUM": 727904000,
-   "Difference": 46000000,
+   "New SUM": 733904000,
+   "Difference": 52000000,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -1995,8 +1995,8 @@
    "New table": "busrules",
    "Column": "RLNRATE",
    "Legacy SUM": 41988,
-   "New SUM": 42325,
-   "Difference": 337,
+   "New SUM": 42358,
+   "Difference": 370,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2004,8 +2004,8 @@
    "New table": "busrules",
    "Column": "RLNPENALRATE",
    "Legacy SUM": 384,
-   "New SUM": 1062,
-   "Difference": 678,
+   "New SUM": 1152,
+   "Difference": 768,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2013,8 +2013,8 @@
    "New table": "busrules",
    "Column": "RLNMAXNOINST",
    "Legacy SUM": 273782,
-   "New SUM": 279232,
-   "Difference": 5450,
+   "New SUM": 279952,
+   "Difference": 6170,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2022,8 +2022,8 @@
    "New table": "busrules",
    "Column": "RLNNOGR",
    "Legacy SUM": 7856,
-   "New SUM": 7918,
-   "Difference": 62,
+   "New SUM": 7930,
+   "Difference": 74,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2031,8 +2031,8 @@
    "New table": "busrules",
    "Column": "ELNMAXLOANAMT",
    "Legacy SUM": 429495000,
-   "New SUM": 444595000,
-   "Difference": 15100000,
+   "New SUM": 447595000,
+   "Difference": 18100000,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2040,8 +2040,8 @@
    "New table": "busrules",
    "Column": "ELNRATE",
    "Legacy SUM": 7106,
-   "New SUM": 7641,
-   "Difference": 535,
+   "New SUM": 7695,
+   "Difference": 589,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2049,8 +2049,8 @@
    "New table": "busrules",
    "Column": "ELNMAXNOINST",
    "Legacy SUM": 162890,
-   "New SUM": 166650,
-   "Difference": 3760,
+   "New SUM": 167370,
+   "Difference": 4480,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2067,8 +2067,8 @@
    "New table": "busrules",
    "Column": "ALNMAXLOANAMT",
    "Legacy SUM": 97512508,
-   "New SUM": 142532508,
-   "Difference": 45020000,
+   "New SUM": 145532508,
+   "Difference": 48020000,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2076,8 +2076,8 @@
    "New table": "busrules",
    "Column": "ALNRATE",
    "Legacy SUM": 48571,
-   "New SUM": 49123,
-   "Difference": 552,
+   "New SUM": 49195,
+   "Difference": 624,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2157,8 +2157,8 @@
    "New table": "demand_master",
    "Column": "demand_for_year",
    "Legacy SUM": 669404542,
-   "New SUM": 665680577,
-   "Difference": -3723965,
+   "New SUM": 665710811,
+   "Difference": -3693731,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2166,8 +2166,8 @@
    "New table": "demand_master",
    "Column": "demand_for_month",
    "Legacy SUM": 2137562,
-   "New SUM": 2120942,
-   "Difference": -16620,
+   "New SUM": 2120982,
+   "Difference": -16580,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2175,8 +2175,8 @@
    "New table": "demand_master",
    "Column": "MBNO",
    "Legacy SUM": 209794647745020,
-   "New SUM": 209147658956305,
-   "Difference": -646988788715,
+   "New SUM": 209269488575973,
+   "Difference": -525159169047,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2220,8 +2220,8 @@
    "New table": "demand_master",
    "Column": "RLN_installment_amount",
    "Legacy SUM": 205575364,
-   "New SUM": 205453242.33,
-   "Difference": -122121.67,
+   "New SUM": 206032668.66,
+   "Difference": 457304.66,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2229,8 +2229,8 @@
    "New table": "demand_master",
    "Column": "RLN_interest",
    "Legacy SUM": 178643792,
-   "New SUM": 178256458,
-   "Difference": -387334,
+   "New SUM": 178258258,
+   "Difference": -385534,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2454,8 +2454,8 @@
    "New table": "fundsmaster",
    "Column": "MBNO",
    "Legacy SUM": 4669108183681,
-   "New SUM": 4690386286239,
-   "Difference": 21278102558,
+   "New SUM": 4685448014634,
+   "Difference": 16339830953,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2463,8 +2463,8 @@
    "New table": "fundsmaster",
    "Column": "MDAMT",
    "Legacy SUM": 45378,
-   "New SUM": 45386,
-   "Difference": 8,
+   "New SUM": 45381,
+   "Difference": 3,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2472,8 +2472,8 @@
    "New table": "fundsmaster",
    "Column": "CDAMT",
    "Legacy SUM": 1630350,
-   "New SUM": 1629758,
-   "Difference": -592,
+   "New SUM": 1629753,
+   "Difference": -597,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2481,8 +2481,8 @@
    "New table": "fundsmaster",
    "Column": "SHAREAMT",
    "Legacy SUM": 8025,
-   "New SUM": 45533,
-   "Difference": 37508,
+   "New SUM": 45528,
+   "Difference": 37503,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2490,8 +2490,8 @@
    "New table": "fundsmaster",
    "Column": "MDOPBAL",
    "Legacy SUM": 45351464,
-   "New SUM": 45351472,
-   "Difference": 8,
+   "New SUM": 45351467,
+   "Difference": 3,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2499,8 +2499,8 @@
    "New table": "fundsmaster",
    "Column": "SHAREOPBAL",
    "Legacy SUM": 54158205,
-   "New SUM": 54158213,
-   "Difference": 8,
+   "New SUM": 54158208,
+   "Difference": 3,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2508,8 +2508,8 @@
    "New table": "fundsmaster",
    "Column": "CDOPBAL",
    "Legacy SUM": 359999728,
-   "New SUM": 359999636,
-   "Difference": -92,
+   "New SUM": 359999631,
+   "Difference": -97,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2517,8 +2517,8 @@
    "New table": "fundsmaster",
    "Column": "LNEXECREC",
    "Legacy SUM": 0,
-   "New SUM": 8,
-   "Difference": 8,
+   "New SUM": 3,
+   "Difference": 3,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2526,8 +2526,8 @@
    "New table": "fundsmaster",
    "Column": "SUSPBAL",
    "Legacy SUM": 7279,
-   "New SUM": 7287,
-   "Difference": 8,
+   "New SUM": 7282,
+   "Difference": 3,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2535,8 +2535,8 @@
    "New table": "fundsmaster",
    "Column": "MD1_AMOUNT",
    "Legacy SUM": 113696,
-   "New SUM": 113704,
-   "Difference": 8,
+   "New SUM": 113699,
+   "Difference": 3,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2544,8 +2544,8 @@
    "New table": "fundsmaster",
    "Column": "MD2_AMOUNT",
    "Legacy SUM": 0,
-   "New SUM": 8,
-   "Difference": 8,
+   "New SUM": 3,
+   "Difference": 3,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2598,8 +2598,8 @@
    "New table": "ledger",
    "Column": "TRANS_NO",
    "Legacy SUM": 11956626509,
-   "New SUM": 12125308971,
-   "Difference": 168682462,
+   "New SUM": 12142400190,
+   "Difference": 185773681,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2607,8 +2607,8 @@
    "New table": "ledger",
    "Column": "MBNO",
    "Legacy SUM": 995370573249202,
-   "New SUM": 1000653492185946,
-   "Difference": 5282918936744,
+   "New SUM": 1001581288740808,
+   "Difference": 6210715491606,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2616,8 +2616,8 @@
    "New table": "ledger",
    "Column": "ACC_NO",
    "Legacy SUM": 0,
-   "New SUM": 2737332933,
-   "Difference": 2737332933,
+   "New SUM": 4558675255,
+   "Difference": 4558675255,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2625,8 +2625,8 @@
    "New table": "ledger",
    "Column": "TRANS_AMT",
    "Legacy SUM": 9567038568.04,
-   "New SUM": 9536752358.45,
-   "Difference": -30286209.59,
+   "New SUM": 6009536834432.67,
+   "Difference": 5999969795864.63,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2634,8 +2634,8 @@
    "New table": "ledger",
    "Column": "PL_BALANCE",
    "Legacy SUM": 675113247756,
-   "New SUM": 668559370828.68,
-   "Difference": -6553876927.32,
+   "New SUM": 668559384840.79,
+   "Difference": -6553862915.21,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2643,8 +2643,8 @@
    "New table": "ledger",
    "Column": "LedgerId",
    "Legacy SUM": 1384928092353,
-   "New SUM": 1374665117437,
-   "Difference": -10262974916,
+   "New SUM": 1374831587456,
+   "Difference": -10096504897,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2769,8 +2769,8 @@
    "New table": "loan_master",
    "Column": "MBNO",
    "Legacy SUM": 12584736672828,
-   "New SUM": 13556531584643,
-   "Difference": 971794911815,
+   "New SUM": 13686531097832,
+   "Difference": 1101794425004,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2778,8 +2778,8 @@
    "New table": "loan_master",
    "Column": "LOANCASENO",
    "Legacy SUM": 209192657,
-   "New SUM": 301985277,
-   "Difference": 92792620,
+   "New SUM": 313545344,
+   "Difference": 104352687,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2787,8 +2787,8 @@
    "New table": "loan_master",
    "Column": "LOAN_AMT",
    "Legacy SUM": 1583211142,
-   "New SUM": 2133105258,
-   "Difference": 549894116,
+   "New SUM": 2133835258,
+   "Difference": 550624116,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2796,8 +2796,8 @@
    "New table": "loan_master",
    "Column": "RATE",
    "Legacy SUM": 240361,
-   "New SUM": 241069,
-   "Difference": 708,
+   "New SUM": 241225,
+   "Difference": 864,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2805,8 +2805,8 @@
    "New table": "loan_master",
    "Column": "NO_OF_INSTAL",
    "Legacy SUM": 1381880,
-   "New SUM": 1215595,
-   "Difference": -166285,
+   "New SUM": 1215919,
+   "Difference": -165961,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2814,8 +2814,8 @@
    "New table": "loan_master",
    "Column": "INSTAL_AMT",
    "Legacy SUM": 26088755,
-   "New SUM": 61374092.09,
-   "Difference": 35285337.09,
+   "New SUM": 61403675.41,
+   "Difference": 35314920.41,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2823,8 +2823,8 @@
    "New table": "loan_master",
    "Column": "BALANCE",
    "Legacy SUM": 1583135797,
-   "New SUM": 589967964.58,
-   "Difference": -993167832.42,
+   "New SUM": 590027964.58,
+   "Difference": -993107832.42,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2841,8 +2841,8 @@
    "New table": "loan_master",
    "Column": "Intt_Amount",
    "Legacy SUM": 9148960.4,
-   "New SUM": 9190364.65,
-   "Difference": 41404.25,
+   "New SUM": 9194790.65,
+   "Difference": 45830.25,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2850,8 +2850,8 @@
    "New table": "loan_master",
    "Column": "PenalRate",
    "Legacy SUM": 1068,
-   "New SUM": 2565,
-   "Difference": 1497,
+   "New SUM": 2643,
+   "Difference": 1575,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2958,8 +2958,8 @@
    "New table": "loan_pending",
    "Column": "LOANCASENO",
    "Legacy SUM": 207561103,
-   "New SUM": 305284565,
-   "Difference": 97723462,
+   "New SUM": 357749149,
+   "Difference": 150188046,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2967,8 +2967,8 @@
    "New table": "loan_pending",
    "Column": "MBNO",
    "Legacy SUM": 11974813777244,
-   "New SUM": 12967068561857,
-   "Difference": 992254784613,
+   "New SUM": 13517066539023,
+   "Difference": 1542252761779,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2976,8 +2976,8 @@
    "New table": "loan_pending",
    "Column": "APPLIED_AMT",
    "Legacy SUM": 1559165177,
-   "New SUM": 1560595885,
-   "Difference": 1430708,
+   "New SUM": 1563197920,
+   "Difference": 4032743,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2985,8 +2985,8 @@
    "New table": "loan_pending",
    "Column": "SANCTIONED_AMT",
    "Legacy SUM": 80722921708,
-   "New SUM": 80724279093,
-   "Difference": 1357385,
+   "New SUM": 80725009093,
+   "Difference": 2087385,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -2994,8 +2994,8 @@
    "New table": "loan_pending",
    "Column": "NO_OF_INSTAL",
    "Legacy SUM": 1322210,
-   "New SUM": 1319166,
-   "Difference": -3044,
+   "New SUM": 1320615,
+   "Difference": -1595,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -3003,8 +3003,8 @@
    "New table": "loan_pending",
    "Column": "G1MBNO",
    "Legacy SUM": 217020596072,
-   "New SUM": 216410575043,
-   "Difference": -610021029,
+   "New SUM": 256410462563,
+   "Difference": 39389866491,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -3102,8 +3102,8 @@
    "New table": "logintime",
    "Column": "USERID",
    "Legacy SUM": 855849,
-   "New SUM": 20401,
-   "Difference": -835448,
+   "New SUM": 66726,
+   "Difference": -789123,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -3120,8 +3120,8 @@
    "New table": "member_balances",
    "Column": "MbNo",
    "Legacy SUM": 4167761582852,
-   "New SUM": 4694442628815,
-   "Difference": 526681045963,
+   "New SUM": null,
+   "Difference": null,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -3156,8 +3156,8 @@
    "New table": "member_balances",
    "Column": "Shares",
    "Legacy SUM": 52007029,
-   "New SUM": 27021597820585020,
-   "Difference": 27021597768577990,
+   "New SUM": 56389550.33,
+   "Difference": 4382521.33,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -3174,8 +3174,8 @@
    "New table": "member_balances",
    "Column": "Compulsory_Deposit",
    "Legacy SUM": 354200305,
-   "New SUM": 27021598118424584,
-   "Difference": 27021597764224280,
+   "New SUM": 354209108,
+   "Difference": 8803,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -3183,8 +3183,8 @@
    "New table": "member_balances",
    "Column": "RD_Amt",
    "Legacy SUM": 1638700,
-   "New SUM": 27021597765861680,
-   "Difference": 27021597764222980,
+   "New SUM": 1638703,
+   "Difference": 3,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -3210,8 +3210,8 @@
    "New table": "member_balances",
    "Column": "RegularLoan",
    "Legacy SUM": 283098719,
-   "New SUM": 27021597968872170,
-   "Difference": 27021597685773450,
+   "New SUM": 204709192.58,
+   "Difference": -78389526.42,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -3219,8 +3219,8 @@
    "New table": "member_master",
    "Column": "MBNO",
    "Legacy SUM": 4668248128836,
-   "New SUM": 5391445321488,
-   "Difference": 723197192652,
+   "New SUM": 7221438468782,
+   "Difference": 2553190339946,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -3228,8 +3228,8 @@
    "New table": "member_master",
    "Column": "OFFICENO",
    "Legacy SUM": 10996,
-   "New SUM": 11191,
-   "Difference": 195,
+   "New SUM": 12977971,
+   "Difference": 12966975,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -3237,8 +3237,8 @@
    "New table": "member_master",
    "Column": "GROSS_SALARY",
    "Legacy SUM": 0,
-   "New SUM": 295300,
-   "Difference": 295300,
+   "New SUM": 5405283,
+   "Difference": 5405283,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -3246,8 +3246,8 @@
    "New table": "member_master",
    "Column": "BASIC_PAY",
    "Legacy SUM": 142808330,
-   "New SUM": 146978330,
-   "Difference": 4170000,
+   "New SUM": 150483338,
+   "Difference": 7675008,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -3300,8 +3300,8 @@
    "New table": "menumaster",
    "Column": "MENUID",
    "Legacy SUM": 4982,
-   "New SUM": 13263,
-   "Difference": 8281,
+   "New SUM": 14701,
+   "Difference": 9719,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -3314,12 +3314,66 @@
    "Result": "match"
   },
   {
+   "Legacy table": "SuretyMaster",
+   "New table": "suretymaster",
+   "Column": "mbno",
+   "Legacy SUM": 3790196713,
+   "New SUM": 49999812770,
+   "Difference": 46209616057,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "SuretyMaster",
+   "New table": "suretymaster",
+   "Column": "Amount",
+   "Legacy SUM": -8935,
+   "New SUM": 0,
+   "Difference": 8935,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "SuretyMaster",
+   "New table": "suretymaster",
+   "Column": "G1MBNO",
+   "Legacy SUM": 0,
+   "New SUM": 9999999990,
+   "Difference": 9999999990,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "SuretyMaster",
+   "New table": "suretymaster",
+   "Column": "G2MBNO",
+   "Legacy SUM": 0,
+   "New SUM": 0,
+   "Difference": 0,
+   "Result": "match"
+  },
+  {
+   "Legacy table": "SuretyMaster",
+   "New table": "suretymaster",
+   "Column": "G1Amt",
+   "Legacy SUM": -4469,
+   "New SUM": 0,
+   "Difference": 4469,
+   "Result": "differs (row counts also differ)"
+  },
+  {
+   "Legacy table": "SuretyMaster",
+   "New table": "suretymaster",
+   "Column": "G2Amt",
+   "Legacy SUM": -4469,
+   "New SUM": 0,
+   "Difference": 4469,
+   "Result": "differs (row counts also differ)"
+  },
+  {
    "Legacy table": "tblCashBook",
    "New table": "tblcashbook",
    "Column": "rcash",
    "Legacy SUM": 0,
-   "New SUM": 2289983,
-   "Difference": 2289983,
+   "New SUM": 2297483,
+   "Difference": 2297483,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -3354,8 +3408,8 @@
    "New table": "userinfo",
    "Column": "USERID",
    "Legacy SUM": 26,
-   "New SUM": 1086,
-   "Difference": 1060,
+   "New SUM": 2129,
+   "Difference": 2103,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -3381,8 +3435,8 @@
    "New table": "userlevelmaster",
    "Column": "USERLEVELID",
    "Legacy SUM": 36,
-   "New SUM": 55,
-   "Difference": 19,
+   "New SUM": 78,
+   "Difference": 42,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -3390,8 +3444,8 @@
    "New table": "usermaster",
    "Column": "USERID",
    "Legacy SUM": 1055,
-   "New SUM": 1725,
-   "Difference": 670,
+   "New SUM": 1933,
+   "Difference": 878,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -3399,8 +3453,8 @@
    "New table": "usermaster",
    "Column": "USERLEVELID",
    "Legacy SUM": 27,
-   "New SUM": 116,
-   "Difference": 89,
+   "New SUM": 143,
+   "Difference": 116,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -3408,8 +3462,8 @@
    "New table": "userrights",
    "Column": "USERID",
    "Legacy SUM": 87566,
-   "New SUM": 78021,
-   "Difference": -9545,
+   "New SUM": 83076,
+   "Difference": -4490,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -3417,8 +3471,8 @@
    "New table": "userrights",
    "Column": "MENUID",
    "Legacy SUM": 109019,
-   "New SUM": 98995,
-   "Difference": -10024,
+   "New SUM": 100633,
+   "Difference": -8386,
    "Result": "differs (row counts also differ)"
   },
   {
@@ -3444,22 +3498,22 @@
   {
    "Check": "Members (member_master rows)",
    "Legacy": "7302",
-   "New": "7389",
-   "Difference": 87,
+   "New": "7572",
+   "Difference": 270,
    "Note": ""
   },
   {
    "Check": "Loans (loan_master rows)",
    "Legacy": "20034",
-   "New": "20093",
-   "Difference": 59,
+   "New": "20106",
+   "Difference": 72,
    "Note": ""
   },
   {
    "Check": "Ledger rows",
    "Legacy": "1582476",
-   "New": "1576589",
-   "Difference": -5887,
+   "New": "1576686",
+   "Difference": -5790,
    "Note": ""
   }
  ],
@@ -3467,10 +3521,10 @@
   {
    "Table": "member_master (by MBNO)",
    "Legacy keys": 7300,
-   "New keys": 7387,
+   "New keys": 7570,
    "Identical": 7296,
    "Only in legacy (missing in new)": 4,
-   "Only in new": 91,
+   "Only in new": 274,
    "Same key, different values": 0,
    "Sample only-legacy": "990042370, 990042371, 990042372, 990042373",
    "Sample only-new": "610000040, 900000003, 610000038, 9999962345, 940000015, 940000016, 9999962350, 940000008, 940000009, 940000011, 940000012, 940000013, 940000014, 9999962351, 610000037",
@@ -3479,38 +3533,38 @@
   {
    "Table": "FUNDSMASTER (by MBNO)",
    "Legacy keys": 7304,
-   "New keys": 7326,
+   "New keys": 7325,
    "Identical": 7297,
    "Only in legacy (missing in new)": 4,
-   "Only in new": 26,
+   "Only in new": 25,
    "Same key, different values": 3,
    "Sample only-legacy": "990042370, 990042371, 990042372, 990042373",
-   "Sample only-new": "987654321, 940000007, 900000002, 900000003, 610000038, 610000039, 610000040, 940000008, 940000009, 940000011, 940000012, 940000013, 940000014, 940000015, 940000016",
+   "Sample only-new": "940000007, 900000002, 900000003, 610000038, 610000039, 610000040, 940000008, 940000009, 940000011, 940000012, 940000013, 940000014, 940000015, 940000016, 610000057",
    "Sample differences": "610030399 -> SHAREAMT: legacy 0.0 vs new 12500.00 | 610022159 -> SHAREAMT: legacy 0.0 vs new 9000.00 | 610032683 -> SHAREAMT: legacy 0.0 vs new 6000.00"
   },
   {
    "Table": "LOAN_MASTER (by MBNO+LOANCASENO)",
    "Legacy keys": 19801,
-   "New keys": 19860,
+   "New keys": 19873,
    "Identical": 8664,
    "Only in legacy (missing in new)": 46,
-   "Only in new": 105,
+   "Only in new": 118,
    "Same key, different values": 11091,
    "Sample only-legacy": "610026533~20993, 940031323~20997, 610032878~20998, 30025028~20999, 610032121~21001, 610032261~21002, 610032406~21003, 610033316~21006, 610033260~21007, 610027077~21013, 940028453~21014, 610033400~21015, 610031044~21016, 610031053~21017, 610030986~21018",
-   "Sample only-new": "30013686~970001, 30017091~970002, 30017292~970003, 30018289~970004, 30018306~970005, 9999962386~889053, 9999962391~889062, 9999962388~889056, 9999962394~889069, 9999962390~889060, 9999962388~889057, 9999962387~889054, 9999962391~889063, 9999962387~889055, 9999962389~889058",
+   "Sample only-new": "9999962473~889210, 9999962535~889227, 9999962475~889213, 9999962515~889223, 9999962541~889230, 9999962572~889245, 9999962600~889250, 9999962640~889259, 9999962602~889253, 9999962517~889226, 9999962535~889229, 9999962542~889240, 9999962642~889262, 30013686~970001, 30017091~970002",
    "Sample differences": "30001231~1 -> LOAN_AMT: legacy 0.0 vs new 230000.0000; BALANCE: legacy 0.0 vs new 163824.2900; INSTAL_AMT: legacy 0.0 vs new 8206.0000; NO_OF_INSTAL: legacy 60.0 vs new 37 | 30001358~2 -> LOAN_AMT: legacy 0.0 vs new 13524.0000; BALANCE: legacy 0.0 vs new 13524.0000 | 30016739~4 -> LOAN_AMT: legacy 0.0 vs new 33159.0000; BALANCE: legacy 0.0 vs new 33159.0000 | 30017204~5 -> LOAN_AMT: legacy 0.0 vs new 5595.0000; BALANCE: legacy 0.0 vs new 5595.0000 | 30017688~6 -> LOAN_AMT: legacy 0.0 vs new 4400.0000; BALANCE: legacy 0.0 vs new 4400.0000 | 30018263~7 -> LOAN_AMT: legacy 0.0 vs new 15800.0000; BALANCE: legacy 0.0 vs new 15800.0000 | 30018306~9 -> LOAN_AMT: legacy 0.0 vs new -488.0000; BALANCE: legacy 0.0 vs new -488.0000 | 130020977~73570 -> BALANCE: legacy 385000.0 vs new 0.0000; NO_OF_INSTAL: legacy 60.0 vs new 52"
   },
   {
    "Table": "LEDGER (by LedgerId)",
    "Legacy keys": 1582476,
-   "New keys": 1576020,
-   "Identical": 1575448,
-   "Only in legacy (missing in new)": 6456,
-   "Only in new": 0,
-   "Same key, different values": 572,
+   "New keys": 1576116,
+   "Identical": 1575483,
+   "Only in legacy (missing in new)": 6454,
+   "Only in new": 94,
+   "Same key, different values": 539,
    "Sample only-legacy": "1704146, 1704183, 1704326, 1704781, 1704828, 1704875, 1704903, 1704982, 1715635, 1715918, 1716002, 1716045, 1716088, 1716107, 1704147",
-   "Sample only-new": "",
-   "Sample differences": "1 -> TRANS_AMT: legacy 22372.0 vs new 5.0000; MBNO: legacy 610032379 vs new 610000036 | 2 -> TRANS_AMT: legacy 2052.0 vs new 5.0000; MBNO: legacy 610028604 vs new 610000036 | 3 -> TRANS_AMT: legacy 10000.0 vs new 5.0000; MBNO: legacy 610026503 vs new 900000002 | 5 -> TRANS_AMT: legacy 3881.0 vs new 5.0000; MBNO: legacy 610024243 vs new 610000037 | 6 -> TRANS_AMT: legacy 50000.0 vs new 5.0000; MBNO: legacy 610025996 vs new 610000037 | 12 -> TRANS_AMT: legacy 4806.0 vs new 5.0000; MBNO: legacy 610024282 vs new 610000039 | 15 -> TRANS_AMT: legacy 1672.0 vs new 5.0000; MBNO: legacy 610032650 vs new 940000008 | 16 -> TRANS_AMT: legacy 2000.0 vs new 5.0000; MBNO: legacy 610029925 vs new 940000008"
+   "Sample only-new": "1716141, 1716142, 1716143, 1716144, 1716145, 1716146, 1716147, 1716148, 1716149, 1716150, 1716151, 1716152, 1716153, 1716154, 1716155",
+   "Sample differences": "1 -> TRANS_AMT: legacy 22372.0 vs new 5.0000; MBNO: legacy 610032379 vs new 610000036 | 3 -> TRANS_AMT: legacy 10000.0 vs new 5.0000; MBNO: legacy 610026503 vs new 900000002 | 6 -> TRANS_AMT: legacy 50000.0 vs new 5.0000; MBNO: legacy 610025996 vs new 610000037 | 15 -> TRANS_AMT: legacy 1672.0 vs new 5.0000; MBNO: legacy 610032650 vs new 940000008 | 16 -> TRANS_AMT: legacy 2000.0 vs new 5.0000; MBNO: legacy 610029925 vs new 940000008 | 23 -> TRANS_AMT: legacy 1800.0 vs new 5.0000; MBNO: legacy 610032116 vs new 940000013 | 25 -> TRANS_AMT: legacy 100.0 vs new 5.0000; MBNO: legacy 610032671 vs new 940000014 | 27 -> TRANS_AMT: legacy 78862.0 vs new 5.0000; MBNO: legacy 610030128 vs new 940000015"
   }
  ]
 }

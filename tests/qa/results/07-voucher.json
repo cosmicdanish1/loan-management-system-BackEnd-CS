@@ -1,9 +1,9 @@
 {
  "suite": "07-voucher",
- "ranAt": "2026-10-16T18:07:22.364Z",
- "seconds": 3,
+ "ranAt": "2026-11-03T09:48:31.320Z",
+ "seconds": 12.71,
  "total": 30,
- "failed": 17,
+ "failed": 3,
  "results": [
   {
    "id": "VC-00",
@@ -21,7 +21,7 @@
    "id": "VC-02",
    "title": "Voucher detail: status PENDING, amount 500, balancing cash leg A1001 present",
    "ok": true,
-   "detail": "{\"id\":223,\"voucherNo\":\"VCH268\",\"memberNo\":\"9999962471\",\"memberName\":\"QATEST  V039682\",\"amount\":500,\"vchrType\":\"RECEIPT\",\"loanType\":\"GENERAL\",\"kind\":\"VOUCHER\",\"reagreement\":null,\"status\":\"PENDING\",\"nar"
+   "detail": "{\"id\":315,\"voucherNo\":\"VCH410\",\"memberNo\":\"9999962638\",\"memberName\":\"QATEST V299731\",\"amount\":500,\"vchrType\":\"RECEIPT\",\"loanType\":\"GENERAL\",\"kind\":\"VOUCHER\",\"reagreement\":null,\"status\":\"PENDING\",\"narr"
   },
   {
    "id": "VC-03",
@@ -38,80 +38,80 @@
   {
    "id": "VC-05",
    "title": "Create voucher with no entries: rejected with 4xx (not 5xx, not accepted)",
-   "ok": false,
-   "detail": "500  {\"statusCode\":500,\"timestamp\":\"2026-10-16T18:07:19.898Z\",\"path\":\"/api/v1/transactions/voucher\",\"meth"
+   "ok": true,
+   "detail": "400  {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:48:21.630Z\",\"path\":\"/api/v1/transactions/voucher\",\"meth"
   },
   {
    "id": "VC-06",
    "title": "Create voucher with amount 0: rejected with 4xx (not 5xx, not accepted)",
-   "ok": false,
-   "detail": "201 ACCEPTED VCH269 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+   "ok": true,
+   "detail": "400  {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:48:21.672Z\",\"path\":\"/api/v1/transactions/voucher\",\"meth"
   },
   {
    "id": "VC-07",
    "title": "Create voucher with negative amount: rejected with 4xx (not 5xx, not accepted)",
-   "ok": false,
-   "detail": "201 ACCEPTED VCH270 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+   "ok": true,
+   "detail": "400  {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:48:21.750Z\",\"path\":\"/api/v1/transactions/voucher\",\"meth"
   },
   {
    "id": "VC-08",
    "title": "Create voucher with amount as text \"abc\": rejected with 4xx (not 5xx, not accepted)",
-   "ok": false,
-   "detail": "500  {\"statusCode\":500,\"timestamp\":\"2026-10-16T18:07:20.020Z\",\"path\":\"/api/v1/transactions/voucher\",\"meth"
+   "ok": true,
+   "detail": "400  {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:48:21.842Z\",\"path\":\"/api/v1/transactions/voucher\",\"meth"
   },
   {
    "id": "VC-09",
    "title": "Create voucher with unknown head code: rejected with 4xx (not 5xx, not accepted)",
-   "ok": false,
-   "detail": "500  {\"statusCode\":500,\"timestamp\":\"2026-10-16T18:07:20.045Z\",\"path\":\"/api/v1/transactions/voucher\",\"meth"
+   "ok": true,
+   "detail": "400  {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:48:21.922Z\",\"path\":\"/api/v1/transactions/voucher\",\"meth"
   },
   {
    "id": "VC-10",
    "title": "Create voucher with no voucherType: rejected with 4xx (not 5xx, not accepted)",
-   "ok": false,
-   "detail": "201 ACCEPTED VCH273 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+   "ok": true,
+   "detail": "400  {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:48:21.979Z\",\"path\":\"/api/v1/transactions/voucher\",\"meth"
   },
   {
    "id": "VC-11",
    "title": "Create voucher with unknown voucherType: rejected with 4xx (not 5xx, not accepted)",
-   "ok": false,
-   "detail": "201 ACCEPTED VCH274 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+   "ok": true,
+   "detail": "400  {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:48:22.116Z\",\"path\":\"/api/v1/transactions/voucher\",\"meth"
   },
   {
    "id": "VC-12",
    "title": "Create voucher with unknown member id: rejected with 4xx (not 5xx, not accepted)",
-   "ok": false,
-   "detail": "201 ACCEPTED VCH275 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+   "ok": true,
+   "detail": "400  {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:48:22.294Z\",\"path\":\"/api/v1/transactions/voucher\",\"meth"
   },
   {
    "id": "VC-13",
    "title": "Create voucher with bank mode without bank code: rejected with 4xx (not 5xx, not accepted)",
-   "ok": false,
-   "detail": "500  {\"statusCode\":500,\"timestamp\":\"2026-10-16T18:07:20.163Z\",\"path\":\"/api/v1/transactions/voucher\",\"meth"
+   "ok": true,
+   "detail": "400  {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:48:22.397Z\",\"path\":\"/api/v1/transactions/voucher\",\"meth"
   },
   {
    "id": "VC-14",
    "title": "Create voucher with amount 1e12 (absurd): rejected with 4xx (not 5xx, not accepted)",
-   "ok": false,
-   "detail": "201 ACCEPTED VCH277 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+   "ok": true,
+   "detail": "400  {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:48:22.510Z\",\"path\":\"/api/v1/transactions/voucher\",\"meth"
   },
   {
    "id": "VC-15",
    "title": "Create voucher with voucherDate in invalid format: rejected with 4xx (not 5xx, not accepted)",
    "ok": false,
-   "detail": "201 ACCEPTED VCH278 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+   "detail": "201 ACCEPTED VCH412 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
   },
   {
    "id": "VC-16",
    "title": "Create voucher with voucherDate far in the future (2099): rejected with 4xx (not 5xx, not accepted)",
    "ok": false,
-   "detail": "201 ACCEPTED VCH279 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+   "detail": "201 ACCEPTED VCH413 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
   },
   {
    "id": "VC-17",
    "title": "Create voucher with amount with 5 decimals: rejected with 4xx (not 5xx, not accepted)",
    "ok": false,
-   "detail": "201 ACCEPTED VCH280 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+   "detail": "201 ACCEPTED VCH414 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
   },
   {
    "id": "VC-18",
@@ -140,8 +140,8 @@
   {
    "id": "VC-22",
    "title": "Passing the same voucher a second time is refused (4xx) and adds no ledger rows",
-   "ok": false,
-   "detail": "500 {\"statusCode\":500,\"timestamp\":\"2026-10-16T18:07:21.465Z\",\"path\":\"/api/v1/transactions/pass/VCH268\",\""
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:48:25.588Z\",\"path\":\"/api/v1/transactions/pass/VCH410\",\""
   },
   {
    "id": "VC-23",
@@ -164,24 +164,24 @@
   {
    "id": "VC-26",
    "title": "Reversing twice is refused",
-   "ok": false,
-   "detail": "500"
+   "ok": true,
+   "detail": "400"
   },
   {
    "id": "VC-27",
    "title": "Pass of a voucher that does not exist -> 404/400",
-   "ok": false,
-   "detail": "500 {\"statusCode\":500,\"timestamp\":\"2026-10-16T18:07:21.519Z\",\"path\":\"/api/v1/transactions/pass/VCH-NOT-T"
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:48:25.861Z\",\"path\":\"/api/v1/transactions/pass/VCH-NOT-T"
   },
   {
    "id": "VC-28",
    "title": "Reverse of a voucher that does not exist -> 404/400",
-   "ok": false,
-   "detail": "500"
+   "ok": true,
+   "detail": "400"
   },
   {
    "id": "VC-29",
-   "title": "Own pending QA vouchers can be rejected (15 rejected)",
+   "title": "Own pending QA vouchers can be rejected (10 rejected)",
    "ok": true,
    "detail": ""
   }

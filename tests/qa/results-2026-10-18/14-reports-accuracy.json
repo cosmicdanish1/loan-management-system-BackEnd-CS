@@ -1,0 +1,525 @@
+{
+ "suite": "14-reports-accuracy",
+ "ranAt": "2026-10-17T06:45:58.038Z",
+ "seconds": 25.015,
+ "total": 86,
+ "failed": 20,
+ "results": [
+  {
+   "id": "RA-DB-2026-08-08-1",
+   "title": "Daybook 2026-08-08: opening + receipts - payments = closing",
+   "ok": true,
+   "detail": "{\"o\":-2648617,\"r\":31950,\"p\":0,\"c\":-2616667}"
+  },
+  {
+   "id": "RA-DB-2026-08-08-2",
+   "title": "Daybook 2026-08-08: opening balance equals cash-in-hand (A1001) from the ledger before the date",
+   "ok": true,
+   "detail": "report -2648617 vs ledger -2648617"
+  },
+  {
+   "id": "RA-DB-2026-08-08-3",
+   "title": "Daybook 2026-08-08: total receipts / payments equal cash DR / CR in the ledger",
+   "ok": true,
+   "detail": "report 31950/0 vs ledger 31950/0"
+  },
+  {
+   "id": "RA-DB-2026-08-08-4",
+   "title": "Daybook 2026-08-08: sum of receipt groups = headline total receipts (and payments)",
+   "ok": false,
+   "detail": "groups 156030/124080 vs headline 31950/0"
+  },
+  {
+   "id": "RA-DB-2026-08-08-5",
+   "title": "Daybook 2026-08-08: each group total equals the sum of its entries",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "RA-CB-2026-08-08-1",
+   "title": "Cashbook 2026-08-08: opening + receipts - payments = closing",
+   "ok": true,
+   "detail": "{\"o\":-1965038.63,\"r\":156030,\"p\":156030,\"c\":-1965038.63}"
+  },
+  {
+   "id": "RA-CB-2026-08-08-2",
+   "title": "Cashbook 2026-08-08: total receipts / payments equal ledger CR / DR for the day",
+   "ok": true,
+   "detail": "report 156030/156030 vs ledger 156030.0000/156030.0000"
+  },
+  {
+   "id": "RA-CB-2026-08-08-3",
+   "title": "Cashbook 2026-08-08: sum of head lines equals the totals",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "RA-X-2026-08-08",
+   "title": "Daybook and Cashbook agree on the opening balance for 2026-08-08 (both are 'cash')",
+   "ok": false,
+   "detail": "daybook -2648617 vs cashbook -1965038.63"
+  },
+  {
+   "id": "RA-DB-2026-08-11-1",
+   "title": "Daybook 2026-08-11: opening + receipts - payments = closing",
+   "ok": true,
+   "detail": "{\"o\":-2787583,\"r\":13335,\"p\":5977,\"c\":-2780225}"
+  },
+  {
+   "id": "RA-DB-2026-08-11-2",
+   "title": "Daybook 2026-08-11: opening balance equals cash-in-hand (A1001) from the ledger before the date",
+   "ok": true,
+   "detail": "report -2787583 vs ledger -2787583"
+  },
+  {
+   "id": "RA-DB-2026-08-11-3",
+   "title": "Daybook 2026-08-11: total receipts / payments equal cash DR / CR in the ledger",
+   "ok": true,
+   "detail": "report 13335/5977 vs ledger 13335/5977"
+  },
+  {
+   "id": "RA-DB-2026-08-11-4",
+   "title": "Daybook 2026-08-11: sum of receipt groups = headline total receipts (and payments)",
+   "ok": false,
+   "detail": "groups 12996080/12988722 vs headline 13335/5977"
+  },
+  {
+   "id": "RA-DB-2026-08-11-5",
+   "title": "Daybook 2026-08-11: each group total equals the sum of its entries",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "RA-CB-2026-08-11-1",
+   "title": "Cashbook 2026-08-11: opening + receipts - payments = closing",
+   "ok": true,
+   "detail": "{\"o\":-1965038.63,\"r\":13002057,\"p\":13002057,\"c\":-1965038.63}"
+  },
+  {
+   "id": "RA-CB-2026-08-11-2",
+   "title": "Cashbook 2026-08-11: total receipts / payments equal ledger CR / DR for the day",
+   "ok": true,
+   "detail": "report 13002057/13002057 vs ledger 13002057.0000/13002057.0000"
+  },
+  {
+   "id": "RA-CB-2026-08-11-3",
+   "title": "Cashbook 2026-08-11: sum of head lines equals the totals",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "RA-X-2026-08-11",
+   "title": "Daybook and Cashbook agree on the opening balance for 2026-08-11 (both are 'cash')",
+   "ok": false,
+   "detail": "daybook -2787583 vs cashbook -1965038.63"
+  },
+  {
+   "id": "RA-DB-2026-09-16-1",
+   "title": "Daybook 2026-09-16: opening + receipts - payments = closing",
+   "ok": true,
+   "detail": "{\"o\":-2396590.09,\"r\":164918,\"p\":0,\"c\":-2231672.09}"
+  },
+  {
+   "id": "RA-DB-2026-09-16-2",
+   "title": "Daybook 2026-09-16: opening balance equals cash-in-hand (A1001) from the ledger before the date",
+   "ok": true,
+   "detail": "report -2396590.09 vs ledger -2396590.09"
+  },
+  {
+   "id": "RA-DB-2026-09-16-3",
+   "title": "Daybook 2026-09-16: total receipts / payments equal cash DR / CR in the ledger",
+   "ok": true,
+   "detail": "report 164918/0 vs ledger 164918/0"
+  },
+  {
+   "id": "RA-DB-2026-09-16-4",
+   "title": "Daybook 2026-09-16: sum of receipt groups = headline total receipts (and payments)",
+   "ok": false,
+   "detail": "groups 8767046/389884 vs headline 164918/0"
+  },
+  {
+   "id": "RA-DB-2026-09-16-5",
+   "title": "Daybook 2026-09-16: each group total equals the sum of its entries",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "RA-CB-2026-09-16-1",
+   "title": "Cashbook 2026-09-16: opening + receipts - payments = closing",
+   "ok": true,
+   "detail": "{\"o\":6322497.71,\"r\":8767046,\"p\":554802,\"c\":14534741.71}"
+  },
+  {
+   "id": "RA-CB-2026-09-16-2",
+   "title": "Cashbook 2026-09-16: total receipts / payments equal ledger CR / DR for the day",
+   "ok": true,
+   "detail": "report 8767046/554802 vs ledger 8767046.0000/554802.0000"
+  },
+  {
+   "id": "RA-CB-2026-09-16-3",
+   "title": "Cashbook 2026-09-16: sum of head lines equals the totals",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "RA-X-2026-09-16",
+   "title": "Daybook and Cashbook agree on the opening balance for 2026-09-16 (both are 'cash')",
+   "ok": false,
+   "detail": "daybook -2396590.09 vs cashbook 6322497.71"
+  },
+  {
+   "id": "RA-DB-2026-10-16-1",
+   "title": "Daybook 2026-10-16: opening + receipts - payments = closing",
+   "ok": true,
+   "detail": "{\"o\":-2252001.09,\"r\":2000,\"p\":0,\"c\":-2250001.09}"
+  },
+  {
+   "id": "RA-DB-2026-10-16-2",
+   "title": "Daybook 2026-10-16: opening balance equals cash-in-hand (A1001) from the ledger before the date",
+   "ok": true,
+   "detail": "report -2252001.09 vs ledger -2252001.09"
+  },
+  {
+   "id": "RA-DB-2026-10-16-3",
+   "title": "Daybook 2026-10-16: total receipts / payments equal cash DR / CR in the ledger",
+   "ok": true,
+   "detail": "report 2000/0 vs ledger 2000/0"
+  },
+  {
+   "id": "RA-DB-2026-10-16-4",
+   "title": "Daybook 2026-10-16: sum of receipt groups = headline total receipts (and payments)",
+   "ok": false,
+   "detail": "groups 13500/0 vs headline 2000/0"
+  },
+  {
+   "id": "RA-DB-2026-10-16-5",
+   "title": "Daybook 2026-10-16: each group total equals the sum of its entries",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "RA-CB-2026-10-16-1",
+   "title": "Cashbook 2026-10-16: opening + receipts - payments = closing",
+   "ok": true,
+   "detail": "{\"o\":6298997.71,\"r\":13500,\"p\":2000,\"c\":6310497.71}"
+  },
+  {
+   "id": "RA-CB-2026-10-16-2",
+   "title": "Cashbook 2026-10-16: total receipts / payments equal ledger CR / DR for the day",
+   "ok": true,
+   "detail": "report 13500/2000 vs ledger 13500.0000/2000.0000"
+  },
+  {
+   "id": "RA-CB-2026-10-16-3",
+   "title": "Cashbook 2026-10-16: sum of head lines equals the totals",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "RA-X-2026-10-16",
+   "title": "Daybook and Cashbook agree on the opening balance for 2026-10-16 (both are 'cash')",
+   "ok": false,
+   "detail": "daybook -2252001.09 vs cashbook 6298997.71"
+  },
+  {
+   "id": "RA-DB-CONT",
+   "title": "Daybook: closing of 2026-10-15 equals opening of 2026-10-16",
+   "ok": true,
+   "detail": "-2252001.09 vs -2252001.09"
+  },
+  {
+   "id": "RA-CB-CONT",
+   "title": "Cashbook: closing of 2026-10-15 equals opening of 2026-10-16",
+   "ok": true,
+   "detail": "6298997.71 vs 6298997.71"
+  },
+  {
+   "id": "RA-GL-L1004-1",
+   "title": "GL L1004: total debits/credits equal the ledger for 2026-10-01..2026-10-16",
+   "ok": true,
+   "detail": "report 0/7700 vs ledger 0/7700.0000"
+  },
+  {
+   "id": "RA-GL-L1004-2",
+   "title": "GL L1004: number of entries equals ledger row count",
+   "ok": true,
+   "detail": "report 7/7 vs ledger 7"
+  },
+  {
+   "id": "RA-GL-L1004-3",
+   "title": "GL L1004: opening balance equals ledger cumulative before 2026-10-01 (either sign convention)",
+   "ok": true,
+   "detail": "report -57461766 vs ledger CR-DR -57461766"
+  },
+  {
+   "id": "RA-GL-L1004-4",
+   "title": "GL L1004: opening + movement = closing",
+   "ok": true,
+   "detail": "{\"o\":-57461766,\"d\":0,\"c\":7700,\"cl\":-57454066}"
+  },
+  {
+   "id": "RA-GL-L1004-5",
+   "title": "GL L1004: running balance on every line follows the previous balance",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "RA-GL-L1001-1",
+   "title": "GL L1001: total debits/credits equal the ledger for 2026-10-01..2026-10-16",
+   "ok": true,
+   "detail": "report 0/7455 vs ledger 0/7455.0000"
+  },
+  {
+   "id": "RA-GL-L1001-2",
+   "title": "GL L1001: number of entries equals ledger row count",
+   "ok": true,
+   "detail": "report 6/6 vs ledger 6"
+  },
+  {
+   "id": "RA-GL-L1001-3",
+   "title": "GL L1001: opening balance equals ledger cumulative before 2026-10-01 (either sign convention)",
+   "ok": true,
+   "detail": "report -11295759 vs ledger CR-DR -11295759"
+  },
+  {
+   "id": "RA-GL-L1001-4",
+   "title": "GL L1001: opening + movement = closing",
+   "ok": true,
+   "detail": "{\"o\":-11295759,\"d\":0,\"c\":7455,\"cl\":-11288304}"
+  },
+  {
+   "id": "RA-GL-L1001-5",
+   "title": "GL L1001: running balance on every line follows the previous balance",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "RA-GL-A1001-1",
+   "title": "GL A1001: total debits/credits equal the ledger for 2026-10-01..2026-10-16",
+   "ok": true,
+   "detail": "report 7200/20000 vs ledger 7200.0000/20000.0000"
+  },
+  {
+   "id": "RA-GL-A1001-2",
+   "title": "GL A1001: number of entries equals ledger row count",
+   "ok": true,
+   "detail": "report 5/5 vs ledger 5"
+  },
+  {
+   "id": "RA-GL-A1001-3",
+   "title": "GL A1001: opening balance equals ledger cumulative before 2026-10-01 (either sign convention)",
+   "ok": true,
+   "detail": "report 2237201.09 vs ledger CR-DR 2237201.09"
+  },
+  {
+   "id": "RA-GL-A1001-4",
+   "title": "GL A1001: opening + movement = closing",
+   "ok": true,
+   "detail": "{\"o\":2237201.09,\"d\":7200,\"c\":20000,\"cl\":2250001.09}"
+  },
+  {
+   "id": "RA-GL-A1001-5",
+   "title": "GL A1001: running balance on every line follows the previous balance",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "RA-GL-EDGE1",
+   "title": "GL with from-date after to-date -> 4xx",
+   "ok": true,
+   "detail": "400"
+  },
+  {
+   "id": "RA-GL-EDGE2",
+   "title": "GL with unknown head -> 404/400 (not 500, not an empty success)",
+   "ok": true,
+   "detail": "404"
+  },
+  {
+   "id": "RA-ML-610020768-1",
+   "title": "Member ledger 610020768 L1004: debits/credits equal ledger",
+   "ok": true,
+   "detail": "report 69702/14453 vs ledger 69702.0000/14453.0000"
+  },
+  {
+   "id": "RA-ML-610020768-2",
+   "title": "Member ledger 610020768: row count equals ledger",
+   "ok": true,
+   "detail": "29 vs 29"
+  },
+  {
+   "id": "RA-ML-610020768-3",
+   "title": "Member ledger 610020768: opening + credits - debits = closing",
+   "ok": true,
+   "detail": "{\"o\":9766,\"d\":69702,\"c\":14453,\"cl\":-45483}"
+  },
+  {
+   "id": "RA-ML-610020768-4",
+   "title": "Member ledger 610020768: lifetime CD closing equals fundsmaster.cdamt",
+   "ok": false,
+   "detail": "ledger report -45483 vs fundsmaster 200.00"
+  },
+  {
+   "id": "RA-ML-610020768-5",
+   "title": "Member detail ledger 610020768: totals equal ledger for all heads",
+   "ok": true,
+   "detail": "report 127238/345016 vs ledger 127238.0000/345016.0000"
+  },
+  {
+   "id": "RA-ML-610029390-1",
+   "title": "Member ledger 610029390 L1004: debits/credits equal ledger",
+   "ok": true,
+   "detail": "report 343009/118417 vs ledger 343009.0000/118417.0000"
+  },
+  {
+   "id": "RA-ML-610029390-2",
+   "title": "Member ledger 610029390: row count equals ledger",
+   "ok": true,
+   "detail": "29 vs 29"
+  },
+  {
+   "id": "RA-ML-610029390-3",
+   "title": "Member ledger 610029390: opening + credits - debits = closing",
+   "ok": true,
+   "detail": "{\"o\":117720,\"d\":343009,\"c\":118417,\"cl\":-106872}"
+  },
+  {
+   "id": "RA-ML-610029390-4",
+   "title": "Member ledger 610029390: lifetime CD closing equals fundsmaster.cdamt",
+   "ok": false,
+   "detail": "ledger report -106872 vs fundsmaster 200.00"
+  },
+  {
+   "id": "RA-ML-610029390-5",
+   "title": "Member detail ledger 610029390: totals equal ledger for all heads",
+   "ok": true,
+   "detail": "report 746441/808891 vs ledger 746441.0000/808891.0000"
+  },
+  {
+   "id": "RA-ML-610027901-1",
+   "title": "Member ledger 610027901 L1004: debits/credits equal ledger",
+   "ok": true,
+   "detail": "report 4847/17035 vs ledger 4847.0000/17035.0000"
+  },
+  {
+   "id": "RA-ML-610027901-2",
+   "title": "Member ledger 610027901: row count equals ledger",
+   "ok": true,
+   "detail": "28 vs 28"
+  },
+  {
+   "id": "RA-ML-610027901-3",
+   "title": "Member ledger 610027901: opening + credits - debits = closing",
+   "ok": true,
+   "detail": "{\"o\":5892,\"d\":4847,\"c\":17035,\"cl\":18080}"
+  },
+  {
+   "id": "RA-ML-610027901-4",
+   "title": "Member ledger 610027901: lifetime CD closing equals fundsmaster.cdamt",
+   "ok": false,
+   "detail": "ledger report 18080 vs fundsmaster 500.00"
+  },
+  {
+   "id": "RA-ML-610027901-5",
+   "title": "Member detail ledger 610027901: totals equal ledger for all heads",
+   "ok": true,
+   "detail": "report 2388107/2398607 vs ledger 2388107.0000/2398607.0000"
+  },
+  {
+   "id": "RA-ML-610018892-1",
+   "title": "Member ledger 610018892 L1004: debits/credits equal ledger",
+   "ok": true,
+   "detail": "report 1484/43263 vs ledger 1484.0000/43263.0000"
+  },
+  {
+   "id": "RA-ML-610018892-2",
+   "title": "Member ledger 610018892: row count equals ledger",
+   "ok": true,
+   "detail": "31 vs 31"
+  },
+  {
+   "id": "RA-ML-610018892-3",
+   "title": "Member ledger 610018892: opening + credits - debits = closing",
+   "ok": true,
+   "detail": "{\"o\":79279,\"d\":1484,\"c\":43263,\"cl\":121058}"
+  },
+  {
+   "id": "RA-ML-610018892-4",
+   "title": "Member ledger 610018892: lifetime CD closing equals fundsmaster.cdamt",
+   "ok": false,
+   "detail": "ledger report 121058 vs fundsmaster 200.00"
+  },
+  {
+   "id": "RA-ML-610018892-5",
+   "title": "Member detail ledger 610018892: totals equal ledger for all heads",
+   "ok": true,
+   "detail": "report 121422/329729 vs ledger 121422.0000/329729.0000"
+  },
+  {
+   "id": "RA-ML-EDGE1",
+   "title": "Member ledger for a member that does not exist -> 404/400",
+   "ok": true,
+   "detail": "404"
+  },
+  {
+   "id": "RA-BS-1",
+   "title": "Balance sheet balances: total liabilities = total assets (within 1)",
+   "ok": false,
+   "detail": "liabilities 653129181.0100001 vs assets 665988185.3100001 (difference -12859004.299999952)"
+  },
+  {
+   "id": "RA-BS-2",
+   "title": "Each head: opening +/- movement = closing",
+   "ok": false,
+   "detail": "37 heads, e.g. L1001:-53882360/27704469/16416165/42594056; L1002:-32703541/2916263/3790355/33577633; L1003:-2542976/37831804/35028549/-260279"
+  },
+  {
+   "id": "RA-BS-L1004",
+   "title": "Balance sheet L1004: closing equals ledger cumulative (CR-DR, either sign)",
+   "ok": false,
+   "detail": "report 302665110 vs ledger CR-DR -57454066.0000"
+  },
+  {
+   "id": "RA-BSGL-L1004",
+   "title": "Balance sheet L1004 closing equals General Ledger closing on the same date (abs value)",
+   "ok": false,
+   "detail": "BS 302665110 vs GL -57454066"
+  },
+  {
+   "id": "RA-BS-L1001",
+   "title": "Balance sheet L1001: closing equals ledger cumulative (CR-DR, either sign)",
+   "ok": false,
+   "detail": "report 42594056 vs ledger CR-DR -11288304.0000"
+  },
+  {
+   "id": "RA-BSGL-L1001",
+   "title": "Balance sheet L1001 closing equals General Ledger closing on the same date (abs value)",
+   "ok": false,
+   "detail": "BS 42594056 vs GL -11288304"
+  },
+  {
+   "id": "RA-BS-3",
+   "title": "Balance sheet is repeatable (same figures on a second call)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "RA-BS-EDGE1",
+   "title": "Balance sheet for a future date does not 5xx",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "id": "RA-BS-EDGE2",
+   "title": "Balance sheet with an invalid date -> 4xx",
+   "ok": false,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "RA-LED-1",
+   "title": "Whole ledger: total credits equal total debits (double-entry integrity)",
+   "ok": false,
+   "detail": "CR - DR = 6310497.7100 (legacy at 2026-09-25 was 242,044)"
+  }
+ ]
+}

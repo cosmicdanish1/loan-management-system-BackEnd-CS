@@ -18,6 +18,8 @@ export interface OnboardingStatus {
     userMode: UserOnboardingMode;
     completedAt: string | null;
     lastStep: string | null;
+    /** Newest app version whose What's New this person has seen (null = never recorded). */
+    lastSeenVersion: string | null;
 }
 
 export interface OnboardingProfile {
@@ -99,25 +101,37 @@ export class OnboardingService implements OnModuleInit {
     async getStatus(userId: number): Promise<OnboardingStatus> {
         const [globalMode, rows] = await Promise.all([
             this.getGlobalMode(),
-            this.ds.query(`SELECT mode_override, completed_at, last_step FROM user_onboarding WHERE user_id = $1`, [userId]),
+            this.ds.query(`SELECT mode_override, completed_at, last_step, last_seen_version FROM user_onboarding WHERE user_id = $1`, [userId]),
         ]);
         const row = rows[0];
         const userMode: UserOnboardingMode = row?.mode_override ?? 'default';
         const effectiveMode: OnboardingMode = userMode === 'default' ? globalMode : userMode;
         const completedAt = row?.completed_at ? new Date(row.completed_at).toISOString() : null;
         const shouldShow = effectiveMode === 'always' || (effectiveMode === 'first' && !completedAt);
-        return { shouldShow, effectiveMode, globalMode, userMode, completedAt, lastStep: row?.last_step ?? null };
+        return { shouldShow, effectiveMode, globalMode, userMode, completedAt, lastStep: row?.last_step ?? null, lastSeenVersion: row?.last_seen_version ?? null };
     }
 
-    // Finished or skipped: either way the "first login" is used up.
+    // Finished or skipped: either way the "first login" is used up. The app version is recorded only the first time, so
+    // a returning person who replays the tour still gets the What's New for versions they have not seen.
     async complete(userId: number, version?: string): Promise<OnboardingStatus> {
         await this.ds.query(
             `INSERT INTO user_onboarding (user_id, completed_at, last_seen_version, last_step)
              VALUES ($1, now(), $2, NULL)
              ON CONFLICT (user_id) DO UPDATE SET completed_at = now(),
-                last_seen_version = COALESCE($2, user_onboarding.last_seen_version),
+                last_seen_version = COALESCE(user_onboarding.last_seen_version, $2),
                 last_step = NULL, updated_at = now()`,
             [userId, version?.slice(0, 50) ?? null],
+        );
+        return this.getStatus(userId);
+    }
+
+    // The person has seen What's New up to this version (set after they close the popup).
+    async markWhatsNewSeen(userId: number, version: string): Promise<OnboardingStatus> {
+        if (!/^\d+\.\d+\.\d+$/.test(version)) throw new BadRequestException('version must look like 1.8.0');
+        await this.ds.query(
+            `INSERT INTO user_onboarding (user_id, last_seen_version) VALUES ($1, $2)
+             ON CONFLICT (user_id) DO UPDATE SET last_seen_version = EXCLUDED.last_seen_version, updated_at = now()`,
+            [userId, version],
         );
         return this.getStatus(userId);
     }

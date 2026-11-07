@@ -1,27 +1,27 @@
 {
  "suite": "06-member-write",
- "ranAt": "2026-10-16T18:05:42.323Z",
- "seconds": 1.371,
+ "ranAt": "2026-11-03T09:48:15.695Z",
+ "seconds": 5.469,
  "total": 26,
- "failed": 12,
+ "failed": 8,
  "results": [
   {
    "id": "MB-01",
    "title": "Previewing the next member number twice returns the same number (preview must not consume numbers)",
-   "ok": false,
-   "detail": "9999962448 then 9999962449"
+   "ok": true,
+   "detail": "9999962617 then 9999962617"
   },
   {
    "id": "MB-02",
    "title": "Create member succeeds and returns a member number",
    "ok": true,
-   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"mbno\":\"9999962450\",\"prefix\":\"MR\","
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"mbno\":\"9999962617\",\"prefix\":\"MR\","
   },
   {
    "id": "MB-03",
    "title": "Member number shown by the preview equals the number actually saved",
-   "ok": false,
-   "detail": "preview 9999962448 vs saved 9999962450"
+   "ok": true,
+   "detail": "preview 9999962617 vs saved 9999962617"
   },
   {
    "id": "MB-04",
@@ -51,79 +51,79 @@
    "id": "MB-08",
    "title": "Balance of a brand-new member loads (not 500)",
    "ok": true,
-   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"memberInfo\":{\"memberNo\":\"99999624"
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"memberInfo\":{\"memberNo\":\"99999626"
   },
   {
    "id": "MB-09",
    "title": "Update (full body) changes the phone and address",
-   "ok": false,
-   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":[{\"mbno\":\"9999962450\",\"prefix\":\"MR\""
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"mbno\":\"9999962617\",\"prefix\":\"MR\","
   },
   {
    "id": "MB-10",
    "title": "Partial update (only phone) keeps name and address (no silent wiping of other fields)",
    "ok": true,
-   "detail": "400; after: {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"mbno\":\"9999962450\",\"prefix\":\"MR\",\"fullname\":\"QATEST  W941205\",\"f_name\":\"QATEST\",\"m_name\":\"\",\"l_name\":\"W941205\",\"f"
+   "detail": "400; after: {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"mbno\":\"9999962617\",\"prefix\":\"MR\",\"fullname\":\"QATEST W290907\",\"f_name\":\"QATEST\",\"m_name\":\"\",\"l_name\":\"W290907\",\"fa"
   },
   {
    "id": "MB-11",
    "title": "Update of a member number that does not exist -> 404/400 (not 200 with empty result)",
-   "ok": false,
-   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":[],\"timestamp\":\"2026-10-16T18:05:41"
+   "ok": true,
+   "detail": "404 {\"statusCode\":404,\"timestamp\":\"2026-11-03T09:48:12.137Z\",\"path\":\"/api/v1/members/save-member\",\"method\":\"POST\",\"error\":\"N"
   },
   {
    "id": "MB-12",
    "title": "Create with Empty first name is rejected (4xx, no 5xx, no row created)",
    "ok": false,
-   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"mbno\":\"9999962451\",\"pre"
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"mbno\":\"9999962618\",\"pre"
   },
   {
    "id": "MB-13",
    "title": "Create with Invalid date of birth 31-02-1990 is rejected (4xx, no 5xx, no row created)",
    "ok": true,
-   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:05:41.436Z\",\"path\":\"/api/v1/members/save-member\",\"method\":\"POST\","
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:48:12.322Z\",\"path\":\"/api/v1/members/save-member\",\"method\":\"POST\","
   },
   {
    "id": "MB-14",
    "title": "Create with Date of birth in the future is rejected (4xx, no 5xx, no row created)",
    "ok": false,
-   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"mbno\":\"9999962453\",\"pre"
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"mbno\":\"9999962620\",\"pre"
   },
   {
    "id": "MB-15",
    "title": "Create with Retirement date before birth date is rejected (4xx, no 5xx, no row created)",
    "ok": false,
-   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"mbno\":\"9999962454\",\"pre"
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"mbno\":\"9999962621\",\"pre"
   },
   {
    "id": "MB-16",
    "title": "Create with Phone with letters is rejected (4xx, no 5xx, no row created)",
    "ok": false,
-   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"mbno\":\"9999962455\",\"pre"
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"mbno\":\"9999962622\",\"pre"
   },
   {
    "id": "MB-17",
    "title": "Create with Negative gross salary is rejected (4xx, no 5xx, no row created)",
    "ok": false,
-   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"mbno\":\"9999962456\",\"pre"
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"mbno\":\"9999962623\",\"pre"
   },
   {
    "id": "MB-18",
    "title": "Create with Negative compulsory deposit is rejected (4xx, no 5xx, no row created)",
    "ok": false,
-   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"mbno\":\"9999962457\",\"pre"
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"mbno\":\"9999962624\",\"pre"
   },
   {
    "id": "MB-19",
    "title": "Create with Aadhaar of wrong length is rejected (4xx, no 5xx, no row created)",
    "ok": false,
-   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"mbno\":\"9999962458\",\"pre"
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"mbno\":\"9999962625\",\"pre"
   },
   {
    "id": "MB-20",
    "title": "Create with Name of 5000 characters is rejected (4xx, no 5xx, no row created)",
    "ok": true,
-   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:05:41.511Z\",\"path\":\"/api/v1/members/save-member\",\"method\":\"POST\","
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:48:13.087Z\",\"path\":\"/api/v1/members/save-member\",\"method\":\"POST\","
   },
   {
    "id": "MB-21",
@@ -147,7 +147,7 @@
    "id": "MB-24",
    "title": "Member created with compulsory deposit 500 succeeds",
    "ok": true,
-   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"mbno\":\"9999962470\",\"prefix\":\"MR\","
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"mbno\":\"9999962637\",\"prefix\":\"MR\","
   },
   {
    "id": "MB-25",
@@ -159,7 +159,7 @@
    "id": "MB-26",
    "title": "Delete of own QA member (no accounts) works or is refused with a clear 4xx",
    "ok": true,
-   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:05:42.307Z\",\"path\":\"/api/v1/members/9999962450\",\"method"
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"timestamp\":\"2026-11-0"
   }
  ]
 }

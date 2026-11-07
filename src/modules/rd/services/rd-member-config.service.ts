@@ -39,6 +39,15 @@ export class RdMemberConfigService {
         // invisible to a fresh connection via the plain DataSource.
         const runner: { query: (sql: string, params?: any[]) => Promise<any> } = externalQueryRunner ?? this.dataSource;
 
+        // ES-353: NaN < minimum is false, so a text amount used to pass the minimum check and be stored as 'NaN';
+        // an absurd figure (1e12) is refused as a typo
+        if (!Number.isFinite(monthlyRdAmount) || monthlyRdAmount <= 0) {
+            throw new BadRequestException('Monthly RD amount must be a number greater than zero.');
+        }
+        if (monthlyRdAmount > 9_999_999.99) {
+            throw new BadRequestException('Monthly RD amount is too large.');
+        }
+
         const member = await runner.query(
             `SELECT mbno FROM member_master WHERE CAST(mbno AS text) = $1`,
             [mbno],

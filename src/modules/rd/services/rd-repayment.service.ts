@@ -20,6 +20,9 @@ export interface RdPendingInstallmentRow {
  * existing Loan Repayment screen. Per the user's explicit instruction, the
  * amount recorded is exactly what the operator enters — no auto-calculation
  * or validation against the member's configured monthly amount.
+ *
+ * ES-353 (QA finding, overrides the line above): the amount is still what the operator enters, but it must be a real
+ * number, not absurd, and not more than 10 times the configured instalment (70,000 on a 700 instalment was accepted).
  */
 @Injectable()
 export class RdRepaymentService {
@@ -101,7 +104,27 @@ export class RdRepaymentService {
         narration: string | undefined,
         recordedBy: string,
     ): Promise<RdPendingInstallmentRow> {
-        if (amount <= 0) throw new BadRequestException('Payment amount must be greater than zero.');
+        // the screen may send the month and year as text ("4"); they are used as numbers from here on
+        installmentMonth = Number(installmentMonth);
+        installmentYear = Number(installmentYear);
+        // ES-353: NaN, text and absurd figures are refused before anything is read or written
+        if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('Payment amount must be a number greater than zero.');
+        if (amount > 9_999_999.99) throw new BadRequestException('Payment amount is too large.');
+        if (!Number.isInteger(installmentMonth) || installmentMonth < 1 || installmentMonth > 12) {
+            throw new BadRequestException('Installment month must be a whole number from 1 to 12.');
+        }
+        if (!Number.isInteger(installmentYear) || installmentYear < 2000 || installmentYear > 2100) {
+            throw new BadRequestException('Installment year must be a whole number from 2000 to 2100.');
+        }
+        // the month has to be one of the months of this financial year
+        const fyRows = await this.dataSource.query(`SELECT start_date, end_date FROM yearend WHERE yearcode = $1`, [yearcode]);
+        if (!fyRows[0]) throw new NotFoundException(`Financial year ${yearcode} not found.`);
+        const monthIndex = installmentYear * 12 + installmentMonth;
+        const fyStart = new Date(fyRows[0].start_date);
+        const fyEnd = new Date(fyRows[0].end_date);
+        if (monthIndex < fyStart.getFullYear() * 12 + fyStart.getMonth() + 1 || monthIndex > fyEnd.getFullYear() * 12 + fyEnd.getMonth() + 1) {
+            throw new BadRequestException(`${installmentMonth}/${installmentYear} is not a month of financial year ${yearcode}.`);
+        }
 
         const closedRows = await this.dataSource.query(
             `SELECT closed_at FROM rd_financial_year_summary WHERE mbno = $1 AND yearcode = $2`,
@@ -125,6 +148,9 @@ export class RdRepaymentService {
             [mbno, yearcode, toDateOnlyString(dueDate)],
         );
         const expectedAmount = configRows[0] ? Number(configRows[0].monthly_rd_amount) : amount;
+        if (configRows[0] && expectedAmount > 0 && amount > expectedAmount * 10) {
+            throw new BadRequestException(`Payment ${amount} is far above the monthly instalment ${expectedAmount} (more than 10 times). Check the amount.`);
+        }
 
         // rd_installment_ledger has no dedicated "recorded by" column — folded
         // into narration instead, same as this codebase's other tables that

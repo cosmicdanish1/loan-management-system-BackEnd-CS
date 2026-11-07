@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import * as PDFDocument from 'pdfkit';
 import * as fs from 'fs';
 import * as path from 'path';
+import { randomInt } from 'crypto';
 import { FixedDeposit, RecurringDeposit } from '../entities';
 import { Member } from '../../member/entities/member.entity';
 import { CertificateTemplateService } from '../../admin/services/certificate-template.service';
@@ -443,10 +444,25 @@ export class CertificateService {
     const year = new Date().getFullYear().toString();
     const month = (new Date().getMonth() + 1).toString().padStart(2, '0');
 
-    // Generate a random 4-digit number for uniqueness
-    const random = Math.floor(1000 + Math.random() * 9000);
+    // A certificate number must never repeat: a random 6-digit part, re-drawn while the number was already issued by
+    // this process or already appears in a saved certificate file name (file names carry the number, see saveCertificate).
+    for (let attempt = 0; attempt < 50; attempt++) {
+      const candidate = `${type}CERT${year}${month}${randomInt(100000, 1000000)}`;
+      if (this.issuedNumbers.has(candidate) || this.numberUsedInSavedFile(candidate)) continue;
+      this.issuedNumbers.add(candidate);
+      return candidate;
+    }
+    throw new Error('Could not generate a unique certificate number');
+  }
 
-    return `${type}CERT${year}${month}${random}`;
+  private readonly issuedNumbers = new Set<string>();
+
+  private numberUsedInSavedFile(certificateNumber: string): boolean {
+    try {
+      return fs.readdirSync(this.certificatesPath).some((f) => f.includes(`_${certificateNumber}_`));
+    } catch {
+      return false;
+    }
   }
 
   private ensureDirectoryExists(dirPath: string): void {
@@ -457,7 +473,19 @@ export class CertificateService {
 
   // Utility method to get certificate file path
   getCertificateFilePath(fileName: string): string {
-    return path.join(this.certificatesPath, fileName);
+    // Path traversal guard (ES-363): the name is a plain file name inside the certificates folder, never a path.
+    // '..\\..\\package.json', '../x', absolute paths, NUL bytes and encoded variants are all refused, and the
+    // resolved path must still be inside the folder.
+    const name = String(fileName ?? '');
+    if (!name || name !== path.basename(name) || /[\\/\0]/.test(name) || name.includes('..') || path.isAbsolute(name) || /^[a-zA-Z]:/.test(name)) {
+      throw new BadRequestException('Invalid certificate file name');
+    }
+    const base = path.resolve(this.certificatesPath);
+    const full = path.resolve(base, name);
+    if (!full.startsWith(base + path.sep)) {
+      throw new BadRequestException('Invalid certificate file name');
+    }
+    return full;
   }
 
   // Method to delete certificate file

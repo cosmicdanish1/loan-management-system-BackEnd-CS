@@ -112,6 +112,8 @@ export class JiraClientService {
             method: 'POST',
             headers: { Authorization: this.authHeader, 'X-Atlassian-Token': 'no-check' },
             body: form,
+            // a Jira that accepts the connection and never answers must not freeze delivery for good (ES-433)
+            signal: AbortSignal.timeout(30000),
         });
         if (!res.ok) throw new Error(`Jira attachment ${res.status}: ${(await res.text()).slice(0, 300)}`);
     }
@@ -125,6 +127,7 @@ export class JiraClientService {
                 Accept: 'application/json',
             },
             body: JSON.stringify(body),
+            signal: AbortSignal.timeout(15000),
         });
     }
 

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, HttpException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, MoreThan, DataSource } from 'typeorm';
 import { DemandMaster } from '../entities/demand-master.entity';
@@ -47,7 +47,8 @@ export class ShortRecoveryService {
             // period/member composite is the only reliable row identity.
             id: `${r.year}-${r.month}-${r.memberNo}`,
             memberNo: r.memberNo?.toString(),
-            memberName: `${r.fName || ''} ${r.lName || ''}`.trim() || `Member ${r.memberNo}`,
+            // ES-418: the middle name was dropped; empty parts are skipped so the spacing stays single
+            memberName: [r.fName, r.mName, r.lName].map((n: any) => (n || '').toString().trim()).filter(Boolean).join(' ') || `Member ${r.memberNo}`,
             recoveryType: 'Demand Shortfall',
             expectedAmount: Number(r.totalDemand),
             recoveredAmount: Number(r.totalDemand) - Number(r.balance),
@@ -67,10 +68,10 @@ export class ShortRecoveryService {
 
         try {
             if (!reason?.trim() || !Number.isFinite(Number(amount)) || Number(amount) <= 0) {
-                throw new Error('A reason and positive adjustment amount are required');
+                throw new BadRequestException('A reason and positive adjustment amount are required');
             }
             const [year, month, memberNo] = String(demandId).split('-');
-            if (!year || !month || !memberNo) throw new Error('Invalid demand identifier');
+            if (!year || !month || !memberNo || !Number.isInteger(Number(year)) || !Number.isInteger(Number(month))) throw new BadRequestException('Invalid demand identifier');
             const demandRows = await queryRunner.query(
                 `SELECT dmnd_srno, totaldemand, balance_for_month
                  FROM demand_master
@@ -79,9 +80,9 @@ export class ShortRecoveryService {
                 [Number(year), Number(month), memberNo],
             );
             const demand = demandRows[0];
-            if (!demand) throw new Error('Demand not found');
+            if (!demand) throw new NotFoundException('Demand not found');
             if (Number(amount) > Number(demand.balance_for_month)) {
-                throw new Error('Adjustment amount cannot exceed the shortfall');
+                throw new BadRequestException('Adjustment amount cannot exceed the shortfall');
             }
 
             // Zero out the shortfall balance
@@ -92,9 +93,24 @@ export class ShortRecoveryService {
                 [remaining, Number(year), Number(month), memberNo],
             );
 
+            // ES-418: legacy demand rows all carry serial 0, so an audit row pointing at serial 0 could not be traced
+            // back to its demand. Give that one demand row a real serial first (same MAX + 1 numbering and table
+            // lock the demand import uses), then link the audit row to it.
+            let demandSerial = Number(demand.dmnd_srno) || 0;
+            if (demandSerial === 0) {
+                await queryRunner.query('LOCK TABLE demand_master IN SHARE ROW EXCLUSIVE MODE');
+                const serialRows = await queryRunner.query('SELECT COALESCE(MAX(dmnd_srno), 0) + 1 AS next_serial FROM demand_master');
+                demandSerial = Number(serialRows[0]?.next_serial || 1);
+                await queryRunner.query(
+                    `UPDATE demand_master SET dmnd_srno = $1
+                     WHERE demand_for_year = $2 AND demand_for_month = $3 AND mbno = $4`,
+                    [demandSerial, Number(year), Number(month), memberNo],
+                );
+            }
+
             // Record the adjustment for audit trail
             const adj = new ShortRecoveryAdjustment();
-            adj.demandId = Number(demand.dmnd_srno) || 0;
+            adj.demandId = demandSerial;
             adj.adjustmentAmount = amount;
             adj.reason = reason;
             adj.adjustedBy = 'system-user';
@@ -104,6 +120,8 @@ export class ShortRecoveryService {
             return { success: true };
         } catch (error: any) {
             await queryRunner.rollbackTransaction();
+            // a bad request or an unknown demand keeps its own 400 / 404 (ES-371); only an unexpected failure is wrapped
+            if (error instanceof HttpException) throw error;
             throw new Error('Failed to adjust short recovery: ' + error.message);
         } finally {
             await queryRunner.release();

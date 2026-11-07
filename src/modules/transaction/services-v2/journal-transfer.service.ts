@@ -47,6 +47,13 @@ export class JournalTransferService {
             throw new BadRequestException('Every posting row requires a head code');
         }
 
+        // A journal whose rows all hit the same account (same head and same member) moves nothing: the debit
+        // and credit cancel out and only add noise to the ledger and Day Book. (ES-324)
+        const distinctAccounts = new Set(postingRows.map((row, i) => `${normalizedCodes[i]}|${row.mbno ?? ''}`));
+        if (distinctAccounts.size < 2) {
+            throw new BadRequestException('Debit and credit are on the same account; the entry would not move anything');
+        }
+
         const queryRunner = this.dataSource.createQueryRunner();
         await queryRunner.connect();
         await queryRunner.startTransaction();

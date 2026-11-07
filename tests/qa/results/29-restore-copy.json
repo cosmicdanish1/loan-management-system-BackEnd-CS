@@ -1,0 +1,56 @@
+[
+ {
+  "id": "RS-00",
+  "title": "The restore service targets the copy database, not the live one",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "id": "RS-01",
+  "title": "Restore works with the settings of this machine (psql only reachable through PSQL_PATH)",
+  "ok": false,
+  "detail": "success=false Restore failed: Command failed: psql -h localhost -p 5432 -U postgres -d EMP_QA_RestoreCopy -tA -c \"SELECT CASE WHEN to_regclass('public.member_master') IS NOT NULL AND EXISTS (SELECT 1 FROM member_master LIMIT 1) THEN 't' ELSE 'f' END\" --no-password\n'psql' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n"
+ },
+ {
+  "id": "RS-02",
+  "title": "Restoring over existing data does not duplicate or change row counts",
+  "ok": true,
+  "detail": "changed: "
+ },
+ {
+  "id": "RS-03",
+  "title": "A restore that hit \"already exists\" / duplicate-key errors must not report \"restored successfully\"",
+  "ok": true,
+  "detail": "reported success=false \"Restore failed: This backup was made without the \"clean\" option and the database already has data: restoring it would duplicate every record. Make a new backup (it replaces tables when restored) or restore into an empty database.\" although every table already existed (psql errors are ignored)"
+ },
+ {
+  "id": "RS-04",
+  "title": "After data loss, restoring the backup brings the lost rows back (vouchers and loan_pending)",
+  "ok": false,
+  "detail": "vouchers 0->0, loan_pending 19108->19108; reported success=false"
+ },
+ {
+  "id": "RS-05",
+  "title": "A .sql.safe backup (the format POST /backup/create writes now) can be restored by the restore function",
+  "ok": false,
+  "detail": "success=false Restore failed: Invalid backup file name"
+ },
+ {
+  "id": "RS-06",
+  "title": "A file name with '..\\' cannot run a SQL file from outside the backup folder",
+  "ok": true,
+  "detail": "marker table created=false; result {\"success\":false,\"message\":\"Restore failed: Invalid backup file name\",\"restoredAt\":\"2026-11-03T10:02:17.949Z\"}"
+ },
+ {
+  "id": "RS-07",
+  "title": "Integrity check rejects a dump that was cut off after 20 MB (no completion marker)",
+  "ok": false,
+  "detail": "verifyBackupIntegrity returned true"
+ },
+ {
+  "id": "RS-08",
+  "title": "The restore takes a safety backup of the current database before overwriting anything",
+  "ok": false,
+  "detail": "restoreDatabase() has no pre-restore backup step"
+ }
+]

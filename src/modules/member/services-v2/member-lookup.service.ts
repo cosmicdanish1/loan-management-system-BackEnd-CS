@@ -20,8 +20,11 @@ export class MemberLookupService {
             console.log('[MemberLookup] Looking up members with search:', search, 'limit:', limit, 'offset:', offset);
 
             // Set defaults and limits
-            const actualLimit = Math.min(limit || 500, 1000); // Default 500, max 1000
-            const actualOffset = offset || 0;
+            // A missing, non numeric, zero or negative limit falls back to the default; never LIMIT -5 or LIMIT 'abc' in SQL
+            const wantedLimit = Number(limit);
+            const actualLimit = Number.isFinite(wantedLimit) && wantedLimit >= 1 ? Math.min(Math.floor(wantedLimit), 1000) : 500; // default 500, max 1000
+            const wantedOffset = Number(offset);
+            const actualOffset = Number.isFinite(wantedOffset) && wantedOffset >= 0 ? Math.floor(wantedOffset) : 0;
 
             // BUG FIX 8: Was interpolating `search` directly into SQL → SQL injection.
             // Now uses parameterized placeholders; search pattern built in JS then passed as a safe param.
@@ -29,13 +32,13 @@ export class MemberLookupService {
             let searchClause = '';
             if (search) {
                 params.push(`%${search}%`);
-                searchClause = `AND (TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) ILIKE $3 OR m.mbno::text ILIKE $3)`;
+                searchClause = `AND (REGEXP_REPLACE(TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')), '\\s+', ' ', 'g') ILIKE $3 OR m.mbno::text ILIKE $3)`;
             }
 
             const query = `
         SELECT DISTINCT
           m.mbno as memberNo,
-          TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) as memberName,
+          REGEXP_REPLACE(TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')), '\\s+', ' ', 'g') as memberName,
           m.officeno as officeNo,
           m.wingno as wingNo,
           COALESCE(d.name, 'Unknown Office') as officeName
@@ -43,7 +46,7 @@ export class MemberLookupService {
         LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
         WHERE (m.isactive = 'Y' OR m.isactive = '1') AND m.mbno IS NOT NULL
         ${searchClause}
-        ORDER BY TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, ''))
+        ORDER BY REGEXP_REPLACE(TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')), '\\s+', ' ', 'g')
         LIMIT $1 OFFSET $2
       `;
 
@@ -63,7 +66,8 @@ export class MemberLookupService {
             return mappedResult;
         } catch (error) {
             console.error('[MemberLookup] Error in lookupMembers:', error);
-            return [];
+            // Do not hide a database failure as "no members found": the caller must see that the lookup failed (ES-402)
+            throw error;
         }
     }
 
@@ -76,7 +80,7 @@ export class MemberLookupService {
         SELECT
           m.mbno,
           m.prefix,
-          TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) as fullname,
+          REGEXP_REPLACE(TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')), '\\s+', ' ', 'g') as fullname,
           m.f_name,
           m.m_name,
           m.l_name,
@@ -137,7 +141,7 @@ export class MemberLookupService {
             const query = `
         SELECT
           m.mbno as memberNo,
-          TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) as memberName,
+          REGEXP_REPLACE(TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')), '\\s+', ' ', 'g') as memberName,
           m.isactive as status,
           m.officeno as officeNo,
           COALESCE(d.name, 'Unknown Office') as officeName

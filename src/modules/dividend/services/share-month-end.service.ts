@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
 /**
@@ -21,6 +21,15 @@ export class ShareMonthEndService {
      * what it was mid-month for members whose balance changed since.
      */
     async captureMonthEndSnapshot(month: number, year: number): Promise<{ success: boolean; captured: number; message: string }> {
+        if (!Number.isInteger(Number(month)) || Number(month) < 1 || Number(month) > 12) {
+            throw new BadRequestException('month must be a whole number from 1 to 12.');
+        }
+        if (!Number.isInteger(Number(year)) || Number(year) < 1900 || Number(year) > 2100) {
+            throw new BadRequestException('year must be a whole number from 1900 to 2100.');
+        }
+        month = Number(month);
+        year = Number(year);
+
         const queryRunner = this.dataSource.createQueryRunner();
         await queryRunner.connect();
         await queryRunner.startTransaction();
@@ -61,6 +70,13 @@ export class ShareMonthEndService {
     }
 
     async getMonthlyBalanceReport(month: number, year: number): Promise<any[]> {
+        // ES-370: an invalid month or year is a 400, not an empty 200 report
+        if (!Number.isInteger(Number(month)) || Number(month) < 1 || Number(month) > 12) {
+            throw new BadRequestException('month must be a whole number from 1 to 12.');
+        }
+        if (!Number.isInteger(Number(year)) || Number(year) < 1900 || Number(year) > 2100) {
+            throw new BadRequestException('year must be a whole number from 1900 to 2100.');
+        }
         return this.dataSource.query(
             `SELECT
                 smb.mbno,

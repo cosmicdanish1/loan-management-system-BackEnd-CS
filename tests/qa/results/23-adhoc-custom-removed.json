@@ -1,0 +1,63 @@
+{
+ "suite": "23-adhoc-custom-removed",
+ "ranAt": "2026-10-17T22:09:30.848Z",
+ "seconds": 0.857,
+ "total": 9,
+ "failed": 0,
+ "results": [
+  {
+   "id": "AH-1",
+   "title": "custom report with a count on usermaster -> 400 'not supported' and no data returned",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T22:09:30.384Z\",\"path\":\"/api/v1/reports/adhoc-reports?reportType=custom&customQ"
+  },
+  {
+   "id": "AH-2",
+   "title": "custom report with credential columns -> 400 'not supported' and no data returned",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T22:09:30.410Z\",\"path\":\"/api/v1/reports/adhoc-reports?reportType=custom&customQ"
+  },
+  {
+   "id": "AH-3",
+   "title": "custom report with a harmless SELECT 1 -> 400 'not supported' and no data returned",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T22:09:30.428Z\",\"path\":\"/api/v1/reports/adhoc-reports?reportType=custom&customQ"
+  },
+  {
+   "id": "AH-4",
+   "title": "custom report with a query in lower case -> 400 'not supported' and no data returned",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T22:09:30.450Z\",\"path\":\"/api/v1/reports/adhoc-reports?reportType=custom&customQ"
+  },
+  {
+   "id": "AH-5",
+   "title": "custom report with a stacked statement -> 400 'not supported' and no data returned",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T22:09:30.475Z\",\"path\":\"/api/v1/reports/adhoc-reports?reportType=custom&customQ"
+  },
+  {
+   "id": "AH-6",
+   "title": "custom report with a comment trick -> 400 'not supported' and no data returned",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T22:09:30.494Z\",\"path\":\"/api/v1/reports/adhoc-reports?reportType=custom&customQ"
+  },
+  {
+   "id": "AH-7",
+   "title": "custom report with no query -> 400",
+   "ok": true,
+   "detail": "400"
+  },
+  {
+   "id": "AH-8",
+   "title": "An unknown report type is still 400",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T22:09:30.543Z\",\"path\":\"/api/v1/reports/adhoc-rep"
+  },
+  {
+   "id": "AH-9",
+   "title": "A built-in report type (member_wise) is not affected: 200 or a clear 4xx, never 500 from this change",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"rep"
+  }
+ ]
+}

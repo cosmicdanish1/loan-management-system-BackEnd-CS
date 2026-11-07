@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
 export interface DemandListFiltersDto {
@@ -20,10 +20,16 @@ export class DemandReportService {
             'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4, 'MAY': 5, 'JUN': 6,
             'JUL': 7, 'AUG': 8, 'SEP': 9, 'OCT': 10, 'NOV': 11, 'DEC': 12
         };
-        const monthNum = monthMap[filters.month] || 0;
-        const yearNum = parseInt(filters.year);
+        // ES-423: the month is read like the demand generator reads it (trimmed, any case), and the year must be
+        // exactly four digits; parseInt used to turn "2026abc" into 2026 and answer for a year nobody asked for.
+        const monthNum = monthMap[String(filters.month ?? '').trim().toUpperCase()] || 0;
+        const yearText = String(filters.year ?? '').trim();
+        if (!/^\d{4}$/.test(yearText)) {
+            throw new BadRequestException(`year must be a 4-digit year, got '${filters.year ?? ''}'`);
+        }
+        const yearNum = Number(yearText);
 
-        if (!monthNum || !yearNum) return [];
+        if (!monthNum) return [];
 
         const params: any[] = [monthNum, yearNum];
         const conditions = ['dm.demand_for_month = $1', 'dm.demand_for_year = $2'];
@@ -49,7 +55,7 @@ export class DemandReportService {
                     dm.totaldemand as "totalDemand",
                     dm.balance_for_month as balance,
                     dm.officeno as "officeNo", dm.loancaseno as "loanCaseNo",
-                    TRIM(COALESCE(mm.f_name,'') || ' ' || COALESCE(mm.m_name,'') || ' ' || COALESCE(mm.l_name,'')) as member_name,
+                    REGEXP_REPLACE(TRIM(COALESCE(mm.f_name,'') || ' ' || COALESCE(mm.m_name,'') || ' ' || COALESCE(mm.l_name,'')), '\\s+', ' ', 'g') as member_name,
                     CASE WHEN COALESCE(dm.balance_for_month,0) > 0 THEN 'Unpaid' ELSE 'Paid' END as status
              FROM demand_master dm
              LEFT JOIN member_master mm ON mm.mbno = dm.mbno

@@ -1,0 +1,87 @@
+{
+ "suite": "28-downloads",
+ "ranAt": "2026-11-03T09:51:57.593Z",
+ "seconds": 0.633,
+ "total": 13,
+ "failed": 0,
+ "results": [
+  {
+   "id": "DL-01",
+   "title": "Certificate download answers 200",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "id": "DL-02",
+   "title": "Content-Type is application/pdf and Content-Disposition names the file",
+   "ok": true,
+   "detail": "application/pdf | attachment; filename=\"qa_es373_test.pdf\""
+  },
+  {
+   "id": "DL-03",
+   "title": "The body is the file, byte for byte (same length and SHA-256)",
+   "ok": true,
+   "detail": "got 65552 bytes sha 8226b4187dad vs 65552 bytes sha 8226b4187dad; starts: %PDF-1.4 e\u0005vMõö\u0006 ²Ö^²ÁZv\u001d6Kwî;½£&W=ë\u000f6"
+  },
+  {
+   "id": "DL-04",
+   "title": "The body is not the JSON envelope",
+   "ok": true,
+   "detail": "%PDF-1.4\ne\u0005vM��\u0006\u000b��^��Zv\u001d6Kw�;"
+  },
+  {
+   "id": "DL-05",
+   "title": "Missing file -> 404 with the JSON error body",
+   "ok": true,
+   "detail": "404 {\"statusCode\":404,\"timestamp\":\"2026-11-03T09:51:57.343Z\",\"path\":\"/api/v1/deposit"
+  },
+  {
+   "id": "DL-06",
+   "title": "Traversal attempt -> 400 and no file content",
+   "ok": true,
+   "detail": "400"
+  },
+  {
+   "id": "DL-07",
+   "title": "Signature upload for the QA member works",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"message\":\"Sig"
+  },
+  {
+   "id": "DL-08",
+   "title": "Signature download is the uploaded image, byte for byte, as image/png",
+   "ok": true,
+   "detail": "200 image/png 2056 bytes (uploaded 2056); starts: .PNG......b.../Ef1kx.-...+.?.."
+  },
+  {
+   "id": "DL-09",
+   "title": "The QA signature is deleted again (own file)",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "id": "DL-10",
+   "title": "A normal JSON route still returns {success, statusCode, message, data, timestamp}",
+   "ok": true,
+   "detail": "{\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":[{\"loanCaseNo\":"
+  },
+  {
+   "id": "DL-11",
+   "title": "Health still answers 200 JSON",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "id": "DL-12",
+   "title": "A POST route still returns 201 with the envelope",
+   "ok": true,
+   "detail": "201"
+  },
+  {
+   "id": "DL-13",
+   "title": "Swagger JSON (docs-json) is still served",
+   "ok": true,
+   "detail": ""
+  }
+ ]
+}

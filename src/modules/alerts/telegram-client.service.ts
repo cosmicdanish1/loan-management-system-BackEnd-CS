@@ -12,6 +12,25 @@ const TOPIC_ENV: Record<TelegramChannel, string> = {
     digest: 'TELEGRAM_TOPIC_DIGEST',
 };
 
+/**
+ * Cuts HTML text to a length Telegram accepts without leaving a half tag or half entity behind (Telegram answers 400
+ * "can't parse entities" and the alert would be lost), and closes any tag that the cut left open (ES-434).
+ */
+export function safeHtmlCut(text: string, max: number): string {
+    if (text.length <= max) return text;
+    let cut = text.slice(0, max - 30); // room for the closing tags added below
+    const lt = cut.lastIndexOf('<');
+    if (lt > cut.lastIndexOf('>')) cut = cut.slice(0, lt); // inside a tag
+    const amp = cut.lastIndexOf('&');
+    if (amp !== -1 && amp > cut.lastIndexOf(';') && cut.length - amp <= 10) cut = cut.slice(0, amp); // inside an entity
+    const open: string[] = [];
+    for (const m of cut.matchAll(/<(\/?)(b|i|u|s|code|pre|a)\b[^>]*>/gi)) {
+        const name = m[2].toLowerCase();
+        if (m[1]) { const at = open.lastIndexOf(name); if (at !== -1) open.splice(at, 1); } else open.push(name);
+    }
+    return cut + '…' + open.reverse().map((n) => `</${n}>`).join('');
+}
+
 /** Sends plain-text messages to the alerts group through the Telegram Bot API. */
 @Injectable()
 export class TelegramClientService {
@@ -37,7 +56,7 @@ export class TelegramClientService {
             chat_id: this.config.get('TELEGRAM_CHAT_ID'),
             // Blank/invalid topic id falls back to the group's General topic.
             ...(Number.isInteger(topic) && topic > 0 ? { message_thread_id: topic } : {}),
-            text: text.slice(0, 4000),
+            text: parseMode === 'HTML' ? safeHtmlCut(text, 4000) : text.slice(0, 4000),
             ...(parseMode ? { parse_mode: parseMode } : {}),
             disable_web_page_preview: true,
         });

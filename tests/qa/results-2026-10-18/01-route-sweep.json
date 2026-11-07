@@ -1,0 +1,39 @@
+{
+ "suite": "01-route-sweep",
+ "ranAt": "2026-10-16T17:26:43.290Z",
+ "seconds": 61.533,
+ "total": 5,
+ "failed": 4,
+ "results": [
+  {
+   "id": "SW-01",
+   "title": "Admin login works",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "SW-02",
+   "title": "No route answers without a token (checked 271; skipped 233 dangerous mutating)",
+   "ok": false,
+   "detail": "GET /api/v1/auth/2fa/forgot/methods=200; GET /api/v1=200"
+  },
+  {
+   "id": "SW-03",
+   "title": "Garbage bearer token is rejected everywhere",
+   "ok": false,
+   "detail": "GET /api/v1/auth/2fa/forgot/methods=200; GET /api/v1=200"
+  },
+  {
+   "id": "SW-04",
+   "title": "No 5xx / hang on authenticated probe with no params or empty body",
+   "ok": false,
+   "detail": "12 routes: GET /api/v1/admin/backup/list=0; GET /api/v1/members/balance/{memberNo}=500; GET /api/v1/reports/account-closing=500; GET /api/v1/reports/adhoc-reports=500; GET /api/v1/reports/loan-contributions-register=500; GET /api/v1/reports/passbook-printing=500; GET /api/v1/reports/recovery-details=500; GET /api/v1/utilities/balance/account/{accountType}/{accountId}=500; GET /api/v1/utilities/bal"
+  },
+  {
+   "id": "SW-05",
+   "title": "No authenticated probe slower than 5s",
+   "ok": false,
+   "detail": "GET /api/v1/admin/backup/list=60016ms; GET /api/v1/print-voucher/journal/list/by-date=10862ms; GET /api/v1/reports/surety-register=16159ms; GET /api/v1/utilities/head-master=5191ms"
+  }
+ ]
+}

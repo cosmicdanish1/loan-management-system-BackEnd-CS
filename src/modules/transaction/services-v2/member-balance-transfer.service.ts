@@ -1,4 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, HttpException, Injectable, Logger } from '@nestjs/common';
+import { assertPostingDateOpen } from '../../shared/utils/posting-date';
+import { lockLedgerIds } from '../../shared/utils/ledger-lock';
 import { DataSource } from 'typeorm';
 import { isDebitNormal } from '../../shared/utils/balance-direction';
 import { generateVoucherNo } from '../../shared/utils/voucher-utils';
@@ -52,7 +54,7 @@ export class MemberBalanceTransferService {
 
         const nameRows = onlyMbnos && onlyMbnos.length > 0
             ? await runner.query(
-                `SELECT mbno::text as mbno, TRIM(COALESCE(f_name,'') || ' ' || COALESCE(m_name,'') || ' ' || COALESCE(l_name,'')) as name
+                `SELECT mbno::text as mbno, REGEXP_REPLACE(TRIM(COALESCE(f_name,'') || ' ' || COALESCE(m_name,'') || ' ' || COALESCE(l_name,'')), '\\s+', ' ', 'g') as name
                  FROM member_master WHERE mbno::text = ANY($1)`,
                 [onlyMbnos],
             )
@@ -118,7 +120,7 @@ export class MemberBalanceTransferService {
         // subset that's actually being re-posted, fetched inside computeEntries).
         const members = await this.dataSource.query(`
             SELECT f.mbno::text as mbno,
-                   TRIM(COALESCE(m.f_name,'') || ' ' || COALESCE(m.m_name,'') || ' ' || COALESCE(m.l_name,'')) as name
+                   REGEXP_REPLACE(TRIM(COALESCE(m.f_name,'') || ' ' || COALESCE(m.m_name,'') || ' ' || COALESCE(m.l_name,'')), '\\s+', ' ', 'g') as name
             FROM fundsmaster f
             JOIN member_master m ON m.mbno = f.mbno
             WHERE m.isactive = 'Y' OR m.isactive IS NULL
@@ -171,12 +173,23 @@ export class MemberBalanceTransferService {
                 queryRunner, debitHead, creditHead, creditLimit, balanceAsOn, mbnos,
             );
 
+            // ES-421: the part above the credit limit must go to the excess head. Without one, that leg used to be
+            // skipped silently, so the voucher posted more on the debit side than on the credit side.
+            const withExcess = freshEntries.filter(e => e.exCrAmt > 0);
+            if (withExcess.length > 0 && !String(excessHead ?? '').trim()) {
+                throw new BadRequestException(
+                    `${withExcess.length} member(s) have more than the credit limit to transfer (e.g. member ${withExcess[0].mbno}: ${withExcess[0].exCrAmt}). Choose an excess head.`,
+                );
+            }
+
+            await assertPostingDateOpen(queryRunner, new Date()); // ES-458
             const voucherNo = await generateVoucherNo(queryRunner, 'J');
 
             // BUG FIX 35: ledger has no unique constraint on trans_no/ledgerid, so an unguarded
             // MAX()+1 lets concurrent postings silently write duplicate ids. Transaction-scoped
             // advisory lock serializes callers for the remainder of this transaction.
             await queryRunner.query(`SELECT pg_advisory_xact_lock(hashtext('ledger'))`);
+            await lockLedgerIds(queryRunner); // ES-445
             const maxLedgerResult = await queryRunner.query(`SELECT COALESCE(MAX(ledgerid), 0) as max_id FROM ledger`);
             let nextLedgerId = parseInt(maxLedgerResult[0].max_id) + 1;
             const maxTransResult = await queryRunner.query(`SELECT COALESCE(MAX(trans_no), 0) as max_no FROM ledger`);
@@ -240,6 +253,7 @@ export class MemberBalanceTransferService {
         } catch (error: any) {
             await queryRunner.rollbackTransaction();
             this.logger.error('Member balance transfer post failed:', error);
+            if (error instanceof HttpException) throw error;
             throw new Error('Failed to post member balance transfer: ' + error.message);
         } finally {
             await queryRunner.release();

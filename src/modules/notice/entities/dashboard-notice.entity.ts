@@ -40,6 +40,16 @@ export class DashboardNotice {
     @Column({ name: 'posted_by', length: 100 })
     postedBy: string;
 
+    // Fibe Mobile (ES-231): false = staff-only (default). Audience NULL = every member, else that wing / office only.
+    @Column({ name: 'show_on_mobile', type: 'boolean', default: false })
+    showOnMobile: boolean;
+
+    @Column({ name: 'audience_wing', type: 'varchar', length: 5, nullable: true })
+    audienceWing: string | null;
+
+    @Column({ name: 'audience_office', type: 'integer', nullable: true })
+    audienceOffice: number | null;
+
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;
 

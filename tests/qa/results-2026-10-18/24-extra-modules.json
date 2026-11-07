@@ -1,0 +1,609 @@
+{
+ "suite": "24-extra-modules",
+ "ranAt": "2026-10-17T21:29:44.145Z",
+ "seconds": 8.534,
+ "total": 100,
+ "failed": 22,
+ "results": [
+  {
+   "id": "MS-ready",
+   "title": "Member status list 'ready' loads, 200 under 3 s",
+   "ok": true,
+   "detail": "200 43ms {\"rows\":[{\"memberNo\":\"30019933\",\"name\":\"M P SUDHIR\",\"officeName\":\"DALLI RAJHRA\",\"retirementDate\":\"19"
+  },
+  {
+   "id": "MS-retired-rd",
+   "title": "Member status list 'retired-rd' loads, 200 under 3 s",
+   "ok": true,
+   "detail": "200 42ms {\"rows\":[{\"memberNo\":\"610031870\",\"name\":\"ARUN KUMAR RAJAK\",\"officeName\":\"BHILAI\",\"retirementDate\":\"1"
+  },
+  {
+   "id": "MS-upcoming",
+   "title": "Member status list 'upcoming' loads, 200 under 3 s",
+   "ok": true,
+   "detail": "200 31ms {\"rows\":[{\"memberNo\":\"610021919\",\"name\":\"DHANESH PRASAD\",\"officeName\":\"BHILAI\",\"retirementDate\":\"202"
+  },
+  {
+   "id": "MSX-1",
+   "title": "Summary counts are numbers",
+   "ok": true,
+   "detail": "{\"ready\":251,\"retiredWithRd\":2881,\"upcoming\":288,\"upcomingMonths\":12}"
+  },
+  {
+   "id": "MSX-2",
+   "title": "List total for category ready equals the summary count",
+   "ok": true,
+   "detail": "list 251 vs summary 251"
+  },
+  {
+   "id": "MSX-3",
+   "title": "GET list?category=bogus: no 5xx and < 5 s",
+   "ok": true,
+   "detail": "400 11ms {\"statusCode\":400,\"timestamp\":\"2026-10-17T21:29:36.173Z\",\"path\":\"/api/v1/member-"
+  },
+  {
+   "id": "MSX-4",
+   "title": "GET list?category=ready&limit=-1: no 5xx and < 5 s",
+   "ok": true,
+   "detail": "200 42ms {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "MSX-5",
+   "title": "GET list?category=ready&limit=abc: no 5xx and < 5 s",
+   "ok": true,
+   "detail": "200 36ms {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "MSX-6",
+   "title": "GET list?category=ready&offset=-5: no 5xx and < 5 s",
+   "ok": true,
+   "detail": "200 40ms {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "MSX-7",
+   "title": "GET list?category=ready&limit=99999999: no 5xx and < 5 s",
+   "ok": true,
+   "detail": "200 50ms {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "MSX-8",
+   "title": "GET list?category=ready&search=%27%3B--: no 5xx and < 5 s",
+   "ok": true,
+   "detail": "200 26ms {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "MSX-9",
+   "title": "GET summary?months=-3: no 5xx and < 5 s",
+   "ok": true,
+   "detail": "200 27ms {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "MSX-10",
+   "title": "GET summary?months=abc: no 5xx and < 5 s",
+   "ok": true,
+   "detail": "200 34ms {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "MSX-11",
+   "title": "Mark a QA member inactive: accepted, isactive flag changes",
+   "ok": true,
+   "detail": "409 flag=Y {\"statusCode\":409,\"timestamp\":\"2026-10-17T21:29:36.453Z\",\"path\":\"/api/v1/member-status/9999962533/inactive\",\"method\":\"PO"
+  },
+  {
+   "id": "MSX-12",
+   "title": "Inactive with an empty reason -> 400",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "MSX-13",
+   "title": "Inactive for an unknown member -> 404/400",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "MSX-14",
+   "title": "Reactivate restores the flag to Y",
+   "ok": true,
+   "detail": "400 flag=Y {\"statusCode\":400,\"timestamp\":\"2026-10-17T21:29:36.523Z\",\"path\":\"/api/v1/member-status/9999962533/re"
+  },
+  {
+   "id": "MSX-15",
+   "title": "Reactivate for an unknown member -> 404/400",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "MSX-16",
+   "title": "Member status history loads for the QA member",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "id": "GI-1",
+   "title": "Group insurance context loads with years",
+   "ok": true,
+   "detail": "{\"today\":\"2026-10-17\",\"currentYearcode\":1,\"years\":[{\"yearcode\":2,\"fyStart\":\"2027-04-01\",\"fyEnd\":\"202"
+  },
+  {
+   "id": "GI-2",
+   "title": "Preview for the first listed year answers (200 or a clear 4xx)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T21:29:36.578Z\",\"path\":\"/api/v1/group-insurance/preview\",\"method\":\"POST\",\"error\":\"Bad Request\",\"mes"
+  },
+  {
+   "id": "GI-3",
+   "title": "Preview with {\"yearcode\":999} -> 4xx",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T21:29:36.591Z\",\"path\":\"/api/v1/group-insurance/p"
+  },
+  {
+   "id": "GI-4",
+   "title": "Preview with {\"yearcode\":\"abc\"} -> 4xx",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T21:29:36.603Z\",\"path\":\"/api/v1/group-insurance/p"
+  },
+  {
+   "id": "GI-5",
+   "title": "Preview with {\"yearcode\":-1} -> 4xx",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T21:29:36.614Z\",\"path\":\"/api/v1/group-insurance/p"
+  },
+  {
+   "id": "GI-6",
+   "title": "Post for a year that does not exist is refused 4xx (the real post is NOT run)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T21:29:36.625Z\",\"path\":\"/api/v1/group-insurance/p"
+  },
+  {
+   "id": "GI-7",
+   "title": "Run details for a run that does not exist -> 404",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "SS-1",
+   "title": "Share snapshot report loads (month 9 / 2026)",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":[{\"mbno\":\"30001"
+  },
+  {
+   "id": "SS-2",
+   "title": "GET month=13&year=2026: 4xx",
+   "ok": false,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "SS-3",
+   "title": "GET month=0&year=2026: 4xx",
+   "ok": false,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "SS-4",
+   "title": "GET month=9&year=1800: 4xx",
+   "ok": false,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "SS-5",
+   "title": "GET month=abc&year=2026: 4xx",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T21:29:36.814Z\",\"path\":\"/api/v1/dividen"
+  },
+  {
+   "id": "SS-6",
+   "title": "POST share-snapshot {\"month\":13,\"year\":2026} -> 4xx and nothing written",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "SS-7",
+   "title": "POST share-snapshot {\"month\":9,\"year\":1800} -> 4xx and nothing written",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "SS-8",
+   "title": "POST share-snapshot {\"month\":\"x\",\"year\":\"y\"} -> 4xx and nothing written",
+   "ok": false,
+   "detail": "500 {\"statusCode\":500,\"timestamp\":\"2026-10-17T21:29:40.554Z\",\"path\":\"/api/v1/dividen"
+  },
+  {
+   "id": "SS-9",
+   "title": "POST share-snapshot {} -> 4xx and nothing written",
+   "ok": false,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T21:29:40.568Z\",\"path\":\"/api/v1/dividen"
+  },
+  {
+   "id": "DV-1",
+   "title": "Dividend pay with empty, negative-amount or unknown-member body -> 4xx",
+   "ok": false,
+   "detail": "500,500,500 {\"statusCode\":500,\"timestamp\":\"2026-10-17T21:29:40.588Z\",\"path\":\"/api/v1/transac"
+  },
+  {
+   "id": "DV-2",
+   "title": "Dividend credit commit {} -> 4xx (a real commit is NOT run: it would credit every member)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T21:29:40.634Z\",\"path\":\"/api/v1/dividend/credit/c"
+  },
+  {
+   "id": "DV-3",
+   "title": "Dividend credit commit {\"yearcode\":999} -> 4xx (a real commit is NOT run: it would credit every member)",
+   "ok": true,
+   "detail": "404 {\"statusCode\":404,\"timestamp\":\"2026-10-17T21:29:40.648Z\",\"path\":\"/api/v1/dividend/credit/c"
+  },
+  {
+   "id": "DV-4",
+   "title": "Dividend credit commit {\"yearcode\":\"abc\"} -> 4xx (a real commit is NOT run: it would credit every member)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T21:29:40.663Z\",\"path\":\"/api/v1/dividend/credit/c"
+  },
+  {
+   "id": "DV-5",
+   "title": "Dividend credit commit {\"yearcode\":-1} -> 4xx (a real commit is NOT run: it would credit every member)",
+   "ok": true,
+   "detail": "404 {\"statusCode\":404,\"timestamp\":\"2026-10-17T21:29:40.672Z\",\"path\":\"/api/v1/dividend/credit/c"
+  },
+  {
+   "id": "DV-6",
+   "title": "Dividend credit preview for year 2 (previous year 1) lists the committed dividends",
+   "ok": true,
+   "detail": "200 members=5142 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"creditYearcod"
+  },
+  {
+   "id": "DV-7",
+   "title": "Credit preview for an unknown year -> 4xx",
+   "ok": true,
+   "detail": "404"
+  },
+  {
+   "id": "SR-1",
+   "title": "Short recovery adjust: empty body, unknown demand id and negative amount -> 4xx (nothing written)",
+   "ok": false,
+   "detail": "500,500,500 {\"statusCode\":500,\"timestamp\":\"2026-10-17T21:29:40.820Z\",\"path\":\"/api/v1/transac"
+  },
+  {
+   "id": "SR-2",
+   "title": "Short recovery list for a month loads",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "id": "ME-1",
+   "title": "Month-end report for 9/2026 loads",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":[],\"timestamp\":"
+  },
+  {
+   "id": "ME-2",
+   "title": "month-end report month=13&year=2026 -> 4xx",
+   "ok": false,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "ME-3",
+   "title": "month-end report month=9&year=1800 -> 4xx",
+   "ok": false,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "ME-4",
+   "title": "month-end report month=abc&year=2026 -> 4xx",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T21:29:40.889Z\",\"path\":\"/api/v1/loans/m"
+  },
+  {
+   "id": "ME-5",
+   "title": "month-end snapshot {\"month\":13,\"year\":2026} -> 4xx",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "ME-6",
+   "title": "month-end snapshot {\"month\":9,\"year\":1800} -> 4xx",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "ME-7",
+   "title": "month-end snapshot {} -> 4xx",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T21:29:43.154Z\",\"path\":\"/api/v1/loans/m"
+  },
+  {
+   "id": "ME-8",
+   "title": "Month-end history for an unknown member -> 200 empty or 404 (no 5xx)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "RA-1",
+   "title": "Re-agreement eligibility for an unknown case -> 404/400",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "RA-2",
+   "title": "Re-agreement quote with an empty body -> 400",
+   "ok": false,
+   "detail": ""
+  },
+  {
+   "id": "RA-3",
+   "title": "Re-agreement apply with an empty body and with negative installments/rate -> 4xx",
+   "ok": true,
+   "detail": "400,400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T21:29:43.234Z\",\"path\":\"/api/v1/loans/r"
+  },
+  {
+   "id": "RA-4",
+   "title": "GET /loans/reagreement/99999999 for an unknown re-agreement -> 404",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "RA-5",
+   "title": "GET /loans/reagreement/99999999/draft for an unknown re-agreement -> 404",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "RA-6",
+   "title": "GET /loans/reagreement/99999999/document for an unknown re-agreement -> 404",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "RA-7",
+   "title": "GET /loans/reagreement/99999999/log for an unknown re-agreement -> 404",
+   "ok": false,
+   "detail": ""
+  },
+  {
+   "id": "RA-8",
+   "title": "Cancel an unknown re-agreement -> 404",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "RA-9",
+   "title": "Re-agreement list for a member with none loads",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "SU-1",
+   "title": "Surety of an unknown case -> 404/400",
+   "ok": false,
+   "detail": ""
+  },
+  {
+   "id": "SU-2",
+   "title": "Change surety on an unknown case -> 404/400",
+   "ok": false,
+   "detail": "500 {\"statusCode\":500,\"timestamp\":\"2026-10-17T21:29:43.417Z\",\"path\":\"/api/v1/loans/s"
+  },
+  {
+   "id": "SU-3",
+   "title": "Surety validation for a QA member answers (no 5xx)",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"valid\":true},"
+  },
+  {
+   "id": "SU-4",
+   "title": "Surety validation for text -> no 5xx",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "LI-1",
+   "title": "License status shows active with days remaining",
+   "ok": true,
+   "detail": "{\"status\":\"active\",\"days_remaining\":309,\"grace_days_remaining\":339,\"activated_at\":\"2026-08-22T08:22:01.195Z\",\"expires_at"
+  },
+  {
+   "id": "LI-2",
+   "title": "License list loads for an administrator",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "ON-status",
+   "title": "GET /onboarding/status -> 200",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation comple"
+  },
+  {
+   "id": "ON-checklist",
+   "title": "GET /onboarding/checklist -> 200",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation comple"
+  },
+  {
+   "id": "ON-profile",
+   "title": "GET /onboarding/profile -> 200",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation comple"
+  },
+  {
+   "id": "ON-terms",
+   "title": "GET /onboarding/terms -> 200",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation comple"
+  },
+  {
+   "id": "ON-report",
+   "title": "GET /onboarding/report -> 200",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation comple"
+  },
+  {
+   "id": "ON-bad1",
+   "title": "POST /onboarding/step with {} -> 4xx (own user only)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T21:29:43.779Z\",\"path\":\"/api/v1/onboard"
+  },
+  {
+   "id": "ON-bad2",
+   "title": "POST /onboarding/event with {} -> 4xx (own user only)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T21:29:43.798Z\",\"path\":\"/api/v1/onboard"
+  },
+  {
+   "id": "ON-bad3",
+   "title": "PUT /onboarding/preference with {\"mode\":\"bogus\"} -> 4xx (own user only)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T21:29:43.822Z\",\"path\":\"/api/v1/onboard"
+  },
+  {
+   "id": "ON-bad4",
+   "title": "POST /onboarding/terms/accept with {} -> 4xx (own user only)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T21:29:43.839Z\",\"path\":\"/api/v1/onboard"
+  },
+  {
+   "id": "AN-status",
+   "title": "GET /analytics/status -> 200",
+   "ok": false,
+   "detail": "404 {\"statusCode\":404,\"timestamp\":\"2026-10-17T21:29:43.846Z\",\"path\":\"/api/v1/analyti"
+  },
+  {
+   "id": "AN-health",
+   "title": "GET /analytics/health -> 200",
+   "ok": false,
+   "detail": "404 {\"statusCode\":404,\"timestamp\":\"2026-10-17T21:29:43.849Z\",\"path\":\"/api/v1/analyti"
+  },
+  {
+   "id": "AN-config",
+   "title": "GET /analytics/config -> 200",
+   "ok": false,
+   "detail": "404 {\"statusCode\":404,\"timestamp\":\"2026-10-17T21:29:43.854Z\",\"path\":\"/api/v1/analyti"
+  },
+  {
+   "id": "AN-bad-_analytics_session_start",
+   "title": "POST /analytics/session/start with an empty body -> 4xx (no 5xx, nothing written)",
+   "ok": true,
+   "detail": "404 {\"statusCode\":404,\"timestamp\":\"2026-10-17T21:29:43.859Z\",\"path\":\"/api/v1/analyti"
+  },
+  {
+   "id": "AN-bad-_analytics_page_visit",
+   "title": "POST /analytics/page/visit with an empty body -> 4xx (no 5xx, nothing written)",
+   "ok": true,
+   "detail": "404 {\"statusCode\":404,\"timestamp\":\"2026-10-17T21:29:43.861Z\",\"path\":\"/api/v1/analyti"
+  },
+  {
+   "id": "AN-bad-_analytics_feature_usage",
+   "title": "POST /analytics/feature/usage with an empty body -> 4xx (no 5xx, nothing written)",
+   "ok": true,
+   "detail": "404 {\"statusCode\":404,\"timestamp\":\"2026-10-17T21:29:43.867Z\",\"path\":\"/api/v1/analyti"
+  },
+  {
+   "id": "AN-bad-_analytics_error_track",
+   "title": "POST /analytics/error/track with an empty body -> 4xx (no 5xx, nothing written)",
+   "ok": true,
+   "detail": "404 {\"statusCode\":404,\"timestamp\":\"2026-10-17T21:29:43.870Z\",\"path\":\"/api/v1/analyti"
+  },
+  {
+   "id": "AN-bad-_analytics_track_error",
+   "title": "POST /analytics/track/error with an empty body -> 4xx (no 5xx, nothing written)",
+   "ok": true,
+   "detail": "404 {\"statusCode\":404,\"timestamp\":\"2026-10-17T21:29:43.874Z\",\"path\":\"/api/v1/analyti"
+  },
+  {
+   "id": "AN-bad-_analytics_track_session",
+   "title": "POST /analytics/track/session with an empty body -> 4xx (no 5xx, nothing written)",
+   "ok": true,
+   "detail": "404 {\"statusCode\":404,\"timestamp\":\"2026-10-17T21:29:43.878Z\",\"path\":\"/api/v1/analyti"
+  },
+  {
+   "id": "AL-1",
+   "title": "Alert settings load with groups",
+   "ok": true,
+   "detail": "{\"master\":true,\"telegramEnabled\":true,\"discordEnabled\":true,\"jiraEnabled\":true,\"groups\":[{\"id\":\"quer"
+  },
+  {
+   "id": "AL-2",
+   "title": "Alert setting with an unknown key -> 404/400 (not a silent 200)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "AL-3",
+   "title": "Alert group with an unknown name -> 404/400",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "AL-4",
+   "title": "Alert test to an unknown destination -> 4xx",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "NO-1",
+   "title": "Create a QA dashboard notice",
+   "ok": false,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T21:29:43.979Z\",\"path\":\"/api/v1/dashboard-notices\",\"method\":\"POST\",\"error\":\"Dat"
+  },
+  {
+   "id": "NO-2",
+   "title": "Empty notice -> 400",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "NO-3",
+   "title": "Notice with a 100,000-character body -> 4xx",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "NO-5",
+   "title": "Delete a notice that does not exist -> 404",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "SE-global_q_KAV",
+   "title": "GET /search/global?q=KAV... no 5xx, < 5 s",
+   "ok": true,
+   "detail": "200 32ms"
+  },
+  {
+   "id": "SE-global_q_",
+   "title": "GET /search/global?q=... no 5xx, < 5 s",
+   "ok": true,
+   "detail": "200 13ms"
+  },
+  {
+   "id": "SE-global_q__27_20OR_201_",
+   "title": "GET /search/global?q=%27%20OR%201%3D1--... no 5xx, < 5 s",
+   "ok": true,
+   "detail": "200 21ms"
+  },
+  {
+   "id": "SE-global_q_AAAAAAAAAAAAA",
+   "title": "GET /search/global?q=AAAAAAAAAAAAAAAAAAAAAAA... no 5xx, < 5 s",
+   "ok": true,
+   "detail": "200 23ms"
+  },
+  {
+   "id": "SE-suggestions_q_K",
+   "title": "GET /search/suggestions?q=K... no 5xx, < 5 s",
+   "ok": true,
+   "detail": "200 7ms"
+  },
+  {
+   "id": "CO-1",
+   "title": "Consolidation report loads",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "AI-1",
+   "title": "AI chat endpoint exists (the floating chat bot in the app calls POST /ai-chat)",
+   "ok": false,
+   "detail": "404 {\"statusCode\":404,\"timestamp\":\"2026-10-17T21:29:44.138Z\",\"path\":\"/api/v1/ai-chat\",\"method\""
+  }
+ ]
+}

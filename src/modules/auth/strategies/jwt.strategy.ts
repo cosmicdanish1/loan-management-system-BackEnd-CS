@@ -16,6 +16,8 @@ export interface JwtPayload {
   role: string;
   iat?: number;
   exp?: number;
+  /** Session id shared by the access and refresh tokens of one login (and kept across refreshes). */
+  sid?: string;
 }
 
 @Injectable()
@@ -47,6 +49,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) implements OnModuleI
   }
 
   async validate(req: any, payload: JwtPayload): Promise<User> {
+    // ES-216: a MEMBER token (mobile app) must never be accepted as a staff token. Member tokens are signed with
+    // another secret so they normally fail the signature check; this guards against both secrets ever being equal.
+    if ((payload as any).typ === 'member' || (payload as any).aud === 'mobile') {
+      throw new UnauthorizedException('Member tokens cannot be used on staff routes');
+    }
+
     const { sub: userId } = payload;
 
     // C-1 fix: reject tokens revoked by /auth/logout instead of letting them
@@ -54,9 +62,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) implements OnModuleI
     const rawToken = ExtractJwt.fromAuthHeaderAsBearerToken()(req);
     if (rawToken) {
       const hash = crypto.createHash('sha256').update(rawToken).digest('hex');
+      // the token itself, or the whole session it belongs to (logout / refresh-token reuse revokes the session)
+      const hashes = [hash];
+      if (payload.sid) hashes.push(crypto.createHash('sha256').update(`sid:${payload.sid}`).digest('hex'));
       const revoked = await this.userMasterRepository.query(
-        `SELECT 1 FROM revoked_tokens WHERE token_hash = $1 AND expires_at > NOW()`,
-        [hash],
+        `SELECT 1 FROM revoked_tokens WHERE token_hash = ANY($1::text[]) AND expires_at > NOW()`,
+        [hashes],
       );
       if (revoked.length > 0) {
         throw new UnauthorizedException('Token has been revoked');

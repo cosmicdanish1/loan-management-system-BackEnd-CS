@@ -1,0 +1,10 @@
+[
+  { "no": 1, "name": "Foundation and security: logging/redaction, exception filter, interceptors, auth (guards, JWT, 2FA/TOTP, login/refresh/logout), license, client logs", "folders": ["common", "auth", "license", "client-logs"] },
+  { "no": 2, "name": "Members and masters: member, member ledger, member status, search, shared, admin (users, masters, settings, rights), financial year", "folders": ["member", "member-ledger", "member-status", "search", "shared", "admin", "financial-year"] },
+  { "no": 3, "name": "Loans: application, sanction, schedule/EMI, repayment, early closure, re-agreement, surety, loan reports", "folders": ["loan"] },
+  { "no": 4, "name": "Deposits: savings, RD, CD/MD, FD (on hold), interest, dividend, group insurance, certificates", "folders": ["deposit", "rd", "interest", "dividend", "group-insurance"] },
+  { "no": 5, "name": "Transactions and books: vouchers, journal, daybook, cashbook, general ledger, print voucher, consolidation, jotting", "folders": ["transaction", "daybook", "cashbook", "general-ledger", "print-voucher", "consolidation", "jotting-report"] },
+  { "no": 6, "name": "Reports and analytics: report module, report head order, analytics", "folders": ["report", "report-head-order", "analytics"] },
+  { "no": 7, "name": "Utilities and operations: utility/utilities, day end, backup, system update, data maintenance", "folders": ["utility", "utilities", "backup", "day-end", "system-update"] },
+  { "no": 8, "name": "Communication and member app: notification, notice, alerts, onboarding, support, mobile, AI chat", "folders": ["notification", "notification-centre", "notice", "alerts", "onboarding", "support", "mobile", "ai-chat"] }
+]

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Delete, Put, UseGuards, Query } from '@nestjs/common';
+import { ParseIntPipe, Controller, Get, Post, Body, Param, Delete, Put, UseGuards, Query } from '@nestjs/common';
 import { CertificateTemplateService } from '../services';
 import { CreateCertificateTemplateDto, UpdateCertificateTemplateDto } from '../dto';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
@@ -23,8 +23,8 @@ export class CertificateTemplateController {
     }
 
     @Get(':id')
-    findOne(@Param('id') id: string) {
-        return this.templateService.findOne(+id);
+    findOne(@Param('id', ParseIntPipe) id: number) {
+        return this.templateService.findOne(id);
     }
 
     @Post()
@@ -33,12 +33,12 @@ export class CertificateTemplateController {
     }
 
     @Put(':id')
-    update(@Param('id') id: string, @Body() dto: UpdateCertificateTemplateDto) {
-        return this.templateService.update(+id, dto);
+    update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateCertificateTemplateDto) {
+        return this.templateService.update(id, dto);
     }
 
     @Delete(':id')
-    remove(@Param('id') id: string) {
-        return this.templateService.remove(+id);
+    remove(@Param('id', ParseIntPipe) id: number) {
+        return this.templateService.remove(id);
     }
 }

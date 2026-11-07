@@ -5,6 +5,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { endOfEffectiveDay } from './effective-dates';
 
 export enum InterestRateType {
   LOAN = 'loan',
@@ -80,7 +81,7 @@ export class InterestRate {
 
     // Check effective date range
     if (date < this.effectiveFrom) return false;
-    if (this.effectiveTo && date > this.effectiveTo) return false;
+    if (this.effectiveTo && date > endOfEffectiveDay(this.effectiveTo)) return false; // the end date itself is still valid
 
     // Check amount range
     if (this.minAmount && amount < this.minAmount) return false;

@@ -3,9 +3,9 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
 import * as request from 'supertest';
-import { AuthModule } from '../src/modules/auth/auth.module';
-import { User, UserRole } from '../src/modules/auth/entities/user.entity';
-import { DatabaseConfig } from '../src/config/database.config';
+import { AuthModule } from '../../src/modules/auth/auth.module';
+import { User, UserRole } from '../../src/modules/auth/entities/user.entity';
+import { DatabaseConfig } from '../../src/config/database.config';
 
 describe('AuthController (e2e)', () => {
   let app: INestApplication;

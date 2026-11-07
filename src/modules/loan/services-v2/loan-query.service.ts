@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { loanHeadOpeningSql } from '../loan-opening-balance';
 import { DataSource } from 'typeorm';
 import { CalculationService } from '../../utility/services/calculation.service';
@@ -20,24 +20,32 @@ export class LoanQueryService {
     /**
      * Get member loan details from loan_master table (active/disbursed loans)
      */
-    async getMemberLoanFromMaster(loanCaseNo: string) {
+    async getMemberLoanFromMaster(loanCaseNo: string, memberNo?: string) {
+        // ES-391: loan case numbers are not unique across members (e.g. case 1667 exists for 3 members), so a case
+        // number alone can answer with someone else's loan. Pass the member to pick the right row; without one, an
+        // ambiguous case number is not guessed (null).
         try {
             const query = `
         SELECT 
           lm.*,
-          TRIM(COALESCE(mm.f_name, '') || ' ' || COALESCE(mm.m_name, '') || ' ' || COALESCE(mm.l_name, '')) as member_name,
+          REGEXP_REPLACE(TRIM(COALESCE(mm.f_name, '') || ' ' || COALESCE(mm.m_name, '') || ' ' || COALESCE(mm.l_name, '')), '\\s+', ' ', 'g') as member_name,
           mm.officeno,
           COALESCE(d.name, 'Unknown Office') as office_name
         FROM loan_master lm
         JOIN member_master mm ON lm.mbno = mm.mbno
         LEFT JOIN division_master d ON mm.officeno = d.officeno AND mm.wingno = d.wingno
         WHERE lm.loancaseno = $1
+          AND ($2::numeric IS NULL OR lm.mbno = $2::numeric)
       `;
 
-            const result = await this.dataSource.query(query, [loanCaseNo]);
+            const result = await this.dataSource.query(query, [loanCaseNo, memberNo ?? null]);
 
             if (result.length === 0) {
                 return null;
+            }
+            if (memberNo === undefined || memberNo === null || memberNo === '') {
+                const members = new Set(result.map((r: any) => String(r.mbno)));
+                if (members.size > 1) return null;
             }
 
             const loan = result[0];
@@ -65,24 +73,29 @@ export class LoanQueryService {
     /**
      * Get member loan details from loan_pending table (pending/applied loans)
      */
-    async getMemberLoanFromPending(loanCaseNo: string) {
+    async getMemberLoanFromPending(loanCaseNo: string, memberNo?: string) {
         try {
             const query = `
         SELECT 
           lp.*,
-          TRIM(COALESCE(mm.f_name, '') || ' ' || COALESCE(mm.m_name, '') || ' ' || COALESCE(mm.l_name, '')) as member_name,
+          REGEXP_REPLACE(TRIM(COALESCE(mm.f_name, '') || ' ' || COALESCE(mm.m_name, '') || ' ' || COALESCE(mm.l_name, '')), '\\s+', ' ', 'g') as member_name,
           mm.officeno,
           COALESCE(d.name, 'Unknown Office') as office_name
         FROM loan_pending lp
         JOIN member_master mm ON lp.mbno = mm.mbno
         LEFT JOIN division_master d ON mm.officeno = d.officeno AND mm.wingno = d.wingno
         WHERE lp.loancaseno = $1
+          AND ($2::numeric IS NULL OR lp.mbno = $2::numeric)
       `;
 
-            const result = await this.dataSource.query(query, [loanCaseNo]);
+            const result = await this.dataSource.query(query, [loanCaseNo, memberNo ?? null]);
 
             if (result.length === 0) {
                 return null;
+            }
+            if (memberNo === undefined || memberNo === null || memberNo === '') {
+                const members = new Set(result.map((r: any) => String(r.mbno)));
+                if (members.size > 1) return null;
             }
 
             const loan = result[0];
@@ -354,22 +367,28 @@ export class LoanQueryService {
     /**
      * Get EMI schedule from loan_master with payment status from demand_master
      */
-    async getEmiScheduleFromMaster(loanCaseNo: string) {
+    /**
+     * `scope` (optional, used by the member mobile app): loan case numbers are NOT unique across members (4,000+ numbers are shared),
+     * so without a scope this picks an arbitrary one of them. With a scope the loan of exactly that member / type is used.
+     */
+    async getEmiScheduleFromMaster(loanCaseNo: string, scope?: { mbno?: string; loantype?: string }) {
         try {
             // Get loan details from loan_master
             const loanQuery = `
                 SELECT 
                     lm.*,
-                    TRIM(COALESCE(mm.f_name, '') || ' ' || COALESCE(mm.m_name, '') || ' ' || COALESCE(mm.l_name, '')) as member_name,
+                    REGEXP_REPLACE(TRIM(COALESCE(mm.f_name, '') || ' ' || COALESCE(mm.m_name, '') || ' ' || COALESCE(mm.l_name, '')), '\\s+', ' ', 'g') as member_name,
                     mm.officeno,
                     mm.basic_pay,
                     mm.dept_name
                 FROM loan_master lm
                 JOIN member_master mm ON lm.mbno = mm.mbno
                 WHERE lm.loancaseno = $1
+                  AND ($2::numeric IS NULL OR lm.mbno = $2::numeric)
+                  AND ($3::text IS NULL OR lm.loantype = $3::text)
             `;
 
-            const loanResult = await this.dataSource.query(loanQuery, [loanCaseNo]);
+            const loanResult = await this.dataSource.query(loanQuery, [loanCaseNo, scope?.mbno ?? null, scope?.loantype ?? null]);
 
             if (loanResult.length === 0) {
                 throw new NotFoundException(`Loan case ${loanCaseNo} not found in loan_master`);
@@ -408,6 +427,23 @@ export class LoanQueryService {
             `;
 
             const demandRecords = await this.dataSource.query(demandQuery, [loanMaster.mbno]);
+
+            // ES-483: payroll demand rows alone cannot say whether THIS loan's installments were paid
+            // (a repaid or re-agreed loan has no demand rows left, so every month read "Overdue").
+            // Principal actually paid on this loan's own ledger (member + type + case, never the
+            // payroll-lag credit of a predecessor) is matched against the scheduled principal.
+            const paidRows = await this.dataSource.query(
+                `SELECT COALESCE(SUM(principal_amount), 0) AS principal_paid
+                 FROM loan_repayment_ledger
+                 WHERE mbno = $1 AND loantype = $2 AND loancaseno::text = $3
+                   AND is_payroll_lag_credit = false
+                   AND ($4::date IS NULL OR payment_date >= $4::date)`,
+                [loanMaster.mbno, loanMaster.loantype, String(loanMaster.loancaseno),
+                 savedFirstDueMonth ? new Date(savedFirstDueMonth.getFullYear(), savedFirstDueMonth.getMonth(), 1) : null],
+            );
+            let principalPool = parseFloat(paidRows[0]?.principal_paid) || 0;
+            const loanIsClosed = !!loanMaster.consolidated_into_loancaseno
+                || (parseFloat(loanMaster.balance) <= 0.005 && principalPool > 0);
 
             // Create a map of payment status by year-month
             const paymentStatusMap = new Map();
@@ -452,8 +488,17 @@ export class LoanQueryService {
                 const yearMonth = `${dueDate.getFullYear()}-${dueDate.getMonth() + 1}`;
                 let status = paymentStatusMap.get(yearMonth) || 'Pending';
 
-                // If due date is past and status is pending, mark as overdue
-                if (status === 'Pending' && dueDate < new Date()) {
+                // The loan's own payments settle installments oldest first.
+                if (status !== 'Paid' && principalPool >= principalAmount - 0.5) {
+                    principalPool -= principalAmount;
+                    status = 'Paid';
+                }
+
+                if (status !== 'Paid' && loanIsClosed) {
+                    // Repaid early or closed into a new agreement: nothing is owed on it any more.
+                    status = 'Closed';
+                } else if (status === 'Pending' && dueDate < new Date()) {
+                    // If due date is past and status is pending, mark as overdue
                     status = 'Overdue';
                 }
 
@@ -532,17 +577,39 @@ export class LoanQueryService {
      * Calculate EMI for given parameters
      */
     async calculateEMI(principal: number, annualRate: number, tenureMonths: number) {
-        return this.calculationService.calculateEMI(principal, annualRate, tenureMonths);
+        const v = this.validateEmiInputs(principal, annualRate, tenureMonths);
+        return this.calculationService.calculateEMI(v.principal, v.annualRate, v.tenureMonths);
+    }
+
+    /**
+     * Calculator input check: numbers only, principal > 0, rate 0-100 %, whole tenure 1-600 months.
+     * The raw body used to reach the maths unchecked, giving HTTP 500 for negative/zero/null input and a 201 with
+     * null values for text, missing fields or a 100,000-month tenure. (ES-265)
+     */
+    private validateEmiInputs(principal: unknown, annualRate: unknown, tenureMonths: unknown) {
+        const num = (v: unknown) => (typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN);
+        const p = num(principal), r = num(annualRate), t = num(tenureMonths);
+        if (!Number.isFinite(p) || p <= 0 || p > 1_000_000_000) {
+            throw new BadRequestException('principal must be a number greater than 0 (up to 1,000,000,000).');
+        }
+        if (!Number.isFinite(r) || r < 0 || r > 100) {
+            throw new BadRequestException('annualRate must be a number from 0 to 100.');
+        }
+        if (!Number.isInteger(t) || t < 1 || t > 600) {
+            throw new BadRequestException('tenureMonths must be a whole number from 1 to 600.');
+        }
+        return { principal: p, annualRate: r, tenureMonths: t };
     }
 
     /**
      * Generate amortization schedule
      */
     async generateAmortizationSchedule(principal: number, annualRate: number, tenureMonths: number, startDate?: Date) {
+        const v = this.validateEmiInputs(principal, annualRate, tenureMonths);
         return this.calculationService.generateAmortizationSchedule(
-            principal,
-            annualRate,
-            tenureMonths,
+            v.principal,
+            v.annualRate,
+            v.tenureMonths,
             startDate || new Date()
         );
     }

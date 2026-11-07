@@ -1,9 +1,16 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, HttpException, Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { SequenceGeneratorService } from '../../shared/services';
 import { NotificationService } from '../../notification/services/notification.service';
 import { NotificationChannel } from '../../notification/entities/notification-log.entity';
+import { parseBusinessDate } from '../../shared/utils/date-utils';
 import { LoanReagreementService } from '../../loan/services-v2/reagreement/loan-reagreement.service';
+
+/** Voucher types this service stages; anything else is refused (ES-313) */
+const VOUCHER_TYPES = ['RECEIPT', 'PAYMENT'];
+/** One voucher line can not reach 100 crore (a typo guard, ES-313) */
+const MAX_VOUCHER_AMOUNT = 999_999_999.99;
+const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
 /**
  * Voucher Service - Handles voucher generation and staging.
@@ -41,7 +48,45 @@ export class VoucherService {
                     : [];
 
             if (transactions.length === 0) {
-                throw new Error('No transaction entries provided. At least one entry is required.');
+                throw new BadRequestException('No transaction entries provided. At least one entry is required.');
+            }
+
+            const voucherType = String(dto.voucherType ?? '').trim().toUpperCase();
+            if (!VOUCHER_TYPES.includes(voucherType)) {
+                throw new BadRequestException(`voucherType must be one of ${VOUCHER_TYPES.join(', ')}.`);
+            }
+            dto.voucherType = voucherType;
+            // the user who stages the voucher (the controller sets it from the signed-in user)
+            const createdBy = String(dto.createdBy || 'SYSTEM').trim() || 'SYSTEM';
+
+            // Entry validation: bad input is a 400, never a 500 from a failed INSERT. (ES-314)
+            for (const [i, t] of transactions.entries()) {
+                if (typeof t.amount === 'string' ? t.amount.trim() === '' || !Number.isFinite(Number(t.amount)) : typeof t.amount !== 'number' || !Number.isFinite(t.amount)) {
+                    throw new BadRequestException(`Entry ${i + 1}: amount must be a number.`);
+                }
+                t.amount = Number(t.amount);
+                if (t.amount <= 0 || t.amount > MAX_VOUCHER_AMOUNT) {
+                    throw new BadRequestException(`Entry ${i + 1}: amount must be greater than 0 and not more than ${MAX_VOUCHER_AMOUNT}.`);
+                }
+            }
+            // amounts are rupees and paise: at most 2 decimals (ES-313)
+            for (const [i, t] of transactions.entries()) {
+                if (Math.abs(Math.round(t.amount * 100) - t.amount * 100) > 1e-6) {
+                    throw new BadRequestException(`Entry ${i + 1}: amount can have at most 2 decimal places.`);
+                }
+            }
+            dto.voucherDate = parseBusinessDate(dto.voucherDate, 'Voucher date');
+            if (dto.chequeDate) dto.chequeDate = parseBusinessDate(dto.chequeDate, 'Cheque date', 365);
+            if (dto.memberId !== undefined && dto.memberId !== null && dto.memberId !== '') {
+                const member = await queryRunner.query(`SELECT mbno FROM member_master WHERE mbno::text = $1 LIMIT 1`, [String(dto.memberId).trim()]);
+                if (member.length === 0) throw new BadRequestException(`Member ${dto.memberId} not found.`);
+            }
+            const entryCodes = [...new Set(transactions.map((t: any) => (t.debitAccount || t.code || '').toString().trim()).filter(Boolean))];
+            if (entryCodes.length > 0) {
+                const known = await queryRunner.query(`SELECT TRIM(code) AS code FROM headmaster WHERE TRIM(code) = ANY($1)`, [entryCodes]);
+                const knownSet = new Set(known.map((h: any) => h.code.toString().trim()));
+                const unknown = entryCodes.filter(c => !knownSet.has(c));
+                if (unknown.length > 0) throw new BadRequestException(`Unknown head code(s): ${unknown.join(', ')}`);
             }
 
             // 1. Get sequential voucher number
@@ -56,8 +101,8 @@ export class VoucherService {
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             `;
 
-            const nextVoucherId = await this.getNextId('vouchers');
-            const totalAmount = transactions.reduce((sum: number, t: any) => sum + (t.amount || 0), 0);
+            const nextVoucherId = await this.getNextId(queryRunner, 'vouchers');
+            const totalAmount = round2(transactions.reduce((sum: number, t: any) => sum + (t.amount || 0), 0));
 
             await queryRunner.query(voucherHeaderQuery, [
                 nextVoucherId,
@@ -78,7 +123,7 @@ export class VoucherService {
 
             // 3. Insert breakdown into 'transactions' table
             for (const entry of transactions) {
-                const transNo = await this.getNextId('transactions');
+                const transNo = await this.getNextId(queryRunner, 'transactions');
                 const transQuery = `
                     INSERT INTO transactions (
                         trans_no, trans_type, trans_date, mbno, trans_amt, 
@@ -100,7 +145,7 @@ export class VoucherService {
                     'N', // cashier_flag
                     entry.description || dto.description,
                     entry.debitAccount || entry.code || null,
-                    'admin', // Should be from auth context in real app
+                    createdBy,
                     entry.rdSrNo ? parseInt(entry.rdSrNo.replace(/[^0-9]/g, '')) || null : null,
                     0 // cheq_amt default
                 ]);
@@ -111,16 +156,16 @@ export class VoucherService {
             const isCashMode = dto.paymentMethod === 'CASH';
             const counterCode = isCashMode ? 'A1001' : (dto.bankCode || dto.receiveIntoCode);
             if (!counterCode) {
-                throw new Error('Bank mode requires bankCode (the bank head to debit/credit).');
+                throw new BadRequestException('Bank mode requires bankCode (the bank head to debit/credit).');
             }
             const isReceipt = dto.voucherType !== 'PAYMENT';
-            const counterTransNo = await this.getNextId('transactions');
+            const counterTransNo = await this.getNextId(queryRunner, 'transactions');
             await queryRunner.query(`
                 INSERT INTO transactions (
                     trans_no, trans_type, trans_date, mbno, trans_amt,
                     receipt_vchr_no, vchr_type, modeofpay, pass_flag, cashier_flag,
                     narration, code, username, cheq_amt, acc_type
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'N', 'N', $9, $10, 'admin', 0, $11)
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'N', 'N', $9, $10, $12, 0, $11)
             `, [
                 counterTransNo,
                 isReceipt ? 'DR' : 'CR',
@@ -133,21 +178,14 @@ export class VoucherService {
                 dto.description,
                 counterCode,
                 counterCode === 'A1001' ? 'CINH' : 'BANK',
+                createdBy,
             ]);
 
             await queryRunner.commitTransaction();
             console.log(`[Voucher] ✅ Generic voucher ${voucherNumber} created successfully`);
 
-            // 4. Send Notification (Async/Non-blocking)
-            if (dto.memberId) {
-                const totalAmount = transactions.reduce((sum: number, t: any) => sum + (t.amount || 0), 0);
-                this.notificationService.sendManualNotification({
-                    memberNo: dto.memberId.toString(),
-                    channel: NotificationChannel.SMS,
-                    message: `Transaction Confirmed: Your ${dto.voucherType} of ₹${totalAmount} has been processed. Voucher: ${voucherNumber}. - Espat Society`,
-                    recipient: '' // Service will fetch if empty
-                }).catch(e => console.error('Failed to send auto-notification:', e));
-            }
+            // No member notification here: the voucher is only staged (PENDING) and may still be rejected, so telling
+            // the member "processed" now would be wrong (ES-413). The member is to be told when the voucher is passed.
 
             return {
                 success: true,
@@ -158,7 +196,7 @@ export class VoucherService {
         } catch (error: any) {
             await queryRunner.rollbackTransaction();
             console.error('[Voucher] ❌ Error creating generic voucher:', error);
-            throw new Error('Failed to create voucher: ' + error.message);
+            throw error instanceof HttpException ? error : new Error('Failed to create voucher: ' + error.message);
         } finally {
             await queryRunner.release();
         }
@@ -184,6 +222,17 @@ export class VoucherService {
 
             console.log('[Voucher] 🎯 Generating voucher for loan disbursement using standard tables:', voucherData);
 
+            // One pending voucher per loan case: the lock makes two requests for the same case wait for each other,
+            // so they cannot both pass the "no pending voucher" check below (ES-319).
+            await queryRunner.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`loan_voucher:${voucherData.loanCaseNo}`]);
+            const pendingForCase = await queryRunner.query(
+                `SELECT "voucherNumber" FROM vouchers WHERE "remarks" LIKE $1 AND status = 'PENDING' LIMIT 1`,
+                [`LOAN_CASE:${voucherData.loanCaseNo}|%`],
+            );
+            if (pendingForCase.length > 0) {
+                throw new BadRequestException(`Loan case ${voucherData.loanCaseNo} already has a pending voucher (${pendingForCase[0].voucherNumber}). Pass or reject it first.`);
+            }
+
             // 1. Get sequential voucher number
             const voucherNumber = await this.sequenceGenerator.getNextVoucherNumber();
 
@@ -196,7 +245,7 @@ export class VoucherService {
 
             const loanResult = await queryRunner.query(loanQuery, [voucherData.loanCaseNo]);
             if (loanResult.length === 0) {
-                throw new Error('Loan case not found or not sanctioned or already disbursed');
+                throw new BadRequestException('Loan case not found or not sanctioned or already disbursed');
             }
             const loan = loanResult[0];
 
@@ -209,8 +258,32 @@ export class VoucherService {
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             `;
 
-            const totalAmount = voucherData.actualAmount || parseFloat(loan.sanctioned_amt.toString().replace(/[^0-9.-]+/g, ""));
-            const nextId = await this.getNextId('vouchers');
+            // The voucher pays the sanctioned amount; a client amount may only be lower, never more than sanctioned (ES-319)
+            const sanctioned = round2(parseFloat(loan.sanctioned_amt.toString().replace(/[^0-9.-]+/g, "")));
+            let totalAmount = sanctioned;
+            if (voucherData.actualAmount !== undefined && voucherData.actualAmount !== null && voucherData.actualAmount !== '') {
+                const actual = Number(voucherData.actualAmount);
+                if (!Number.isFinite(actual) || actual <= 0 || actual > sanctioned) {
+                    throw new BadRequestException(`Voucher amount must be greater than 0 and not more than the sanctioned amount ${sanctioned}.`);
+                }
+                totalAmount = round2(actual);
+            }
+            if (Array.isArray(voucherData.breakdown) && voucherData.breakdown.length > 0) {
+                const lines = voucherData.breakdown.map((e: any) => Number(e.amount));
+                if (lines.some((a: number) => !Number.isFinite(a) || a < 0)) {
+                    throw new BadRequestException('Every breakdown line needs an amount of 0 or more.');
+                }
+                // ES-507: the voucher total is the NET paid out. The loan itself is a Payment line; the share / RD
+                // shortfall and other deductions are Receipt lines (rp 'Receipt' / 'R') and must be subtracted, not added.
+                // Before, a loan of 10,000 with two 500 deductions was compared as 11,000 against the net 9,000 and refused.
+                const isReceiptLine = (e: any) => /^r/i.test(String(e?.rp ?? e?.type ?? '').trim());
+                const linesTotal = round2(voucherData.breakdown.reduce(
+                    (sum: number, e: any) => sum + (isReceiptLine(e) ? -Number(e.amount) : Number(e.amount)), 0));
+                if (linesTotal !== totalAmount) {
+                    throw new BadRequestException(`The breakdown lines add up to ${linesTotal}, but the voucher total is ${totalAmount}.`);
+                }
+            }
+            const nextId = await this.getNextId(queryRunner, 'vouchers');
 
             await queryRunner.query(voucherHeaderQuery, [
                 nextId,
@@ -229,7 +302,7 @@ export class VoucherService {
             // 4. Insert breakdown into 'transactions' table with pass_flag = 'N'
             if (voucherData.breakdown && Array.isArray(voucherData.breakdown)) {
                 for (const entry of voucherData.breakdown) {
-                    const transNo = await this.getNextId('transactions');
+                    const transNo = await this.getNextId(queryRunner, 'transactions');
                     const transQuery = `
                         INSERT INTO transactions (
                             trans_no, trans_type, trans_date, mbno, trans_amt, 
@@ -268,7 +341,7 @@ export class VoucherService {
         } catch (error: any) {
             await queryRunner.rollbackTransaction();
             console.error('[Voucher] ❌ Error generating voucher:', error);
-            throw new Error('Failed to generate voucher: ' + error.message);
+            throw error instanceof HttpException ? error : new Error('Failed to generate voucher: ' + error.message);
         } finally {
             await queryRunner.release();
         }
@@ -277,11 +350,14 @@ export class VoucherService {
     /**
      * Helper to get next numeric ID for a table
      */
-    private async getNextId(tableName: string): Promise<number> {
+    private async getNextId(queryRunner: { query: (sql: string, params?: any[]) => Promise<any> }, tableName: string): Promise<number> {
         let idColumn = 'id';
         if (tableName === 'transactions') idColumn = 'trans_no';
 
-        const result = await this.dataSource.query(`SELECT COALESCE(MAX(${idColumn}), 0) + 1 as next_id FROM ${tableName}`);
+        // On the voucher's own transaction, under a lock held until commit: two vouchers staged at the same
+        // moment can not read the same MAX and get the same id (ES-413).
+        await queryRunner.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`${tableName}.${idColumn}`]);
+        const result = await queryRunner.query(`SELECT COALESCE(MAX(${idColumn}), 0) + 1 as next_id FROM ${tableName}`);
         return parseInt(result[0].next_id);
     }
 
@@ -303,11 +379,11 @@ export class VoucherService {
             );
 
             if (voucherResult.length === 0) {
-                throw new Error(`Voucher ${voucherNo} not found`);
+                throw new NotFoundException(`Voucher ${voucherNo} not found`);
             }
 
             if (voucherResult[0].status !== 'PENDING') {
-                throw new Error(`Cannot delete voucher ${voucherNo} - status is ${voucherResult[0].status}. Only PENDING vouchers can be deleted.`);
+                throw new BadRequestException(`Cannot delete voucher ${voucherNo} - status is ${voucherResult[0].status}. Only PENDING vouchers can be deleted.`);
             }
 
             if (voucherResult[0].sourceModule === 'LOAN_REAGREEMENT') {
@@ -333,7 +409,7 @@ export class VoucherService {
         } catch (error: any) {
             await queryRunner.rollbackTransaction();
             console.error('[Voucher] ❌ Error deleting voucher:', error);
-            throw new Error('Failed to delete voucher: ' + error.message);
+            throw error instanceof HttpException ? error : new Error('Failed to delete voucher: ' + error.message);
         } finally {
             await queryRunner.release();
         }
@@ -381,7 +457,7 @@ export class VoucherService {
                     id: row.id,
                     voucherNo: row.voucherNumber,
                     memberNo: row.memberId,
-                    memberName: `${row.f_name || ''} ${row.m_name || ''} ${row.l_name || ''}`.trim(),
+                    memberName: [row.f_name, row.m_name, row.l_name].map((n: any) => (n || '').toString().trim()).filter(Boolean).join(' '),
                     amount: parseFloat(row.totalAmount),
                     vchrType: reagreement ? 'Loan Re-agreement' : (row.voucherType || 'Loan Disbursement'),
                     loanType: reagreement ? reagreement.loantype : loanType,

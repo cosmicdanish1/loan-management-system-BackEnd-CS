@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
+import { lockLedgerIds } from '../../shared/utils/ledger-lock';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { SbAccount } from '../entities/sb-account.entity';
@@ -78,9 +79,17 @@ export class SbAccountService {
             // FIX 5: `Number(x) || 0` treats a negative number as truthy and passes it straight
             // through — confirmed live, an account opened with openingBalance=-5000 was accepted
             // and stored as-is. A savings account cannot open with a negative balance.
-            const openingBalance = Number(createDto.openingBalance) || 0;
+            const rawOpening: any = createDto.openingBalance;
+            const openingBalance = rawOpening === undefined || rawOpening === null || rawOpening === '' ? 0 : Number(rawOpening);
+            // "abc" used to become 0 silently; an absurd amount (1e12) would post a huge ledger entry (ES-302)
+            if (!Number.isFinite(openingBalance)) {
+                throw new BadRequestException('Opening balance must be a number');
+            }
             if (openingBalance < 0) {
                 throw new BadRequestException('Opening balance cannot be negative');
+            }
+            if (openingBalance > 1_000_000_000) {
+                throw new BadRequestException('Opening balance is too large (maximum 100,00,00,000)');
             }
 
             const inserted = await queryRunner.query(
@@ -101,6 +110,7 @@ export class SbAccountService {
             // CR the Savings Bank control head (A001), DR Cash in Hand (A1001).
             if (openingBalance > 0) {
                 const voucherNo = await generateVoucherNo(queryRunner, 'R');
+                await lockLedgerIds(queryRunner); // ES-445
                 const maxRes = await queryRunner.query(
                     `SELECT COALESCE(MAX(trans_no), 0) + 1 AS next_trans_no, COALESCE(MAX(ledgerid), 0) + 1 AS next_ledger_id FROM ledger`
                 );

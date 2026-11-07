@@ -5,6 +5,14 @@ import { toDateOnlyString } from '../../rd/rd-date-math';
 import { LoanPaymentFlagService, LoanPaymentFlag } from '../../loan/services-v2/loan-payment-flag.service';
 
 /**
+ * ES-417: one rule for "the parts add up to the total", used by both the preview and saveRows. The preview used to
+ * allow a whole rupee of difference while saveRows allowed one paisa, so a row the preview showed as Valid was then
+ * silently skipped on save.
+ */
+const TOTAL_TOLERANCE = 0.01;
+const totalsDiffer = (a: number, b: number) => Math.abs(Math.round((a - b) * 100) / 100) > TOTAL_TOLERANCE;
+
+/**
  * Real Excel/CSV parsing for "Import Demand List" — replaces the previous
  * implementation, which never actually read the uploaded file at all
  * (confirmed live: uploading a file containing the literal text "test"
@@ -221,7 +229,7 @@ export class DemandImportService {
             } else {
                 seenMemberNos.add(mbno);
             }
-            if (colIdx.total !== -1 && Math.abs(computedTotal - fileTotal) > 1) {
+            if (colIdx.total !== -1 && totalsDiffer(computedTotal, fileTotal)) {
                 status = 'Error';
                 remarks.push(`Row total ₹${computedTotal} doesn't match file's TOTAL ₹${fileTotal}`);
             }
@@ -308,7 +316,7 @@ export class DemandImportService {
                 }
                 const recomputedTotal = Number(row.rlnAmount) + Number(row.alnAmount) +
                     Number(row.rdAmount) + Number(row.interest);
-                if (Math.abs(recomputedTotal - Number(row.totalDemand)) > 0.01) {
+                if (totalsDiffer(recomputedTotal, Number(row.totalDemand))) {
                     skipped++;
                     continue;
                 }
@@ -333,6 +341,18 @@ export class DemandImportService {
 
                 const rlnInterest = row.rlnAmount > 0 ? row.interest : 0;
                 const alnInterest = row.alnAmount > 0 && row.rlnAmount <= 0 ? row.interest : 0;
+
+                // ES-456: a month that is already posted to the ledger must not be changed by a re-import (the
+                // amounts would then disagree with the ledger and nothing would show it). Such rows are skipped.
+                const alreadyPosted = await queryRunner.query(
+                    `SELECT 1 FROM demand_master WHERE demand_for_month = $1 AND demand_for_year = $2 AND mbno = $3
+                       AND demand_posted = 'Y' LIMIT 1`,
+                    [month, year, row.memberId],
+                );
+                if (alreadyPosted.length > 0) {
+                    skipped++;
+                    continue;
+                }
 
                 const updated = await queryRunner.query(
                     `UPDATE demand_master SET

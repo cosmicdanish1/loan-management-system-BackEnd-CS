@@ -1,7 +1,7 @@
 {
  "suite": "08-savings",
- "ranAt": "2026-10-16T18:08:28.663Z",
- "seconds": 8.213,
+ "ranAt": "2026-11-03T09:48:51.486Z",
+ "seconds": 19.063,
  "total": 27,
  "failed": 12,
  "results": [
@@ -15,43 +15,43 @@
    "id": "SB-01",
    "title": "Next SB account number is numeric",
    "ok": true,
-   "detail": "213"
+   "detail": "215"
   },
   {
    "id": "SB-02",
    "title": "Create SB account with non-numeric account number -> 4xx (no 5xx, not accepted)",
    "ok": true,
-   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:08:20.874Z\",\"path\":\"/api/v1/admin/sb-accounts\",\"method\":\"POST\",\"e"
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:48:32.971Z\",\"path\":\"/api/v1/admin/sb-accounts\",\"method\":\"POST\",\"e"
   },
   {
    "id": "SB-03",
    "title": "Create SB account with negative opening balance -> 4xx (no 5xx, not accepted)",
    "ok": true,
-   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:08:20.884Z\",\"path\":\"/api/v1/admin/sb-accounts\",\"method\":\"POST\",\"e"
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:48:33.013Z\",\"path\":\"/api/v1/admin/sb-accounts\",\"method\":\"POST\",\"e"
   },
   {
    "id": "SB-04",
    "title": "Create SB account with member that does not exist -> 4xx (no 5xx, not accepted)",
    "ok": true,
-   "detail": "404 {\"statusCode\":404,\"timestamp\":\"2026-10-16T18:08:20.900Z\",\"path\":\"/api/v1/admin/sb-accounts\",\"method\":\"POST\",\"e"
+   "detail": "404 {\"statusCode\":404,\"timestamp\":\"2026-11-03T09:48:33.097Z\",\"path\":\"/api/v1/admin/sb-accounts\",\"method\":\"POST\",\"e"
   },
   {
    "id": "SB-05",
    "title": "Create SB account with missing member -> 4xx (no 5xx, not accepted)",
    "ok": true,
-   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-16T18:08:20.912Z\",\"path\":\"/api/v1/admin/sb-accounts\",\"method\":\"POST\",\"e"
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:48:33.114Z\",\"path\":\"/api/v1/admin/sb-accounts\",\"method\":\"POST\",\"e"
   },
   {
    "id": "SB-06",
    "title": "Create SB account with opening balance 1000",
    "ok": true,
-   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"acc_no\":\"213\",\"mbno\":\"9999962472\",\"opening_date\":\"202"
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"acc_no\":\"215\",\"mbno\":\"9999962639\",\"opening_date\":\"202"
   },
   {
    "id": "SB-07",
    "title": "Duplicate account number -> 409/400, not 500",
    "ok": true,
-   "detail": "409 {\"statusCode\":409,\"timestamp\":\"2026-10-16T18:08:21.176Z\",\"path\":\"/api/v1/admin/sb-accounts\",\"method\""
+   "detail": "409 {\"statusCode\":409,\"timestamp\":\"2026-11-03T09:48:33.853Z\",\"path\":\"/api/v1/admin/sb-accounts\",\"method\""
   },
   {
    "id": "SB-08",
@@ -63,7 +63,7 @@
    "id": "SB-09",
    "title": "Deposit 500 succeeds",
    "ok": false,
-   "detail": "500 {\"statusCode\":500,\"timestamp\":\"2026-10-16T18:08:21.864Z\",\"path\":\"/api/v1/utilities/saving/transaction\",\"method\":\"POST\",\"error\":\"Error\",\"mess"
+   "detail": "500 {\"statusCode\":500,\"timestamp\":\"2026-11-03T09:48:35.114Z\",\"path\":\"/api/v1/utilities/saving/transaction\",\"method\":\"POST\",\"error\":\"Error\",\"mess"
   },
   {
    "id": "SB-10",
@@ -93,49 +93,49 @@
    "id": "SB-14",
    "title": "zero deposit: rejected (4xx) and balance unchanged",
    "ok": false,
-   "detail": "500; balance 1000 -> 1000; {\"statusCode\":500,\"timestamp\":\"2026-10-16T18:08:23.032Z\",\"path\":\"/api/v1/utilities/saving/"
+   "detail": "500; balance 1000 -> 1000; {\"statusCode\":500,\"timestamp\":\"2026-11-03T09:48:38.882Z\",\"path\":\"/api/v1/utilities/saving/"
   },
   {
    "id": "SB-15",
    "title": "negative deposit: rejected (4xx) and balance unchanged",
    "ok": false,
-   "detail": "500; balance 1000 -> 1000; {\"statusCode\":500,\"timestamp\":\"2026-10-16T18:08:23.300Z\",\"path\":\"/api/v1/utilities/saving/"
+   "detail": "500; balance 1000 -> 1000; {\"statusCode\":500,\"timestamp\":\"2026-11-03T09:48:39.462Z\",\"path\":\"/api/v1/utilities/saving/"
   },
   {
    "id": "SB-16",
    "title": "negative withdrawal: rejected (4xx) and balance unchanged",
    "ok": false,
-   "detail": "500; balance 1000 -> 1000; {\"statusCode\":500,\"timestamp\":\"2026-10-16T18:08:23.555Z\",\"path\":\"/api/v1/utilities/saving/"
+   "detail": "500; balance 1000 -> 1000; {\"statusCode\":500,\"timestamp\":\"2026-11-03T09:48:40.150Z\",\"path\":\"/api/v1/utilities/saving/"
   },
   {
    "id": "SB-17",
    "title": "text amount: rejected (4xx) and balance unchanged",
    "ok": false,
-   "detail": "500; balance 1000 -> 1000; {\"statusCode\":500,\"timestamp\":\"2026-10-16T18:08:23.849Z\",\"path\":\"/api/v1/utilities/saving/"
+   "detail": "500; balance 1000 -> 1000; {\"statusCode\":500,\"timestamp\":\"2026-11-03T09:48:40.874Z\",\"path\":\"/api/v1/utilities/saving/"
   },
   {
    "id": "SB-18",
    "title": "unknown type: rejected (4xx) and balance unchanged",
    "ok": false,
-   "detail": "500; balance 1000 -> 1000; {\"statusCode\":500,\"timestamp\":\"2026-10-16T18:08:24.104Z\",\"path\":\"/api/v1/utilities/saving/"
+   "detail": "500; balance 1000 -> 1000; {\"statusCode\":500,\"timestamp\":\"2026-11-03T09:48:41.528Z\",\"path\":\"/api/v1/utilities/saving/"
   },
   {
    "id": "SB-19",
    "title": "amount with 5 decimals: rejected (4xx) and balance unchanged",
    "ok": false,
-   "detail": "500; balance 1000 -> 1000; {\"statusCode\":500,\"timestamp\":\"2026-10-16T18:08:24.355Z\",\"path\":\"/api/v1/utilities/saving/"
+   "detail": "500; balance 1000 -> 1000; {\"statusCode\":500,\"timestamp\":\"2026-11-03T09:48:42.110Z\",\"path\":\"/api/v1/utilities/saving/"
   },
   {
    "id": "SB-20",
    "title": "absurd amount 1e15: rejected (4xx) and balance unchanged",
    "ok": false,
-   "detail": "500; balance 1000 -> 1000; {\"statusCode\":500,\"timestamp\":\"2026-10-16T18:08:24.624Z\",\"path\":\"/api/v1/utilities/saving/"
+   "detail": "500; balance 1000 -> 1000; {\"statusCode\":500,\"timestamp\":\"2026-11-03T09:48:42.968Z\",\"path\":\"/api/v1/utilities/saving/"
   },
   {
    "id": "SB-21",
    "title": "Deposit to an account that does not exist -> 404/400",
    "ok": false,
-   "detail": "500 {\"statusCode\":500,\"timestamp\":\"2026-10-16T18:08:24.639Z\",\"path\":\"/api/v1/utilities/saving/"
+   "detail": "500 {\"statusCode\":500,\"timestamp\":\"2026-11-03T09:48:43.069Z\",\"path\":\"/api/v1/utilities/saving/"
   },
   {
    "id": "SB-22",

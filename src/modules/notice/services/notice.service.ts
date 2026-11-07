@@ -21,6 +21,9 @@ export class NoticeService {
         message: string;
         type: DashboardNotice['type'];
         postedBy: string;
+        showOnMobile?: boolean;
+        audienceWing?: string | null;
+        audienceOffice?: number | null;
     }): Promise<DashboardNotice> {
         // New notices float to the top by default (lower sortOrder = first),
         // same feel as the old "newest first" localStorage list.

@@ -188,11 +188,14 @@ export function buildReducingBalanceSchedule(
         // drift from n not dividing loanAmt evenly — same rounding policy
         // the constant-EMI side already uses elsewhere in this codebase.
         const closingBalance = i === n ? 0 : round2(balance - monthlyPrincipal);
+        // ES-407: the last principal is what is really left (not the rounded equal share), so the principal column
+        // adds up to the loan amount exactly, e.g. 100000 over 3 = 33333.33 + 33333.33 + 33333.34
+        const principal = i === n ? round2(balance) : monthlyPrincipal;
         schedule.push({
             installmentNo: i,
             openingBalance: round2(balance),
             rbInterest,
-            principal: monthlyPrincipal,
+            principal,
             closingBalance,
         });
         totalRBInterest += rbInterest;

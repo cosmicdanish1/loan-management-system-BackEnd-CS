@@ -1,0 +1,489 @@
+{
+ "suite": "22-medium-fixes",
+ "ranAt": "2026-11-03T17:46:08.446Z",
+ "seconds": 8.933,
+ "total": 80,
+ "failed": 18,
+ "results": [
+  {
+   "id": "M-310-1",
+   "title": "Preview twice gives the same number",
+   "ok": true,
+   "detail": "9999962657 / 9999962657"
+  },
+  {
+   "id": "M-310-2",
+   "title": "The saved member gets exactly the previewed number",
+   "ok": true,
+   "detail": "preview 9999962657 saved 9999962657"
+  },
+  {
+   "id": "M-310-3",
+   "title": "After a save the next preview is saved + 1",
+   "ok": true,
+   "detail": "saved 9999962657 next 9999962658"
+  },
+  {
+   "id": "M-311-1",
+   "title": "Update returns one object (not an array) with the new phone",
+   "ok": true,
+   "detail": "201 {\"mbno\":\"9999962657\",\"prefix\":\"MR\",\"f_name\":\"QATEST\",\"m_name\":\"\",\"l_name\":\"X796036011\",\"sex\":\"M\",\"de"
+  },
+  {
+   "id": "M-311-2",
+   "title": "Update of a member number that does not exist -> 404",
+   "ok": true,
+   "detail": "404 {\"statusCode\":404,\"timestamp\":\"2026-11-03T17:46:00.740Z\",\"path\":\"/api/v1/members/save-memb"
+  },
+  {
+   "id": "M-311-3",
+   "title": "No row was created for the unknown number",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "M-312-1",
+   "title": "GET /members/{memberNo} returns the member",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"mbn"
+  },
+  {
+   "id": "M-312-2",
+   "title": "GET /members/{unknown} -> 404",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "M-312-3",
+   "title": "DELETE of a member that has ledger entries -> 409 and the member still exists",
+   "ok": true,
+   "detail": "409 {\"statusCode\":409,\"timestamp\":\"2026-11-03T17:46:01.888Z\",\"path\":\"/api/v1/members/9999962658\",\"method\":\"DELETE\",\"error\":\"Conflict\",; exists=1"
+  },
+  {
+   "id": "M-312-4",
+   "title": "DELETE of an empty QA member works and it is gone",
+   "ok": true,
+   "detail": "200 then GET 404"
+  },
+  {
+   "id": "M-312-5",
+   "title": "DELETE of an unknown member -> 404",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "M-312-6",
+   "title": "DELETE of a QA member that has a loan -> 409 (still exists)",
+   "ok": true,
+   "detail": "409"
+  },
+  {
+   "id": "M-259-1",
+   "title": "GET /members/balance/{unknown} -> 404 (was 500)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "M-262-_reports_account_closing",
+   "title": "GET /reports/account-closing with no/bad input -> 4xx (was 500)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T17:46:02.224Z\",\"path\":\"/api/v1/reports/account-closing\",\"m"
+  },
+  {
+   "id": "M-262-_reports_adhoc_reports",
+   "title": "GET /reports/adhoc-reports with no/bad input -> 4xx (was 500)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T17:46:02.241Z\",\"path\":\"/api/v1/reports/adhoc-reports\",\"met"
+  },
+  {
+   "id": "M-262-_reports_loan_contributions_register",
+   "title": "GET /reports/loan-contributions-register with no/bad input -> 4xx (was 500)",
+   "ok": true,
+   "detail": "404 {\"statusCode\":404,\"timestamp\":\"2026-11-03T17:46:02.260Z\",\"path\":\"/api/v1/reports/loan-contributions-"
+  },
+  {
+   "id": "M-262-_reports_passbook_printing",
+   "title": "GET /reports/passbook-printing with no/bad input -> 4xx (was 500)",
+   "ok": true,
+   "detail": "404 {\"statusCode\":404,\"timestamp\":\"2026-11-03T17:46:02.283Z\",\"path\":\"/api/v1/reports/passbook-printing\","
+  },
+  {
+   "id": "M-262-_reports_recovery_details",
+   "title": "GET /reports/recovery-details with no/bad input -> 4xx (was 500)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T17:46:02.295Z\",\"path\":\"/api/v1/reports/recovery-details\",\""
+  },
+  {
+   "id": "M-262-_utilities_balance_account_1_1",
+   "title": "GET /utilities/balance/account/1/1 with no/bad input -> 4xx (was 500)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T17:46:02.316Z\",\"path\":\"/api/v1/utilities/balance/account/1"
+  },
+  {
+   "id": "M-262-_utilities_balance_member_1_accounts",
+   "title": "GET /utilities/balance/member/1/accounts with no/bad input -> 4xx (was 500)",
+   "ok": true,
+   "detail": "404 {\"statusCode\":404,\"timestamp\":\"2026-11-03T17:46:02.338Z\",\"path\":\"/api/v1/utilities/balance/member/1/"
+  },
+  {
+   "id": "M-262-_utilities_balance_member_1_realtime",
+   "title": "GET /utilities/balance/member/1/realtime with no/bad input -> 4xx (was 500)",
+   "ok": true,
+   "detail": "404 {\"statusCode\":404,\"timestamp\":\"2026-11-03T17:46:02.362Z\",\"path\":\"/api/v1/utilities/balance/member/1/"
+  },
+  {
+   "id": "M-262-_utilities_balance_member_1",
+   "title": "GET /utilities/balance/member/1 with no/bad input -> 4xx (was 500)",
+   "ok": true,
+   "detail": "404 {\"statusCode\":404,\"timestamp\":\"2026-11-03T17:46:02.391Z\",\"path\":\"/api/v1/utilities/balance/member/1\""
+  },
+  {
+   "id": "M-262-_utilities_statement_member_1",
+   "title": "GET /utilities/statement/member/1 with no/bad input -> 4xx (was 500)",
+   "ok": true,
+   "detail": "404 {\"statusCode\":404,\"timestamp\":\"2026-11-03T17:46:02.432Z\",\"path\":\"/api/v1/utilities/statement/member/"
+  },
+  {
+   "id": "M-262-_members_balance_1",
+   "title": "GET /members/balance/1 with no/bad input -> 4xx (was 500)",
+   "ok": true,
+   "detail": "404 {\"statusCode\":404,\"timestamp\":\"2026-11-03T17:46:02.461Z\",\"path\":\"/api/v1/members/balance/1\",\"method\""
+  },
+  {
+   "id": "M-262-AC2",
+   "title": "account-closing month 13 -> 400",
+   "ok": true,
+   "detail": "400"
+  },
+  {
+   "id": "M-262-AC3",
+   "title": "account-closing with valid month/year still works",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "id": "M-262-RD",
+   "title": "recovery-details with a valid month: 200, or 404 when the member has no recovery in that period (was 500)",
+   "ok": true,
+   "detail": "404 {\"statusCode\":404,\"timestamp\":\"2026-11-03T17:46:02.537Z\",\"path\":\"/api/v1/reports/recovery-"
+  },
+  {
+   "id": "M-265-1",
+   "title": "Valid EMI still correct (8884.88)",
+   "ok": true,
+   "detail": "201 8884.88"
+  },
+  {
+   "id": "M-265-2",
+   "title": "0% rate still works",
+   "ok": true,
+   "detail": "201"
+  },
+  {
+   "id": "M-265-3",
+   "title": "EMI with negative principal -> 400",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T17:46:02.613Z\",\"path\":\"/api/v1/loans/calculate-e"
+  },
+  {
+   "id": "M-265-4",
+   "title": "EMI with zero tenure -> 400",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T17:46:02.639Z\",\"path\":\"/api/v1/loans/calculate-e"
+  },
+  {
+   "id": "M-265-5",
+   "title": "EMI with negative rate -> 400",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T17:46:02.663Z\",\"path\":\"/api/v1/loans/calculate-e"
+  },
+  {
+   "id": "M-265-6",
+   "title": "EMI with text -> 400",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T17:46:02.687Z\",\"path\":\"/api/v1/loans/calculate-e"
+  },
+  {
+   "id": "M-265-7",
+   "title": "EMI with missing fields -> 400",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T17:46:02.710Z\",\"path\":\"/api/v1/loans/calculate-e"
+  },
+  {
+   "id": "M-265-8",
+   "title": "EMI with null fields -> 400",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T17:46:02.733Z\",\"path\":\"/api/v1/loans/calculate-e"
+  },
+  {
+   "id": "M-265-9",
+   "title": "EMI with tenure 100000 -> 400",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T17:46:02.757Z\",\"path\":\"/api/v1/loans/calculate-e"
+  },
+  {
+   "id": "M-265-10",
+   "title": "EMI with fractional tenure -> 400",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T17:46:02.785Z\",\"path\":\"/api/v1/loans/calculate-e"
+  },
+  {
+   "id": "M-265-11",
+   "title": "EMI with rate 500 -> 400",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T17:46:02.831Z\",\"path\":\"/api/v1/loans/calculate-e"
+  },
+  {
+   "id": "M-265-12",
+   "title": "Amortization schedule valid input still works (24 rows)",
+   "ok": true,
+   "detail": "201"
+  },
+  {
+   "id": "M-265-13",
+   "title": "Amortization schedule with negative principal -> 400",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "M-314-1",
+   "title": "Voucher with no entries -> 400 (was 500)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T17:46:02.939Z\",\"path\":\"/api/v1/transactions/voucher\",\"meth"
+  },
+  {
+   "id": "M-314-2",
+   "title": "Voucher with text amount -> 400 (was 500)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T17:46:02.966Z\",\"path\":\"/api/v1/transactions/voucher\",\"meth"
+  },
+  {
+   "id": "M-314-3",
+   "title": "Voucher with unknown head code -> 400 (was 500)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T17:46:03.002Z\",\"path\":\"/api/v1/transactions/voucher\",\"meth"
+  },
+  {
+   "id": "M-314-4",
+   "title": "Voucher with bank mode without bank code -> 400 (was 500)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T17:46:03.085Z\",\"path\":\"/api/v1/transactions/voucher\",\"meth"
+  },
+  {
+   "id": "M-314-5",
+   "title": "Refused vouchers created nothing",
+   "ok": true,
+   "detail": "281 -> 281"
+  },
+  {
+   "id": "M-314-6",
+   "title": "A valid voucher is still created",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+  },
+  {
+   "id": "M-314-7",
+   "title": "Pass works (or approval-code gate)",
+   "ok": true,
+   "detail": "201"
+  },
+  {
+   "id": "M-314-8",
+   "title": "Passing the same voucher again -> 400 (was 500)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T17:46:04.655Z\",\"path\":\"/api/v1/transactions/pass"
+  },
+  {
+   "id": "M-314-9",
+   "title": "Reverse works once, second reverse -> 400 (was 500)",
+   "ok": true,
+   "detail": "201/400"
+  },
+  {
+   "id": "M-314-10",
+   "title": "Pass of an unknown voucher -> 400/404",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "M-314-11",
+   "title": "Reverse of an unknown voucher -> 400/404",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "M-314-12",
+   "title": "Delete of an unknown voucher -> 404",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "M-326-1",
+   "title": "Wing used by a member cannot be deleted -> 409 and still exists",
+   "ok": true,
+   "detail": "409 {\"statusCode\":409,\"timestamp\":\"2026-11-03T17:46:05.293Z\",\"path\":\"/api/v1/admin/wings/QW121\",\"method\""
+  },
+  {
+   "id": "M-326-2",
+   "title": "Office used by a member cannot be deleted -> 409",
+   "ok": true,
+   "detail": "409 {\"statusCode\":409,\"timestamp\":\"2026-11-03T17:46:05.334Z\",\"path\":\"/api/v1/admin/offices/905121\",\"meth"
+  },
+  {
+   "id": "M-326-3",
+   "title": "An unused wing can still be deleted",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "M-326-4",
+   "title": "An unused office can still be deleted",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "M-326-5",
+   "title": "Unknown office -> 404",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "M-329-1",
+   "title": "A run that pays nobody -> 400 with a clear message",
+   "ok": false,
+   "detail": "0 "
+  },
+  {
+   "id": "M-329-2",
+   "title": "The period is NOT booked (no interestmaster row)",
+   "ok": true,
+   "detail": "5 -> 5"
+  },
+  {
+   "id": "M-329-3",
+   "title": "The same request again gives the same 400, not \"already calculated\"",
+   "ok": false,
+   "detail": "0 "
+  },
+  {
+   "id": "M-329-4",
+   "title": "A period that really was calculated is still refused as already calculated",
+   "ok": false,
+   "detail": "0 "
+  },
+  {
+   "id": "M-358-1",
+   "title": "Head with a 7-character code -> 400 and nothing new stored",
+   "ok": false,
+   "detail": "0; rows before 0 after 0 "
+  },
+  {
+   "id": "M-358-2",
+   "title": "Head with an empty code -> 400 and nothing new stored",
+   "ok": false,
+   "detail": "0; rows before 1 after 1 "
+  },
+  {
+   "id": "M-358-3",
+   "title": "Head with a code with symbols -> 400 and nothing new stored",
+   "ok": false,
+   "detail": "0; rows before 0 after 0 "
+  },
+  {
+   "id": "M-358-4",
+   "title": "Head with a parent that does not exist -> 400 and nothing new stored",
+   "ok": false,
+   "detail": "0; rows before 0 after 0 "
+  },
+  {
+   "id": "M-358-5",
+   "title": "Head with itself as parent -> 400 and nothing new stored",
+   "ok": false,
+   "detail": "0; rows before 0 after 0 "
+  },
+  {
+   "id": "M-358-6",
+   "title": "Head with a 3000-character name -> 400 and nothing new stored",
+   "ok": false,
+   "detail": "0; rows before 0 after 0 "
+  },
+  {
+   "id": "M-358-7",
+   "title": "Head with text opening balance -> 400 and nothing new stored",
+   "ok": false,
+   "detail": "0; rows before 0 after 0 "
+  },
+  {
+   "id": "M-358-8",
+   "title": "Head with an empty name -> 400 and nothing new stored",
+   "ok": false,
+   "detail": "0; rows before 0 after 0 "
+  },
+  {
+   "id": "M-358-9",
+   "title": "A valid head under L1000 is created",
+   "ok": false,
+   "detail": "0 "
+  },
+  {
+   "id": "M-358-10",
+   "title": "Editing the head (same code, same parent) still works",
+   "ok": true,
+   "detail": "0"
+  },
+  {
+   "id": "M-358-11",
+   "title": "Deleting a head that does not exist -> 404",
+   "ok": false,
+   "detail": ""
+  },
+  {
+   "id": "M-358-12",
+   "title": "Deleting the unused QA head works",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "M-358-13",
+   "title": "No head with an empty code was added by this run (the old junk row from ES-358 may remain)",
+   "ok": true,
+   "detail": "empty-code rows now: 1"
+  },
+  {
+   "id": "M-359-receipt",
+   "title": "POST /utilities/receipt: empty body, negative amount, unknown member and unknown head are all 400",
+   "ok": false,
+   "detail": "0,0,0,0"
+  },
+  {
+   "id": "M-359-receipt-voucher",
+   "title": "POST /utilities/receipt-voucher: empty body, negative amount, unknown member and unknown head are all 400",
+   "ok": false,
+   "detail": "0,0,0,0"
+  },
+  {
+   "id": "M-359-payment-voucher",
+   "title": "POST /utilities/payment-voucher: empty body, negative amount, unknown member and unknown head are all 400",
+   "ok": false,
+   "detail": "0,0,0,0"
+  },
+  {
+   "id": "M-359-loan-entry",
+   "title": "POST /utilities/loan/entry empty body and negative amount -> 400",
+   "ok": false,
+   "detail": "0,0"
+  },
+  {
+   "id": "M-359-none-posted",
+   "title": "None of the refused requests wrote ledger rows",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "M-359-valid",
+   "title": "A valid payment voucher is still accepted and posts two balanced ledger rows",
+   "ok": false,
+   "detail": "0 "
+  }
+ ]
+}

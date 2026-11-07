@@ -39,7 +39,7 @@ export class InterestPaid {
   @Column({ name: 'paydate', type: 'timestamp', nullable: true })
   payDate: Date;
 
-  @Column({ name: 'vchrno', type: 'varchar', length: 6, default: '' })
+  @Column({ name: 'vchrno', type: 'varchar', length: 20, default: '' })
   voucherNumber: string;
 
   @Column({ name: 'account_number', type: 'numeric', precision: 9, scale: 0, nullable: true })

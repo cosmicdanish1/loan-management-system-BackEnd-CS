@@ -1,0 +1,159 @@
+{
+ "suite": "21-low-fixes",
+ "ranAt": "2026-11-03T09:49:51.871Z",
+ "seconds": 2,
+ "total": 25,
+ "failed": 0,
+ "results": [
+  {
+   "id": "LF-266-1",
+   "title": "Create a user",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"id\":71,\"usern"
+  },
+  {
+   "id": "LF-266-2",
+   "title": "Same username, same case -> 409",
+   "ok": true,
+   "detail": "409"
+  },
+  {
+   "id": "LF-266-3",
+   "title": "Same username in lower case -> 409 (was accepted)",
+   "ok": true,
+   "detail": "409 {\"statusCode\":409,\"timestamp\":\"2026-11-03T09:49:50.269Z\",\"path\":\"/api/v1/admin/users\",\"method\":\"POST"
+  },
+  {
+   "id": "LF-266-4",
+   "title": "Same username in upper case -> 409",
+   "ok": true,
+   "detail": "409"
+  },
+  {
+   "id": "LF-266-5",
+   "title": "A different name that differs only where the first has '_' is NOT treated as a duplicate (no wildcard matching)",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"id\":72,\"usern"
+  },
+  {
+   "id": "LF-266-6",
+   "title": "A genuinely different username is still accepted",
+   "ok": true,
+   "detail": "201"
+  },
+  {
+   "id": "LF-266-7",
+   "title": "Changing the case of a user's own name is allowed",
+   "ok": true,
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"id\":71,\"usern"
+  },
+  {
+   "id": "LF-266-8",
+   "title": "Renaming another user to a name that exists in different case -> 409",
+   "ok": true,
+   "detail": "409"
+  },
+  {
+   "id": "LF-266-9",
+   "title": "Existing login still works after the change",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "id": "LF-324-1",
+   "title": "Journal with the same head on debit and credit -> 400 and nothing posted",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:50.942Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\"; rows 0 -> 0"
+  },
+  {
+   "id": "LF-324-2",
+   "title": "Balanced journal on two different heads still posts",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"message\""
+  },
+  {
+   "id": "LF-324-3",
+   "title": "Journal where one head appears on both sides but another head is involved still posts (legitimate)",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"message\""
+  },
+  {
+   "id": "LF-324-4",
+   "title": "Member-to-member journal on the SAME head but different members still posts",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"message\""
+  },
+  {
+   "id": "LF-324-5",
+   "title": "Member-to-member journal from a member to the same member on the same head -> 400",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:51.249Z\",\"path\":\"/api/v1/transactions/journal/post\","
+  },
+  {
+   "id": "LF-324-6",
+   "title": "Existing journal validation still works (unbalanced -> 400)",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "LF-354-1",
+   "title": "Generate with month 'XYZ' -> 400 (was 500 or accepted)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:51.389Z\",\"path\":\"/api/v1/transactions/demand-generation/genera"
+  },
+  {
+   "id": "LF-354-2",
+   "title": "Generate with year 'abcd' -> 400 (was 500 or accepted)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:51.409Z\",\"path\":\"/api/v1/transactions/demand-generation/genera"
+  },
+  {
+   "id": "LF-354-3",
+   "title": "Generate with year 1800 -> 400 (was 500 or accepted)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:51.424Z\",\"path\":\"/api/v1/transactions/demand-generation/genera"
+  },
+  {
+   "id": "LF-354-4",
+   "title": "Generate with year 99999 -> 400 (was 500 or accepted)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:51.450Z\",\"path\":\"/api/v1/transactions/demand-generation/genera"
+  },
+  {
+   "id": "LF-354-5",
+   "title": "Generate with empty month -> 400 (was 500 or accepted)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:51.474Z\",\"path\":\"/api/v1/transactions/demand-generation/genera"
+  },
+  {
+   "id": "LF-354-6",
+   "title": "Generate with year in the far future (2099) -> 400 (was 500 or accepted)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:51.495Z\",\"path\":\"/api/v1/transactions/demand-generation/genera"
+  },
+  {
+   "id": "LF-354-7",
+   "title": "Refused requests created no demand rows",
+   "ok": true,
+   "detail": "329165 -> 329165"
+  },
+  {
+   "id": "LF-354-8",
+   "title": "Valid request (month 'jan' in lower case, year +5) is accepted: 0 rows because the member does not exist, no error",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"message\":\"Demand f; rows 329165 -> 329165"
+  },
+  {
+   "id": "LF-354-9",
+   "title": "An existing month (JAN 2031, created earlier) is still reported as already generated, not duplicated",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"message\":\"Demand for JAN 203"
+  },
+  {
+   "id": "LF-CLEAN",
+   "title": "Users created by this suite were removed",
+   "ok": true,
+   "detail": "left 0"
+  }
+ ]
+}

@@ -1,0 +1,87 @@
+{
+ "suite": "18-support",
+ "ranAt": "2026-10-17T07:10:04.997Z",
+ "seconds": 0.504,
+ "total": 13,
+ "failed": 0,
+ "results": [
+  {
+   "id": "SD-01",
+   "title": "Support query with subject too short: 400",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T07:10:04.809Z\",\"path\":\"/api/v1/support-queries\",\"method\":\""
+  },
+  {
+   "id": "SD-02",
+   "title": "Support query with description too short: 400",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T07:10:04.844Z\",\"path\":\"/api/v1/support-queries\",\"method\":\""
+  },
+  {
+   "id": "SD-03",
+   "title": "Support query with unknown priority: 400",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T07:10:04.868Z\",\"path\":\"/api/v1/support-queries\",\"method\":\""
+  },
+  {
+   "id": "SD-04",
+   "title": "Support query with unknown type: 400",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T07:10:04.883Z\",\"path\":\"/api/v1/support-queries\",\"method\":\""
+  },
+  {
+   "id": "SD-05",
+   "title": "Support query with subject over 200 characters: 400",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T07:10:04.898Z\",\"path\":\"/api/v1/support-queries\",\"method\":\""
+  },
+  {
+   "id": "SD-06",
+   "title": "Support query with description over 5000 characters: 400",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T07:10:04.909Z\",\"path\":\"/api/v1/support-queries\",\"method\":\""
+  },
+  {
+   "id": "SD-07",
+   "title": "Support query with extra unknown field: 400",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T07:10:04.923Z\",\"path\":\"/api/v1/support-queries\",\"method\":\""
+  },
+  {
+   "id": "SD-08",
+   "title": "Valid support query is saved (one QA ticket)",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"id\":8,\"ticketNo\":\"SQ-00008\",\"status\":\"OPEN\",\"createdAt\":\"2026-10-17T07:10:04.935Z\"},\"timestamp\":\"2026-10-17T07:10:04.941Z\"}"
+  },
+  {
+   "id": "SD-09",
+   "title": "My queries list shows it",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "id": "SD-10",
+   "title": "Query detail loads",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "id": "SD-11",
+   "title": "Jira/Telegram delivery is recorded on the query (jira key or status)",
+   "ok": true,
+   "detail": "{\"id\":8,\"subject\":\"QA TEST - ignore this ticket\",\"description\":\"Automated QA test of the support desk. Please ignore and close.\",\"module\":\"QA\",\"queryType\":\"QUESTION\",\"priority\":\"LOW\",\"status\":\"OPEN\",\"reporterUserId\":\"65\",\"reporterUsername\":\"QA_USER_Test\",\"reporterRole\":\"administrator\",\"route\":\"/qa\","
+  },
+  {
+   "id": "SD-12",
+   "title": "Unknown query id -> 404",
+   "ok": true,
+   "detail": "404"
+  },
+  {
+   "id": "SD-14",
+   "title": "Admin list loads",
+   "ok": true,
+   "detail": "200"
+  }
+ ]
+}

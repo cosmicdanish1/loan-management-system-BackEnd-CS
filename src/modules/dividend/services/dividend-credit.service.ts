@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { lockLedgerIds } from '../../shared/utils/ledger-lock';
 import { DataSource } from 'typeorm';
 import { SequenceGeneratorService } from '../../shared/services/sequence-generator.service';
 import { isDebitNormal } from '../../shared/utils/balance-direction';
@@ -147,6 +148,7 @@ export class DividendCreditService {
                     [nextVchrId, voucherNo, dividendAmount, `Dividend Credit - FY ${previous.calculationYear} dividend, member ${mbno}`],
                 );
 
+                await lockLedgerIds(queryRunner); // ES-445
                 let nextLedgerId = (await queryRunner.query(`SELECT COALESCE(MAX(ledgerid), 0) + 1 as next_id FROM ledger`))[0].next_id;
                 await queryRunner.query(
                     `INSERT INTO ledger (trans_date, trans_type, code, mbno, trans_amt, receipt_vchr_no, vchr_type, pl_balance, narration, username, ledgerid)
@@ -162,10 +164,16 @@ export class DividendCreditService {
                         `Dividend Credit - FY ${previous.calculationYear}`, creditedBy, nextLedgerId],
                 );
 
-                await queryRunner.query(
+                const balanceUpdate = await queryRunner.query(
                     `UPDATE member_balances SET shares = COALESCE(shares, 0) + $1 WHERE mbno = $2`,
                     [dividendAmount, mbno],
                 );
+                // pg returns [rows, rowCount] for an UPDATE; no row touched means the share balance was never
+                // increased, so the dividend must not be marked credited (the whole transaction rolls back)
+                const touched = Array.isArray(balanceUpdate) && typeof balanceUpdate[1] === 'number' ? balanceUpdate[1] : undefined;
+                if (touched === 0) {
+                    throw new BadRequestException(`Member ${mbno} has no member_balances row, so the dividend cannot be credited to Share Value.`);
+                }
             }
 
             const creditYearRow = await queryRunner.query(`SELECT start_date FROM yearend WHERE yearcode = $1`, [creditYearcode]);

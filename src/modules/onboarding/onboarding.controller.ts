@@ -29,6 +29,9 @@ class EventDto {
     @IsString() @MaxLength(20) event: string;
     @IsOptional() @IsString() @MaxLength(50) step?: string;
 }
+class WhatsNewSeenDto {
+    @IsString() @MaxLength(20) version: string;
+}
 class StepDto {
     @IsString() @MaxLength(40) step: string;
 }
@@ -122,6 +125,12 @@ export class OnboardingController {
     @Post('complete')
     complete(@Body() dto: CompleteDto, @Req() req: any) {
         return this.service.complete(userIdOf(req), dto.version);
+    }
+
+    @ApiOperation({ summary: "Record that the current user has seen What's New up to this app version" })
+    @Post('whats-new/seen')
+    whatsNewSeen(@Body() dto: WhatsNewSeenDto, @Req() req: any) {
+        return this.service.markWhatsNewSeen(userIdOf(req), dto.version);
     }
 
     @Post('step')

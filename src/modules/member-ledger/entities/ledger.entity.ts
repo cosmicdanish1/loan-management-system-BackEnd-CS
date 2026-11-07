@@ -26,7 +26,7 @@ export class Ledger {
   @Column({ type: 'numeric', precision: 19, scale: 4, default: 0 })
   trans_amt: number;
 
-  @Column({ type: 'varchar', length: 6, default: '' })
+  @Column({ type: 'varchar', length: 20, default: '' })
   receipt_vchr_no: string;
 
   @Column({ type: 'varchar', length: 2, default: '' })

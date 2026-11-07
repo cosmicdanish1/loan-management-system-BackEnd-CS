@@ -167,6 +167,8 @@ export class SystemConfigService {
       throw new BadRequestException('Cannot update read-only configuration');
     }
 
+    // Same checks as create / update: type (text is not a number) and the setting's own min / max (ES-293)
+    this.validateConfigValue(this.valueToText(value, config.dataType), config.dataType, config.validationRules);
     config.setTypedValue(value);
     const updatedConfig = await this.systemConfigRepository.save(config);
 
@@ -188,9 +190,35 @@ export class SystemConfigService {
     return result;
   }
 
+  /** Business-rule keys the rules screen reads (see getBusinessRules): only these may be created from a request. */
+  private static readonly RULE_KEY = /^(RULE|SYS)_[A-Z0-9_]{1,80}$/;
+
   async bulkUpdateBusinessRules(rules: Record<string, any>): Promise<void> {
-    for (const [key, value] of Object.entries(rules)) {
-      let config = await this.systemConfigRepository.findOne({ where: { key } });
+    if (!rules || typeof rules !== 'object' || Array.isArray(rules)) {
+      throw new BadRequestException('rules must be an object of rule keys and values');
+    }
+    const entries = Object.entries(rules);
+
+    // Validate everything first so a bad value never leaves the rules half-updated (ES-293 / ES-356).
+    const plan: Array<{ key: string; value: any; config: SystemConfig | null }> = [];
+    for (const [key, value] of entries) {
+      const config = await this.systemConfigRepository.findOne({ where: { key } });
+      if (!config) {
+        if (!SystemConfigService.RULE_KEY.test(key)) throw new BadRequestException(`Unknown rule '${key}'`);
+        if (value !== null && typeof value === 'object') throw new BadRequestException(`Rule '${key}' needs a plain value`);
+      } else if (!config.isReadonly) {
+        try {
+          this.validateConfigValue(this.valueToText(value, config.dataType), config.dataType, config.validationRules);
+        } catch (e) {
+          if (e instanceof BadRequestException) throw new BadRequestException(`Rule '${key}': ${(e.getResponse() as any)?.message ?? e.message}`);
+          throw e;
+        }
+      }
+      plan.push({ key, value, config });
+    }
+
+    for (const { key, value, config: existing } of plan) {
+      let config = existing;
 
       if (!config) {
         const dataType =
@@ -350,6 +378,23 @@ export class SystemConfigService {
         throw new BadRequestException(`Row ${i + 1}: maximum tenure is below the minimum tenure`);
       }
       dtos.push(dto);
+    }
+
+    // Two slabs that cover the same amount, the same tenure and the same period would both match one deposit (ES-399).
+    const openEnd = new Date('9999-12-31').getTime();
+    const span = (d: CreateDepositSlabDto) => [new Date(d.effectiveFrom).getTime(), d.effectiveTo ? new Date(d.effectiveTo).getTime() : openEnd];
+    for (let a = 0; a < dtos.length; a++) {
+      for (let b = a + 1; b < dtos.length; b++) {
+        const x = dtos[a];
+        const y = dtos[b];
+        const [xf, xt] = span(x);
+        const [yf, yt] = span(y);
+        if (x.minAmount <= y.maxAmount && y.minAmount <= x.maxAmount
+          && x.minTenure <= y.maxTenure && y.minTenure <= x.maxTenure
+          && xf <= yt && yf <= xt) {
+          throw new BadRequestException(`Rows ${a + 1} and ${b + 1} overlap (same amount, tenure and period). Slabs of one type must not overlap.`);
+        }
+      }
     }
 
     await this.depositSlabRepository.manager.transaction(async (manager) => {
@@ -575,11 +620,20 @@ export class SystemConfigService {
     }
   }
 
+  /** A value from a request, as the text that is stored (and validated). */
+  private valueToText(value: any, dataType: ConfigDataType): string {
+    if (dataType === ConfigDataType.JSON) return typeof value === 'string' ? value : JSON.stringify(value);
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'object') return JSON.stringify(value);
+    return String(value);
+  }
+
   private validateConfigValue(value: string, dataType: ConfigDataType, validationRules?: string): void {
     switch (dataType) {
       case ConfigDataType.NUMBER:
       case ConfigDataType.PERCENTAGE:
-        const numValue = parseFloat(value);
+        // Number(), not parseFloat(): "12abc" and "" are not numbers
+        const numValue = String(value).trim() === '' ? NaN : Number(value);
         if (isNaN(numValue)) {
           throw new BadRequestException('Invalid number value');
         }

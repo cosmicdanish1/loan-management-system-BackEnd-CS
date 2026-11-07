@@ -1,0 +1,51 @@
+{
+ "suite": "25-roles",
+ "ranAt": "2026-10-17T21:33:04.241Z",
+ "seconds": 6.869,
+ "total": 7,
+ "failed": 3,
+ "results": [
+  {
+   "id": "RL-00",
+   "title": "Created 11 of 11 role users",
+   "ok": true,
+   "detail": "manager,branch_manager,officer,passing_officer,clerk,auditor,cashier,accountant,loan_officer,data_operator,user"
+  },
+  {
+   "id": "RL-01",
+   "title": "Administrator-only routes answer 403 for every non-administrator role",
+   "ok": false,
+   "detail": "33 open: manager:license-list=200 manager:backup-list=200 manager:business-rules-write=201 branch_manager:license-list=200 branch_manager:backup-list=200 branch_manager:business-rules-write=201 officer:license-list=200 officer:backup-list=200 officer:business-rules-write=201 passing_officer:license-list=200 passing_officer:backup-list=200 passing_officer:business-rules-write=201 clerk:license-list"
+  },
+  {
+   "id": "RL-02",
+   "title": "Pass-voucher right: clerk, data operator, user, cashier and auditor get 403",
+   "ok": false,
+   "detail": "clerk=400 data_operator=400 user=400 cashier=400 auditor=400"
+  },
+  {
+   "id": "RL-03",
+   "title": "Reverse-voucher right: the same roles get 403",
+   "ok": false,
+   "detail": "clerk=400 data_operator=400 user=400 cashier=400 auditor=400"
+  },
+  {
+   "id": "RL-04",
+   "title": "Early-closure right: the same roles get 403",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "id": "RL-05",
+   "title": "Business rules are unchanged after the role probes (round-trip writes kept values)",
+   "ok": true,
+   "detail": "compared all keys"
+  },
+  {
+   "id": "RL-CLEAN",
+   "title": "Role users created by this suite were removed",
+   "ok": true,
+   "detail": "checked list"
+  }
+ ]
+}

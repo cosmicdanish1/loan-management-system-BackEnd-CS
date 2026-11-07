@@ -41,6 +41,7 @@ import {
   RolePermissionsDto,
   UpdateUserRoleDto,
 } from '../dto';
+import { RequireMenuAction } from '../../auth/guards/menu-right.guard';
 
 @ApiTags('User Management')
 @ApiBearerAuth()
@@ -49,6 +50,7 @@ import {
 export class UserManagementController {
   constructor(private readonly userManagementService: UserManagementService) { }
 
+  @RequireMenuAction('USER_MANAGEMENT')
   @Post()
   @Roles(UserRole.ADMIN, UserRole.USER, UserRole.DATA_OPERATOR, 'sample_1' as any)
   @RequirePermissions(UserPermission.MANAGE_USERS)
@@ -144,6 +146,7 @@ export class UserManagementController {
     return this.userManagementService.findUserById(id);
   }
 
+  @RequireMenuAction('USER_MANAGEMENT')
   @Put(':id')
   @Roles(UserRole.ADMIN)
   @RequirePermissions(UserPermission.MANAGE_USERS)
@@ -180,6 +183,7 @@ export class UserManagementController {
     return updated;
   }
 
+  @RequireMenuAction('USER_MANAGEMENT')
   @Delete(':id')
   @Roles(UserRole.ADMIN)
   @RequirePermissions(UserPermission.MANAGE_USERS)
@@ -196,13 +200,14 @@ export class UserManagementController {
   async deleteUser(@Param('id', ParseIntPipe) id: number, @CurrentUser() actor: any): Promise<{ message: string }> {
     // The name is gone once the user is deleted, so read it first.
     const target: any = await this.userManagementService.findUserById(id).catch(() => null);
-    const result = await this.userManagementService.deleteUser(id);
+    const result = await this.userManagementService.deleteUser(id, Number(actor?.id ?? actor?.userid));
     try {
       AlertBridge.get()?.userDeleted({ by: actor?.username, username: target?.username ?? `#${id}` });
     } catch { /* alerting must never affect user admin */ }
     return result;
   }
 
+  @RequireMenuAction('USER_MANAGEMENT')
   @Put(':id/password')
   @Roles(UserRole.ADMIN)
   @RequirePermissions(UserPermission.MANAGE_USERS)
@@ -229,6 +234,7 @@ export class UserManagementController {
     return result;
   }
 
+  @RequireMenuAction('USER_MANAGEMENT')
   @Put(':id/role')
   @Roles(UserRole.ADMIN)
   @RequirePermissions(UserPermission.MANAGE_USERS)
@@ -341,6 +347,7 @@ export class UserManagementController {
     return this.userManagementService.changeUserPassword(user.id, changePasswordDto);
   }
 
+  @RequireMenuAction('LOGOUT_USER', 'USER_MANAGEMENT')
   @Post('active-sessions/terminate')
   @Roles(UserRole.ADMIN)
   @RequirePermissions(UserPermission.MANAGE_USERS)

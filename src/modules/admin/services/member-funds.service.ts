@@ -1,4 +1,4 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { FundsMaster } from '../entities/funds-master.entity';
@@ -14,13 +14,37 @@ export class MemberFundsService {
         private fundsRepository: Repository<FundsMaster>,
     ) { }
 
-    async getMemberList(): Promise<string[]> {
-        this.logger.log('[MemberFunds] Loading ordered member list from fundsmaster');
+    async getMemberList(wing?: string): Promise<string[]> {
+        this.logger.log(`[MemberFunds] Loading ordered member list from fundsmaster${wing ? ` (wing=${wing})` : ''}`);
+        if (wing) {
+            // ES-491: Wing filter of Modify Member Balance — only members of that wing (member_master.wingno).
+            const filtered = await this.fundsRepository.query(
+                `SELECT f.mbno FROM fundsmaster f
+                 JOIN member_master m ON m.mbno = f.mbno
+                 WHERE m.wingno = $1
+                 ORDER BY f.mbno ASC`,
+                [String(wing)],
+            );
+            return filtered.map((r: any) => String(r.mbno));
+        }
         const rows = await this.fundsRepository.find({
             select: ['memberNo'],
             order: { memberNo: 'ASC' }
         });
         return rows.map(r => r.memberNo.toString());
+    }
+
+    /** ES-491: wings that have members in fundsmaster, for the Wing filter (id = wing code, name = wing name). */
+    async getWings(): Promise<{ id: string; name: string }[]> {
+        const rows = await this.fundsRepository.query(
+            `SELECT DISTINCT m.wingno AS id, COALESCE(NULLIF(w.wingname, ''), m.wingno) AS name
+             FROM member_master m
+             JOIN fundsmaster f ON f.mbno = m.mbno
+             LEFT JOIN wing_master w ON w.wingno = m.wingno
+             WHERE m.wingno IS NOT NULL AND m.wingno <> ''
+             ORDER BY name`,
+        );
+        return rows.map((r: any) => ({ id: String(r.id), name: String(r.name) }));
     }
 
     async findByMember(memberNo: number): Promise<FundsMaster> {
@@ -76,6 +100,11 @@ export class MemberFundsService {
         let funds = await this.fundsRepository.findOne({ where: { memberNo } });
 
         if (!funds) {
+            // A row may only be created for a real member (ES-300): otherwise any member number makes an orphan row
+            const real = await this.fundsRepository.manager.query(`SELECT 1 FROM member_master WHERE mbno = $1`, [memberNo]);
+            if (!real || real.length === 0) {
+                throw new NotFoundException(`Member ${memberNo} does not exist`);
+            }
             this.logger.log(`[MemberFunds] No existing record, creating new for mbno=${memberNo}`);
             funds = this.fundsRepository.create({ memberNo, ...updateDto });
         } else {

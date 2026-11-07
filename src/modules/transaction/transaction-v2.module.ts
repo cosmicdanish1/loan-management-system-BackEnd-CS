@@ -32,6 +32,8 @@ import { RdModule } from '../rd/rd.module';
 import { CompulsoryDepositController } from './compulsory-deposit.controller';
 import { JournalTransferController } from './journal-transfer.controller';
 import { DividendPaymentController } from './dividend-payment.controller';
+import { MemberBalanceTransferController } from './member-balance-transfer.controller';
+import { MemberBalanceTransferService } from './services-v2/member-balance-transfer.service';
 
 @Module({
     imports: [
@@ -55,6 +57,7 @@ import { DividendPaymentController } from './dividend-payment.controller';
         CompulsoryDepositController,
         JournalTransferController,
         DividendPaymentController,
+        MemberBalanceTransferController, // ES-511
     ],
     providers: [
         VoucherService,
@@ -67,6 +70,7 @@ import { DividendPaymentController } from './dividend-payment.controller';
         CompulsoryDepositService,
         JournalTransferService,
         DividendPaymentService,
+        MemberBalanceTransferService, // ES-511
         LoanEligibilityService,
         // Same duplicated-provider pattern as LoanEligibilityService above —
         // PassTransactionService needs calculateEarlyClosure() (a pure,

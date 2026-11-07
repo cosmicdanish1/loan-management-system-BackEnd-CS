@@ -17,6 +17,7 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { BackupService, BackupOptions, BackupResult, BackupInfo } from './backup.service';
+import { RequireMenuAction } from '../auth/guards/menu-right.guard';
 
 @ApiTags('Database Backup')
 @Controller('backup')
@@ -24,6 +25,7 @@ import { BackupService, BackupOptions, BackupResult, BackupInfo } from './backup
 export class BackupController {
   constructor(private readonly backupService: BackupService) {}
 
+  @RequireMenuAction('DATABASE_BACKUP')
   @Post('create')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Create database backup' })
@@ -138,6 +140,7 @@ export class BackupController {
     return this.backupService.getDatabaseInfo();
   }
 
+  @RequireMenuAction('DATABASE_BACKUP')
   @Post('cleanup')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Clean up old backups based on retention policy' })

@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, HttpException, Injectable } from '@nestjs/common';
+import { assertPostingDateOpen } from '../../shared/utils/posting-date';
 import { DataSource, QueryRunner } from 'typeorm';
 import { SystemConfigService } from '../../admin/services/system-config.service';
 import { calculateConstantEmi, firstDueMonthFromDisbursement, persistRbSchedule, round2, LoanRoundingMode, DEFAULT_SLOT1_START_DAY, DEFAULT_SLOT1_END_DAY } from '../../loan/services-v2/loan-rb-schedule.util';
@@ -10,6 +11,7 @@ import { RdBalanceEventsService } from '../../rd/services/rd-balance-events.serv
 import { RdLienService } from '../../rd/services/rd-lien.service';
 import { RdRulesService } from '../../rd/rd-rules.service';
 import { isDebitNormal } from '../../shared/utils/balance-direction';
+import { lockLedgerIds } from '../../shared/utils/ledger-lock';
 import { interestHeadForLoanType } from '../../loan/loan-interest-heads';
 
 /**
@@ -68,13 +70,17 @@ export class PassTransactionService {
 
             console.log(`[PassTransaction] 🔒 Starting Pass Transaction for voucher: ${voucherNo}`);
 
-            // 1. Fetch voucher from header table
-            const voucherQuery = `SELECT * FROM vouchers WHERE "voucherNumber" = $1 AND status = 'PENDING'`;
+            // 1. Fetch voucher from header table.
+            // ES-446: FOR UPDATE locks the voucher row, so a second Pass of the same voucher (double-click, retry, two
+            // operators) waits here, then no longer finds it PENDING and is refused. Before, both read PENDING and both posted.
+            const voucherQuery = `SELECT * FROM vouchers WHERE "voucherNumber" = $1 AND status = 'PENDING' FOR UPDATE`;
             const headerResult = await queryRunner.query(voucherQuery, [voucherNo]);
             if (headerResult.length === 0) {
-                throw new Error('Voucher header not found or already posted');
+                throw new BadRequestException('Voucher header not found or already posted');
             }
             const header = headerResult[0];
+            // ES-458: Pass posts on today's date; a closed day (Day-End done) or a closed financial year takes no postings
+            await assertPostingDateOpen(queryRunner, new Date());
 
             // 2. Determine if this is a Loan Disbursement or Generic Voucher
             const remarksMatch = (header.remarks || '').match(/LOAN_CASE:([^|]+)/);
@@ -90,7 +96,8 @@ export class PassTransactionService {
             const details = await queryRunner.query(detailsQuery, [voucherNo]);
             console.log(`[PassTransaction] Found ${details.length} transaction details for voucher ${voucherNo}`);
 
-            // 4. Get Next IDs for Ledger
+            // 4. Get Next IDs for Ledger (ES-445: shared lock first, so no other writer can read the same MAX)
+            await lockLedgerIds(queryRunner);
             const maxLedgerIdResult = await queryRunner.query("SELECT COALESCE(MAX(ledgerid), 0) as max_id FROM ledger");
             let nextLedgerId = parseInt(maxLedgerIdResult[0].max_id) + 1;
 
@@ -228,6 +235,13 @@ export class PassTransactionService {
                 } catch (e) {
                     console.warn(`[PassTransaction] Could not fetch penal/grace rules from busrules for ${loan.loantype}, using defaults`);
                 }
+
+                // ES-506: a rate the sanctioning officer set for THIS customer at sanction (loan_pending.rate / penalrate,
+                // with a reason) wins over Business Rules. NULL = no exception, Business Rules apply as above.
+                const lpRate = parseFloat(loan.rate);
+                if (!isNaN(lpRate) && lpRate > 0) rate = lpRate;
+                const lpPenal = loan.penalrate === null || loan.penalrate === undefined ? NaN : parseFloat(loan.penalrate);
+                if (!isNaN(lpPenal) && lpPenal >= 0) penalrate = lpPenal;
 
                 const sanctionedAmt = parseMoney(loan.sanctioned_amt);
                 const noOfInstal = loan.no_of_instal || 1;
@@ -926,10 +940,20 @@ export class PassTransactionService {
                 // (RLN / ALN for loan heads) is copied onto the ledger row, and a member's balance column
                 // is moved for the loan heads that have one (see getBalanceColumn / reverseTransaction).
                 const isJournalVoucher = String(header.voucherType || '').toUpperCase() === 'JOURNAL';
+
+                // ES-415: every line must name its head. A line without one used to be posted to 'GL000', a head
+                // that does not exist, so the money disappeared from every real head's balance.
+                const linesWithoutHead = details.filter((d: any) => !String(d.code ?? '').trim());
+                if (linesWithoutHead.length > 0) {
+                    throw new BadRequestException(
+                        `Voucher ${voucherNo}: ${linesWithoutHead.length} line(s) have no head code (trans_no ${linesWithoutHead.map((d: any) => d.trans_no).join(', ')}). Fix or reject the voucher.`,
+                    );
+                }
+
                 if (isJournalVoucher) {
                     for (const detail of details) {
                         const amt = parseMoney(detail.trans_amt);
-                        const headCode = detail.code || 'GL000';
+                        const headCode = detail.code; // checked above: never empty (ES-415)
                         const drcr = (detail.trans_type === 'CR' || detail.trans_type === 'R') ? 'CR' : 'DR';
                         const lineMbno = detail.mbno || null;
 
@@ -950,7 +974,9 @@ export class PassTransactionService {
                             const balCol = this.getBalanceColumn(headCode);
                             if (balCol) {
                                 const balRes = await queryRunner.query(
-                                    `SELECT COALESCE(${balCol.col}, 0) as bal FROM member_balances WHERE mbno = $1`, [lineMbno]
+                                    // ES-454: FOR UPDATE, so two journals touching the same member balance run one after the
+                                    // other (before, both read the same balance and the second write overwrote the first)
+                                    `SELECT COALESCE(${balCol.col}, 0) as bal FROM member_balances WHERE mbno = $1 FOR UPDATE`, [lineMbno]
                                 );
                                 if (balRes.length > 0) {
                                     const curBal = parseFloat(balRes[0].bal) || 0;
@@ -970,7 +996,7 @@ export class PassTransactionService {
 
                 for (const detail of (isJournalVoucher ? [] : details)) {
                     const amt = parseMoney(detail.trans_amt);
-                    const headCode = detail.code || 'GL000';
+                    const headCode = detail.code; // checked above: never empty (ES-415)
                     // BUG FIX: was hardcoded 'P' for all entries — a Receipt entry (trans_type='R')
                     // was being posted to the ledger as a Payment, corrupting debit/credit balances.
                     // Now uses the actual trans_type from the transactions table row.
@@ -1040,7 +1066,7 @@ export class PassTransactionService {
         } catch (error: any) {
             await queryRunner.rollbackTransaction();
             console.error('[PassTransaction] ❌ Posting failed:', error);
-            throw new Error('Failed to post transaction: ' + error.message);
+            throw error instanceof HttpException ? error : new Error('Failed to post transaction: ' + error.message);
         } finally {
             await queryRunner.release();
         }
@@ -1059,10 +1085,11 @@ export class PassTransactionService {
             console.log(`[PassTransaction] 🔄 Reversing Transaction: ${voucherNo}`);
 
             // 1. Fetch voucher metadata
-            const voucherQuery = `SELECT * FROM vouchers WHERE "voucherNumber" = $1 AND status = 'POSTED'`;
+            // ES-446: locked, so Pass and Reverse (or two Reverses) of one voucher can not overlap
+            const voucherQuery = `SELECT * FROM vouchers WHERE "voucherNumber" = $1 AND status = 'POSTED' FOR UPDATE`;
             const headerResult = await queryRunner.query(voucherQuery, [voucherNo]);
             if (headerResult.length === 0) {
-                throw new Error('Voucher header not found or is not in POSTED status');
+                throw new BadRequestException('Voucher header not found or is not in POSTED status');
             }
             const header = headerResult[0];
 
@@ -1147,7 +1174,7 @@ export class PassTransactionService {
                     const drcr = (detail.trans_type === 'CR' || detail.trans_type === 'R') ? 'CR' : 'DR';
                     const amt = parseFloat(detail.trans_amt) || 0;
                     const balRes = await queryRunner.query(
-                        `SELECT COALESCE(${balCol.col}, 0) as bal FROM member_balances WHERE mbno = $1`, [detail.mbno]
+                        `SELECT COALESCE(${balCol.col}, 0) as bal FROM member_balances WHERE mbno = $1 FOR UPDATE`, [detail.mbno] // ES-454
                     );
                     if (balRes.length === 0) continue;
                     const curBal = parseFloat(balRes[0].bal) || 0;
@@ -1179,7 +1206,7 @@ export class PassTransactionService {
         } catch (error: any) {
             await queryRunner.rollbackTransaction();
             console.error('[PassTransaction] ❌ Reversal failed:', error);
-            throw new Error('Failed to reverse transaction: ' + error.message);
+            throw error instanceof HttpException ? error : new Error('Failed to reverse transaction: ' + error.message);
         } finally {
             await queryRunner.release();
         }

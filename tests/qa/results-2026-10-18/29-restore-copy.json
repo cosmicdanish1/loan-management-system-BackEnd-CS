@@ -1,0 +1,56 @@
+[
+ {
+  "id": "RS-00",
+  "title": "The restore service targets the copy database, not the live one",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "id": "RS-01",
+  "title": "Restore works with the settings of this machine (psql only reachable through PSQL_PATH)",
+  "ok": false,
+  "detail": "success=false Restore failed: Command failed: psql -h localhost -p 5432 -U postgres -d EMP_QA_RestoreCopy -f \"F:\\company\\qa-restore-test\\live_dump.sql\" --quiet --no-password\n'psql' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n"
+ },
+ {
+  "id": "RS-02",
+  "title": "Restoring over existing data does not duplicate or change row counts",
+  "ok": false,
+  "detail": "changed: led 1576652->3153304, mem 7477->14954, loan 20101->40202"
+ },
+ {
+  "id": "RS-03",
+  "title": "A restore that hit \"already exists\" / duplicate-key errors must not report \"restored successfully\"",
+  "ok": false,
+  "detail": "reported success=true \"Database restored successfully\" although every table already existed (psql errors are ignored)"
+ },
+ {
+  "id": "RS-04",
+  "title": "After data loss, restoring the backup brings the lost rows back (vouchers and loan_pending)",
+  "ok": true,
+  "detail": "vouchers 0->237, loan_pending 38216->57367; reported success=true"
+ },
+ {
+  "id": "RS-05",
+  "title": "A .sql.safe backup (the format POST /backup/create writes now) can be restored by the restore function",
+  "ok": false,
+  "detail": "success=false Restore failed: Backup file is corrupted or invalid"
+ },
+ {
+  "id": "RS-06",
+  "title": "A file name with '..\\' cannot run a SQL file from outside the backup folder",
+  "ok": false,
+  "detail": "marker table created=true; result {\"success\":true,\"message\":\"Database restored successfully\",\"restoredAt\":\"2026-10-17T22:29:47.304Z\"}"
+ },
+ {
+  "id": "RS-07",
+  "title": "Integrity check rejects a dump that was cut off after 20 MB (no completion marker)",
+  "ok": false,
+  "detail": "verifyBackupIntegrity returned true"
+ },
+ {
+  "id": "RS-08",
+  "title": "The restore takes a safety backup of the current database before overwriting anything",
+  "ok": false,
+  "detail": "restoreDatabase() has no pre-restore backup step"
+ }
+]

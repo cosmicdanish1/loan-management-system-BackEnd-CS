@@ -99,6 +99,7 @@ export class NotificationController {
         amount: number;
         recipient?: string;
         channel?: NotificationChannel;
+        reference?: string;
     }) {
         if (!data?.memberNo || !data?.transactionType || typeof data?.amount !== 'number') {
             throw new BadRequestException('memberNo, transactionType, and a numeric amount are required');

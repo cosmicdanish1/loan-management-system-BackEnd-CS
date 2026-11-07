@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { Transactions } from '../cashbook/entities/transactions.entity';
 import { HeadMaster } from './entities/head-master.entity';
 import { ReportHeadOrderService } from '../report-head-order/report-head-order.service';
+import { isCreditType, CREDIT_TYPES_SQL, DEBIT_TYPES_SQL } from '../report/services-v2/ledger-types';
 import {
   GetConsolidationDto,
 } from './dto/consolidation.dto';
@@ -49,11 +50,11 @@ export class ConsolidationService {
           l.trans_type,
           CAST(l.trans_amt AS numeric)                            AS amount,
           CAST(l.mbno AS text)                                    AS mb_no,
-          TRIM(
+          REGEXP_REPLACE(TRIM(
             COALESCE(m.f_name,'') || ' ' ||
             COALESCE(m.m_name,'') || ' ' ||
             COALESCE(m.l_name,'')
-          )                                                       AS member_name
+          ), '\\s+', ' ', 'g')                                                       AS member_name
         FROM ledger l
         LEFT JOIN headmaster      h  ON h.code   = l.code
         LEFT JOIN member_master   m  ON CAST(m.mbno AS text) = CAST(l.mbno AS text)
@@ -66,8 +67,8 @@ export class ConsolidationService {
 
       const openingResult = await this.transactionsRepository.query(`
         SELECT
-          SUM(CASE WHEN trans_type = 'DR' THEN CAST(trans_amt AS numeric) ELSE 0 END) -
-          SUM(CASE WHEN trans_type = 'CR' THEN CAST(trans_amt AS numeric) ELSE 0 END) AS balance
+          SUM(CASE WHEN trans_type IN ${DEBIT_TYPES_SQL} THEN CAST(trans_amt AS numeric) ELSE 0 END) -
+          SUM(CASE WHEN trans_type IN ${CREDIT_TYPES_SQL} THEN CAST(trans_amt AS numeric) ELSE 0 END) AS balance
         FROM ledger
         WHERE trans_date::date < $1::date AND code = 'A1001'
       `, [reportDate]);
@@ -75,15 +76,15 @@ export class ConsolidationService {
 
       const cashMoveResult = await this.transactionsRepository.query(`
         SELECT
-          SUM(CASE WHEN trans_type = 'DR' THEN CAST(trans_amt AS numeric) ELSE 0 END) AS cash_in,
-          SUM(CASE WHEN trans_type = 'CR' THEN CAST(trans_amt AS numeric) ELSE 0 END) AS cash_out
+          SUM(CASE WHEN trans_type IN ${DEBIT_TYPES_SQL} THEN CAST(trans_amt AS numeric) ELSE 0 END) AS cash_in,
+          SUM(CASE WHEN trans_type IN ${CREDIT_TYPES_SQL} THEN CAST(trans_amt AS numeric) ELSE 0 END) AS cash_out
         FROM ledger
         WHERE trans_date::date = $1::date AND code = 'A1001'
       `, [reportDate]);
       const totalCashReceipts = parseFloat(cashMoveResult[0]?.cash_in) || 0;
       const totalCashPayments = parseFloat(cashMoveResult[0]?.cash_out) || 0;
 
-      // CR legs are receipts, DR legs are payments. Inside each head, one line per member
+      // CR (or legacy R) legs are receipts, DR (or legacy P) legs are payments. Inside each head, one line per member
       // ('Miscellineous' when the leg has no member).
       type Group = { headCode: string; headName: string; total: number; subEntries: Map<string, { mbNo: string; memberName: string; amount: number }> };
       const receiptMap = new Map<string, Group>();
@@ -91,7 +92,7 @@ export class ConsolidationService {
 
       for (const row of rows) {
         const amt = parseFloat(row.amount) || 0;
-        const map = row.trans_type === 'CR' ? receiptMap : paymentMap;
+        const map = isCreditType(row.trans_type) ? receiptMap : paymentMap; // legacy R = receipt, P = payment
 
         let group = map.get(row.head_code);
         if (!group) {

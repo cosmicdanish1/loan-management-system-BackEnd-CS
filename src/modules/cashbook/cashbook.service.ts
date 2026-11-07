@@ -6,6 +6,7 @@ import { Transactions } from './entities/transactions.entity';
 import { MemberMaster } from '../member/entities/member-master.entity';
 import { InterestMaster } from '../interest/entities/interest-master.entity';
 import { HeadMaster } from '../print-voucher/entities/head-master.entity';
+import { isCreditType, isDebitType, CREDIT_TYPES_SQL, DEBIT_TYPES_SQL } from '../report/services-v2/ledger-types';
 import { ReportHeadOrderService } from '../report-head-order/report-head-order.service';
 import {
   GetCashBookDto,
@@ -83,12 +84,12 @@ export class CashBookService {
 
       // Calculate totals
       const totalReceipts = ledgerEntries
-        .filter(l => l.trans_type === 'CR')
-        .reduce((sum, l) => sum + Number(l.trans_amt), 0);
+        .filter(l => isCreditType(l.trans_type))
+        .reduce((sum, l) => sum + this.amountOf(l), 0);
 
       const totalPayments = ledgerEntries
-        .filter(l => l.trans_type === 'DR')
-        .reduce((sum, l) => sum + Number(l.trans_amt), 0);
+        .filter(l => isDebitType(l.trans_type))
+        .reduce((sum, l) => sum + this.amountOf(l), 0);
 
       const netBalance = totalReceipts - totalPayments;
       const closingBalance = openingBalance + netBalance;
@@ -109,6 +110,13 @@ export class CashBookService {
     }
   }
 
+  /** A ledger amount as a number; an amount that is not a number stops the report instead of giving a NaN total */
+  private amountOf(l: LedgerLine): number {
+    const n = Number(l.trans_amt);
+    if (!Number.isFinite(n)) throw new Error(`Ledger row for head ${l.code} has a non-numeric amount '${l.trans_amt}'`);
+    return n;
+  }
+
   private groupLedgerByCode(entries: LedgerLine[], headMap: Map<string, string>): CashBookEntryDto[] {
     const grouped = new Map<string, CashBookEntryDto>();
 
@@ -125,10 +133,11 @@ export class CashBookService {
       }
 
       const entry = grouped.get(code)!;
-      if (l.trans_type === 'CR') {
-        entry.receipt += Number(l.trans_amt) || 0;
-      } else if (l.trans_type === 'DR') {
-        entry.payment += Number(l.trans_amt) || 0;
+      // legacy ledger rows use R (receipt) and P (payment) next to CR / DR
+      if (isCreditType(l.trans_type)) {
+        entry.receipt += this.amountOf(l);
+      } else if (isDebitType(l.trans_type)) {
+        entry.payment += this.amountOf(l);
       }
     });
 
@@ -140,16 +149,17 @@ export class CashBookService {
       const result = await this.ledgerRepository
         .createQueryBuilder('l')
         .select(`
-          SUM(CASE WHEN l.trans_type = 'CR' THEN l.trans_amt ELSE 0 END) - 
-          SUM(CASE WHEN l.trans_type = 'DR' THEN l.trans_amt ELSE 0 END)
+          SUM(CASE WHEN l.trans_type IN ${CREDIT_TYPES_SQL} THEN l.trans_amt ELSE 0 END) -
+          SUM(CASE WHEN l.trans_type IN ${DEBIT_TYPES_SQL} THEN l.trans_amt ELSE 0 END)
         `, 'balance')
         .where('l.trans_date < :date', { date })
         .getRawOne();
 
       return Number(result?.balance || 0);
     } catch (error) {
+      // a wrong opening balance would make every closing balance wrong: fail the report, never report zero
       this.logger.error('Error calculating opening balance:', error);
-      return 0;
+      throw error;
     }
   }
 

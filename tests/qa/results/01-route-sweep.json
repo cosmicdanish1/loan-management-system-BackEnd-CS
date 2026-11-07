@@ -1,7 +1,7 @@
 {
  "suite": "01-route-sweep",
- "ranAt": "2026-10-16T17:26:43.290Z",
- "seconds": 61.533,
+ "ranAt": "2026-11-03T09:43:57.117Z",
+ "seconds": 62.404,
  "total": 5,
  "failed": 4,
  "results": [
@@ -13,27 +13,27 @@
   },
   {
    "id": "SW-02",
-   "title": "No route answers without a token (checked 271; skipped 233 dangerous mutating)",
+   "title": "No route answers without a token (checked 292; skipped 259 dangerous mutating)",
    "ok": false,
-   "detail": "GET /api/v1/auth/2fa/forgot/methods=200; GET /api/v1=200"
+   "detail": "GET /api/v1/auth/2fa/forgot/methods=200; GET /api/v1/mobile/config=200; GET /api/v1/mobile/status=200; GET /api/v1=200"
   },
   {
    "id": "SW-03",
    "title": "Garbage bearer token is rejected everywhere",
    "ok": false,
-   "detail": "GET /api/v1/auth/2fa/forgot/methods=200; GET /api/v1=200"
+   "detail": "GET /api/v1/auth/2fa/forgot/methods=200; GET /api/v1/mobile/config=200; GET /api/v1/mobile/status=200; GET /api/v1=200"
   },
   {
    "id": "SW-04",
    "title": "No 5xx / hang on authenticated probe with no params or empty body",
    "ok": false,
-   "detail": "12 routes: GET /api/v1/admin/backup/list=0; GET /api/v1/members/balance/{memberNo}=500; GET /api/v1/reports/account-closing=500; GET /api/v1/reports/adhoc-reports=500; GET /api/v1/reports/loan-contributions-register=500; GET /api/v1/reports/passbook-printing=500; GET /api/v1/reports/recovery-details=500; GET /api/v1/utilities/balance/account/{accountType}/{accountId}=500; GET /api/v1/utilities/bal"
+   "detail": "7 routes: GET /api/v1/admin/backup/list=0; GET /api/v1/loans/cases=500; GET /api/v1/loans/eligibility/{memberNo}=500; GET /api/v1/loans/member/{memberNo}/cases=500; GET /api/v1/rd/closing/{mbno}/{yearcode}/preview=500; GET /api/v1/rd/closing/{yearcode}/preview=500; GET /api/v1/rd/repayment/{mbno}/{yearcode}/pending=500"
   },
   {
    "id": "SW-05",
    "title": "No authenticated probe slower than 5s",
    "ok": false,
-   "detail": "GET /api/v1/admin/backup/list=60016ms; GET /api/v1/print-voucher/journal/list/by-date=10862ms; GET /api/v1/reports/surety-register=16159ms; GET /api/v1/utilities/head-master=5191ms"
+   "detail": "GET /api/v1/admin/backup/list=60030ms; GET /api/v1/loans/cases=5871ms; GET /api/v1/loans/eligibility/{memberNo}=6194ms; GET /api/v1/loans/member/{memberNo}/cases=5635ms; GET /api/v1/loans/member/{memberNo}/pending=5675ms; GET /api/v1/print-voucher/journal/list/by-date=6560ms; GET /api/v1/rd/closing/{mbno}/{yearcode}/preview=6487ms; GET /api/v1/rd/repayment/{mbno}/{yearcode}/pending=6337ms; GET /ap"
   }
  ]
 }

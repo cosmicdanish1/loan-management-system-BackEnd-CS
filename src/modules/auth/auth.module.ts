@@ -21,6 +21,7 @@ import { TwoFaService } from './twofa/twofa.service';
 import { TwoFaController } from './twofa/twofa.controller';
 import { AuthCodeGuard } from './twofa/require-auth-code';
 import { MenuRightGuard } from './guards/menu-right.guard';
+import { PassAuthorityGuard } from './guards/pass-authority.guard';
 
 // The modern `users` table (the old `User` entity) has been retired —
 // usermaster is now the single source of truth for user management. The
@@ -64,6 +65,9 @@ import { MenuRightGuard } from './guards/menu-right.guard';
     // (login, refresh, health, licence status/activate, client-log upload)
     // opt out explicitly instead of everything opting in.
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    // ES-362: right to pass / reverse / reject vouchers (Transaction Auth flag + Pass Transactions menu right).
+    // Placed before the authenticator-code guard so a user without the right is refused before being asked for a code.
+    { provide: APP_GUARD, useClass: PassAuthorityGuard },
     // ES-116: runs after JwtAuthGuard (so req.user is set); only acts on @RequireAuthCode() endpoints.
     { provide: APP_GUARD, useClass: AuthCodeGuard },
     // Role Governance on the server: only acts on @RequireMenuAction() endpoints.

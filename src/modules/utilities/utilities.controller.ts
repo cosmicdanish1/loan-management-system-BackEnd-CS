@@ -9,6 +9,7 @@ import {
   MemberBalanceDto
 } from './dto/search-params.dto';
 import { UpdateUserPreferenceDto } from './dto/update-user-preference.dto';
+import { RequireMenuAction } from '../auth/guards/menu-right.guard';
 
 @ApiTags('Utilities')
 @Controller('utilities')
@@ -292,6 +293,7 @@ export class UtilitiesController {
   async saveReceipt(@Body() body: any, @Req() req: any) {
     const username = req.user?.susername || req.user?.username || 'system';
     this.logger.log(`[Receipt] POST member=${body.memberNo} rows=${body.rows?.length} by ${username}`);
+    await this.utilitiesService.assertVoucherInput(body);
     const result = await this.utilitiesService.saveReceipt(body, username);
     return result;
   }
@@ -303,6 +305,7 @@ export class UtilitiesController {
   async saveReceiptVoucher(@Body() body: any, @Req() req: any) {
     const username = req.user?.susername || req.user?.username || 'system';
     this.logger.log(`[VoucherPayment] POST member=${body.memberNo} rows=${body.rows?.length} by ${username}`);
+    await this.utilitiesService.assertVoucherInput(body);
     const result = await this.utilitiesService.saveReceiptVoucher(body, username);
     return result;
   }
@@ -314,6 +317,7 @@ export class UtilitiesController {
   async savePaymentVoucher(@Body() body: any, @Req() req: any) {
     const username = req.user?.susername || req.user?.username || 'system';
     this.logger.log(`[PaymentVoucher] POST member=${body.memberNo} rows=${body.rows?.length} by ${username}`);
+    await this.utilitiesService.assertVoucherInput(body);
     const result = await this.utilitiesService.savePaymentVoucher(body, username);
     return result;
   }
@@ -325,6 +329,7 @@ export class UtilitiesController {
   async saveLoanEntry(@Body() body: any, @Req() req: any) {
     const username = req.user?.susername || req.user?.username || 'system';
     this.logger.log(`[LoanEntry] POST loan type=${body.loanType} member=${body.memberNo} by ${username}`);
+    await this.utilitiesService.assertLoanEntryInput(body);
     const result = await this.utilitiesService.saveLoanEntry(body, username);
     return result;
   }
@@ -495,6 +500,7 @@ export class UtilitiesController {
     return this.utilitiesService.getBusinessRules();
   }
 
+  @RequireMenuAction('MODIFY_BIZ_RULES')
   @Post('business-rules')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')

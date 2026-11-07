@@ -184,6 +184,10 @@ export class RdBalanceEventsService {
         createdBy: string,
         externalQueryRunner?: QueryRunner,
     ): Promise<number> {
+        // ES-353: an opening balance is money the member holds, so it must be a real number above zero
+        if (!Number.isFinite(amount) || amount <= 0) {
+            throw new BadRequestException('Opening balance must be a number greater than zero.');
+        }
         return this.appendEvent(mbno, yearcode, 'OPENING', amount, asOfDate, 'Opening balance', createdBy, externalQueryRunner);
     }
 
@@ -219,7 +223,8 @@ export class RdBalanceEventsService {
         narration?: string,
         externalQueryRunner?: QueryRunner,
     ): Promise<RdWithdrawalResult> {
-        if (amount <= 0) throw new BadRequestException('Withdrawal amount must be greater than zero.');
+        // ES-353: NaN is not <= 0, so it used to slip through every later comparison
+        if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('Withdrawal amount must be a number greater than zero.');
 
         const closedRows = await (externalQueryRunner ?? this.dataSource).query(
             `SELECT closed_at FROM rd_financial_year_summary WHERE mbno = $1 AND yearcode = $2`,

@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { parseSafeDate } from '../../shared/utils/date-utils';
+import { CREDIT_TYPES_SQL, DEBIT_TYPES_SQL, isDebitType } from './ledger-types';
 
 // Report Head Order (ES-57): configured position first, heads not in the table last, then by code.
 const HEAD_ORDER_SQL = (col: string) =>
@@ -37,7 +38,7 @@ export class CashBookReportsService {
                 l.narration AS description,
                 CAST(l.trans_amt AS numeric) AS amount,
                 l.trans_type,
-                TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) AS member_name
+                REGEXP_REPLACE(TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')), '\\s+', ' ', 'g') AS member_name
             FROM ledger l
             LEFT JOIN headmaster hm ON hm.code = l.code
             LEFT JOIN head_master h ON h.code = l.code
@@ -62,7 +63,7 @@ export class CashBookReportsService {
                 v.memberName = (leg.member_name || '').trim();
             }
             const amount = parseFloat(leg.amount) || 0;
-            const isPayment = leg.trans_type === 'DR';
+            const isPayment = isDebitType(leg.trans_type); // DR or legacy P
             if (isPayment) v.totalPayment += amount; else v.totalReceipt += amount;
             v.entries.push({
                 sno: v.entries.length + 1,
@@ -81,15 +82,15 @@ export class CashBookReportsService {
         // debit because every voucher balances.
         const openingResult = await this.dataSource.query(`
             SELECT
-                SUM(CASE WHEN trans_type = 'DR' THEN CAST(trans_amt AS numeric) ELSE 0 END) -
-                SUM(CASE WHEN trans_type = 'CR' THEN CAST(trans_amt AS numeric) ELSE 0 END) AS balance
+                SUM(CASE WHEN trans_type IN ${DEBIT_TYPES_SQL} THEN CAST(trans_amt AS numeric) ELSE 0 END) -
+                SUM(CASE WHEN trans_type IN ${CREDIT_TYPES_SQL} THEN CAST(trans_amt AS numeric) ELSE 0 END) AS balance
             FROM ledger
             WHERE trans_date::date < $1::date AND code = 'A1001'
         `, [targetDate]);
         const dayResult = await this.dataSource.query(`
             SELECT
-                SUM(CASE WHEN trans_type = 'DR' THEN CAST(trans_amt AS numeric) ELSE 0 END) AS cash_in,
-                SUM(CASE WHEN trans_type = 'CR' THEN CAST(trans_amt AS numeric) ELSE 0 END) AS cash_out
+                SUM(CASE WHEN trans_type IN ${DEBIT_TYPES_SQL} THEN CAST(trans_amt AS numeric) ELSE 0 END) AS cash_in,
+                SUM(CASE WHEN trans_type IN ${CREDIT_TYPES_SQL} THEN CAST(trans_amt AS numeric) ELSE 0 END) AS cash_out
             FROM ledger
             WHERE trans_date::date = $1::date AND code = 'A1001'
         `, [targetDate]);
@@ -189,7 +190,12 @@ export class CashBookReportsService {
      * Get monthly cash book summary
      */
     async getCashBookMonthly(dto: { month: string; year: number; limit?: number; offset?: number }) {
-        const { month, year, limit, offset } = dto;
+        const { month, year, limit, offset } = dto ?? ({} as any);
+        // ES-302 / ES-303: missing or wrong input is a 400 with a reason, never a 500
+        if (typeof month !== 'string' || month.trim().length < 3) throw new BadRequestException('Month is required (for example Jan or January).');
+        if (!Number.isInteger(Number(year)) || Number(year) < 1990 || Number(year) > 2100) throw new BadRequestException('Year must be a 4-digit year.');
+        if (limit !== undefined && (!Number.isInteger(Number(limit)) || Number(limit) < 0)) throw new BadRequestException('Limit must be a whole number.');
+        if (offset !== undefined && (!Number.isInteger(Number(offset)) || Number(offset) < 0)) throw new BadRequestException('Offset must be a whole number.');
 
         const monthMap: { [key: string]: number } = {
             'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5,
@@ -197,7 +203,7 @@ export class CashBookReportsService {
         };
 
         const monthIndex = monthMap[month.substring(0, 3)];
-        if (monthIndex === undefined) throw new Error(`Invalid month '${month}'`);
+        if (monthIndex === undefined) throw new BadRequestException(`Invalid month '${month}'`);
         // Plain calendar dates: toISOString() on a local midnight shifts the day back on an IST server.
         const lastDay = new Date(year, monthIndex + 1, 0).getDate();
         const startStr = `${year}-${String(monthIndex + 1).padStart(2, '0')}-01`;
@@ -269,6 +275,9 @@ export class CashBookReportsService {
      */
     async getDetailLedger(dto: { head_code: string; from_date: string; to_date: string; limit?: number; offset?: number }) {
         const { head_code, from_date, to_date, limit, offset } = dto;
+        if (typeof head_code !== 'string' || head_code.trim() === '') {
+            throw new BadRequestException('head_code is required');
+        }
 
         // Get head name
         const headResult = await this.dataSource.query(
@@ -311,8 +320,8 @@ export class CashBookReportsService {
         // Opening balance = net DR-CR for this head before from_date
         const obResult = await this.dataSource.query(`
             SELECT
-                COALESCE(SUM(CASE WHEN trans_type = 'DR' THEN CAST(trans_amt AS numeric) ELSE 0 END), 0) -
-                COALESCE(SUM(CASE WHEN trans_type = 'CR' THEN CAST(trans_amt AS numeric) ELSE 0 END), 0) as balance
+                COALESCE(SUM(CASE WHEN trans_type IN ${DEBIT_TYPES_SQL} THEN CAST(trans_amt AS numeric) ELSE 0 END), 0) -
+                COALESCE(SUM(CASE WHEN trans_type IN ${CREDIT_TYPES_SQL} THEN CAST(trans_amt AS numeric) ELSE 0 END), 0) as balance
             FROM ledger
             WHERE code = $1 AND trans_date::date < $2::date
         `, [head_code, String(from_date).slice(0, 10)]);
@@ -322,8 +331,8 @@ export class CashBookReportsService {
         if (offset && offset > 0) {
             const preOffsetResult = await this.dataSource.query(`
                 SELECT
-                    COALESCE(SUM(CASE WHEN trans_type = 'DR' THEN CAST(trans_amt AS numeric) ELSE 0 END), 0) -
-                    COALESCE(SUM(CASE WHEN trans_type = 'CR' THEN CAST(trans_amt AS numeric) ELSE 0 END), 0) as balance
+                    COALESCE(SUM(CASE WHEN trans_type IN ${DEBIT_TYPES_SQL} THEN CAST(trans_amt AS numeric) ELSE 0 END), 0) -
+                    COALESCE(SUM(CASE WHEN trans_type IN ${CREDIT_TYPES_SQL} THEN CAST(trans_amt AS numeric) ELSE 0 END), 0) as balance
                 FROM (
                     SELECT trans_type, trans_amt FROM ledger
                     WHERE code = $1 AND trans_date::date >= $2::date AND trans_date::date <= $3::date
@@ -342,7 +351,7 @@ export class CashBookReportsService {
         };
 
         const ledgerData = transactions.map((trans: any, index: number) => {
-            const isDebit = trans.trans_type === 'DR';
+            const isDebit = isDebitType(trans.trans_type);
             const amount = parseMoneyString(trans.amount);
             const debit = isDebit ? amount : 0;
             const credit = !isDebit ? amount : 0;
@@ -419,13 +428,13 @@ export class CashBookReportsService {
         const transactions = await this.dataSource.query(query, params);
 
         const [bankOb] = await this.dataSource.query(`
-            SELECT COALESCE(SUM(CASE WHEN trans_type = 'DR' THEN CAST(trans_amt AS numeric) ELSE -CAST(trans_amt AS numeric) END), 0) AS balance
+            SELECT COALESCE(SUM(CASE WHEN trans_type IN ${DEBIT_TYPES_SQL} THEN CAST(trans_amt AS numeric) ELSE -CAST(trans_amt AS numeric) END), 0) AS balance
             FROM ledger WHERE code = $1 AND trans_date::date < $2::date
         `, [bank_head_code, String(from_date).slice(0, 10)]);
         const openingBalance = parseFloat(bankOb?.balance) || 0;
         let runningBalance = openingBalance;
         const ledgerData = transactions.map((trans: any, index: number) => {
-            const isDebit = trans.trans_type === 'DR';
+            const isDebit = isDebitType(trans.trans_type);
             const debit = isDebit ? parseFloat(trans.amount) || 0 : 0;
             const credit = !isDebit ? parseFloat(trans.amount) || 0 : 0;
 

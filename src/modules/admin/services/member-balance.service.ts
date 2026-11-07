@@ -23,7 +23,11 @@ export class MemberBalanceService {
         let balance = await this.memberBalanceRepository.findOne({ where: { memberNo } });
 
         if (!balance) {
-            // Create if it doesn't exist (though usually it should exist for a member)
+            // Create the row only for a real member (ES-300): a made-up member number must not leave an orphan row
+            const real = await this.memberBalanceRepository.manager.query(`SELECT 1 FROM member_master WHERE mbno = $1`, [memberNo]);
+            if (!real || real.length === 0) {
+                throw new NotFoundException(`Member ${memberNo} does not exist`);
+            }
             balance = this.memberBalanceRepository.create({ memberNo });
         }
 

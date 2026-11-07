@@ -1,0 +1,285 @@
+{
+ "suite": "20-notifications",
+ "ranAt": "2026-11-03T09:49:49.392Z",
+ "seconds": 1.398,
+ "total": 46,
+ "failed": 12,
+ "results": [
+  {
+   "id": "NT-01",
+   "title": "Channel status reports email/sms/whatsapp flags",
+   "ok": true,
+   "detail": "{\"email\":false,\"sms\":false,\"whatsapp\":false}"
+  },
+  {
+   "id": "NT-02",
+   "title": "Stats pending count equals the notification_logs table",
+   "ok": true,
+   "detail": "API 212 vs DB 212"
+  },
+  {
+   "id": "NT-03",
+   "title": "GET /notifications/history?limit=5 handled (no 5xx, answers < 5 s)",
+   "ok": true,
+   "detail": "200 13ms {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "NT-04",
+   "title": "GET /notifications/history?limit=-5 handled (no 5xx, answers < 5 s)",
+   "ok": true,
+   "detail": "200 10ms {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "NT-05",
+   "title": "GET /notifications/history?limit=abc handled (no 5xx, answers < 5 s)",
+   "ok": true,
+   "detail": "200 14ms {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "NT-06",
+   "title": "GET /notifications/history?limit=99999999 handled (no 5xx, answers < 5 s)",
+   "ok": true,
+   "detail": "200 37ms {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "NT-07",
+   "title": "Send manual with channel PIGEON: refused 4xx (no 5xx)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:48.393Z\",\"path\":\"/api/v1/notifications/send-manual\","
+  },
+  {
+   "id": "NT-08",
+   "title": "Send manual with empty message: refused 4xx (no 5xx)",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"memberNo\":\"99"
+  },
+  {
+   "id": "NT-09",
+   "title": "Send manual with message of 100,000 characters: refused 4xx (no 5xx)",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"memberNo\":\"99"
+  },
+  {
+   "id": "NT-10",
+   "title": "Send manual with invalid e-mail address: refused 4xx (no 5xx)",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"memberNo\":\"99"
+  },
+  {
+   "id": "NT-11",
+   "title": "Send manual with SMS to a phone with letters: refused 4xx (no 5xx)",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"memberNo\":\"99"
+  },
+  {
+   "id": "NT-12",
+   "title": "Send manual with member that does not exist: refused 4xx (no 5xx)",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"memberNo\":\"19"
+  },
+  {
+   "id": "NT-13",
+   "title": "Send manual with missing recipient: refused 4xx (no 5xx)",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"memberNo\":\"99"
+  },
+  {
+   "id": "NT-14",
+   "title": "Send manual with text member number: refused 4xx (no 5xx)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:48.496Z\",\"path\":\"/api/v1/notifications/send-manual\","
+  },
+  {
+   "id": "NT-15",
+   "title": "Refused sends left no rows in notification_logs",
+   "ok": false,
+   "detail": "251 -> 257"
+  },
+  {
+   "id": "NT-16",
+   "title": "Valid manual e-mail with no channel configured ends FAILED/PENDING with a clear reason (no 5xx, no false SENT)",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"memberNo\":\"9999962647\",\"channel\":\"EMAIL\",\"type\":\"MANU | row {\"id\":267,\"status\":\"PENDING\",\"errorMessage\":null}"
+  },
+  {
+   "id": "NT-17",
+   "title": "'queue-manual' only queues; it must not attempt to send (same code path as send-manual?)",
+   "ok": true,
+   "detail": "201; newest row status PENDING error null"
+  },
+  {
+   "id": "NT-18",
+   "title": "send-one on a QA message ends without 5xx",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":false,\"error\":\"SMTP not "
+  },
+  {
+   "id": "NT-19",
+   "title": "send-one for an id that does not exist -> 404",
+   "ok": false,
+   "detail": "201"
+  },
+  {
+   "id": "NT-20",
+   "title": "send-one with a text id -> 400",
+   "ok": true,
+   "detail": "400"
+  },
+  {
+   "id": "NT-21",
+   "title": "send-batch with {}: 4xx or a clear per-id result (no 5xx)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:48.560Z\",\"path\":\"/api/v1/notifications/send-batch\",\""
+  },
+  {
+   "id": "NT-22",
+   "title": "send-batch with {\"ids\":[]}: 4xx or a clear per-id result (no 5xx)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:48.566Z\",\"path\":\"/api/v1/notifications/send-batch\",\""
+  },
+  {
+   "id": "NT-23",
+   "title": "send-batch with {\"ids\":[\"a\",\"b\"]}: 4xx or a clear per-id result (no 5xx)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:48.576Z\",\"path\":\"/api/v1/notifications/send-batch\",\""
+  },
+  {
+   "id": "NT-24",
+   "title": "send-batch with {\"ids\":[99999999]}: 4xx or a clear per-id result (no 5xx)",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"sent\":0,\"fail"
+  },
+  {
+   "id": "NT-25",
+   "title": "cancel-batch cancels the QA messages this suite queued",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"cancelled\":4},\"timestamp\":\"2026-1"
+  },
+  {
+   "id": "NT-26",
+   "title": "cancel-batch of ids that do not exist is harmless",
+   "ok": true,
+   "detail": "201"
+  },
+  {
+   "id": "NT-27",
+   "title": "Transaction alert with {}: refused 4xx and nothing queued",
+   "ok": true,
+   "detail": "400; rows 259 -> 259"
+  },
+  {
+   "id": "NT-28",
+   "title": "Transaction alert with {\"memberNo\":\"9999962647\",\"transactionType\":\"RECEIPT\",\"amount: refused 4xx and nothing queued",
+   "ok": true,
+   "detail": "400; rows 259 -> 259"
+  },
+  {
+   "id": "NT-29",
+   "title": "Transaction alert with {\"memberNo\":\"9999962647\",\"transactionType\":\"RECEIPT\",\"amount: refused 4xx and nothing queued",
+   "ok": false,
+   "detail": "201; rows 259 -> 260"
+  },
+  {
+   "id": "NT-30",
+   "title": "Transaction alert with {\"memberNo\":\"1999999999\",\"transactionType\":\"RECEIPT\",\"amount: refused 4xx and nothing queued",
+   "ok": false,
+   "detail": "201; rows 260 -> 260"
+  },
+  {
+   "id": "NT-31",
+   "title": "No PENDING message is queued without a recipient (it can never be delivered)",
+   "ok": false,
+   "detail": "75 pending messages have an empty recipient (e.g. automatic transaction alerts for QA vouchers)"
+  },
+  {
+   "id": "NT-32",
+   "title": "EMI alert trigger works (queued 0)",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+  },
+  {
+   "id": "NT-33",
+   "title": "Running the EMI alert trigger a second time does not queue the same alerts again",
+   "ok": true,
+   "detail": "rows 260 -> 260 -> 260"
+  },
+  {
+   "id": "NT-34",
+   "title": "Maturity alert trigger works without 5xx",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+  },
+  {
+   "id": "NT-35",
+   "title": "No identical PENDING message is queued twice for the same member",
+   "ok": false,
+   "detail": "[{\"mbno\":\"900000002\",\"message\":\"Dear Kavita Gupta, your EMI has a deficit of Rs.225.00. Please clear it. — FIBE\",\"c\":\"3\"},{\"mbno\":\"900000003\",\"message\":\"Dear Neha Jaiswal, your EMI has a deficit of Rs"
+  },
+  {
+   "id": "NT-36",
+   "title": "GET /notification-centre/list?limit=5&offset=0: handled (no 5xx, < 5 s)",
+   "ok": true,
+   "detail": "200 21ms {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "NT-37",
+   "title": "GET /notification-centre/list?limit=-1: handled (no 5xx, < 5 s)",
+   "ok": true,
+   "detail": "200 9ms {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "NT-38",
+   "title": "GET /notification-centre/list?limit=100000: handled (no 5xx, < 5 s)",
+   "ok": true,
+   "detail": "200 16ms {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "NT-39",
+   "title": "GET /notification-centre/list?offset=-10: handled (no 5xx, < 5 s)",
+   "ok": true,
+   "detail": "200 18ms {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "NT-40",
+   "title": "GET /notification-centre/list?severity=bogus: handled (no 5xx, < 5 s)",
+   "ok": true,
+   "detail": "200 12ms {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "NT-41",
+   "title": "GET /notification-centre/list?kind=%27%3B%20DROP%20TABLE%20x%3B--: handled (no 5xx, < 5 s)",
+   "ok": true,
+   "detail": "200 11ms {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "NT-42",
+   "title": "Mark one notification read, then unread (own user only)",
+   "ok": true,
+   "detail": "201/201"
+  },
+  {
+   "id": "NT-43",
+   "title": "Mark a notification that does not exist as read -> 404",
+   "ok": true,
+   "detail": "404"
+  },
+  {
+   "id": "NT-44",
+   "title": "Mark a notification with a text id as read -> 400",
+   "ok": true,
+   "detail": "400"
+  },
+  {
+   "id": "NT-45",
+   "title": "Notification sync is repeatable: second run adds no duplicates (464 -> 464)",
+   "ok": true,
+   "detail": "201/201"
+  },
+  {
+   "id": "NT-46",
+   "title": "Three simultaneous syncs do not create duplicate notifications or 5xx",
+   "ok": true,
+   "detail": "201,201,201; 464 -> 464"
+  }
+ ]
+}

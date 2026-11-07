@@ -19,6 +19,7 @@ import {
   InterestRunSummaryDto,
   InterestHistoryDto,
 } from './dto';
+import { RequireMenuAction } from '../auth/guards/menu-right.guard';
 
 @ApiTags('Interest Management')
 @Controller('interest')
@@ -26,6 +27,7 @@ import {
 export class InterestController {
   constructor(private readonly interestService: InterestService) { }
 
+  @RequireMenuAction('UPDATE_SAVING_INTT', 'INTEREST_CALC', 'INTEREST_CALC_POST')
   @Post('update-saving-interest')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Calculate and update saving interest for all eligible members' })
@@ -72,6 +74,7 @@ export class InterestController {
     return this.interestService.processYearlyFundProcess(dto, true);
   }
 
+  @RequireMenuAction('UPDATE_SAVING_INTT', 'INTEREST_CALC', 'INTEREST_CALC_POST')
   @Post('process-yearly-fund')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Process yearly fund calculation and post to ledger' })

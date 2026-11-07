@@ -24,6 +24,7 @@ import {
 } from '../dto';
 import { UserResponseDto } from '../../auth/dto';
 import { roleFromLegacyLevel } from '../../auth/utils';
+import { AlertBridge } from '../../alerts/alert-bridge';
 
 // usermaster is the single source of truth for user management — the separate
 // modern `users` table it used to sync with (best-effort, via try/catch) has
@@ -168,11 +169,17 @@ export class UserManagementService implements OnModuleInit {
     return qb.getCount();
   }
 
+  /** Login names are unique ignoring letter case ('Admin' and 'admin' would be look-alike accounts). (ES-266) */
+  private async usernameTaken(username: string, exceptUserId?: number): Promise<boolean> {
+    const qb = this.userMasterRepository
+      .createQueryBuilder('um')
+      .where('LOWER(um.susername) = LOWER(:username)', { username: String(username).trim() });
+    if (exceptUserId !== undefined) qb.andWhere('um.userid <> :exceptUserId', { exceptUserId });
+    return (await qb.getCount()) > 0;
+  }
+
   async createUser(createUserDto: CreateUserDto, actor?: any): Promise<UserResponseDto> {
-    const existingUsername = await this.userMasterRepository.findOne({
-      where: { susername: createUserDto.username },
-    });
-    if (existingUsername) {
+    if (await this.usernameTaken(createUserDto.username)) {
       throw new ConflictException('Username already exists');
     }
 
@@ -218,7 +225,7 @@ export class UserManagementService implements OnModuleInit {
         userLevel,
         enableDisable: createUserDto.isActive === false ? 'D' : 'E',
         loginStatus: 'N',
-        passTransactionFlag: createUserDto.allowPassTransactions === false ? 'N' : 'Y',
+        passTransactionFlag: createUserDto.allowPassTransactions === true ? 'Y' : 'N',
         dateOfCreation: new Date(),
         email: createUserDto.email,
         firstName: createUserDto.firstName,
@@ -317,6 +324,14 @@ export class UserManagementService implements OnModuleInit {
     // Setting a password here is a password reset: same rule as the dedicated reset (not for administrators).
     if (updateUserDto.password) this.assertCanResetPassword(userMaster, actorId);
 
+    // The last enabled administrator can be neither demoted nor disabled, whichever endpoint is used (ES-400)
+    const currentRole = roleFromLegacyLevel(userMaster.userLevel?.userlevel || '');
+    const losesAdmin = currentRole === UserRole.ADMIN && userMaster.enableDisable === 'E'
+      && ((updateUserDto.role !== undefined && updateUserDto.role !== UserRole.ADMIN) || updateUserDto.isActive === false);
+    if (losesAdmin && (await this.countUsersByRole(UserRole.ADMIN, true)) <= 1) {
+      throw new ForbiddenException('Cannot demote or disable the last admin user');
+    }
+
     if (updateUserDto.email && updateUserDto.email !== userMaster.email) {
       const existingEmail = await this.userMasterRepository.findOne({ where: { email: updateUserDto.email } });
       if (existingEmail) {
@@ -325,14 +340,17 @@ export class UserManagementService implements OnModuleInit {
     }
 
     if (updateUserDto.username && updateUserDto.username !== userMaster.susername) {
-      const existingUsername = await this.userMasterRepository.findOne({ where: { susername: updateUserDto.username } });
-      if (existingUsername) {
+      if (await this.usernameTaken(updateUserDto.username, userMaster.userid)) {
         throw new ConflictException('Username already exists');
       }
     }
 
     if (updateUserDto.username) userMaster.susername = updateUserDto.username;
-    if (updateUserDto.password) userMaster.spassword = updateUserDto.password;
+    if (updateUserDto.password) {
+      userMaster.spassword = updateUserDto.password;
+      // a reset ends the person's existing sessions (ES-297): whoever knew the old password must sign in again
+      userMaster.forceLogoutAt = UserManagementService.sessionCutoff();
+    }
     if (updateUserDto.email !== undefined) userMaster.email = updateUserDto.email;
     if (updateUserDto.firstName !== undefined) userMaster.firstName = updateUserDto.firstName;
     if (updateUserDto.lastName !== undefined) userMaster.lastName = updateUserDto.lastName;
@@ -358,7 +376,11 @@ export class UserManagementService implements OnModuleInit {
     return this.mapUserMasterToResponseDto(updated);
   }
 
-  async deleteUser(id: number): Promise<{ message: string }> {
+  async deleteUser(id: number, actorId?: number): Promise<{ message: string }> {
+    // Deleting your own account would lock you out (ES-258); same rule as the password reset
+    if (actorId !== undefined && Number.isFinite(actorId) && actorId === id) {
+      throw new ForbiddenException('You cannot delete your own account.');
+    }
     const userMaster = await this.userMasterRepository.findOne({ where: { userid: id } });
     if (!userMaster) {
       throw new NotFoundException('User not found');
@@ -396,6 +418,11 @@ export class UserManagementService implements OnModuleInit {
     return { message: 'Password changed successfully' };
   }
 
+  /** Cut-off for "tokens issued before this are void": token iat has second precision, so truncate to the second. */
+  private static sessionCutoff(): Date {
+    return new Date(Math.floor(Date.now() / 1000) * 1000);
+  }
+
   /** An administrator may reset the password of a user who is not an administrator. */
   private static readonly ADMIN_LEVELS = ['ADMINISTRATOR', 'SYSTEM'];
 
@@ -421,6 +448,8 @@ export class UserManagementService implements OnModuleInit {
     this.assertCanResetPassword(userMaster, actorId);
 
     userMaster.spassword = adminChangePasswordDto.newPassword;
+    // every token issued before the reset stops working, so a session that used the old password ends now
+    userMaster.forceLogoutAt = UserManagementService.sessionCutoff();
     await this.userMasterRepository.save(userMaster);
 
     return { message: 'Password changed successfully' };
@@ -653,7 +682,8 @@ export class UserManagementService implements OnModuleInit {
 
     // Use ILike for case-insensitive lookup to avoid 404s due to casing differences
     const userMaster = await this.userMasterRepository.findOne({
-      where: { susername: ILike(trimmedUsername) }
+      // % and _ are LIKE wildcards: escape them so the name is matched literally ('%' must not match the first user) (ES-400)
+      where: { susername: ILike(trimmedUsername.replace(/[\\%_]/g, (c) => `\\${c}`)) },
     });
 
     if (!userMaster) {
@@ -692,7 +722,25 @@ export class UserManagementService implements OnModuleInit {
 
     const activeSessions = [];
 
+    // ES-114: loginStatus='Y' is set at login and cleared at logout, so a closed app / power cut / crash left the user
+    // "active" forever. The app sends a heartbeat every minute; a user who has gone silent is not signed in any more.
+    // Right after a backend restart nobody has had time to send a heartbeat yet, so the list is not filtered then.
+    const onlineIds = AlertBridge.get()?.onlineUserIds();
+    const filterByHeartbeat = !!onlineIds && process.uptime() > 180;
+
     for (const user of activeUsers) {
+      if (filterByHeartbeat && !onlineIds!.has(String(user.userid))) {
+        // gone silent: close the stale session so the flag and the list stay truthful
+        try {
+          const now = new Date();
+          const logoutTimeStr = now.toTimeString().split(' ')[0].substring(0, 8);
+          const open = await this.loginTimeRepository.find({ where: { userid: user.userid, logoutTime: '' } });
+          for (const s of open) { s.logoutTime = logoutTimeStr; await this.loginTimeRepository.save(s); }
+          user.loginStatus = 'N' as any;
+          await this.userMasterRepository.save(user);
+        } catch { /* cleanup is best effort; the user is still left out of the list */ }
+        continue;
+      }
       const lastSession = await this.loginTimeRepository.findOne({
         where: { userid: user.userid, logoutTime: '' },
         order: { loginDate: 'DESC' }

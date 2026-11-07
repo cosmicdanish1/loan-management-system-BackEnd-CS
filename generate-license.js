@@ -3,7 +3,9 @@
  * PWT License Key Generator
  * Run: node generate-license.js
  *
- * Prompts for: generator name, password, duration (months), company name.
+ * Prompts for: generator name, private-key passphrase (only if the key file is encrypted), duration (months), company name.
+ * Signs the key with the PRIVATE key (default ~/.pwt-license/license-private.pem, or LICENSE_PRIVATE_KEY_FILE).
+ * The private key must stay on the issuer's PC; customers' backends only hold the public key (ES-393).
  * Saves the generated key to the database.
  */
 
@@ -26,8 +28,7 @@ const fs     = require('fs');
   }
 })();
 
-const LICENSE_SECRET  = process.env.LICENSE_SECRET || 'PWT_LMS_SECRET_KEY_2025_CHANGE_IN_PROD';
-const GENERATION_PASS = '7692829866786687';
+const keyLib = require('./license-key-lib');
 const GRACE_DAYS      = 30;
 
 // ── Stdin line queue ──────────────────────────────────────────────────────────
@@ -118,17 +119,8 @@ function addMonths(date, months) {
   return d;
 }
 
-function generateKey(customerCode, expiryDate) {
-  const expiryDays    = Math.floor(expiryDate.getTime() / (24 * 60 * 60 * 1000));
-  const expiryEncoded = expiryDays.toString(36).toUpperCase().padStart(4, '0');
-  const payload       = `${customerCode}${expiryEncoded}`;
-  const sig           = crypto
-    .createHmac('sha256', LICENSE_SECRET)
-    .update(payload)
-    .digest('hex')
-    .toUpperCase()
-    .slice(0, 8);
-  return `PWT0-${customerCode}-${expiryEncoded}-${sig.slice(0, 4)}-${sig.slice(4, 8)}`;
+function generateKey(privateKey, customerCode, expiryDate) {
+  return keyLib.signKeyV2(privateKey, customerCode, expiryDate);
 }
 
 // ── Display ───────────────────────────────────────────────────────────────────
@@ -152,13 +144,18 @@ async function main() {
   const generatedBy = await readLine('1. Your name (who is generating): ');
   if (!generatedBy) { console.error('Name is required.'); process.exit(1); }
 
-  // 2. Generation password
-  const password = await readPassword('2. Generation password: ');
-  if (password !== GENERATION_PASS) {
-    console.error('\n✗ Incorrect password. Access denied.');
+  // 2. Private signing key (the only secret; it never leaves this PC). There is no fixed password in the source any more.
+  let privateKey;
+  try {
+    const fs = require('fs');
+    const pem = fs.existsSync(keyLib.privateKeyPath()) ? fs.readFileSync(keyLib.privateKeyPath(), 'utf8') : '';
+    const passphrase = keyLib.isEncryptedPem(pem) ? await readPassword('2. Private key passphrase: ') : undefined;
+    privateKey = keyLib.loadPrivateKey(passphrase);
+  } catch (err) {
+    console.error('\n✗ Cannot use the private signing key: ' + err.message);
     process.exit(1);
   }
-  console.log('   ✓ Password verified.\n');
+  console.log('   ✓ Private key loaded.\n');
 
   // 3. Duration in months
   const monthsRaw = await readLine('3. License duration (months, e.g. 1 / 3 / 6 / 12): ');
@@ -179,7 +176,7 @@ async function main() {
   const now          = new Date();
   const expiryDate   = addMonths(now, months);
   const graceEnds    = new Date(expiryDate.getTime() + GRACE_DAYS * 24 * 60 * 60 * 1000);
-  const licenseKey   = generateKey(customerCode, expiryDate);
+  const licenseKey   = generateKey(privateKey, customerCode, expiryDate);
 
   // ── Save to DB ───────────────────────────────────────────────────────────
   process.stdout.write('Saving to database... ');
@@ -195,6 +192,8 @@ async function main() {
 
   try {
     await client.connect();
+    // signed keys are about 120 characters; the column used to hold 50
+    await client.query('ALTER TABLE license_keys ALTER COLUMN "key" TYPE VARCHAR(200)');
     await client.query(
       `INSERT INTO license_keys
          (key, customer_name, company_name, generated_by, duration_months,

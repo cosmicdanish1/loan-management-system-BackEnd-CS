@@ -80,6 +80,8 @@ export const GUARD_ACTIONS: Record<string, { label: string; hint: string }> = {
   reagreement_pass: { label: 'Loan Re-agreement (Pass)', hint: 'Passing a restructure voucher in Pass Transactions' },
   pass_transactions: { label: 'Pass Transactions (all vouchers)', hint: 'Final posting of any voucher' },
   reverse_transactions: { label: 'Reverse Transactions', hint: 'Reversing a posted voucher' },
+  mobile_issue_code: { label: 'Mobile App: issue activation code / reset MPIN', hint: 'Giving a member the code that activates the Fibe Mobile app, or resetting the member MPIN' },
+  mobile_block_member: { label: 'Mobile App: block, unblock or sign out a member', hint: 'Blocking or unblocking mobile access of a member, or signing out every phone' },
 };
 
 export interface GuardConfig {

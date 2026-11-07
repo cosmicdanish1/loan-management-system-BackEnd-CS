@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Logger } from '@nestjs/common';
+import { ParseIntPipe, Controller, Get, Post, Body, Patch, Param, Delete, Logger } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { CastCategoryService } from '../services/cast-category.service';
 import { CreateCastCategoryDto, UpdateCastCategoryDto } from '../dto/cast-category.dto';
@@ -26,22 +26,22 @@ export class CastCategoryController {
 
     @Get(':id')
     @ApiOperation({ summary: 'Get a caste category by ID' })
-    async findOne(@Param('id') id: string) {
+    async findOne(@Param('id', ParseIntPipe) id: number) {
         this.logger.log(`[CastCategory] GET id=${id}`);
-        return this.castCategoryService.findOne(+id);
+        return this.castCategoryService.findOne(id);
     }
 
     @Patch(':id')
     @ApiOperation({ summary: 'Update a caste category' })
-    async update(@Param('id') id: string, @Body() updateCastCategoryDto: UpdateCastCategoryDto) {
+    async update(@Param('id', ParseIntPipe) id: number, @Body() updateCastCategoryDto: UpdateCastCategoryDto) {
         this.logger.log(`[CastCategory] PATCH id=${id}: ${JSON.stringify(updateCastCategoryDto)}`);
-        return this.castCategoryService.update(+id, updateCastCategoryDto);
+        return this.castCategoryService.update(id, updateCastCategoryDto);
     }
 
     @Delete(':id')
     @ApiOperation({ summary: 'Delete a caste category' })
-    async remove(@Param('id') id: string) {
+    async remove(@Param('id', ParseIntPipe) id: number) {
         this.logger.log(`[CastCategory] DELETE id=${id}`);
-        return this.castCategoryService.remove(+id);
+        return this.castCategoryService.remove(id);
     }
 }

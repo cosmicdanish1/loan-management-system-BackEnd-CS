@@ -1,4 +1,5 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, HttpException } from '@nestjs/common';
+import { parseSafeDate, parseBusinessDate } from '../../shared/utils/date-utils';
 import { DataSource } from 'typeorm';
 import { SequenceGeneratorService } from '../../shared/services';
 import { SystemConfigService } from '../../admin/services/system-config.service';
@@ -64,7 +65,7 @@ export class LoanApplicationService {
             }));
         } catch (error) {
             console.error('[LoanApplication] Error getting member loan cases:', error);
-            return [];
+            throw error; // ES-402: a failure must not look like "no cases"
         }
     }
 
@@ -90,8 +91,41 @@ export class LoanApplicationService {
             || lookupKey.substring(0, 3).toUpperCase();
 
         // --- 2. Eligibility checks (outside transaction — read-only) ---
-        const amount = parseFloat(loanData.loanAmount || loanData.appliedAmount || 0);
-        const installments = loanData.noOfInstallments || 60;
+        // ES-317: the amount must be a real positive number; installments default to 60 only when none was sent
+        const rawAmount = loanData.loanAmount ?? loanData.appliedAmount;
+        const amount = typeof rawAmount === 'string' && rawAmount.trim() === '' ? NaN : Number(rawAmount);
+        if (!Number.isFinite(amount) || amount <= 0 || amount > 999_999_999.99) {
+            throw new BadRequestException('Loan amount must be a number greater than 0.');
+        }
+        const rawInst = loanData.noOfInstallments;
+        const installments = rawInst === undefined || rawInst === null || rawInst === '' ? 60 : Number(rawInst);
+        if (!Number.isInteger(installments) || installments <= 0 || installments > 600) {
+            throw new BadRequestException('Number of installments must be a whole number greater than 0.');
+        }
+        // ES-405: a surety can not be the borrower, and the two sureties must be different members
+        const surety1Text = String(loanData.surety1 ?? '').trim();
+        const surety2Text = String(loanData.surety2 ?? '').trim();
+        const borrowerText = String(loanData.memberNo ?? '').trim();
+        const isSurety = (t: string) => t !== '' && t !== '0';
+        if ((isSurety(surety1Text) && surety1Text === borrowerText) || (isSurety(surety2Text) && surety2Text === borrowerText)) {
+            throw new BadRequestException('A member cannot stand surety for his own loan.');
+        }
+        if (isSurety(surety1Text) && surety1Text === surety2Text) {
+            throw new BadRequestException('The same member cannot be both sureties.');
+        }
+        // ES-317: an application date that is sent must be a real date (parseSafeDate refuses garbage with 400)
+        const appDate = loanData.applDate ? parseBusinessDate(loanData.applDate, 'Application date') : new Date();
+        // ES-317: the borrower, both sureties and the loan type must exist
+        const memberCheck = await this.dataSource.query(`SELECT 1 FROM member_master WHERE mbno::text = $1 LIMIT 1`, [borrowerText]);
+        if (memberCheck.length === 0) throw new BadRequestException(`Member ${borrowerText || '(none)'} was not found.`);
+        for (const [label, text] of [['First surety', surety1Text], ['Second surety', surety2Text]] as const) {
+            if (!isSurety(text)) continue;
+            const found = await this.dataSource.query(`SELECT 1 FROM member_master WHERE mbno::text = $1 LIMIT 1`, [text]);
+            if (found.length === 0) throw new BadRequestException(`${label} ${text} is not a member.`);
+        }
+        if (!['RLN', 'ALN', 'ELN'].includes(mappedLoanType)) {
+            throw new BadRequestException(`Loan type '${String(loanData.loanType ?? '').slice(0, 20)}' is not valid. Use Regular, Emergency or Loan Against RD.`);
+        }
         await this.validateLoanEligibility(loanData.memberNo, amount, installments, mappedLoanType);
         // RD/Share Value requirement — per loan type, configurable and
         // defaulting to on for RLN/ALN/ELN alike (see loan-eligibility.service.ts).
@@ -104,8 +138,6 @@ export class LoanApplicationService {
         // purpose is VARCHAR(50); form_number is VARCHAR(10)
         const purpose = (loanData.reason || loanData.purpose || '').slice(0, 50);
         const formNumber = (loanData.formNumber || '0').slice(0, 10);
-        // Use the user-selected application date, fall back to today
-        const appDate = loanData.applDate ? new Date(loanData.applDate) : new Date();
         // g1/g2 must be numeric — use 0 instead of NULL (column default is 0, not nullable)
         const g1mbno = loanData.surety1 || 0;
         const g2mbno = loanData.surety2 || 0;
@@ -123,11 +155,22 @@ export class LoanApplicationService {
 
         try {
             // Decide INSERT vs UPDATE based on whether this case already exists in loan_pending
+            // locked, so two saves of the same case can not interleave (ES-316)
             const existing = await queryRunner.query(
-                `SELECT loancaseno FROM loan_pending WHERE loancaseno::text = $1`,
+                `SELECT loancaseno, mbno, flg_sanctioned, flg_paid FROM loan_pending WHERE loancaseno::text = $1 FOR UPDATE`,
                 [String(loanCaseNo)]
             );
             const isUpdate = existing.length > 0;
+            if (isUpdate) {
+                // ES-316: a case number that belongs to another member must never be overwritten
+                if (String(existing[0].mbno).trim() !== String(loanData.memberNo).trim()) {
+                    throw new BadRequestException(`Loan case ${loanCaseNo} belongs to another member.`);
+                }
+                // and once sanctioned (or paid out) the application terms are fixed
+                if (existing[0].flg_sanctioned === 'Y' || existing[0].flg_paid === 'Y') {
+                    throw new BadRequestException(`Loan case ${loanCaseNo} is already sanctioned and can no longer be edited.`);
+                }
+            }
 
             let result: any[];
             if (isUpdate) {
@@ -248,6 +291,7 @@ export class LoanApplicationService {
         } catch (error: any) {
             await queryRunner.rollbackTransaction();
             console.error('[LoanApplication] ❌ Transaction rolled back:', error.message);
+            if (error instanceof HttpException) throw error;
             throw new Error('Failed to save loan application: ' + error.message);
         } finally {
             await queryRunner.release();
@@ -263,7 +307,7 @@ export class LoanApplicationService {
         SELECT 
           lp.loancaseno,
           lp.mbno,
-          TRIM(COALESCE(mm.f_name, '') || ' ' || COALESCE(mm.m_name, '') || ' ' || COALESCE(mm.l_name, '')) as member_name,
+          REGEXP_REPLACE(TRIM(COALESCE(mm.f_name, '') || ' ' || COALESCE(mm.m_name, '') || ' ' || COALESCE(mm.l_name, '')), '\\s+', ' ', 'g') as member_name,
           lp.loantype,
           lp.applied_amt,
           lp.sanctioned_amt,
@@ -296,7 +340,7 @@ export class LoanApplicationService {
             }));
         } catch (error) {
             console.error('[LoanApplication] Error getting loan cases:', error);
-            return [];
+            throw error; // ES-402
         }
     }
 
@@ -330,7 +374,7 @@ export class LoanApplicationService {
             }));
         } catch (error) {
             console.error('[LoanApplication] Error getting member pending loans:', error);
-            return [];
+            throw error; // ES-402
         }
     }
 

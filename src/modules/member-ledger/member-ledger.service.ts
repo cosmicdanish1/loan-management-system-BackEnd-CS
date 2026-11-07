@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { loanHeadOpeningSql } from '../loan/loan-opening-balance';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -7,6 +7,7 @@ import { Ledger } from './entities/ledger.entity';
 import { MemberMaster } from '../member/entities/member-master.entity';
 import { HeadMaster } from '../consolidation/entities/head-master.entity';
 import { ReportHeadOrderService } from '../report-head-order/report-head-order.service';
+import { joinName } from '../shared/utils/name-utils';
 import {
   GetMemberLedgerDto,
   MemberLedgerSummaryDto,
@@ -17,6 +18,9 @@ import {
   MemberDetailLedgerSummaryDto,
   MemberLedgerContextDto
 } from './dto/member-ledger.dto';
+
+/** Money rounded to paise, so sums of decimal amounts do not drift (0.1 + 0.2 = 0.3) */
+const round2 = (n: number): number => Math.round((n + Number.EPSILON) * 100) / 100;
 
 @Injectable()
 export class MemberLedgerService {
@@ -39,6 +43,10 @@ export class MemberLedgerService {
       const memberNumberStr = dto.memberNumber.toString();
       const fromDate = new Date(dto.fromDate);
       const toDate = new Date(dto.toDate);
+      if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
+        throw new BadRequestException('fromDate and toDate must be valid dates');
+      }
+      if (fromDate > toDate) throw new BadRequestException('fromDate cannot be after toDate');
 
       // Set time boundaries
       const startOfDay = new Date(fromDate);
@@ -102,10 +110,11 @@ export class MemberLedgerService {
         const direction = this.normalizeLedgerDirection(entry.trans_type);
 
         // Update running balance
+        // rounded to paise at every step so 0.10 + 0.20 is 0.30, not 0.30000000000000004
         if (direction === 'CR') {
-          runningBalance += amount;
+          runningBalance = round2(runningBalance + amount);
         } else {
-          runningBalance -= amount;
+          runningBalance = round2(runningBalance - amount);
         }
 
         return {
@@ -122,11 +131,12 @@ export class MemberLedgerService {
       });
 
       // Calculate totals
-      const totalDebits = entries.reduce((sum, entry) => sum + entry.debit, 0);
-      const totalCredits = entries.reduce((sum, entry) => sum + entry.credit, 0);
-      const closingBalance = openingBalance + totalCredits - totalDebits;
+      const totalDebits = round2(entries.reduce((sum, entry) => sum + entry.debit, 0));
+      const totalCredits = round2(entries.reduce((sum, entry) => sum + entry.credit, 0));
+      const closingBalance = round2(openingBalance + totalCredits - totalDebits);
 
-      const memberName = `${member.f_name || ''} ${member.m_name || ''} ${member.l_name || ''}`.trim();
+      // empty name parts are skipped, so a member without a middle name has single spaces
+      const memberName = [member.f_name, member.m_name, member.l_name].map((n) => (n || '').toString().trim()).filter(Boolean).join(' ');
 
       return {
         memberNumber: dto.memberNumber,
@@ -135,7 +145,7 @@ export class MemberLedgerService {
         headName,
         fromDate: dto.fromDate,
         toDate: dto.toDate,
-        openingBalance,
+        openingBalance: round2(openingBalance),
         totalDebits,
         totalCredits,
         closingBalance,
@@ -145,7 +155,7 @@ export class MemberLedgerService {
 
     } catch (error) {
       this.logger.error('Error generating member ledger report:', error);
-      if (error instanceof NotFoundException) {
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
         throw error;
       }
       throw new Error('Failed to generate member ledger report');
@@ -259,7 +269,7 @@ export class MemberLedgerService {
 
       const totalDebits = entries.reduce((sum, e) => sum + e.debit, 0);
       const totalCredits = entries.reduce((sum, e) => sum + e.credit, 0);
-      const memberName = `${member.f_name || ''} ${member.m_name || ''} ${member.l_name || ''}`.trim();
+      const memberName = joinName(member.f_name, member.m_name, member.l_name);
 
       return {
         memberNumber: dto.memberNumber,
@@ -384,7 +394,7 @@ export class MemberLedgerService {
 
     return {
       memberNumber: memberNo,
-      memberName: `${member.f_name || ''} ${member.m_name || ''} ${member.l_name || ''}`.trim(),
+      memberName: joinName(member.f_name, member.m_name, member.l_name),
       fromDate: start, toDate: end,
       opening: { share: openingShare, ltl: openingLoan.ltl, emer: openingLoan.emer, cd: openingCd },
       closing: {
@@ -409,7 +419,7 @@ export class MemberLedgerService {
       });
 
       if (member) {
-        const memberName = `${member.f_name || ''} ${member.m_name || ''} ${member.l_name || ''}`.trim();
+        const memberName = joinName(member.f_name, member.m_name, member.l_name);
         return {
           exists: true,
           memberName,

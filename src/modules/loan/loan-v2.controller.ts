@@ -106,6 +106,19 @@ export class LoanV2Controller {
         return this.loanSanctionService.getSanctionedLoanCases();
     }
 
+    @Get('rate-defaults')
+    @ApiOperation({ summary: 'Interest / penal rate a loan type gets from Business Rules (shown on the Sanction screen)' })
+    async getRateDefaults(@Query('loanType') loanType: string) {
+        if (!loanType) throw new BadRequestException('loanType is required');
+        return this.loanSanctionService.getRateDefaults(loanType);
+    }
+
+    @Post('sanction-preview/:caseNo')
+    @ApiOperation({ summary: 'Real monthly installment and total interest for a pending case at a given amount / tenure / rate' })
+    async previewSanction(@Param('caseNo') caseNo: string, @Body() body: { sanctionedAmount: number; noOfInstallments: number; rate?: number }) {
+        return this.loanSanctionService.previewSanction(caseNo, body?.sanctionedAmount, body?.noOfInstallments, body?.rate);
+    }
+
     @Get('case/:caseNo')
     @ApiOperation({ summary: 'Get loan details by case number' })
     async getLoanDetailsByCaseNo(@Param('caseNo') caseNo: string) {
@@ -116,9 +129,11 @@ export class LoanV2Controller {
     @ApiOperation({ summary: 'Update loan with sanction details' })
     async updateLoanSanction(
         @Param('caseNo') caseNo: string,
-        @Body() sanctionData: any
+        @Body() sanctionData: any,
+        @Req() req: any,
     ) {
-        return this.loanSanctionService.updateLoanSanction(caseNo, sanctionData, sanctionData?.sanctionedBy || 'system');
+        // ES-506: the acting user for the audit of a rate exception comes from the login token, not the body
+        return this.loanSanctionService.updateLoanSanction(caseNo, sanctionData, req?.user?.username || sanctionData?.sanctionedBy || 'system');
     }
 
     // ==================== Surety Operations ⭐ ====================
@@ -173,14 +188,14 @@ export class LoanV2Controller {
 
     @Get('master/:caseNo')
     @ApiOperation({ summary: 'Get loan from loan_master (active loans)' })
-    async getLoanFromMaster(@Param('caseNo') caseNo: string) {
-        return this.loanQueryService.getMemberLoanFromMaster(caseNo);
+    async getLoanFromMaster(@Param('caseNo') caseNo: string, @Query('memberNo') memberNo?: string) {
+        return this.loanQueryService.getMemberLoanFromMaster(caseNo, memberNo);
     }
 
     @Get('pending/:caseNo')
     @ApiOperation({ summary: 'Get loan from loan_pending (pending loans)' })
-    async getLoanFromPending(@Param('caseNo') caseNo: string) {
-        return this.loanQueryService.getMemberLoanFromPending(caseNo);
+    async getLoanFromPending(@Param('caseNo') caseNo: string, @Query('memberNo') memberNo?: string) {
+        return this.loanQueryService.getMemberLoanFromPending(caseNo, memberNo);
     }
 
     @Get('member/:memberNo/master')
@@ -256,6 +271,8 @@ export class LoanV2Controller {
         return this.loanRepaymentService.recordLoanRepayment({
             ...body,
             asOfDate: process.env.NODE_ENV === 'production' ? undefined : parseSafeDate(body.asOfDate),
+            // ES-451: a receipt number that is already on this loan is a repeat (double click / retry), not a new payment
+            rejectDuplicateReceipt: true,
         });
     }
 

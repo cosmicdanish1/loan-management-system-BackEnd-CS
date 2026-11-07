@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { lockLedgerIds } from '../shared/utils/ledger-lock';
 import { DataSource } from 'typeorm';
 import { generateVoucherNo } from '../shared/utils/voucher-utils';
 
@@ -235,6 +236,7 @@ export class GroupInsuranceService {
           FROM _gi_calc`, [run.id]);
 
       // ledger: DR RD / CR insurance head, per member, one voucher
+      await lockLedgerIds(qr); // ES-445
       const [{ max_trans }] = await qr.query(`SELECT COALESCE(MAX(trans_no), 0)::bigint AS max_trans FROM ledger`);
       const [{ max_id }] = await qr.query(`SELECT COALESCE(MAX(ledgerid), 0)::bigint AS max_id FROM ledger`);
       const dt = `${postingDate} 00:00:00`;

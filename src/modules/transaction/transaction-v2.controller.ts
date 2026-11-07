@@ -5,10 +5,13 @@ import {
     Delete,
     Body,
     Param,
+    Req,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { VoucherService, PassTransactionService } from './services-v2';
 import { RequireAuthCode } from '../auth/twofa/require-auth-code';
+import { RequirePassAuthority } from '../auth/guards/pass-authority.guard';
+import { RequireMenuAction } from '../auth/guards/menu-right.guard';
 
 /**
  * Transaction V2 Controller - Restructured endpoints using separated services.
@@ -31,8 +34,9 @@ export class TransactionV2Controller {
     @Post('voucher')
     @ApiOperation({ summary: 'Create a generic voucher (Payment/Receipt/Journal)' })
     @ApiResponse({ status: 201, description: 'Voucher created successfully' })
-    async createVoucher(@Body() voucherData: any) {
-        return this.voucherService.createVoucher(voucherData);
+    async createVoucher(@Body() voucherData: any, @Req() req: any) {
+        // the voucher is recorded under the signed-in user, never a name sent in the body (ES-413)
+        return this.voucherService.createVoucher({ ...voucherData, createdBy: req?.user?.username || 'SYSTEM' });
     }
 
     @Post('loan-voucher')
@@ -55,6 +59,7 @@ export class TransactionV2Controller {
     }
 
     @Delete('voucher/:voucherNo')
+    @RequirePassAuthority() // rejecting a pending voucher is part of the pass decision (ES-362)
     @ApiOperation({ summary: 'Delete/Reject a pending voucher' })
     @ApiResponse({ status: 200, description: 'Voucher deleted successfully' })
     async deleteVoucher(@Param('voucherNo') voucherNo: string) {
@@ -64,7 +69,9 @@ export class TransactionV2Controller {
     // ==================== Pass Transaction Operations ====================
 
     // ES-116: each switch (all vouchers / re-agreement only) is independent; one code covers both.
+    @RequireMenuAction('PASS_TRANSACTIONS')
     @Post('pass/:voucherNo')
+    @RequirePassAuthority() // ES-362
     @RequireAuthCode('pass_transactions', async (req, tf) => (await tf.isReagreementVoucher(req.params.voucherNo)) ? 'reagreement_pass' : null)
     @ApiOperation({ summary: 'Pass transaction - final posting to ledger and cashbook' })
     @ApiResponse({ status: 200, description: 'Transaction passed successfully' })
@@ -75,7 +82,9 @@ export class TransactionV2Controller {
         return this.passTransactionService.passTransaction(voucherNo, body?.postedBy || 'admin');
     }
 
+    @RequireMenuAction('PASS_TRANSACTIONS')
     @Post('reverse/:voucherNo')
+    @RequirePassAuthority() // ES-362
     @RequireAuthCode('reverse_transactions')
     @ApiOperation({ summary: 'Reverse a posted transaction' })
     @ApiResponse({ status: 200, description: 'Transaction reversed successfully' })

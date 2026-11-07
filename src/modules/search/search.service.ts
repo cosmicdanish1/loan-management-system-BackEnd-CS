@@ -12,6 +12,21 @@ export interface SearchResult {
   relevance?: number;
 }
 
+const DEFAULT_LIMIT = 50;
+const MAX_LIMIT = 500;
+
+/** A usable row limit: whole number from 1 to MAX_LIMIT; anything else (text, negative, NaN) gives the default */
+function safeLimit(limit: unknown, fallback = DEFAULT_LIMIT): number {
+  const n = Math.floor(Number(limit));
+  if (!Number.isFinite(n) || n < 1) return fallback;
+  return Math.min(n, MAX_LIMIT);
+}
+
+/** Name parts joined with single spaces, skipping empty parts (no middle name => no double space) */
+function joinName(...parts: Array<string | null | undefined>): string {
+  return parts.map((x) => (x ?? '').toString().trim()).filter(Boolean).join(' ');
+}
+
 @Injectable()
 export class SearchService {
   constructor(
@@ -26,6 +41,8 @@ export class SearchService {
    */
   async globalSearch(query: string, type: string = 'all', limit: number = 50): Promise<SearchResult[]> {
     try {
+      query = String(query ?? '');
+      limit = safeLimit(limit);
       console.log(`🔍 [SEARCH] Starting global search`);
       console.log(`🔍 [SEARCH] Query: "${query}"`);
       console.log(`🔍 [SEARCH] Type: ${type}`);
@@ -71,7 +88,7 @@ export class SearchService {
         type,
         limit
       });
-      return [];
+      throw error; // the caller must see a failure, not an empty "no results" list
     }
   }
 
@@ -134,7 +151,7 @@ export class SearchService {
 
       // Create different result types based on search type filter
       members.forEach((member: any, index: number) => {
-        const fullName = `${member.f_name} ${member.m_name || ''} ${member.l_name}`.trim();
+        const fullName = joinName(member.f_name, member.m_name, member.l_name);
         const memberNo = member.mbno?.toString() || '';
         const office = member.office_name || 'Unknown Office';
         const basicPay = parseFloat(member.basic_pay) || 0;
@@ -213,7 +230,7 @@ export class SearchService {
         limit,
         stack: error.stack
       });
-      return [];
+      throw error;
     }
   }
 
@@ -255,7 +272,7 @@ export class SearchService {
       return members.map((member: any) => ({
         id: `member-${member.mbno}`,
         type: 'member' as const,
-        title: `${member.f_name} ${member.m_name || ''} ${member.l_name}`.trim(),
+        title: joinName(member.f_name, member.m_name, member.l_name),
         subtitle: `Member No: ${member.mbno}`,
         details: `${member.office_name || 'Unknown Office'} - Basic Pay: ₹${member.basic_pay || 0}`,
         date: member.memb_date ? new Date(member.memb_date).toLocaleDateString('en-GB') : undefined,
@@ -264,7 +281,7 @@ export class SearchService {
 
     } catch (error) {
       console.error('❌ Error searching members:', error);
-      return [];
+      throw error;
     }
   }
 
@@ -326,7 +343,7 @@ export class SearchService {
       return results;
     } catch (error) {
       console.error('❌ Error searching accounts:', error);
-      return [];
+      throw error;
     }
   }
 
@@ -372,7 +389,7 @@ export class SearchService {
 
     } catch (error) {
       console.error('❌ Error searching transactions:', error);
-      return [];
+      throw error;
     }
   }
 
@@ -419,7 +436,7 @@ export class SearchService {
 
     } catch (error) {
       console.error('❌ Error searching loans:', error);
-      return [];
+      throw error;
     }
   }
 
@@ -454,6 +471,8 @@ export class SearchService {
    */
   async getSearchSuggestions(query: string, limit: number = 5): Promise<string[]> {
     try {
+      query = String(query ?? '');
+      limit = safeLimit(limit, 5);
       console.log(`🔍 [SUGGESTIONS] Getting suggestions for: "${query}"`);
       
       if (query.length < 2) {
@@ -492,7 +511,7 @@ export class SearchService {
       console.log(`🔍 [SUGGESTIONS] Raw query returned ${memberSuggestions.length} suggestions`);
       
       const suggestions = memberSuggestions
-        .map((s: any) => s.suggestion?.trim())
+        .map((s: any) => s.suggestion?.replace(/\s+/g, ' ').trim())
         .filter((s: string) => s && s.length > 0);
 
       console.log(`✅ [SUGGESTIONS] Returning ${suggestions.length} filtered suggestions:`, suggestions);
@@ -507,7 +526,7 @@ export class SearchService {
         limit,
         stack: error.stack
       });
-      return [];
+      throw error;
     }
   }
 }

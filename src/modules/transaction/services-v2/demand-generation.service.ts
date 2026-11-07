@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { DemandMaster } from '../entities/demand-master.entity';
@@ -31,11 +31,16 @@ export class DemandGenerationService {
             'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4, 'MAY': 5, 'JUN': 6,
             'JUL': 7, 'AUG': 8, 'SEP': 9, 'OCT': 10, 'NOV': 11, 'DEC': 12
         };
-        const monthNum = monthMap[dto.month] || 0;
-        const yearNum = parseInt(dto.year);
+        const monthNum = monthMap[String(dto.month || '').trim().toUpperCase()] || 0;
+        const yearNum = /^\d{4}$/.test(String(dto.year ?? '').trim()) ? parseInt(String(dto.year).trim(), 10) : 0;
 
-        if (!monthNum || !yearNum) {
-            throw new Error('Invalid date parameters');
+        // Bad input is a client error, not a server fault, and only a realistic year is accepted. (ES-354)
+        if (!monthNum) {
+            throw new BadRequestException(`Invalid month '${dto.month}'. Use JAN to DEC.`);
+        }
+        const thisYear = new Date().getFullYear();
+        if (!yearNum || yearNum < thisYear - 5 || yearNum > thisYear + 10) {
+            throw new BadRequestException(`Invalid year '${dto.year}'. Use a 4-digit year between ${thisYear - 5} and ${thisYear + 10}.`);
         }
 
         const queryRunner = this.dataSource.createQueryRunner();

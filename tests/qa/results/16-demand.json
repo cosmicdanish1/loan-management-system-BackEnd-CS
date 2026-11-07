@@ -1,0 +1,165 @@
+{
+ "suite": "16-demand",
+ "ranAt": "2026-11-03T09:49:46.772Z",
+ "seconds": 2.874,
+ "total": 26,
+ "failed": 6,
+ "results": [
+  {
+   "id": "DM-00",
+   "title": "Found a real member with a running loan to generate against",
+   "ok": true,
+   "detail": "{\"mbno\":\"610022986\",\"emi\":\"190742.1100\"}"
+  },
+  {
+   "id": "DM-01",
+   "title": "Generate with an invalid month -> 400 (not 500)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:44.247Z\",\"path\":\"/api/v1/transactions/demand-generat"
+  },
+  {
+   "id": "DM-02",
+   "title": "Generate with a non-numeric year -> 400",
+   "ok": true,
+   "detail": "400"
+  },
+  {
+   "id": "DM-03",
+   "title": "Generate for year 1800 is refused (no silly periods)",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:44.305Z\",\"path\":\"/api/v1/transactions/demand-generat"
+  },
+  {
+   "id": "DM-04",
+   "title": "Generate with a non-numeric member list does not 5xx",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+  },
+  {
+   "id": "DM-05",
+   "title": "Refused requests created no rows",
+   "ok": false,
+   "detail": "12"
+  },
+  {
+   "id": "DM-06",
+   "title": "Generate JAN 2031 for the chosen member succeeds",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"message\":\"Demand for JAN 2031 already exists (1 records). "
+  },
+  {
+   "id": "DM-07",
+   "title": "Exactly one demand row, equal to the sum of the member EMIs",
+   "ok": true,
+   "detail": "rows 1; {\"mbno\":\"610022986\",\"totaldemand\":\"190742.11\",\"rln_installment_amount\":\"190742.11\",\"passflag\":\"N\"} vs EMI sum 190742.1100"
+  },
+  {
+   "id": "DM-08",
+   "title": "Repeating the same month does not create more rows (skipped message)",
+   "ok": true,
+   "detail": "201 rows 1 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"message\":\"Demand f"
+  },
+  {
+   "id": "DM-09",
+   "title": "3 simultaneous generate requests for the same month give one set of rows",
+   "ok": true,
+   "detail": "rows 1; 201,201,201"
+  },
+  {
+   "id": "DM-10",
+   "title": "Preview of a valid file: 2 valid rows",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"rows\":[{\"key\":\"0-9999962647\",\"memberId\":\"9999962647\",\"memberName\":\"QATEST R381920\",\"department\":\"QA\",\"rlnAmount\":"
+  },
+  {
+   "id": "DM-11",
+   "title": "Mixed file: 1 valid; duplicate, unknown member, negative, text, total mismatch and blank member are errors",
+   "ok": true,
+   "detail": "201 {\"sheetName\":\"Sheet1\",\"availableSheets\":[\"Sheet1\"],\"total\":7,\"valid\":1,\"errors\":6,\"flagged\":0,\"columns\":[\"S.NO\",\"YYMM\",\"CODE\",\"MS.NO\",\"PS.NO\",\"NAME\",\"TOTAL\",\"R/D\",\"R/LOAN\",\"E/LOAN\",\"INTT\"]}"
+  },
+  {
+   "id": "DM-12",
+   "title": "File without the member column -> 400 with a clear message",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:44.693Z\",\"path\":\"/api/v1/transactions/demand-generation/import-preview\","
+  },
+  {
+   "id": "DM-13",
+   "title": "File with only a header -> 400",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:44.725Z\",\"path\":\"/api/v1/transactions/demand-generation/import-preview\","
+  },
+  {
+   "id": "DM-14",
+   "title": "Text renamed to .xlsx -> 400, no fake preview",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:44.747Z\",\"path\":\"/api/v1/transactions/demand-generation/import-preview\",\"method\":\"POST\",\"err"
+  },
+  {
+   "id": "DM-15",
+   "title": "Executable file is refused",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:44.765Z\",\"path\":\"/api/v1/transactions/demand-generat"
+  },
+  {
+   "id": "DM-16",
+   "title": "Preview with no file -> 400",
+   "ok": true,
+   "detail": "400"
+  },
+  {
+   "id": "DM-17",
+   "title": "5,000-row file previews in under 20 s without 5xx",
+   "ok": true,
+   "detail": "201 616ms"
+  },
+  {
+   "id": "DM-18",
+   "title": "Process with invalid month / year -> 400",
+   "ok": true,
+   "detail": "400,400"
+  },
+  {
+   "id": "DM-19",
+   "title": "Process with a forged row for a member that does not exist saves nothing (no 5xx)",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"recordCount\":0,\"skipped\":1,\"flagged\":0 rows 0"
+  },
+  {
+   "id": "DM-20",
+   "title": "Process with a negative amount row skips it",
+   "ok": false,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"recordCount\":0,\"skipped\":1,\"flagged\":0"
+  },
+  {
+   "id": "DM-21",
+   "title": "Process the valid preview: 2 rows saved",
+   "ok": false,
+   "detail": "201 rows 12 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"recordCount\":2,\"sk"
+  },
+  {
+   "id": "DM-22",
+   "title": "Importing the same file twice for the same month does not create duplicate demand rows",
+   "ok": false,
+   "detail": "rows 12 -> 12; 201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"recordCount\":2,\"sk"
+  },
+  {
+   "id": "DM-23",
+   "title": "Two simultaneous imports do not duplicate rows",
+   "ok": false,
+   "detail": "rows 12; 201,201"
+  },
+  {
+   "id": "DM-24",
+   "title": "Demand serial numbers are unique across the table",
+   "ok": false,
+   "detail": "[{\"dmnd_srno\":0,\"c\":\"329134\"}]"
+  },
+  {
+   "id": "DM-25",
+   "title": "Demand list report for JAN 2031 loads and shows the member",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":[{\"id\":19,\"memberNo\":\"610022986\",\"month\":1,\"year\":2031,"
+  }
+ ]
+}

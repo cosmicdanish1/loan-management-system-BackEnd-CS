@@ -1,12 +1,17 @@
-import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, ServiceUnavailableException, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as crypto from 'crypto';
 import { LicenseKey, LicenseStatus } from './entities/license-key.entity';
 import { ActivateLicenseDto, LicenseStatusResponse } from './dto/license.dto';
+import { verifyV2Key, isLegacyAllowed } from './license-crypto';
 
-// Must match generate-license.js
-const LICENSE_SECRET = process.env.LICENSE_SECRET || 'PWT_LMS_SECRET_KEY_2025_CHANGE_IN_PROD';
+// Must match generate-license.js. There is deliberately NO fallback value here: a secret written in the source would let
+// anyone who has the installer sign their own license keys (ES-393). It must come from LICENSE_SECRET in .env.
+function licenseSecret(): string | null {
+  const s = (process.env.LICENSE_SECRET || '').trim();
+  return s || null;
+}
 const GRACE_PERIOD_DAYS = 30;
 
 // ── In-memory daily cache ──────────────────────────────────────────────────
@@ -26,7 +31,7 @@ function todayStr(): string {
 // DDDD = expiry days since epoch in base36 (4 chars)
 // SSSS-SSSS = HMAC signature (8 hex chars split into two groups of 4)
 
-function parseAndVerifyKey(key: string): { customerCode: string; expiryDate: Date } | null {
+function parseAndVerifyKey(key: string, secret: string): { customerCode: string; expiryDate: Date } | null {
   // Normalise: uppercase, trim
   const k = key.trim().toUpperCase();
   const parts = k.split('-');
@@ -39,7 +44,7 @@ function parseAndVerifyKey(key: string): { customerCode: string; expiryDate: Dat
 
   const payload = `${customerCode}${expiryEncoded}`;
   const expectedSig = crypto
-    .createHmac('sha256', LICENSE_SECRET)
+    .createHmac('sha256', secret)
     .update(payload)
     .digest('hex')
     .toUpperCase()
@@ -57,13 +62,22 @@ function parseAndVerifyKey(key: string): { customerCode: string; expiryDate: Dat
 }
 
 @Injectable()
-export class LicenseService {
+export class LicenseService implements OnModuleInit {
   private readonly logger = new Logger(LicenseService.name);
 
   constructor(
     @InjectRepository(LicenseKey)
     private readonly licenseRepo: Repository<LicenseKey>,
   ) {}
+
+  /** Format 2 keys are about 120 characters; the column used to hold 50. Safe to run on every start. */
+  async onModuleInit(): Promise<void> {
+    try {
+      await this.licenseRepo.query('ALTER TABLE license_keys ALTER COLUMN "key" TYPE VARCHAR(200)');
+    } catch (e: any) {
+      this.logger.warn(`[License] could not widen license_keys.key: ${e?.message}`);
+    }
+  }
 
   /**
    * Activate a self-validating license key.
@@ -72,7 +86,27 @@ export class LicenseService {
    * - Saves activation record to DB
    */
   async activate(dto: ActivateLicenseDto): Promise<LicenseStatusResponse> {
-    const parsed = parseAndVerifyKey(dto.key);
+    // Keys may be pasted with spaces or line breaks
+    const cleanKey = dto.key.replace(/\s+/g, '').toUpperCase();
+    let parsed: { customerCode: string; expiryDate: Date } | null = null;
+
+    if (cleanKey.startsWith('PWT1-')) {
+      // Format 2: signed with the issuer's private key, checked with the public key built into the backend (ES-393)
+      const v = verifyV2Key(cleanKey);
+      const days = v ? parseInt(v.expiryEncoded, 36) : NaN;
+      if (v && !isNaN(days)) parsed = { customerCode: v.customerCode, expiryDate: new Date(days * 24 * 60 * 60 * 1000) };
+    } else if (cleanKey.startsWith('PWT0-')) {
+      // Format 1 (shared secret) is only honoured during the announced overlap (LICENSE_LEGACY_UNTIL)
+      if (!isLegacyAllowed()) {
+        throw new BadRequestException('This license key is in the old format and is no longer accepted. Please ask for a new key.');
+      }
+      const secret = licenseSecret();
+      if (!secret) {
+        this.logger.error('[License] LICENSE_SECRET is not set in .env: old-format license keys cannot be verified');
+        throw new ServiceUnavailableException('License checking is not configured on this server (LICENSE_SECRET is missing). Ask your administrator.');
+      }
+      parsed = parseAndVerifyKey(cleanKey, secret);
+    }
     if (!parsed) {
       throw new BadRequestException('Invalid license key. Please check and try again.');
     }
@@ -96,7 +130,7 @@ export class LicenseService {
       .execute();
 
     // Check if this exact key already exists (re-activation of same key)
-    const normalizedKey = dto.key.trim().toUpperCase();
+    const normalizedKey = cleanKey;
     const existing = await this.licenseRepo.findOne({ where: { key: normalizedKey } });
 
     let license: LicenseKey;

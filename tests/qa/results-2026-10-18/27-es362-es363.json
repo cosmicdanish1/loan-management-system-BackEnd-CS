@@ -1,0 +1,195 @@
+{
+ "suite": "27-es362-es363",
+ "ranAt": "2026-10-17T22:09:20.132Z",
+ "seconds": 4.888,
+ "total": 31,
+ "failed": 0,
+ "results": [
+  {
+   "id": "PA-00",
+   "title": "Temp users created and logged in (clerk with the flag OFF, administrator with the flag OFF)",
+   "ok": true,
+   "detail": "true true"
+  },
+  {
+   "id": "PA-01",
+   "title": "A user without Transaction Auth can still CREATE (stage) a voucher",
+   "ok": true,
+   "detail": "VCH369"
+  },
+  {
+   "id": "PA-02",
+   "title": "Clerk, flag OFF: pass -> 403 PASS_AUTHORITY_REQUIRED",
+   "ok": true,
+   "detail": "403 {\"statusCode\":403,\"timestamp\":\"2026-10-17T22:09:16.854Z\",\"path\":\"/api/v1/transactions/pass/VCH369\",\"method\":\"P"
+  },
+  {
+   "id": "PA-03",
+   "title": "The refused pass left the voucher PENDING with no ledger rows",
+   "ok": true,
+   "detail": "PENDING ledger 0"
+  },
+  {
+   "id": "PA-04",
+   "title": "Clerk, flag OFF: reject (delete) -> 403 and the voucher still exists",
+   "ok": true,
+   "detail": "403 PENDING"
+  },
+  {
+   "id": "PA-05",
+   "title": "Clerk, flag OFF: reverse -> 403",
+   "ok": true,
+   "detail": "403"
+  },
+  {
+   "id": "PA-06",
+   "title": "Refusal comes BEFORE any voucher lookup (unknown voucher also 403, not 400)",
+   "ok": true,
+   "detail": "403"
+  },
+  {
+   "id": "PA-07",
+   "title": "Administrator-level user with the flag OFF -> 403 (the flag is not bypassed by the level)",
+   "ok": true,
+   "detail": "403 {\"statusCode\":403,\"timestamp\":\"2026-10-17T22:09:17.176Z\",\"path\":\"/api/v1/transactions/pass"
+  },
+  {
+   "id": "PA-08",
+   "title": "Administrator with the flag ON can pass",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"suc"
+  },
+  {
+   "id": "PA-09",
+   "title": "Passing posted ledger rows",
+   "ok": true,
+   "detail": "2"
+  },
+  {
+   "id": "PA-10",
+   "title": "Administrator with the flag ON can reverse",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"suc"
+  },
+  {
+   "id": "PA-11",
+   "title": "Administrator with the flag ON can reject a pending voucher",
+   "ok": true,
+   "detail": "200"
+  },
+  {
+   "id": "PA-12",
+   "title": "After an administrator switches the flag ON, the same user (same token) can pass at once",
+   "ok": true,
+   "detail": "200 / 201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"d"
+  },
+  {
+   "id": "PA-13",
+   "title": "After the flag is switched OFF again, the same token is refused at once",
+   "ok": true,
+   "detail": "200 / 403"
+  },
+  {
+   "id": "PA-14",
+   "title": "Reading pending vouchers and /auth/me still works for a user without the flag",
+   "ok": true,
+   "detail": "200/200"
+  },
+  {
+   "id": "PT-01",
+   "title": "Download name '..\\..\\package.json' is refused (400/404) and never answers 200",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T22:09:19.723Z\",\"path\":\"/api/v1/deposits/certific"
+  },
+  {
+   "id": "PT-02",
+   "title": "Download name '../../package.json' is refused (400/404) and never answers 200",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T22:09:19.745Z\",\"path\":\"/api/v1/deposits/certific"
+  },
+  {
+   "id": "PT-03",
+   "title": "Download name '..\\..\\package.json' is refused (400/404) and never answers 200",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T22:09:19.774Z\",\"path\":\"/api/v1/deposits/certific"
+  },
+  {
+   "id": "PT-04",
+   "title": "Download name '..\\package.json' is refused (400/404) and never answers 200",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T22:09:19.803Z\",\"path\":\"/api/v1/deposits/certific"
+  },
+  {
+   "id": "PT-05",
+   "title": "Download name 'subfolder\\file.pdf' is refused (400/404) and never answers 200",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T22:09:19.828Z\",\"path\":\"/api/v1/deposits/certific"
+  },
+  {
+   "id": "PT-06",
+   "title": "Download name 'sub/file.pdf' is refused (400/404) and never answers 200",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T22:09:19.863Z\",\"path\":\"/api/v1/deposits/certific"
+  },
+  {
+   "id": "PT-07",
+   "title": "Download name 'C:\\Windows\\win.ini' is refused (400/404) and never answers 200",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T22:09:19.886Z\",\"path\":\"/api/v1/deposits/certific"
+  },
+  {
+   "id": "PT-08",
+   "title": "Download name '/etc/passwd' is refused (400/404) and never answers 200",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T22:09:19.918Z\",\"path\":\"/api/v1/deposits/certific"
+  },
+  {
+   "id": "PT-09",
+   "title": "Download name 'x\\0.pdf' is refused (400/404) and never answers 200",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T22:09:19.940Z\",\"path\":\"/api/v1/deposits/certific"
+  },
+  {
+   "id": "PT-10",
+   "title": "Download name '....\\\\package.json' is refused (400/404) and never answers 200",
+   "ok": true,
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-10-17T22:09:19.970Z\",\"path\":\"/api/v1/deposits/certific"
+  },
+  {
+   "id": "PT-11",
+   "title": "Download name '.' is refused (400/404) and never answers 200",
+   "ok": true,
+   "detail": "404 {\"statusCode\":404,\"timestamp\":\"2026-10-17T22:09:19.982Z\",\"path\":\"/api/v1/deposits/certific"
+  },
+  {
+   "id": "PT-12",
+   "title": "Download name '..' is refused (400/404) and never answers 200",
+   "ok": true,
+   "detail": "404 {\"statusCode\":404,\"timestamp\":\"2026-10-17T22:09:19.993Z\",\"path\":\"/api/v1/deposits/certific"
+  },
+  {
+   "id": "PT-13",
+   "title": "A genuine certificate file name still answers 200",
+   "ok": true,
+   "detail": "200 %PDF-1.4\n% QA test file\n"
+  },
+  {
+   "id": "PT-15",
+   "title": "A name that is clean but does not exist -> 404",
+   "ok": true,
+   "detail": "404"
+  },
+  {
+   "id": "PT-16",
+   "title": "Download without a token -> 401",
+   "ok": true,
+   "detail": "401"
+  },
+  {
+   "id": "PA-CLEAN",
+   "title": "Temp users removed",
+   "ok": true,
+   "detail": "0"
+  }
+ ]
+}

@@ -19,7 +19,7 @@ export class LicenseKey {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ unique: true, length: 50 })
+  @Column({ unique: true, length: 200 })
   key: string;
 
   @Column({ nullable: true, length: 100 })

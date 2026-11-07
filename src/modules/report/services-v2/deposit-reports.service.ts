@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { parseSafeDate } from '../../shared/utils/date-utils';
 
@@ -156,7 +156,7 @@ export class DepositReportsService {
         // 1. Get member info
         const memberQuery = `
             SELECT
-                TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
+                REGEXP_REPLACE(TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')), '\\s+', ' ', 'g') as member_name,
                 COALESCE(mb.compulsory_deposit, 0) as cd_balance
             FROM member_master m
             LEFT JOIN member_balances mb ON m.mbno = mb.mbno
@@ -289,7 +289,7 @@ export class DepositReportsService {
         const query = `
       SELECT
         m.mbno as member_no,
-        TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
+        REGEXP_REPLACE(TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')), '\\s+', ' ', 'g') as member_name,
         m.present_address as address,
         m.memb_date as membership_date,
         d.name as office_name,
@@ -341,7 +341,7 @@ export class DepositReportsService {
         const query = `
       SELECT
         l.mbno AS member_no,
-        TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) AS member_name,
+        REGEXP_REPLACE(TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')), '\\s+', ' ', 'g') AS member_name,
         m.present_address AS address,
         l.loancaseno AS loan_case_no,
         l.lien_amount,
@@ -400,14 +400,14 @@ export class DepositReportsService {
         const memberRes = await this.dataSource.query(`
       SELECT
         mbno as "memberNo",
-        TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) as "memberName",
+        REGEXP_REPLACE(TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')), '\\s+', ' ', 'g') as "memberName",
         m.present_address as "address",
         m.memb_date as "membershipDate"
       FROM member_master m
       WHERE CAST(m.mbno AS text) = $1
     `, [memberNo]);
 
-        if (memberRes.length === 0) throw new Error('Member not found');
+        if (memberRes.length === 0) throw new NotFoundException('Member not found');
 
         // 2. Get Accounts (FD and RD)
         let accountsQuery = `

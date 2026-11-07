@@ -3,6 +3,7 @@ import { ValidationPipe, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { buildValidationException } from './common/validation/friendly-validation';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import * as compression from 'compression';
@@ -18,6 +19,13 @@ async function bootstrap() {
   app.use(compression());
   const configService = app.get(ConfigService);
   const logger = new Logger('Bootstrap');
+
+  // ES-218: behind the Cloudflare Tunnel every request reaches this process from 127.0.0.1 (cloudflared), so without this
+  // req.ip would be 127.0.0.1 for every member and one attacker would rate-limit everybody. 'loopback' trusts the
+  // X-Forwarded-For header ONLY when the connection comes from this PC itself; desktop clients on the LAN connect
+  // directly and keep their own IP (they cannot spoof it). Override with TRUST_PROXY in .env if needed.
+  const trustProxy = String(configService.get('TRUST_PROXY', 'loopback'));
+  (app.getHttpAdapter().getInstance() as any).set('trust proxy', trustProxy === 'false' ? false : trustProxy);
 
   // Refuse to start in production with default/insecure secrets
   if (configService.get('NODE_ENV') === 'production') {
@@ -45,6 +53,8 @@ async function bootstrap() {
   // Global pipes
   app.useGlobalPipes(
     new ValidationPipe({
+      // plain-language problems per field with stable codes (ES-468 / ES-286)
+      exceptionFactory: buildValidationException,
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,

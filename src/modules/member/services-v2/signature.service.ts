@@ -135,22 +135,33 @@ export class SignatureService {
             mbno, filePath, `SELECT mbno, signature_image_path FROM member_master WHERE mbno = $1`,
         );
         const existing = rows[0].signature_image_path;
-        if (existing) {
-            const oldFull = path.join(process.cwd(), existing);
-            if (fs.existsSync(oldFull)) {
-                try { fs.unlinkSync(oldFull); } catch (_) { /* ignore */ }
-            }
-        }
         // BUG FIX 3: normalise to relative forward-slash path
         const relativePath = filePath
             .replace(process.cwd(), '')
             .replace(/\\/g, '/')
             .replace(/^\//, '');
 
-        await this.dataSource.query(
-            `UPDATE member_master SET signature_image_path = $1 WHERE mbno = $2`,
-            [relativePath, mbno]
-        );
+        // Point the member at the new file FIRST; the old file is deleted only after that worked (ES-403). If the
+        // update fails the member keeps the old signature and the new upload is removed again.
+        try {
+            await this.dataSource.query(
+                `UPDATE member_master SET signature_image_path = $1 WHERE mbno = $2`,
+                [relativePath, mbno]
+            );
+        } catch (err) {
+            try { fs.unlinkSync(filePath); } catch (_) { /* ignore */ }
+            throw err;
+        }
+        this.removeOldFile(existing, relativePath);
+    }
+
+    /** Deletes the file a member used to point at, unless it is the file they point at now. */
+    private removeOldFile(existing: string | null | undefined, current: string): void {
+        if (!existing || existing === current) return;
+        const oldFull = path.join(process.cwd(), existing);
+        if (fs.existsSync(oldFull)) {
+            try { fs.unlinkSync(oldFull); } catch (_) { /* ignore */ }
+        }
     }
 
     async deleteSignatureMaster(mbno: string): Promise<void> {
@@ -201,12 +212,15 @@ export class SignatureService {
             mbno, filePath, `SELECT mbno, ${col} FROM member_master WHERE mbno = $1`,
         );
         const existing = rows[0][col];
-        if (existing) {
-            const oldFull = path.join(process.cwd(), existing);
-            if (fs.existsSync(oldFull)) { try { fs.unlinkSync(oldFull); } catch (_) { /* ignore */ } }
-        }
         const relativePath = filePath.replace(process.cwd(), '').replace(/\\/g, '/').replace(/^\//, '');
-        await this.dataSource.query(`UPDATE member_master SET ${col} = $1 WHERE mbno = $2`, [relativePath, mbno]);
+        // update the row first, delete the old file after (ES-403)
+        try {
+            await this.dataSource.query(`UPDATE member_master SET ${col} = $1 WHERE mbno = $2`, [relativePath, mbno]);
+        } catch (err) {
+            try { fs.unlinkSync(filePath); } catch (_) { /* ignore */ }
+            throw err;
+        }
+        this.removeOldFile(existing, relativePath);
     }
 
     async getPhotoPathMaster(mbno: string, type: string): Promise<string | null> {

@@ -18,6 +18,6 @@ export class ShortRecoveryController {
     @Post('adjust')
     @ApiOperation({ summary: 'Adjust a short recovery' })
     adjust(@Body() body: { demandId: string, reason: string, amount: number }) {
-        return this.shortRecoveryService.adjust(body.demandId, body.reason, body.amount);
+        return this.shortRecoveryService.adjust(body?.demandId, body?.reason as string, Number(body?.amount));
     }
 }

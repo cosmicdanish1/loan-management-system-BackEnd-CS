@@ -1,6 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { Designation } from '../entities/designation.entity';
 import { CreateDesignationDto, UpdateDesignationDto } from '../dto/designation.dto';
 
@@ -9,9 +9,14 @@ export class DesignationService {
     constructor(
         @InjectRepository(Designation)
         private designationRepository: Repository<Designation>,
+        private readonly dataSource: DataSource,
     ) { }
 
     async create(createDesignationDto: CreateDesignationDto): Promise<Designation> {
+        // save() on an existing primary key silently overwrites that designation; creating must never do that (ES-299)
+        if (await this.designationRepository.findOne({ where: { code: createDesignationDto.code } })) {
+            throw new ConflictException(`Designation ${createDesignationDto.code} already exists. Use update to change it.`);
+        }
         const designation = this.designationRepository.create(createDesignationDto);
         return this.designationRepository.save(designation);
     }
@@ -39,6 +44,11 @@ export class DesignationService {
     }
 
     async remove(code: string): Promise<void> {
+        // A designation that members still hold cannot be deleted (same rule as offices and wings, ES-326)
+        const used = await this.dataSource.query(`SELECT COUNT(*)::int AS n FROM member_master WHERE desig = $1`, [code]);
+        if (Number(used[0]?.n) > 0) {
+            throw new ConflictException(`Designation ${code} cannot be deleted: ${used[0].n} member(s) hold it.`);
+        }
         const result = await this.designationRepository.delete(code);
         if (result.affected === 0) {
             throw new NotFoundException(`Designation with code ${code} not found`);

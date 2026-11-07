@@ -1,7 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { MulterOptions } from '@nestjs/platform-express/multer/interfaces/multer-options.interface';
 import { diskStorage } from 'multer';
-import { extname } from 'path';
 import * as fs from 'fs';
 
 // BUG FIX (path traversal): destination/filename builders below used
@@ -15,6 +14,16 @@ const sanitizeSegment = (value: unknown, fallback: string): string => {
   return cleaned || fallback;
 };
 
+// ES-403: the extension of a stored file is taken from the content type that passed the file filter, never from the
+// name the client sent. "evil.html" / "shell.php" with an image content type used to be stored as .html / .php.
+const EXTENSION_BY_MIME: Record<string, string> = {
+  'image/jpeg': '.jpg',
+  'image/jpg': '.jpg',
+  'image/png': '.png',
+  'application/pdf': '.pdf',
+};
+const safeExtension = (mimetype: unknown, fallback: string): string => EXTENSION_BY_MIME[String(mimetype ?? '').toLowerCase()] ?? fallback;
+
 export const photoUploadConfig: MulterOptions = {
   storage: diskStorage({
     destination: (req, _file, callback) => {
@@ -26,7 +35,7 @@ export const photoUploadConfig: MulterOptions = {
     filename: (req, file, callback) => {
       const mbno = sanitizeSegment(req.params.mbno, 'unknown');
       const type = sanitizeSegment(req.params.type, 'photo').toUpperCase();
-      const ext = extname(file.originalname) || '.jpg';
+      const ext = safeExtension(file.mimetype, '.jpg');
       callback(null, `${type}_${mbno}_${Date.now()}${ext}`);
     },
   }),
@@ -50,7 +59,7 @@ export const documentUploadConfig: MulterOptions = {
     filename: (req, file, callback) => {
       const mbno = sanitizeSegment(req.params.mbno, 'unknown');
       const docType = sanitizeSegment(req.body?.docType, 'DOC').toUpperCase();
-      const ext = extname(file.originalname) || '';
+      const ext = safeExtension(file.mimetype, '');
       callback(null, `${docType}_${mbno}_${Date.now()}${ext}`);
     },
   }),
@@ -71,7 +80,7 @@ export const signatureUploadConfig: MulterOptions = {
       // Works for both /:id/signature (TypeORM) and /master/:mbno/signature (member_master)
       const memberId = sanitizeSegment(req.params.id || req.params.mbno, 'unknown');
       const timestamp = Date.now();
-      const ext = extname(file.originalname) || '.png';
+      const ext = safeExtension(file.mimetype, '.png');
       callback(null, `SIG_${memberId}_${timestamp}${ext}`);
     },
   }),

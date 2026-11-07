@@ -22,6 +22,7 @@ import {
 } from '../loan-rb-schedule.util';
 import { AgreementData } from './reagreement-agreement.layout';
 import { ReagreementDocumentService } from './reagreement-document.service';
+import { lockLedgerIds } from '../../../shared/utils/ledger-lock';
 
 // ------------------------------------------------------------------ constants
 export const OPEN_STATUSES = ['APPLIED', 'SANCTIONED', 'VOUCHERED'] as const;
@@ -351,7 +352,7 @@ export class LoanReagreementService {
 
         // ---- identity bits for the response ----
         const mrows = await this.dataSource.query(
-            `SELECT TRIM(COALESCE(f_name,'') || ' ' || COALESCE(m_name,'') || ' ' || COALESCE(l_name,'')) AS name FROM member_master WHERE mbno = $1`, [oldLoan.mbno]);
+            `SELECT REGEXP_REPLACE(TRIM(COALESCE(f_name,'') || ' ' || COALESCE(m_name,'') || ' ' || COALESCE(l_name,'')), '\\s+', ' ', 'g') AS name FROM member_master WHERE mbno = $1`, [oldLoan.mbno]);
 
         const loanInfo = {
             mbno: String(oldLoan.mbno), loantype: oldLoan.loantype, loanTypeName: LOAN_TYPE_NAMES[oldLoan.loantype] || oldLoan.loantype,
@@ -756,6 +757,7 @@ export class LoanReagreementService {
 
         // ---------- 1. post the money received (NR interest, penalty) ----------
         await qr.query(`SELECT pg_advisory_xact_lock(hashtext('ledger'))`);
+        await lockLedgerIds(qr); // ES-445: the one shared ledger id lock
         let nextLedgerId = await this.nextId(qr, 'ledger', 'ledgerid');
         let nextTransNo = await this.nextId(qr, 'ledger', 'trans_no');
         for (const d of details) {
@@ -940,7 +942,7 @@ export class LoanReagreementService {
         const person = async (mbno: any) => {
             if (!mbno || Number(mbno) === 0) return null;
             const r = await runner.query(
-                `SELECT TRIM(COALESCE(m.f_name,'') || ' ' || COALESCE(m.m_name,'') || ' ' || COALESCE(m.l_name,'')) AS name,
+                `SELECT REGEXP_REPLACE(TRIM(COALESCE(m.f_name,'') || ' ' || COALESCE(m.m_name,'') || ' ' || COALESCE(m.l_name,'')), '\\s+', ' ', 'g') AS name,
                         COALESCE(d.name, '') AS office
                  FROM member_master m LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno WHERE m.mbno = $1`, [mbno]);
             return { mbno: String(mbno), name: r[0]?.name || '', office: r[0]?.office || '' };
@@ -1043,7 +1045,7 @@ export class LoanReagreementService {
              WHERE lm.mbno = $1 AND lm.balance > 0 AND lm.consolidated_into_loancaseno IS NULL
              ORDER BY lm.payment_date DESC`, [mbno]);
         const mem = await this.dataSource.query(
-            `SELECT TRIM(COALESCE(f_name,'') || ' ' || COALESCE(m_name,'') || ' ' || COALESCE(l_name,'')) AS name FROM member_master WHERE mbno = $1`, [mbno]);
+            `SELECT REGEXP_REPLACE(TRIM(COALESCE(f_name,'') || ' ' || COALESCE(m_name,'') || ' ' || COALESCE(l_name,'')), '\\s+', ' ', 'g') AS name FROM member_master WHERE mbno = $1`, [mbno]);
         return {
             mbno, memberName: mem[0]?.name || '',
             loans: rows.map((r: any) => ({

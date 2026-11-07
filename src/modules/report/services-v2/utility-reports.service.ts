@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { FinancialSummaryDto } from '../dto/financial-summary.dto';
 import { parseSafeDate } from '../../shared/utils/date-utils';
+import { CREDIT_TYPES_SQL, DEBIT_TYPES_SQL } from './ledger-types';
 
 /**
  * Utility Reports Service - Handles utility and miscellaneous reports.
@@ -85,8 +86,8 @@ export class UtilityReportsService {
             WHEN $3::boolean = true AND l.trans_date < $1::date
             THEN (
               CASE 
-                WHEN l.trans_type = 'CR' THEN l.trans_amt::numeric
-                WHEN l.trans_type = 'DR' THEN -l.trans_amt::numeric
+                WHEN l.trans_type IN ${CREDIT_TYPES_SQL} THEN l.trans_amt::numeric
+                WHEN l.trans_type IN ${DEBIT_TYPES_SQL} THEN -l.trans_amt::numeric
                 ELSE 0
               END
             )
@@ -95,13 +96,13 @@ export class UtilityReportsService {
 
           -- 2. Calculate Period Activity (Between Dates)
           COALESCE(SUM(CASE 
-            WHEN l.trans_date >= $1::date AND l.trans_date <= $2::date AND l.trans_type = 'DR'
+            WHEN l.trans_date >= $1::date AND l.trans_date <= $2::date AND l.trans_type IN ${DEBIT_TYPES_SQL}
             THEN l.trans_amt::numeric
             ELSE 0 
           END), 0) AS period_debit,
           
           COALESCE(SUM(CASE 
-            WHEN l.trans_date >= $1::date AND l.trans_date <= $2::date AND l.trans_type = 'CR'
+            WHEN l.trans_date >= $1::date AND l.trans_date <= $2::date AND l.trans_type IN ${CREDIT_TYPES_SQL}
             THEN l.trans_amt::numeric
             ELSE 0 
           END), 0) AS period_credit,
@@ -111,8 +112,8 @@ export class UtilityReportsService {
             WHEN l.trans_date <= $2::date
             THEN (
               CASE 
-                WHEN l.trans_type = 'CR' THEN l.trans_amt::numeric
-                WHEN l.trans_type = 'DR' THEN -l.trans_amt::numeric
+                WHEN l.trans_type IN ${CREDIT_TYPES_SQL} THEN l.trans_amt::numeric
+                WHEN l.trans_type IN ${DEBIT_TYPES_SQL} THEN -l.trans_amt::numeric
                 ELSE 0
               END
             )
@@ -172,7 +173,16 @@ export class UtilityReportsService {
    * Get account closing register
    */
   async getAccountClosingRegister(dto: { month: number; year: number; accountType?: string }) {
-    const { month, year, accountType } = dto;
+    const accountType = dto.accountType;
+    // Query-string values arrive as text; missing or invalid ones are a client error (400), not a TypeError (500). (ES-262)
+    const month = Number(dto.month);
+    const year = Number(dto.year);
+    if (!Number.isInteger(month) || month < 1 || month > 12) {
+      throw new BadRequestException(`Invalid month '${dto.month}'. Use a number from 1 to 12.`);
+    }
+    if (!Number.isInteger(year) || year < 1990 || year > 2100) {
+      throw new BadRequestException(`Invalid year '${dto.year}'.`);
+    }
     const fromDate = parseSafeDate(`${year}-${month.toString().padStart(2, '0')}-01`);
     const dateObj = new Date(year, month, 0);
     const toDate = parseSafeDate(`${year}-${month.toString().padStart(2, '0')}-${dateObj.getDate()}`);
@@ -233,7 +243,7 @@ export class UtilityReportsService {
       ? Number(monthText)
       : MONTH_NAMES.indexOf(monthText.slice(0, 3).toUpperCase()) + 1;
     if (!monthNo || monthNo < 1 || monthNo > 12) {
-      throw new Error(`Invalid month '${month}'`);
+      throw new BadRequestException(`Invalid month '${month}'`);
     }
 
     // Column names are the real demand_master ones: totaldemand, bankcharge and
@@ -244,7 +254,7 @@ export class UtilityReportsService {
     const query = `
       SELECT
         d.mbno AS member_no,
-        TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) AS member_name,
+        REGEXP_REPLACE(TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')), '\\s+', ' ', 'g') AS member_name,
         m.present_address AS address,
         d.demand_for_month,
         d.demand_for_year,
@@ -285,7 +295,7 @@ export class UtilityReportsService {
     const results = await this.dataSource.query(query, [memberNo, monthNo, Number(year)]);
 
     if (results.length === 0) {
-      throw new Error('No recovery details found for the selected member and period');
+      throw new NotFoundException('No recovery details found for the selected member and period');
     }
 
     const r = results[0];
@@ -387,7 +397,7 @@ export class UtilityReportsService {
         query = `
           SELECT 
             m.mbno as "memberNo",
-            TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')) as "memberName",
+            REGEXP_REPLACE(TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')), '\\s+', ' ', 'g') as "memberName",
             m.present_address as "address",
             m.desig as "designation",
             d.name as "officeName",
@@ -489,16 +499,12 @@ export class UtilityReportsService {
         break;
 
       case 'custom':
-        if (!customQuery) throw new Error('Custom query is required');
-        const upper = customQuery.trim().toUpperCase();
-        if (!upper.startsWith('SELECT')) throw new Error('Only SELECT queries allowed');
-        const forbidden = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE', 'TRUNCATE'];
-        if (forbidden.some(word => upper.includes(word))) throw new Error('Restricted operation detected');
-        query = customQuery;
-        break;
+        // Running SQL typed into a query string gave every logged-in user read access to every table, including
+        // credential columns; a word blacklist cannot make that safe. The report type is removed. (ES-361)
+        throw new BadRequestException('The custom SQL report type is not supported.');
 
       default:
-        throw new Error('Unsupported report type');
+        throw new BadRequestException('Unsupported report type');
     }
 
     const results = await this.dataSource.query(query, params);

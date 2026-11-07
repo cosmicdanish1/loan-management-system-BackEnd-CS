@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, HttpException, Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
 /**
@@ -23,35 +23,52 @@ export class LoanSuretyService {
      * If records are missing in certain tables, it attempts to "repair" or skip gracefully.
      */
     async changeLoanSurety(caseNo: string, suretyData: { surety1: string; surety2?: string }) {
-        // Validate surety members before opening a transaction
+        // ES-371: the case is looked up first, so an unknown case is a 404 and not a complaint about the surety member
+        const caseRows = await this.dataSource.query(
+            `SELECT mbno FROM loan_pending WHERE loancaseno::text = $1`,
+            [caseNo],
+        );
+        if (!caseRows || caseRows.length === 0) throw new NotFoundException(`Loan case ${caseNo} not found`);
+
+        // Validate surety members before opening a transaction (a bad surety is a 400)
         const s1Check = await this.validateSurety(suretyData.surety1);
-        if (!s1Check.valid) throw new Error(`Surety 1: ${s1Check.message}`);
+        if (!s1Check.valid) throw new BadRequestException(`Surety 1: ${s1Check.message}`);
 
         if (suretyData.surety2) {
             const s2Check = await this.validateSurety(suretyData.surety2);
-            if (!s2Check.valid) throw new Error(`Surety 2: ${s2Check.message}`);
+            if (!s2Check.valid) throw new BadRequestException(`Surety 2: ${s2Check.message}`);
+        }
+
+        // ES-405: the two sureties must be different members
+        const isSurety = (v: any) => String(v ?? '').trim() !== '' && String(v).trim() !== '0';
+        if (isSurety(suretyData.surety1) && isSurety(suretyData.surety2) && String(suretyData.surety1).trim() === String(suretyData.surety2).trim()) {
+            throw new BadRequestException('The same member cannot be both sureties.');
         }
 
         const queryRunner = this.dataSource.createQueryRunner();
+        let started = false; // rollback only a transaction that really began (a failed connect must not call it)
 
         try {
             await queryRunner.connect();
             await queryRunner.startTransaction();
+            started = true;
 
             console.log(`[LoanSurety] 🔄 Changing sureties for loan case: ${caseNo}`);
             console.log(`[LoanSurety] New Surety1: ${suretyData.surety1}, Surety2: ${suretyData.surety2 || 'none'}`);
 
             // 1. First, fetch the loan case to get member number and verify it exists
             const selectQuery = `
-                SELECT mbno, loancaseno, g1mbno, g2mbno
-                FROM loan_pending 
+                SELECT mbno, loancaseno, g1mbno, g2mbno, flg_paid,
+                       EXISTS (SELECT 1 FROM loan_master lm WHERE lm.loancaseno::text = loan_pending.loancaseno::text AND lm.mbno = loan_pending.mbno) AS disbursed
+                FROM loan_pending
                 WHERE loancaseno::text = $1
+                FOR UPDATE
             `;
 
             const selectResult = await queryRunner.query(selectQuery, [caseNo]);
 
             if (selectResult.length === 0) {
-                throw new Error(`Loan case ${caseNo} not found in loan_pending`);
+                throw new NotFoundException(`Loan case ${caseNo} not found in loan_pending`);
             }
 
             const currentData = selectResult[0];
@@ -63,6 +80,18 @@ export class LoanSuretyService {
             // Validate we have a valid member number
             if (!memberNo || memberNo === 'undefined' || memberNo === 'null') {
                 throw new Error(`Invalid member number for loan case ${caseNo}`);
+            }
+
+            // ES-405: a member can not stand surety for his own loan
+            for (const sur of [suretyData.surety1, suretyData.surety2]) {
+                if (isSurety(sur) && String(sur).trim() === memberNo.trim()) {
+                    throw new BadRequestException('A member cannot stand surety for his own loan.');
+                }
+            }
+            // ES-405: once the loan is paid out the live loan keeps its sureties; changing only loan_pending would
+            // silently leave the two out of step
+            if (currentData.flg_paid === 'Y' || currentData.disbursed === true) {
+                throw new BadRequestException(`Loan case ${caseNo} is already disbursed, so its sureties cannot be changed here.`);
             }
 
             // 2. Update loan_pending table with new guarantors
@@ -83,17 +112,19 @@ export class LoanSuretyService {
 
             // 3. Update suretymaster table if record exists
             // Note: suretymaster table has no 'id' column, only mbno as identifier
+            // by case: the member's other loans keep their own sureties (ES-405)
             const updateSmQuery = `
                 UPDATE suretymaster 
                 SET g1mbno = $1, g2mbno = $2 
-                WHERE mbno = $3
+                WHERE mbno = $3 AND loancaseno::text = $4
                 RETURNING mbno
             `;
 
             const smResult = await queryRunner.query(updateSmQuery, [
                 suretyData.surety1,
                 suretyData.surety2 || null,
-                memberNo
+                memberNo,
+                caseNo
             ]);
 
             if (smResult.length > 0) {
@@ -117,8 +148,9 @@ export class LoanSuretyService {
             };
 
         } catch (error: any) {
-            await queryRunner.rollbackTransaction();
+            if (started) await queryRunner.rollbackTransaction();
             console.error(`[LoanSurety] ❌ Error changing loan sureties:`, error);
+            if (error instanceof HttpException) throw error;
             throw new Error(`Failed to update loan sureties: ${error.message}`);
         } finally {
             await queryRunner.release();
@@ -136,8 +168,8 @@ export class LoanSuretyService {
           lp.mbno,
           lp.g1mbno as surety1,
           lp.g2mbno as surety2,
-          TRIM(COALESCE(s1.f_name, '') || ' ' || COALESCE(s1.m_name, '') || ' ' || COALESCE(s1.l_name, '')) as surety1_name,
-          TRIM(COALESCE(s2.f_name, '') || ' ' || COALESCE(s2.m_name, '') || ' ' || COALESCE(s2.l_name, '')) as surety2_name
+          REGEXP_REPLACE(TRIM(COALESCE(s1.f_name, '') || ' ' || COALESCE(s1.m_name, '') || ' ' || COALESCE(s1.l_name, '')), '\\s+', ' ', 'g') as surety1_name,
+          REGEXP_REPLACE(TRIM(COALESCE(s2.f_name, '') || ' ' || COALESCE(s2.m_name, '') || ' ' || COALESCE(s2.l_name, '')), '\\s+', ' ', 'g') as surety2_name
         FROM loan_pending lp
         LEFT JOIN member_master s1 ON lp.g1mbno = s1.mbno
         LEFT JOIN member_master s2 ON lp.g2mbno = s2.mbno
@@ -191,8 +223,9 @@ export class LoanSuretyService {
 
             return { valid: true };
         } catch (error) {
+            // a database failure is an error, not "invalid member" (ES-405)
             console.error('[LoanSurety] Error validating surety:', error);
-            return { valid: false, message: 'Error validating surety member' };
+            throw error;
         }
     }
 

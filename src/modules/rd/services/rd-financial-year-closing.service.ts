@@ -133,6 +133,10 @@ export class RdFinancialYearClosingService {
         closedBy: string,
         override?: AuthorityOverride,
     ): Promise<MemberYearClosingResult> {
+        // ES-409: an authority override changes how much interest a member gets, so it must say why and who
+        if (override && (!String(override.reason ?? '').trim() || !String(override.by ?? '').trim())) {
+            throw new BadRequestException('An authority override needs a reason and the name of the person who approved it.');
+        }
         const existing = await this.dataSource.query(
             `SELECT closed_at FROM rd_financial_year_summary WHERE mbno = $1 AND yearcode = $2`,
             [mbno, yearcode],
@@ -167,6 +171,18 @@ export class RdFinancialYearClosingService {
         await queryRunner.connect();
         await queryRunner.startTransaction();
         try {
+            // ES-409: lock this member+year BEFORE crediting anything, then look again whether it was closed in the
+            // meantime. Two simultaneous closings both passed the check above and both credited the interest; now the
+            // second waits here and is refused.
+            await queryRunner.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`rd_year_close_${mbno}_${yearcode}`]);
+            const closedMeanwhile = await queryRunner.query(
+                `SELECT closed_at FROM rd_financial_year_summary WHERE mbno = $1 AND yearcode = $2`,
+                [mbno, yearcode],
+            );
+            if (closedMeanwhile[0]?.closed_at) {
+                throw new BadRequestException(`RD financial year ${yearcode} is already closed for member ${mbno}.`);
+            }
+
             if (installmentResult.totalInterest > 0) {
                 await this.balanceEvents.recordInterestCredit(
                     mbno, yearcode, installmentResult.totalInterest, 'INSTALLMENT_INTEREST_CREDIT', fyEndDate, closedBy, queryRunner,

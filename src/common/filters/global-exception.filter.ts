@@ -8,12 +8,17 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { QueryFailedError } from 'typeorm';
+import { ClsServiceManager } from 'nestjs-cls';
 import { AlertBridge } from '../../modules/alerts/alert-bridge';
 import { clientInfoOf } from '../../modules/alerts/client-info';
 
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(GlobalExceptionFilter.name);
+
+  /** Text that only makes sense to a developer: SQL / driver errors and JavaScript runtime errors. */
+  private static readonly TECHNICAL =
+    /null value in column|violates (not-null|foreign key|unique|check)|relation "|column "[^"]+"|invalid input syntax|syntax error at|duplicate key value|Cannot read propert|Cannot set propert|is not iterable|is not a function|is not defined|undefined \(reading|\bECONN|\bETIMEDOUT|out of range for type|Unexpected token|at (async )?[A-Za-z_.]+ \(/i;
 
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
@@ -33,8 +38,15 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       if (typeof errorResponse === 'object') {
         message = (errorResponse as any).message || exception.message;
         error = (errorResponse as any).error || exception.name;
+        // field-by-field problems of a failed validation (ES-468): [{ field, label, code, message, params }]
+        if (Array.isArray((errorResponse as any).errors)) extra.errors = (errorResponse as any).errors;
+        if ((errorResponse as any).params && typeof (errorResponse as any).params === 'object') extra.params = (errorResponse as any).params;
         if ((errorResponse as any).code) {
-          extra = { code: (errorResponse as any).code, authAction: (errorResponse as any).authAction, authLabel: (errorResponse as any).authLabel };
+          extra = { ...extra, code: (errorResponse as any).code, authAction: (errorResponse as any).authAction, authLabel: (errorResponse as any).authLabel };
+          // Member-app (mobile) machine-readable extras: wrong-MPIN tries left, wait time, the action an App Code approval is needed for.
+          for (const k of ['attemptsLeft', 'retryAfterSeconds', 'action']) {
+            if ((errorResponse as any)[k] !== undefined) extra[k] = (errorResponse as any)[k];
+          }
         }
       } else {
         message = errorResponse;
@@ -56,6 +68,14 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     } else if (exception instanceof Error) {
       message = exception.message;
       error = exception.name;
+      // Database and JavaScript internals (table/column names, "Cannot read properties of undefined") are for the
+      // server log, never for the person using the screen (ES-302). The full text is still logged below.
+      if (GlobalExceptionFilter.TECHNICAL.test(exception.message)) {
+        const rid = GlobalExceptionFilter.requestIdOf(request);
+        const ref = rid ? ` (reference ${rid})` : '';
+        message = `Something went wrong on the server while handling this request${ref}. Please check what you entered and try again. If it keeps happening, tell support.`;
+        error = 'Internal Server Error';
+      }
       // Express/body-parser errors (413 payload too large, 400 malformed JSON) are not HttpExceptions
       // but carry their own 4xx status; reporting them as 500 hid the real cause from callers.
       const ownStatus = Number((exception as any).status ?? (exception as any).statusCode);
@@ -64,13 +84,21 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       }
     }
 
+    // Every error carries a stable `code` the screen can translate (ES-286); a specific code set above wins.
+    if (extra.code === undefined) extra.code = GlobalExceptionFilter.defaultCodeFor(status);
+
     this.alertTelegram(exception, request, status);
 
-    // Log the error
-    this.logger.error(
-      `${request.method} ${request.url} - ${status} - ${message}`,
-      exception instanceof Error ? exception.stack : exception,
-    );
+    // Log the error. A handled client error (validation, not found, conflict, refused request) is normal
+    // traffic: warn level, one line, no stack trace. Only server faults (5xx) and failed SQL (which is mapped
+    // to a 4xx for the caller but is really a fault) keep ERROR with the stack. (ES-331)
+    const logLine = `${request.method} ${request.url} - ${status} - ${Array.isArray(message) ? message.join('; ') : message}`;
+    const isClientError = status >= 400 && status < 500 && !(exception instanceof QueryFailedError);
+    if (isClientError) {
+      this.logger.warn(logLine);
+    } else {
+      this.logger.error(logLine, exception instanceof Error ? exception.stack : exception);
+    }
 
     const errorResponse = {
       statusCode: status,
@@ -79,10 +107,32 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       method: request.method,
       error,
       message,
+      // Same id the screen sent as X-Request-Id and the server wrote on every log line of this request: the
+      // screen shows it in small grey text so support can find the exact log line (ES-444).
+      ...(GlobalExceptionFilter.requestIdOf(request) ? { requestId: GlobalExceptionFilter.requestIdOf(request) } : {}),
       ...extra,
     };
 
     response.status(status).json(errorResponse);
+  }
+
+  /** Stable code for an error that did not name one, from its HTTP status. */
+  static defaultCodeFor(status: number): string {
+    const map: Record<number, string> = {
+      400: 'BAD_REQUEST', 401: 'UNAUTHORIZED', 403: 'FORBIDDEN', 404: 'NOT_FOUND', 405: 'METHOD_NOT_ALLOWED', 409: 'CONFLICT',
+      410: 'GONE', 413: 'PAYLOAD_TOO_LARGE', 415: 'UNSUPPORTED_MEDIA_TYPE', 422: 'UNPROCESSABLE', 429: 'TOO_MANY_REQUESTS',
+    };
+    return map[status] ?? (status >= 500 ? 'SERVER_ERROR' : 'ERROR');
+  }
+
+  /** The correlation id of this request: the one the screen sent in X-Request-Id, else the one the server made. */
+  private static requestIdOf(request: Request): string | undefined {
+    try {
+      const id = ClsServiceManager.getClsService().getId() || (request as any).requestId;
+      return id ? String(id) : undefined;
+    } catch {
+      return (request as any).requestId ? String((request as any).requestId) : undefined;
+    }
   }
 
   /** Telegram alerts for failed logins and server-side errors. Never throws. */
@@ -95,7 +145,8 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       const user = (request as any).user?.username;
       const requestId = (request as any).requestId;
 
-      if (status === HttpStatus.UNAUTHORIZED && request.method === 'POST' && /\/auth\/login$/.test(url)) {
+      // (member-app logins under /mobile/ are recorded in mobile_audit_log, not in the staff Telegram alert)
+      if (status === HttpStatus.UNAUTHORIZED && request.method === 'POST' && /\/auth\/login$/.test(url) && !/\/mobile\//.test(url)) {
         alerts.loginFailed({ username: String((request.body as any)?.username ?? ''), client: clientInfoOf(request) });
         return;
       }

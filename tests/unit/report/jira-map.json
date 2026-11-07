@@ -1,0 +1,1190 @@
+[
+ {
+  "match": "the signing secret is not the hard-coded default",
+  "key": "ES-393",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. License secret default in source"
+ },
+ {
+  "match": "masks a password written as key=value without quotes",
+  "key": "ES-394",
+  "action": "new bug",
+  "note": "FIXED 2026-11-02, retest PASS. Redaction gaps"
+ },
+ {
+  "match": "masks a single-quoted password",
+  "key": "ES-394",
+  "action": "new bug",
+  "note": "FIXED 2026-11-02, retest PASS. Redaction gaps"
+ },
+ {
+  "match": "masks a refresh token / secret field",
+  "key": "ES-394",
+  "action": "new bug",
+  "note": "FIXED 2026-11-02, retest PASS. Redaction gaps"
+ },
+ {
+  "match": "a new user does not get Transaction Auth",
+  "key": "ES-395",
+  "action": "new bug",
+  "note": "FIXED 2026-11-02, retest PASS. register() sets passTransactionFlag Y"
+ },
+ {
+  "match": "a refresh token that was already used",
+  "key": "ES-297",
+  "action": "comment added",
+  "note": "FIXED 2026-11-03, retest PASS. Refresh token has no revocation/rotation"
+ },
+ {
+  "match": "changePassword ends the user's other sessions",
+  "key": "ES-297",
+  "action": "comment added",
+  "note": "FIXED 2026-11-03, retest PASS. Password change keeps old tokens valid"
+ },
+ {
+  "match": "the member title has single spaces",
+  "key": "ES-404",
+  "action": "new bug",
+  "note": "rounding/names/saakh"
+ },
+ {
+  "match": "member name is joined without extra spaces",
+  "key": "ES-404",
+  "action": "new bug",
+  "note": ""
+ },
+ {
+  "match": "amounts are summed exactly",
+  "key": "ES-404",
+  "action": "new bug",
+  "note": ""
+ },
+ {
+  "match": "sums are exact to the paisa",
+  "key": "ES-404",
+  "action": "new bug",
+  "note": ""
+ },
+ {
+  "match": "repaidPct is never negative",
+  "key": "ES-404",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. "
+ },
+ {
+  "match": "a loan that appears both in member_balances",
+  "key": "ES-396",
+  "action": "new bug",
+  "note": "Member Balance double counts loans"
+ },
+ {
+  "match": "an emergency loan that appears in both sources",
+  "key": "ES-396",
+  "action": "new bug",
+  "note": ""
+ },
+ {
+  "match": "quick balance and the full balance agree",
+  "key": "ES-396",
+  "action": "new bug",
+  "note": ""
+ },
+ {
+  "match": "an impossible date such as 31-02-2026",
+  "key": "ES-397",
+  "action": "new bug",
+  "note": "parseSafeDate"
+ },
+ {
+  "match": "unparseable text must not silently become today",
+  "key": "ES-397",
+  "action": "new bug",
+  "note": ""
+ },
+ {
+  "match": "zero is written as Zero",
+  "key": "ES-398",
+  "action": "new bug",
+  "note": "numberToWords"
+ },
+ {
+  "match": "100 crore or more",
+  "key": "ES-398",
+  "action": "new bug",
+  "note": ""
+ },
+ {
+  "match": "a fractional amount (paise)",
+  "key": "ES-398",
+  "action": "new bug",
+  "note": ""
+ },
+ {
+  "match": "a rate whose end date is 31 March",
+  "key": "ES-399",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. effectiveTo"
+ },
+ {
+  "match": "a deposit slab whose end date is today",
+  "key": "ES-399",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. "
+ },
+ {
+  "match": "rejects overlapping slabs",
+  "key": "ES-399",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. "
+ },
+ {
+  "match": "the last enabled administrator cannot be",
+  "key": "ES-400",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. last admin update path"
+ },
+ {
+  "match": "a user name that contains SQL LIKE wildcards",
+  "key": "ES-400",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. forceLogout wildcard"
+ },
+ {
+  "match": "a closed year cannot be transferred again",
+  "key": "ES-401",
+  "action": "new bug",
+  "note": "closed FY re-transfer"
+ },
+ {
+  "match": "a period longer than one year",
+  "key": "ES-401",
+  "action": "new bug",
+  "note": ""
+ },
+ {
+  "match": "a database error is reported to the caller and not hidden",
+  "key": "ES-402",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. errors swallowed"
+ },
+ {
+  "match": "a negative limit is not sent to the database",
+  "key": "ES-402",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. "
+ },
+ {
+  "match": "a huge limit is capped",
+  "key": "ES-402",
+  "action": "new bug",
+  "note": ""
+ },
+ {
+  "match": "a non numeric or negative limit falls back",
+  "key": "ES-402",
+  "action": "new bug",
+  "note": ""
+ },
+ {
+  "match": "a database failure is reported to the caller, not returned",
+  "key": "ES-402",
+  "action": "new bug",
+  "note": ""
+ },
+ {
+  "match": "a database failure is reported, not hidden",
+  "key": "ES-402",
+  "action": "new bug",
+  "note": ""
+ },
+ {
+  "match": "a database failure is reported, not shown to the user as a zero balance",
+  "key": "ES-402",
+  "action": "new bug",
+  "note": ""
+ },
+ {
+  "match": "an upload whose name has a dangerous extension",
+  "key": "ES-403",
+  "action": "new bug",
+  "note": "upload extension"
+ },
+ {
+  "match": "a document with a double extension",
+  "key": "ES-403",
+  "action": "new bug",
+  "note": ""
+ },
+ {
+  "match": "the old file is kept when the database update fails",
+  "key": "ES-403",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. "
+ },
+ {
+  "match": "create with an existing office id",
+  "key": "ES-299",
+  "action": "comment added",
+  "note": "FIXED 2026-11-03, retest PASS. also ES-325"
+ },
+ {
+  "match": "create with an existing wing id",
+  "key": "ES-299",
+  "action": "comment added",
+  "note": "FIXED 2026-11-03, retest PASS. also ES-325"
+ },
+ {
+  "match": "create with an existing code is refused",
+  "key": "ES-299",
+  "action": "comment added",
+  "note": "FIXED 2026-11-03, retest PASS. also ES-325"
+ },
+ {
+  "match": "create with an existing id is refused",
+  "key": "ES-299",
+  "action": "comment added",
+  "note": "FIXED 2026-11-03, retest PASS. also ES-325"
+ },
+ {
+  "match": "a designation that members use cannot be deleted",
+  "key": "ES-299",
+  "action": "comment added",
+  "note": "FIXED 2026-11-03, retest PASS. "
+ },
+ {
+  "match": "updating the funds of a member that does not exist",
+  "key": "ES-300",
+  "action": "comment added",
+  "note": "FIXED 2026-11-03, retest PASS. "
+ },
+ {
+  "match": "update of a member without balances row creates one",
+  "key": "ES-300",
+  "action": "comment added",
+  "note": "FIXED 2026-11-03, retest PASS. "
+ },
+ {
+  "match": "rejects a non numeric opening balance",
+  "key": "ES-302",
+  "action": "comment added",
+  "note": "FIXED 2026-11-03, retest PASS. "
+ },
+ {
+  "match": "rejects an absurd opening balance",
+  "key": "ES-302",
+  "action": "comment added",
+  "note": "FIXED 2026-11-03, retest PASS. "
+ },
+ {
+  "match": "a missing menuIds list",
+  "key": "ES-302",
+  "action": "comment added",
+  "note": "FIXED 2026-11-03, retest PASS. "
+ },
+ {
+  "match": "duplicate menu ids in the request",
+  "key": "ES-302",
+  "action": "comment added",
+  "note": "FIXED 2026-11-03, retest PASS. "
+ },
+ {
+  "match": "setConfigValue rejects text",
+  "key": "ES-293",
+  "action": "comment added",
+  "note": "FIXED 2026-11-03, retest PASS. also ES-356"
+ },
+ {
+  "match": "setConfigValue honours the validation rules",
+  "key": "ES-293",
+  "action": "comment added",
+  "note": "FIXED 2026-11-03, retest PASS. also ES-356"
+ },
+ {
+  "match": "bulk update rejects a non numeric value",
+  "key": "ES-356",
+  "action": "comment added",
+  "note": "FIXED 2026-11-03, retest PASS. also ES-293"
+ },
+ {
+  "match": "bulk update rejects a negative rate",
+  "key": "ES-356",
+  "action": "comment added",
+  "note": "FIXED 2026-11-03, retest PASS. also ES-293"
+ },
+ {
+  "match": "bulk update does not create settings with unknown keys",
+  "key": "ES-293",
+  "action": "comment added",
+  "note": "FIXED 2026-11-03, retest PASS. also ES-356"
+ },
+ {
+  "match": "an amount of one crore or more asks for confirmation",
+  "key": "ES-357",
+  "action": "comment added",
+  "note": ""
+ },
+ {
+  "match": "update with only a phone change",
+  "key": "ES-307",
+  "action": "comment added",
+  "note": ""
+ },
+ {
+  "match": "a bad date in the request is answered with a clean 400",
+  "key": "ES-303",
+  "action": "comment added",
+  "note": ""
+ },
+ {
+  "match": "a signed in user cannot delete his own account",
+  "key": "ES-258",
+  "action": "comment added",
+  "note": "FIXED 2026-11-03, retest PASS. "
+ },
+ {
+  "match": "an admin password reset ends the target user",
+  "key": "ES-297",
+  "action": "comment added",
+  "note": "FIXED 2026-11-03, retest PASS. "
+ },
+ {
+  "match": "a new user does not get Transaction Auth unless",
+  "key": "ES-395",
+  "action": "comment added",
+  "note": "FIXED 2026-11-02, retest PASS. "
+ },
+ {
+  "match": "a case number alone is not enough",
+  "key": "ES-391",
+  "action": "comment added",
+  "note": "phase 3"
+ },
+ {
+  "match": "month 13, month 0 and year 1800",
+  "key": "ES-370",
+  "action": "comment added",
+  "note": "phase 3"
+ },
+ {
+  "match": "a non numeric month is refused",
+  "key": "ES-370",
+  "action": "comment added",
+  "note": "phase 3"
+ },
+ {
+  "match": "a database error is not reported as \"invalid member\"",
+  "key": "ES-405",
+  "action": "new bug",
+  "note": "phase 3"
+ },
+ {
+  "match": "a member cannot stand surety for his own loan",
+  "key": "ES-405",
+  "action": "new bug",
+  "note": "phase 3"
+ },
+ {
+  "match": "the same member cannot be both sureties",
+  "key": "ES-405",
+  "action": "new bug",
+  "note": "phase 3"
+ },
+ {
+  "match": "suretymaster is updated by case",
+  "key": "ES-405",
+  "action": "new bug",
+  "note": "phase 3"
+ },
+ {
+  "match": "a loan that is already disbursed",
+  "key": "ES-405",
+  "action": "new bug",
+  "note": "phase 3"
+ },
+ {
+  "match": "a connection failure does not call rollback",
+  "key": "ES-405",
+  "action": "new bug",
+  "note": "phase 3"
+ },
+ {
+  "match": "a surety cannot be the borrower himself",
+  "key": "ES-405",
+  "action": "new bug",
+  "note": "phase 3"
+ },
+ {
+  "match": "a negative loan amount is not eligible",
+  "key": "ES-406",
+  "action": "new bug",
+  "note": "phase 3"
+ },
+ {
+  "match": "the total of all deductions never exceeds",
+  "key": "ES-406",
+  "action": "new bug",
+  "note": "phase 3"
+ },
+ {
+  "match": "a non numeric payment amount is refused",
+  "key": "ES-320",
+  "action": "comment added",
+  "note": "phase 3"
+ },
+ {
+  "match": "an infinite or absurd payment",
+  "key": "ES-320",
+  "action": "comment added",
+  "note": "phase 3"
+ },
+ {
+  "match": "principal above the outstanding balance",
+  "key": "ES-320",
+  "action": "comment added",
+  "note": "phase 3"
+ },
+ {
+  "match": "the ledger row records exactly what is deducted",
+  "key": "ES-320",
+  "action": "comment added",
+  "note": "phase 3"
+ },
+ {
+  "match": "the loan row is locked",
+  "key": "ES-321",
+  "action": "comment added",
+  "note": "phase 3"
+ },
+ {
+  "match": "a huge negative adjustment is refused",
+  "key": "ES-322",
+  "action": "comment added",
+  "note": "phase 3"
+ },
+ {
+  "match": "a non numeric adjustment is refused",
+  "key": "ES-322",
+  "action": "comment added",
+  "note": "phase 3"
+ },
+ {
+  "match": "principal column adds up to the loan amount",
+  "key": "ES-407",
+  "action": "new bug",
+  "note": "phase 3"
+ },
+ {
+  "match": "the schedule closes exactly to zero",
+  "key": "ES-407",
+  "action": "new bug",
+  "note": "phase 3"
+ },
+ {
+  "match": "rejects an amount of 0, a negative amount",
+  "key": "ES-317",
+  "action": "comment added",
+  "note": "phase 3"
+ },
+ {
+  "match": "rejects 0 or negative installments",
+  "key": "ES-317",
+  "action": "comment added",
+  "note": "phase 3"
+ },
+ {
+  "match": "an application date that is not a date",
+  "key": "ES-317",
+  "action": "comment added",
+  "note": "phase 3"
+ },
+ {
+  "match": "re-posting an existing case number of ANOTHER member",
+  "key": "ES-316",
+  "action": "comment added",
+  "note": "phase 3"
+ },
+ {
+  "match": "an application that is already sanctioned cannot be edited",
+  "key": "ES-316",
+  "action": "comment added",
+  "note": "phase 3"
+ },
+ {
+  "match": "list screens report a database failure",
+  "key": "ES-402",
+  "action": "comment added",
+  "note": "phase 3"
+ },
+ {
+  "match": "a database failure is reported, not an empty list",
+  "key": "ES-402",
+  "action": "comment added",
+  "note": "phase 3"
+ },
+ {
+  "match": "rejects a negative, zero or non numeric sanctioned amount",
+  "key": "ES-318",
+  "action": "comment added",
+  "note": "phase 3"
+ },
+ {
+  "match": "rejects a sanctioned amount above the applied",
+  "key": "ES-318",
+  "action": "comment added",
+  "note": "phase 3"
+ },
+ {
+  "match": "rejects 0, negative or text installments",
+  "key": "ES-318",
+  "action": "comment added",
+  "note": "phase 3"
+ },
+ {
+  "match": "rejects a sanction date that is not a date",
+  "key": "ES-318",
+  "action": "comment added",
+  "note": "phase 3"
+ },
+ {
+  "match": "cannot be re-sanctioned",
+  "key": "ES-318",
+  "action": "comment added",
+  "note": "phase 3"
+ },
+ {
+  "match": "a member whose calculation fails stops the whole run",
+  "key": "ES-408",
+  "action": "new bug",
+  "note": "phase 4"
+ },
+ {
+  "match": "rejects invalid dates",
+  "key": "ES-408",
+  "action": "new bug",
+  "note": "phase 4"
+ },
+ {
+  "match": "rejects a negative, absurd or non numeric interest rate",
+  "key": "ES-408",
+  "action": "new bug",
+  "note": "phase 4"
+ },
+ {
+  "match": "the period is not longer than one year",
+  "key": "ES-408",
+  "action": "new bug",
+  "note": "phase 4"
+ },
+ {
+  "match": "two runs at the same moment cannot both pass",
+  "key": "ES-408",
+  "action": "new bug",
+  "note": "phase 4"
+ },
+ {
+  "match": "invalid or missing dates and a non numeric rate",
+  "key": "ES-408",
+  "action": "new bug",
+  "note": "phase 4"
+ },
+ {
+  "match": "a negative balance never produces negative interest",
+  "key": "ES-408",
+  "action": "new bug",
+  "note": "phase 4"
+ },
+ {
+  "match": "interest on Saving and RD accounts is not credited",
+  "key": "ES-121",
+  "action": "comment added",
+  "note": "phase 4"
+ },
+ {
+  "match": "two simultaneous closings of the same member",
+  "key": "ES-409",
+  "action": "new bug",
+  "note": "phase 4"
+ },
+ {
+  "match": "an override without a reason is refused",
+  "key": "ES-409",
+  "action": "new bug",
+  "note": "phase 4"
+ },
+ {
+  "match": "a member without a member_balances row is not marked credited",
+  "key": "ES-410",
+  "action": "new bug",
+  "note": "phase 4"
+ },
+ {
+  "match": "certificate numbers are unique",
+  "key": "ES-411",
+  "action": "new bug",
+  "note": "phase 4"
+ },
+ {
+  "match": "rejects 0, negative and NaN amounts",
+  "key": "ES-353",
+  "action": "comment added",
+  "note": "phase 4"
+ },
+ {
+  "match": "an opening balance of zero or negative is refused",
+  "key": "ES-353",
+  "action": "comment added",
+  "note": "phase 4"
+ },
+ {
+  "match": "a non numeric amount is refused (NaN",
+  "key": "ES-353",
+  "action": "comment added",
+  "note": "phase 4"
+ },
+ {
+  "match": "an absurd amount (1e12) is refused",
+  "key": "ES-353",
+  "action": "comment added",
+  "note": "phase 4"
+ },
+ {
+  "match": "rejects a non numeric amount (NaN)",
+  "key": "ES-353",
+  "action": "comment added",
+  "note": "phase 4"
+ },
+ {
+  "match": "rejects an absurd amount (1e12) and an amount far above",
+  "key": "ES-353",
+  "action": "comment added",
+  "note": "phase 4"
+ },
+ {
+  "match": "rejects an impossible month or year",
+  "key": "ES-353",
+  "action": "comment added",
+  "note": "phase 4"
+ },
+ {
+  "match": "rejects a month outside the financial year",
+  "key": "ES-353",
+  "action": "comment added",
+  "note": "phase 4"
+ },
+ {
+  "match": "rate 0, negative, NaN and a rate over 100%",
+  "key": "ES-328",
+  "action": "comment added",
+  "note": "phase 4"
+ },
+ {
+  "match": "commit refuses a rate of 500%",
+  "key": "ES-328",
+  "action": "comment added",
+  "note": "phase 4"
+ },
+ {
+  "match": "month 13, month 0, year 1800 and a non numeric month",
+  "key": "ES-370",
+  "action": "comment added",
+  "note": "phase 4"
+ },
+ {
+  "match": "maps a pending loan voucher and its staged breakdown",
+  "key": "ES-404",
+  "action": "comment added",
+  "note": "Double space in member name"
+ },
+ {
+  "match": "credits the member savings head, not Cash-In-Hand, when paying savings interest",
+  "key": "ES-121",
+  "action": "comment added",
+  "note": "DayBook interest payment credits Cash in hand A1001"
+ },
+ {
+  "match": "rejects a non-numeric interest amount instead of posting",
+  "key": "ES-353",
+  "action": "comment added",
+  "note": "NaN interest amount posted to ledger"
+ },
+ {
+  "match": "rejects unreasonable dividend rates (e.g. > 100% or negative)",
+  "key": "ES-328",
+  "action": "comment added",
+  "note": "Dividend report accepts unreasonable dividend rate (e.g. 250%) without validation"
+ },
+ {
+  "match": "slices unvalidated date strings without validating date format",
+  "key": "ES-370",
+  "action": "comment added",
+  "note": "New loan disbursed report slices unvalidated date strings into SQL"
+ },
+ {
+  "match": "allocates ids on the transactional connection",
+  "key": "ES-413",
+  "action": "new bug",
+  "note": "phase 5"
+ },
+ {
+  "match": "voucher and transaction ids are taken from a sequence",
+  "key": "ES-413",
+  "action": "new bug",
+  "note": "phase 5"
+ },
+ {
+  "match": "the signed-in user is recorded",
+  "key": "ES-413",
+  "action": "new bug",
+  "note": "phase 5"
+ },
+ {
+  "match": "a voucher with a pending notification",
+  "key": "ES-413",
+  "action": "new bug",
+  "note": "phase 5"
+ },
+ {
+  "match": "zero, negative and absurd amounts are refused",
+  "key": "ES-313",
+  "action": "comment added",
+  "note": "phase 5"
+ },
+ {
+  "match": "only RECEIPT and PAYMENT voucher types",
+  "key": "ES-313",
+  "action": "comment added",
+  "note": "phase 5"
+ },
+ {
+  "match": "an unknown member is refused",
+  "key": "ES-313",
+  "action": "comment added",
+  "note": "phase 5"
+ },
+ {
+  "match": "a second voucher for the same sanctioned case",
+  "key": "ES-319",
+  "action": "comment added",
+  "note": "phase 5"
+ },
+ {
+  "match": "the voucher amount is the sanctioned amount",
+  "key": "ES-319",
+  "action": "comment added",
+  "note": "phase 5"
+ },
+ {
+  "match": "the breakdown lines must add up",
+  "key": "ES-319",
+  "action": "comment added",
+  "note": "phase 5"
+ },
+ {
+  "match": "two simultaneous postings of the same month",
+  "key": "ES-414",
+  "action": "new bug",
+  "note": "phase 5"
+ },
+ {
+  "match": "the posting posts all the heads of the demand",
+  "key": "ES-414",
+  "action": "new bug",
+  "note": "phase 5"
+ },
+ {
+  "match": "rejects a journal line without a head code",
+  "key": "ES-415",
+  "action": "new bug",
+  "note": "phase 5"
+ },
+ {
+  "match": "keeps the true minimum balance when a withdrawal",
+  "key": "ES-416",
+  "action": "new bug",
+  "note": "phase 5"
+ },
+ {
+  "match": "keeps the preview and the save tolerance consistent",
+  "key": "ES-417",
+  "action": "new bug",
+  "note": "phase 5"
+ },
+ {
+  "match": "maps a legacy demand row to a pending shortfall line",
+  "key": "ES-418",
+  "action": "new bug",
+  "note": "phase 5"
+ },
+ {
+  "match": "keeps the audit row traceable when the legacy demand serial is zero",
+  "key": "ES-418",
+  "action": "new bug",
+  "note": "phase 5"
+ },
+ {
+  "match": "rejects an empty warrant list",
+  "key": "ES-419",
+  "action": "new bug",
+  "note": "phase 5"
+ },
+ {
+  "match": "rejects a total that does not match the warrants",
+  "key": "ES-419",
+  "action": "new bug",
+  "note": "phase 5"
+ },
+ {
+  "match": "rejects a header total that does not equal the sum",
+  "key": "ES-420",
+  "action": "new bug",
+  "note": "phase 5"
+ },
+ {
+  "match": "writes the CD head code on the audit ledger row",
+  "key": "ES-420",
+  "action": "new bug",
+  "note": "phase 5"
+ },
+ {
+  "match": "serializes id allocation before reading MAX",
+  "key": "ES-420",
+  "action": "new bug",
+  "note": "phase 5"
+ },
+ {
+  "match": "transfers the debit-head balance up to the credit limit",
+  "key": "ES-421",
+  "action": "new bug",
+  "note": "phase 5"
+ },
+ {
+  "match": "recomputes amounts from the ledger instead of trusting",
+  "key": "ES-421",
+  "action": "new bug",
+  "note": "phase 5"
+ },
+ {
+  "match": "counts legacy receipt rows (R) as receipts",
+  "key": "ES-422",
+  "action": "new bug",
+  "note": "phase 5"
+ },
+ {
+  "match": "counts legacy receipt/payment rows in the member balance",
+  "key": "ES-422",
+  "action": "new bug",
+  "note": "phase 5"
+ },
+ {
+  "match": "uses the head's own normal direction",
+  "key": "ES-422",
+  "action": "new bug",
+  "note": "phase 5"
+ },
+ {
+  "match": "treats legacy R/P rows as receipts/payments",
+  "key": "ES-422",
+  "action": "new bug",
+  "note": "phase 5"
+ },
+ {
+  "match": "rejects a non-numeric ledger amount instead of returning a NaN total",
+  "key": "ES-422",
+  "action": "new bug",
+  "note": "phase 5"
+ },
+ {
+  "match": "rejects a year with trailing junk",
+  "key": "ES-423",
+  "action": "new bug",
+  "note": "phase 5"
+ },
+ {
+  "match": "accepts a lower-case month name",
+  "key": "ES-423",
+  "action": "new bug",
+  "note": "phase 5"
+ },
+ {
+  "match": "fails instead of returning an empty head list when the database is unavailable",
+  "key": "ES-402",
+  "action": "comment added",
+  "note": "phase 5"
+ },
+ {
+  "match": "fails clearly when the opening-balance query fails",
+  "key": "ES-402",
+  "action": "comment added",
+  "note": "phase 5"
+ },
+ {
+  "match": "returns null instead of throwing NotFoundException when member does not exist",
+  "key": "ES-303",
+  "action": "comment",
+  "note": "Member profile returns null (200) instead of 404"
+ },
+ {
+  "match": "rejects empty or whitespace member number",
+  "key": "ES-303",
+  "action": "comment",
+  "note": "Empty member number runs the query"
+ },
+ {
+  "match": "rejects when minBalance is greater than maxBalance",
+  "key": "ES-303",
+  "action": "comment",
+  "note": "min > max accepted"
+ },
+ {
+  "match": "rejects missing or empty head_code",
+  "key": "ES-303",
+  "action": "comment",
+  "note": "Empty head_code accepted"
+ },
+ {
+  "match": "slices unvalidated date strings",
+  "key": "ES-303",
+  "action": "comment",
+  "note": "Dates not validated"
+ },
+ {
+  "match": "statement of an unknown member is a not-found error",
+  "key": "ES-303",
+  "action": "comment",
+  "note": "Member statement returns null"
+ },
+ {
+  "match": "rejects unreasonable dividend rates",
+  "key": "ES-328",
+  "action": "comment",
+  "note": "Dividend report accepts rate >100% or negative"
+ },
+ {
+  "match": "daily cash book counts a legacy P row",
+  "key": "ES-424",
+  "action": "new bug",
+  "note": "Legacy R/P rows in report v2"
+ },
+ {
+  "match": "daily cash book opening balance includes legacy R/P",
+  "key": "ES-424",
+  "action": "new bug",
+  "note": "Legacy R/P rows in report v2"
+ },
+ {
+  "match": "bank ledger opening balance counts legacy P rows",
+  "key": "ES-424",
+  "action": "new bug",
+  "note": "Legacy R/P rows in report v2"
+ },
+ {
+  "match": "member ledger running balance treats legacy R as credit",
+  "key": "ES-424",
+  "action": "new bug",
+  "note": "Legacy R/P rows in report v2"
+ },
+ {
+  "match": "SQL counts legacy R/P rows",
+  "key": "ES-424",
+  "action": "new bug",
+  "note": "Legacy R/P rows in report v2"
+ },
+ {
+  "match": "statement row keys are unique when an offset is used",
+  "key": "ES-425",
+  "action": "new bug",
+  "note": "key = offset || 0 + idx precedence"
+ },
+ {
+  "match": "allocating the process id and the in-progress check",
+  "key": "ES-429",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. Day-end start has no lock"
+ },
+ {
+  "match": "the daily transaction count reads the table",
+  "key": "ES-427",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. Health reads transactions not ledger"
+ },
+ {
+  "match": "the business metrics read the live member and loan tables",
+  "key": "ES-427",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. Empty ORM tables"
+ },
+ {
+  "match": "should get all account balances for a member",
+  "key": "ES-427",
+  "action": "new bug",
+  "note": "stale-fixed"
+ },
+ {
+  "match": "a missing account is a 404 NotFoundException",
+  "key": "ES-303",
+  "action": "comment",
+  "note": "FIXED 2026-11-03, retest PASS. Plain Error 500"
+ },
+ {
+  "match": "the dump includes --clean",
+  "key": "ES-374",
+  "action": "comment",
+  "note": "FIXED 2026-11-03, retest PASS. Restore doubles data"
+ },
+ {
+  "match": "a file name that climbs out of the backup folder",
+  "key": "ES-426",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. Path traversal"
+ },
+ {
+  "match": "never deletes a file outside the backup folder",
+  "key": "ES-426",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. Path traversal"
+ },
+ {
+  "match": "a missing file is a 404 NotFoundException",
+  "key": "ES-303",
+  "action": "comment",
+  "note": "FIXED 2026-11-03, retest PASS. Delete backup 404 wrapped to 400"
+ },
+ {
+  "match": "when one of the fixes fails the whole batch is rolled back",
+  "key": "ES-428",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. Data correction partial commit"
+ },
+ {
+  "match": "an unknown record type is reported as an error",
+  "key": "ES-428",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. Data correction"
+ },
+ {
+  "match": "does not claim a rollback is available",
+  "key": "ES-428",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. Data correction"
+ },
+ {
+  "match": "says it is not supported instead of reporting success",
+  "key": "ES-428",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. Data correction"
+ },
+ {
+  "match": "a CANCELLED message is not sent",
+  "key": "ES-430",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. Member messages"
+ },
+ {
+  "match": "WhatsApp: a 10 digit mobile number that itself starts with 91",
+  "key": "ES-430",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. Member messages"
+ },
+ {
+  "match": "cancel only touches PENDING rows",
+  "key": "ES-430",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. Member messages"
+ },
+ {
+  "match": "two different payments of the same amount",
+  "key": "ES-430",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. Member messages"
+ },
+ {
+  "match": "a member with no phone number is not queued",
+  "key": "ES-430",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. Member messages"
+ },
+ {
+  "match": "a repeat run the same day queues nothing new",
+  "key": "ES-430",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. Member messages"
+ },
+ {
+  "match": "monthly summaries go to every active member",
+  "key": "ES-430",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. Member messages"
+ },
+ {
+  "match": "accepts a normal version like 1.8.0",
+  "key": "ES-431",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. What's New regex"
+ },
+ {
+  "match": "accepts a multi-digit version like 12.40.105",
+  "key": "ES-431",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. What's New regex"
+ },
+ {
+  "match": "a message with the role \"system\" from the browser",
+  "key": "ES-432",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. AI chat"
+ },
+ {
+  "match": "a very long message is cut before it is sent",
+  "key": "ES-432",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. AI chat"
+ },
+ {
+  "match": "the Gemini API key is not put in the URL",
+  "key": "ES-432",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. AI chat"
+ },
+ {
+  "match": "requests to Jira have a timeout",
+  "key": "ES-433",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. Jira no timeout"
+ },
+ {
+  "match": "create takes the poster from the logged-in user",
+  "key": "ES-434",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. Notice posted by"
+ },
+ {
+  "match": "a long message is cut at 4000 characters",
+  "key": "ES-434",
+  "action": "new bug",
+  "note": "FIXED 2026-11-03, retest PASS. Telegram cut"
+ },
+ {
+  "match": "create rejects an empty title or message",
+  "key": "ES-371",
+  "action": "comment",
+  "note": "FIXED 2026-11-03, retest PASS. Notice validation"
+ },
+ {
+  "match": "create rejects an unknown notice type",
+  "key": "ES-371",
+  "action": "comment",
+  "note": "FIXED 2026-11-03, retest PASS. Notice validation"
+ },
+ {
+  "match": "reorder with a list of non-numbers",
+  "key": "ES-371",
+  "action": "comment",
+  "note": "FIXED 2026-11-03, retest PASS. Notice validation"
+ },
+ {
+  "match": "a patch with one bad value saves nothing at all",
+  "key": "ES-435",
+  "action": "new bug",
+  "note": "phase 9 (untested services)"
+ }
+]

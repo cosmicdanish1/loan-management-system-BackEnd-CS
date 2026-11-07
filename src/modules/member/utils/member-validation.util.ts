@@ -93,6 +93,33 @@ export class MemberValidationUtil {
    * @param memberData - The member data to validate
    * @returns Validation result with errors if any
    */
+  /**
+   * Validation for a PARTIAL update (PATCH): only the fields that are sent are checked, so changing one phone number
+   * does not demand the name, address and date of birth again (ES-307). A field that is sent must still be valid, and a
+   * required field cannot be blanked out.
+   */
+  static validateMemberUpdate(memberData: any): { isValid: boolean; errors: string[] } {
+    const errors: string[] = [];
+    const sent = (v: any) => v !== undefined;
+
+    if (sent(memberData.firstName) && !String(memberData.firstName ?? '').trim()) errors.push('First name cannot be empty');
+    if (sent(memberData.lastName) && !String(memberData.lastName ?? '').trim()) errors.push('Last name cannot be empty');
+    if (sent(memberData.address) && !String(memberData.address ?? '').trim()) errors.push('Address cannot be empty');
+    if (sent(memberData.dateOfBirth)) {
+      if (!memberData.dateOfBirth) errors.push('Date of birth cannot be empty');
+      else if (!this.isValidAge(new Date(memberData.dateOfBirth))) errors.push('Member must be between 18 and 100 years old');
+    }
+    if (sent(memberData.phoneNumber)) {
+      if (!String(memberData.phoneNumber ?? '').trim()) errors.push('Phone number cannot be empty');
+      else if (!this.isValidPhoneNumber(memberData.phoneNumber)) errors.push('Invalid phone number format');
+    }
+    if (memberData.email && !this.isValidEmail(memberData.email)) errors.push('Invalid email format');
+    if (memberData.aadharNumber && !this.isValidAadhar(memberData.aadharNumber)) errors.push('Invalid Aadhar number format');
+    if (memberData.panNumber && !this.isValidPAN(memberData.panNumber)) errors.push('Invalid PAN number format');
+
+    return { isValid: errors.length === 0, errors };
+  }
+
   static validateMemberData(memberData: any): { isValid: boolean; errors: string[] } {
     const errors: string[] = [];
 

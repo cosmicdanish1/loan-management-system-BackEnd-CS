@@ -1,4 +1,5 @@
 import { Injectable, Logger, BadRequestException, NotFoundException, Inject, forwardRef } from '@nestjs/common';
+import { lockLedgerIds } from '../shared/utils/ledger-lock';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Between } from 'typeorm';
 import { InterestMaster, InterestPaid, Ledger } from './entities';
@@ -13,6 +14,26 @@ import { SystemConfigService } from '../admin/services/system-config.service';
 import { FundsMaster } from '../admin/entities/funds-master.entity';
 import { validateDoubleEntry } from '../shared/utils/ledger-validation';
 import { generateVoucherNo } from '../shared/utils/voucher-utils';
+
+/** Longest period one interest run may cover */
+const MAX_INTEREST_PERIOD_DAYS = 365;
+const MAX_INTEREST_RATE = 50;
+
+/**
+ * The one rule set for an interest run, shared by the validate call and the real run.
+ * Returns the first problem as a message, or null when the dates and the rate are acceptable.
+ */
+function interestParameterProblem(dto: { fromDate: any; toDate: any; interestRate: any }): string | null {
+  const fromDate = new Date(dto.fromDate);
+  const toDate = new Date(dto.toDate);
+  if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) return 'From date and to date must be valid dates';
+  if (fromDate >= toDate) return 'From date must be before to date';
+  const days = (toDate.getTime() - fromDate.getTime()) / (1000 * 60 * 60 * 24);
+  if (days > MAX_INTEREST_PERIOD_DAYS) return `Interest period cannot exceed ${MAX_INTEREST_PERIOD_DAYS} days`;
+  const rate = typeof dto.interestRate === 'string' && dto.interestRate.trim() === '' ? NaN : Number(dto.interestRate);
+  if (!Number.isFinite(rate) || rate < 0 || rate > MAX_INTEREST_RATE) return `Interest rate must be a number between 0% and ${MAX_INTEREST_RATE}%`;
+  return null;
+}
 
 @Injectable()
 export class InterestService {
@@ -44,13 +65,11 @@ export class InterestService {
     try {
       this.logger.log(`Starting interest calculation for period ${dto.fromDate} to ${dto.toDate}`);
 
-      // Validate dates
+      // Validate dates and rate (same rules as validateInterestParameters)
+      const problem = interestParameterProblem(dto);
+      if (problem) throw new BadRequestException(problem);
       const fromDate = new Date(dto.fromDate);
       const toDate = new Date(dto.toDate);
-
-      if (fromDate >= toDate) {
-        throw new BadRequestException('From date must be before to date');
-      }
 
       // BUG FIX 53: this was an exact 3-column match (fromDate, toDate, intType),
       // despite the error message claiming "or dates overlap" — Jan 1-31 then
@@ -58,6 +77,9 @@ export class InterestService {
       // real overlap check: any existing run of the same type whose range intersects
       // the requested one blocks it.
       const accountTypeCode = dto.accountType || 'SB';
+      // Take the lock for this account type BEFORE the overlap check: two runs started at the same moment
+      // would otherwise both see "no overlap" and both post the same period (released at commit/rollback).
+      await queryRunner.manager.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`interest_run:${accountTypeCode}`]);
       const overlapping = await queryRunner.manager.query(
         `SELECT id FROM interestmaster WHERE inttype = $1 AND frdt <= $2 AND todt >= $3 LIMIT 1`,
         [accountTypeCode, toDate, fromDate]
@@ -144,12 +166,15 @@ export class InterestService {
             // wired, just previously ignored — same one-place-fixable pattern used for
             // FD's headCode), falling back to the same flagged-wrong defaults only when
             // none is given.
+            // ES-121: A1001 is CASH IN HAND and A1002 is REGULAR LOAN, so interest must never be credited to them.
+            // SB interest goes to the member savings head A001 (the head SB opening and the Day Book use) and RD
+            // interest to L1004 (the head RD instalments are posted under). FD is on hold and keeps its placeholder.
             const GL_CREDIT_HEAD_MAP: Record<string, string> = {
-              'RD': 'A1002',
-              'SB': 'A1001',
+              'RD': 'L1004',
+              'SB': 'A001',
               'FD': 'A1003',
             };
-            const glHead = dto.accountHead || GL_CREDIT_HEAD_MAP[accountTypeCode] || 'A1001';
+            const glHead = dto.accountHead || GL_CREDIT_HEAD_MAP[accountTypeCode] || 'A001';
 
             await this.createInterestLedgerEntry(
               member,
@@ -188,7 +213,10 @@ export class InterestService {
             totalInterestAmount += calculation.interestAmount;
           }
         } catch (error) {
+          // One member's failure stops the whole run (the outer catch rolls everything back): carrying on would
+          // post the run and leave this member silently without interest while the period is marked as done.
           this.logger.error(`Error calculating interest for member ${member.mbno}:`, error);
+          throw new Error(`Interest calculation failed for member ${member.mbno}: ${(error as any)?.message ?? error}`);
         }
       }
 
@@ -197,6 +225,14 @@ export class InterestService {
       // mathematically incapable of ever failing, regardless of what was actually
       // written to the ledger. Reading back the real rows just inserted (by
       // voucherNumber, within this same transaction) actually verifies something.
+      // A run that pays nobody must not book the period: the catch below rolls back the interestmaster row and the
+      // voucher number, so the period stays open for a later run once accounts exist. (ES-329)
+      if (memberCalculations.length === 0) {
+        throw new BadRequestException(
+          'No account earned interest for this period, so nothing was posted. The period stays open for a later run.',
+        );
+      }
+
       const ledgerCheck = await queryRunner.manager.query(
         `SELECT trans_type, SUM(trans_amt::numeric) as total FROM ledger WHERE receipt_vchr_no = $1 GROUP BY trans_type`,
         [voucherNumber]
@@ -323,7 +359,8 @@ export class InterestService {
     const sumOfBalances = dailyBalances.reduce((sum, day) => sum + day.balance, 0);
     const dayCount = dailyBalances.length;
     const dailyRate = annualRate / 100 / 365;
-    const interestAmount = Math.round(sumOfBalances * dailyRate * 100) / 100;
+    // an overdrawn (negative) account never earns negative interest
+    const interestAmount = Math.max(0, Math.round(sumOfBalances * dailyRate * 100) / 100);
     const averageBalance = dayCount > 0 ? sumOfBalances / dayCount : 0;
 
     let totalDebit = 0;
@@ -648,6 +685,7 @@ export class InterestService {
   // getNextId) to serialize concurrent callers without needing new sequence objects.
   private async getNextId(manager: any, table: string, col: string): Promise<number> {
     await manager.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`${table}.${col}`]);
+    if (table === 'ledger') await lockLedgerIds(manager); // ES-445: the one shared ledger id lock
     const res = await manager.query(`SELECT COALESCE(MAX(${col}), 0) + 1 as next_id FROM ${table}`);
     return parseInt(res[0].next_id);
   }
@@ -773,24 +811,10 @@ export class InterestService {
     eligibleMembers?: number;
   }> {
     try {
+      const problem = interestParameterProblem(dto);
+      if (problem) return { valid: false, message: problem };
       const fromDate = new Date(dto.fromDate);
       const toDate = new Date(dto.toDate);
-
-      // Check date validity
-      if (fromDate >= toDate) {
-        return { valid: false, message: 'From date must be before to date' };
-      }
-
-      // Check if period is too long (more than 1 year)
-      const daysDiff = (toDate.getTime() - fromDate.getTime()) / (1000 * 60 * 60 * 24);
-      if (daysDiff > 365) {
-        return { valid: false, message: 'Interest period cannot exceed 365 days' };
-      }
-
-      // Check if interest rate is reasonable
-      if (dto.interestRate < 0 || dto.interestRate > 50) {
-        return { valid: false, message: 'Interest rate must be between 0% and 50%' };
-      }
 
       // Check for existing calculation
       const existingRun = await this.interestMasterRepository.findOne({
@@ -836,6 +860,23 @@ export class InterestService {
       const dividendPct = Number(rules['RULE_DIVIDEND_PCT'] || 0);
       const insuranceAmt = Number(rules['RULE_GRP_INSURANCE_AMT'] || 0);
       const dividendYear = new Date(dto.toDate).getFullYear();
+
+      // ES-448: the yearly process may only run once per year. It used to be guarded only when a dividend rate was set,
+      // so with a rate of 0 the same request posted every member's interest and insurance again (and two requests at the
+      // same moment both passed the check). The year's lock is taken first and the ledger is checked under it: the
+      // postings of a run carry the year in their narration, which is what the check looks for.
+      if (!isPreview) {
+        await queryRunner.manager.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`yearly_fund_run:${dividendYear}`]);
+        const alreadyRun = await queryRunner.manager.query(
+          `SELECT receipt_vchr_no FROM ledger WHERE narration = ANY($1) LIMIT 1`,
+          [[`Yearly Fund Interest ${dividendYear}`, `Annual Group Insurance Deduction ${dividendYear}`]],
+        );
+        if (alreadyRun.length > 0) {
+          throw new BadRequestException(
+            `The yearly fund process for ${dividendYear} has already been run (voucher ${alreadyRun[0].receipt_vchr_no}). It can only be run once per year.`,
+          );
+        }
+      }
 
       if (!isPreview && dividendPct > 0) {
         const existingDividends = await queryRunner.manager.query(
@@ -931,7 +972,7 @@ export class InterestService {
                 memberNumber: member.mbno, memberName: member.fullName, openingBalance, totalDebit: 0, totalCredit: 0, averageBalance: 0, days: 365
               },
               voucherNumber,
-              `Yearly Fund Interest`,
+              `Yearly Fund Interest ${dividendYear}`,
               queryRunner.manager,
               'A1001' // Savings Head
             );
@@ -957,7 +998,28 @@ export class InterestService {
               voucherType: 'JV',
               modeOfPayment: 'T',
               balance: 0, // Recalculated by trigger usually
-              narration: 'Annual Group Insurance Deduction',
+              narration: `Annual Group Insurance Deduction ${dividendYear}`,
+              username: 'SYSTEM',
+            });
+            // ES-448: the deduction was a lone DR leg (unbalanced voucher). The balancing CR goes to the same
+            // Member Group Accidental Insurance head the Group Insurance module credits (L1003).
+            const insuranceCrTransNo = await this.generateTransactionNumber(queryRunner.manager);
+            const insuranceCrLedgerId = await this.getNextId(queryRunner.manager, 'ledger', 'ledgerid');
+            await queryRunner.manager.save(Ledger, {
+              transactionNumber: insuranceCrTransNo,
+              ledgerId: insuranceCrLedgerId,
+              transactionDate: processDate,
+              transactionType: 'CR',
+              code: 'L1003',
+              memberNumber: member.mbno,
+              accountNumber: member.mbno,
+              accountType: 'SB',
+              transactionAmount: deductionInsurance,
+              receiptVoucherNumber: voucherNumber,
+              voucherType: 'JV',
+              modeOfPayment: 'T',
+              balance: 0,
+              narration: `Annual Group Insurance Deduction ${dividendYear}`,
               username: 'SYSTEM',
             });
           }

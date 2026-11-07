@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { lockLedgerIds } from '../../shared/utils/ledger-lock';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { FinancialYear } from '../entities/financial-year.entity';
@@ -47,6 +48,15 @@ export class FinancialYearService {
         }
         if (start >= end) {
             throw new BadRequestException('Start date must be before end date.');
+        }
+        // ES-401: a financial year runs about 12 months. A 10-year "year" or a few days would break every year-end report,
+        // so the length (first to last day, inclusive) must be 28 to 367 days.
+        const lengthDays = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
+        if (lengthDays > 367) {
+            throw new BadRequestException(`A financial year cannot be longer than one year (this period is ${lengthDays} days).`);
+        }
+        if (lengthDays < 28) {
+            throw new BadRequestException(`A financial year cannot be only ${lengthDays} day(s) long.`);
         }
 
         // Guard against overlapping an existing year — this table isn't append-only
@@ -135,6 +145,11 @@ export class FinancialYearService {
      */
     async initiateTransfer(yearCode: number, username: string): Promise<{ message: string }> {
         const fy = await this.getFinancialYear(yearCode);
+        // ES-401: the transfer rewrites the archived closing balances of the year, so a year that is already closed
+        // (locked) must not be transferred again
+        if (fy.closedAt) {
+            throw new BadRequestException(`Financial Year ${yearCode} is already closed and cannot be transferred again.`);
+        }
         this.logger.log(`Initiating year-end transfer for FY ${yearCode} by ${username}`);
 
         const queryRunner = this.dataSource.createQueryRunner();
@@ -304,6 +319,13 @@ export class FinancialYearService {
         if (!Number.isFinite(amount) || amount <= 0) {
             throw new BadRequestException('Balance transfer failed: amount must be a number greater than zero');
         }
+        // ES-357: one crore or more is not posted silently; the caller has to confirm it explicitly
+        const LARGE_TRANSFER = 10_000_000;
+        if (amount >= LARGE_TRANSFER && transferData?.confirmLargeAmount !== true) {
+            throw new BadRequestException(
+                `Balance transfer failed: an amount of ${amount} (one crore or more) needs confirmation. Send confirmLargeAmount: true to post it.`,
+            );
+        }
         if (!fromAccount || !toAccount) {
             throw new BadRequestException('Balance transfer failed: both From and To accounts are required');
         }
@@ -352,6 +374,7 @@ export class FinancialYearService {
             // raw INSERT never included it, so every balance transfer crashed
             // ("null value in column ledgerid violates not-null constraint").
             // Confirmed live before this fix.
+            await lockLedgerIds(queryRunner); // ES-445
             const ledgerIdResult = await queryRunner.query(`SELECT COALESCE(MAX(ledgerid), 0) + 1 as next FROM ledger`);
             let nextLedgerId = parseInt(ledgerIdResult[0]?.next || '1');
 

@@ -67,49 +67,67 @@ export class DayEndService {
     // FIX BUG 7: Normalize to midnight to ensure consistent timestamp comparison
     processDate.setHours(0, 0, 0, 0);
 
-    // Check if day-end already completed for this date
-    if (!initiateDayEndDto.forceReprocess) {
-      const existingProcess = await this.dayEndProcessRepository.findOne({
-        where: {
-          processDate,
-          status: DayEndStatus.COMPLETED,
-        },
+    // The checks and the insert run in ONE transaction under an advisory lock (ES-429). Without it two requests that
+    // arrive together (a double click, or the 11:30 PM job plus a manual run) both pass "nothing is in progress" and
+    // both take the same MAX(id) + 1.
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    let savedProcess: DayEndProcess;
+    try {
+      await queryRunner.query(`SELECT pg_advisory_xact_lock(hashtext('day_end_processes'))`);
+      const processRepo = queryRunner.manager.getRepository(DayEndProcess);
+
+      // Check if day-end already completed for this date
+      if (!initiateDayEndDto.forceReprocess) {
+        const existingProcess = await processRepo.findOne({
+          where: {
+            processDate,
+            status: DayEndStatus.COMPLETED,
+          },
+        });
+
+        if (existingProcess) {
+          throw new BadRequestException(
+            `Day-end processing already completed for ${processDate.toDateString()}`,
+          );
+        }
+      }
+
+      // Check if there's an ongoing process
+      const ongoingProcess = await processRepo.findOne({
+        where: { status: DayEndStatus.IN_PROGRESS },
       });
 
-      if (existingProcess) {
-        throw new BadRequestException(
-          `Day-end processing already completed for ${processDate.toDateString()}`,
-        );
+      if (ongoingProcess) {
+        throw new BadRequestException('Another day-end process is currently in progress');
       }
+
+      // The next id is read under the same lock, so two requests can never get the same one
+      const nextIdResult = await queryRunner.query(
+        `SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM day_end_processes`
+      );
+      const nextId = Number(nextIdResult[0]?.next_id ?? 1);
+
+      const processSteps = this.getProcessSteps(initiateDayEndDto.processTypes);
+
+      const dayEndProcess = processRepo.create({
+        id: nextId,
+        processDate,
+        status: DayEndStatus.IN_PROGRESS,
+        startedAt: new Date(),
+        initiatedBy: userId,
+        processSteps,
+      });
+
+      savedProcess = await processRepo.save(dayEndProcess);
+      await queryRunner.commitTransaction();
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
     }
-
-    // Check if there's an ongoing process
-    const ongoingProcess = await this.dayEndProcessRepository.findOne({
-      where: { status: DayEndStatus.IN_PROGRESS },
-    });
-
-    if (ongoingProcess) {
-      throw new BadRequestException('Another day-end process is currently in progress');
-    }
-
-    // FIX BUG 4: Generate next ID inside a serialized query to prevent race conditions
-    const nextIdResult = await this.dataSource.query(
-      `SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM day_end_processes`
-    );
-    const nextId = Number(nextIdResult[0]?.next_id ?? 1);
-
-    const processSteps = this.getProcessSteps(initiateDayEndDto.processTypes);
-
-    const dayEndProcess = this.dayEndProcessRepository.create({
-      id: nextId,
-      processDate,
-      status: DayEndStatus.IN_PROGRESS,
-      startedAt: new Date(),
-      initiatedBy: userId,
-      processSteps,
-    });
-
-    const savedProcess = await this.dayEndProcessRepository.save(dayEndProcess);
 
     // Start processing asynchronously — errors are caught and persisted internally
     this.executeDayEndProcess(savedProcess.id).catch(error => {
@@ -552,62 +570,19 @@ export class DayEndService {
     }
   }
 
-  private async calculateInterest(processDate: Date, queryRunner: any): Promise<any> {
-    const results = {
+  /**
+   * Retired (ES-427). This step accrued daily interest on the empty loan_accounts table, so it never did anything
+   * real, and loan/SB/RD/FD interest is posted from its own screens. Day-End runs created before this change may
+   * still carry the step; it now reports that nothing was done instead of claiming "0 loans processed".
+   */
+  private async calculateInterest(_processDate: Date, _queryRunner: any): Promise<any> {
+    return {
+      skipped: true,
+      message: 'Interest is not accrued by Day-End. Use the Interest Calculation screens.',
       loansProcessed: 0,
       depositsProcessed: 0,
       totalInterestPosted: 0,
     };
-
-    // FIX BUG 3: Read loans INSIDE the transaction via queryRunner.manager
-    // to prevent dirty reads from concurrent processes.
-    const activeLoans = await queryRunner.manager.find(LoanAccount, {
-      where: { status: 'ACTIVE' },
-      relations: ['member'],
-    });
-
-    for (const loan of activeLoans) {
-      if (loan.outstandingBalance > 0) {
-        const balance = Number(loan.outstandingBalance);
-        const rate = Number(loan.interestRate);
-        const dailyInterestRate = rate / 365 / 100;
-        const interestAmount =
-          Math.round(balance * dailyInterestRate * 100000) / 100000;
-
-        const interestPosting = this.interestPostingRepository.create({
-          memberId: loan.member.id,
-          accountId: loan.id,
-          accountNumber: loan.accountNumber,
-          type: InterestPostingType.LOAN_INTEREST,
-          principalAmount: balance,
-          interestRate: rate,
-          interestAmount,
-          calculationDate: processDate,
-          postingDate: processDate,
-          status: InterestPostingStatus.POSTED,
-          remarks: 'Daily interest calculation',
-        });
-
-        await queryRunner.manager.save(InterestPosting, interestPosting);
-
-        // Update loan outstanding balance and accrued interest
-        loan.outstandingBalance = balance + interestAmount;
-        loan.totalInterestAccrued =
-          Number(loan.totalInterestAccrued) + interestAmount;
-        loan.lastInterestCalculationDate = processDate;
-        await queryRunner.manager.save(LoanAccount, loan);
-
-        results.loansProcessed++;
-        results.totalInterestPosted =
-          Number(results.totalInterestPosted) + interestAmount;
-      }
-    }
-
-    // Deposit (FD) interest accrual removed — this society has no member-
-    // facing Fixed Deposit product; the entity this used to read
-    // (deposit/entities/fixed-deposit.entity, a disconnected demo table) has
-    // been removed entirely, not repointed.
-    return results;
   }
 
   private async createBackup(processDate: Date): Promise<any> {
@@ -673,7 +648,6 @@ export class DayEndService {
   private getProcessSteps(processTypes?: DayEndProcessType[]): DayEndProcessStep[] {
     const allSteps: DayEndProcessStep[] = [
       { type: DayEndProcessType.DATA_VALIDATION,     name: 'Data Validation',     status: DayEndStatus.PENDING },
-      { type: DayEndProcessType.INTEREST_CALCULATION, name: 'Interest Calculation', status: DayEndStatus.PENDING },
       { type: DayEndProcessType.REPORT_GENERATION,   name: 'Report Generation',   status: DayEndStatus.PENDING },
       { type: DayEndProcessType.BACKUP_CREATION,     name: 'Backup Creation',     status: DayEndStatus.PENDING },
       { type: DayEndProcessType.SYSTEM_CLEANUP,      name: 'System Cleanup',      status: DayEndStatus.PENDING },
