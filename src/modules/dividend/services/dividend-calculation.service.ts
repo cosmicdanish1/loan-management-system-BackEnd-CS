@@ -162,8 +162,9 @@ export class DividendCalculationService {
         await queryRunner.connect();
         await queryRunner.startTransaction();
         try {
+            let written = 0; // ES-498: rows really inserted or updated (credited / paid rows are skipped by the WHERE below)
             for (const member of preview.members) {
-                await queryRunner.query(
+                const res = await queryRunner.query(
                     `INSERT INTO dividend_master (mbno, year, share_amount, dividend_rate, dividend_amount, is_paid, created_at)
                      VALUES ($1, $2, $3, $4, $5, NULL, NOW())
                      ON CONFLICT (mbno, year) DO UPDATE
@@ -171,12 +172,14 @@ export class DividendCalculationService {
                              dividend_rate = EXCLUDED.dividend_rate,
                              dividend_amount = EXCLUDED.dividend_amount
                      WHERE (dividend_master.is_paid IS NULL OR dividend_master.is_paid != 'Y')
-                       AND dividend_master.credited_at IS NULL`, // ES-463: a dividend already credited to Share Value is never rewritten
+                       AND dividend_master.credited_at IS NULL
+                     RETURNING mbno`, // ES-463: a dividend already credited to Share Value is never rewritten
                     [member.mbno, preview.calculationYear, member.totalProduct, dividendRatePercent, member.dividendAmount],
                 );
+                if (Array.isArray(res) && res.length > 0) written++;
             }
             await queryRunner.commitTransaction();
-            return { success: true, calculationYear: preview.calculationYear, membersCommitted: preview.members.length };
+            return { success: true, calculationYear: preview.calculationYear, membersCommitted: written };
         } catch (error) {
             await queryRunner.rollbackTransaction();
             throw error;

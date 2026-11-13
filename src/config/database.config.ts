@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { TypeOrmModuleOptions, TypeOrmOptionsFactory } from '@nestjs/typeorm';
 import { DataSource, DataSourceOptions } from 'typeorm';
+import { TypeOrmWinstonLogger } from '../common/logging/typeorm.logger';
 
 @Injectable()
 export class DatabaseConfig implements TypeOrmOptionsFactory {
@@ -19,7 +20,9 @@ export class DatabaseConfig implements TypeOrmOptionsFactory {
       migrations: [__dirname + '/../migrations/*{.ts,.js}'],
       synchronize: false, // Always false - never auto-sync schema
       migrationsRun: false, // Don't auto-run migrations
-      logging: this.configService.get('DB_LOGGING', false),
+      // DB_LOGGING=true -> every SQL statement goes to the db-queries log via TypeOrmWinstonLogger (with the request id).
+      logging: String(this.configService.get('DB_LOGGING', false)) === 'true' ? 'all' : false,
+      logger: String(this.configService.get('DB_LOGGING', false)) === 'true' ? new TypeOrmWinstonLogger() : undefined,
       ssl: this.configService.get('NODE_ENV') === 'production' ? { rejectUnauthorized: false } : false,
       // PostgreSQL specific optimizations
       extra: {

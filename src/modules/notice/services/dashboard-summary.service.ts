@@ -11,6 +11,7 @@ import { DataSource } from 'typeorm';
  *  - Shares and compulsory deposit: the member balance snapshot (`member_balances`).
  *  - Applications: `loan_pending`. Pending = not sanctioned; sanctioned = sanctioned but not yet paid out.
  *  - Demand recovered: demand rows for this month already posted to the ledger (demand_posted = 'Y').
+ *  - RD dues: this month's instalments (`rd_member_config` amount vs `rd_installment_ledger` paid).
  */
 @Injectable()
 export class DashboardSummaryService {
@@ -28,7 +29,7 @@ export class DashboardSummaryService {
     }
 
     async getSummary() {
-        const [deposits, maturities, applications, members, retiring, demand] = await Promise.all([
+        const [deposits, maturities, applications, members, retiring, demand, rdDues] = await Promise.all([
             this.section('deposits', async () => {
                 const rows = await this.dataSource.query(`
                     SELECT
@@ -127,8 +128,40 @@ export class DashboardSummaryService {
                 const r = rows[0];
                 return { demand: r.demand, recovered: r.recovered, members: r.members };
             }),
+
+            // RD instalments for the current calendar month. A member counts when they have an RD amount set
+            // for this financial year (the latest setting in force on the 5th, the due day) or already have a
+            // ledger row for the month. "Paid" never counts more than was expected, so an over-payment by one
+            // member cannot hide another member's shortfall.
+            this.section('rdDues', async () => {
+                const rows = await this.dataSource.query(`
+                    WITH fy AS (SELECT yearcode FROM yearend WHERE current_date BETWEEN start_date AND end_date ORDER BY yearcode DESC LIMIT 1),
+                    cfg AS (SELECT DISTINCT ON (c.mbno) c.mbno::text AS mbno, c.monthly_rd_amount::float AS amt
+                            FROM rd_member_config c JOIN fy ON c.yearcode = fy.yearcode
+                            WHERE c.effective_from_date <= (date_trunc('month', current_date) + interval '4 days')
+                            ORDER BY c.mbno, c.effective_from_date DESC, c.id DESC),
+                    led AS (SELECT l.mbno::text AS mbno, l.expected_amount::float AS expected, l.paid_amount::float AS paid
+                            FROM rd_installment_ledger l JOIN fy ON l.yearcode = fy.yearcode
+                            WHERE l.installment_month = extract(month from current_date)::int
+                              AND l.installment_year = extract(year from current_date)::int),
+                    j AS (SELECT coalesce(led.expected, cfg.amt, 0) AS expected, coalesce(led.paid, 0) AS paid
+                          FROM cfg FULL JOIN led USING (mbno))
+                    SELECT count(*)::int AS members,
+                           coalesce(sum(expected),0)::float AS expected,
+                           coalesce(sum(least(paid, expected)),0)::float AS paid,
+                           count(*) FILTER (WHERE paid >= expected)::int AS paid_members,
+                           count(*) FILTER (WHERE paid > 0 AND paid < expected)::int AS partial_members,
+                           count(*) FILTER (WHERE paid <= 0)::int AS unpaid_members
+                    FROM j WHERE expected > 0
+                `);
+                const r = rows[0];
+                return {
+                    members: r.members, expected: r.expected, paid: r.paid,
+                    paidMembers: r.paid_members, partialMembers: r.partial_members, unpaidMembers: r.unpaid_members,
+                };
+            }),
         ]);
 
-        return { deposits, maturities, applications, members, retiring, demand, generatedAt: new Date().toISOString() };
+        return { deposits, maturities, applications, members, retiring, demand, rdDues, generatedAt: new Date().toISOString() };
     }
 }

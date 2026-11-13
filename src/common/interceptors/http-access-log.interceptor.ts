@@ -12,6 +12,19 @@ import { Request, Response } from 'express';
 import { ServiceLogService } from '../logging/service-log.service';
 import { safeStringify } from '../logging/safe-stringify';
 
+/** Largest request/response body (in characters of JSON) written to a log line. A full report response is often
+ *  hundreds of KB: logging it whole made 191 calls produce ~37 MB of logs. Bigger bodies keep a short preview and
+ *  their size, which is enough to tell what was returned; the data itself is in the database. */
+const BODY_MAX_CHARS = Math.max(500, Number(process.env.LOG_BODY_MAX_CHARS) || 4000);
+const PREVIEW_CHARS = 1000;
+
+export function clipBody(value: unknown): unknown {
+  if (value === undefined || value === null) return value;
+  const json = safeStringify(value);
+  if (json.length <= BODY_MAX_CHARS) return value;
+  return { _truncated: true, chars: json.length, preview: json.slice(0, PREVIEW_CHARS) };
+}
+
 @Injectable()
 export class HttpAccessLogInterceptor implements NestInterceptor {
   private readonly logger = new Logger('HttpAccess');
@@ -40,6 +53,11 @@ export class HttpAccessLogInterceptor implements NestInterceptor {
     const duration = Date.now() - start;
     const user = (req as any).user?.username || 'anonymous';
     const isFile = responseBody instanceof StreamableFile;
+    // Tell GlobalExceptionFilter this request already has an access-log line, so it only adds one for calls that
+    // were rejected before reaching an interceptor (guard 401/403, unknown route) and never writes a duplicate.
+    (req as any).accessLogged = true;
+    const requestBody = clipBody(req.body);
+    const response = isFile ? '[file stream]' : clipBody(responseBody);
 
     const entry = {
       requestId: req.requestId,
@@ -50,9 +68,9 @@ export class HttpAccessLogInterceptor implements NestInterceptor {
       user,
       clientIP: req.ip || req.socket?.remoteAddress,
       userAgent: req.headers['user-agent']?.substring(0, 100),
-      requestBody: req.body,
+      requestBody,
       requestQuery: req.query,
-      response: isFile ? '[file stream]' : responseBody,
+      response,
       error: error instanceof Error ? error.message : error,
     };
 
@@ -75,9 +93,9 @@ export class HttpAccessLogInterceptor implements NestInterceptor {
         duration,
         user,
         clientIP: req.ip || req.socket?.remoteAddress,
-        requestBody: req.body,
+        requestBody,
         requestQuery: req.query,
-        response: isFile ? '[file stream]' : responseBody,
+        response,
         error: error instanceof Error ? error.message : error,
       },
     });

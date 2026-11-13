@@ -275,13 +275,25 @@ function getLegacyEvents(mbno: string): LegacyEvent[] {
         leg,
         matches: events.filter(e => e.transType === 'CR' && e.transDate === leg.transDate && e.receiptVchrNo === leg.receiptVchrNo),
     }));
-    const rlnOnlyInterest = matchesForLeg
+    // Regular-loan interest is constant per regular-loan schedule (equalised), but a member's regular loan can be
+    // refinanced (a new case with a different amount/EMI), so ONE member-wide baseline is wrong after the refinance
+    // (e.g. 610031839: 2594 from the old loan was applied to the new loan whose real interest is 5208, which pushed
+    // 4208 instead of ~1594 into the emergency loan). Each RLN-only voucher is an observation of
+    // (date, regular-loan principal EMI, interest). For a mixed voucher the baseline is the observation with the SAME
+    // regular-loan principal EMI that is nearest in time (same principal = same schedule), falling back to the nearest
+    // observation of any principal.
+    const dayMs = (d: string) => new Date(d.slice(0, 10) + 'T00:00:00Z').getTime();
+    const rlnPrincipalOf = (matches: LegacyEvent[]) => round2(matches.filter(e => e.accType === 'RLN').reduce((s, e) => s + e.amt, 0));
+    const rlnObservations = matchesForLeg
         .filter(x => x.matches.some(e => e.accType === 'RLN') && !x.matches.some(e => e.accType === 'ALN') && x.leg.amt > 0)
-        .map(x => round2(x.leg.amt));
-    const frequency = new Map<number, number>();
-    for (const amount of rlnOnlyInterest) frequency.set(amount, (frequency.get(amount) || 0) + 1);
-    const fixedRlnInterest = [...frequency.entries()]
-        .sort((a, b) => b[1] - a[1] || b[0] - a[0])[0]?.[0];
+        .map(x => ({ day: dayMs(x.leg.transDate), principal: rlnPrincipalOf(x.matches), interest: round2(x.leg.amt) }));
+    const baselineFor = (legDate: string, rlnPrincipal: number): number | undefined => {
+        if (rlnObservations.length === 0) return undefined;
+        const same = rlnObservations.filter(o => Math.abs(o.principal - rlnPrincipal) < 0.5);
+        const pool = same.length > 0 ? same : rlnObservations;
+        const day = dayMs(legDate);
+        return pool.reduce((best, o) => (Math.abs(o.day - day) < Math.abs(best.day - day) ? o : best), pool[0]).interest;
+    };
     for (const leg of interestLegs) {
         const matches = events.filter(e => e.transType === 'CR' && e.transDate === leg.transDate && e.receiptVchrNo === leg.receiptVchrNo);
         if (matches.length === 0) continue; // no matching loan leg — leave unmatched, same as the confirmed ~0.5-6% tail
@@ -293,6 +305,7 @@ function getLegacyEvents(mbno: string): LegacyEvent[] {
         }
         const hasRln = byType.has('RLN');
         const hasAln = byType.has('ALN');
+        const fixedRlnInterest = hasRln && hasAln ? baselineFor(leg.transDate, rlnPrincipalOf(matches)) : undefined;
         if (hasRln && hasAln && !(fixedRlnInterest && fixedRlnInterest > 0)) {
             for (const m of matches) {
                 m.interestAllocationWarning = `Mixed RLN/ALN voucher ${leg.receiptVchrNo} on ${leg.transDate} has no RLN-only interest baseline; I1002 ₹${leg.amt} was not guessed into either loan`;
@@ -322,7 +335,7 @@ function getLegacyEvents(mbno: string): LegacyEvent[] {
         }
         if (hasRln && hasAln) {
             for (const m of matches) {
-                m.interestAllocationInfo = `INTEREST_SPLIT voucher=${leg.receiptVchrNo} date=${leg.transDate.slice(0, 10)} total=₹${round2(leg.amt)} RLN=₹${rlnInterest} (fixed RLN-only baseline) ALN=₹${typedInterest.ALN} (residual)`;
+                m.interestAllocationInfo = `INTEREST_SPLIT voucher=${leg.receiptVchrNo} date=${leg.transDate.slice(0, 10)} total=₹${round2(leg.amt)} RLN=₹${rlnInterest} (RLN-only baseline of the same regular-loan EMI, nearest in time) ALN=₹${typedInterest.ALN} (residual)`;
             }
         }
     }

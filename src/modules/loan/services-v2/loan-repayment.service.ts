@@ -1,3 +1,4 @@
+import { penalPrefixForLoanType } from './loan-rate-defaults.util';
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { assertPostingDateOpen } from '../../shared/utils/posting-date';
 import { DataSource, QueryRunner } from 'typeorm';
@@ -302,6 +303,177 @@ export class LoanRepaymentService {
         return rows[0] ?? null;
     }
 
+    /**
+     * ES-522: grace day of the month for a loan. Migrated loans carry gracedays 0 (the migration default) although the
+     * society's business rule now has a grace period (busrules.{rln,eln,aln}gracedays), so a 0 on the loan falls back to
+     * the latest business rule of its loan type; a value on the loan always wins.
+     */
+    private async getEffectiveGraceDay(runner: DataSource | QueryRunner, loan: any): Promise<number> {
+        const own = parseInt(loan.gracedays, 10) || 0;
+        if (own > 0) return own;
+        try {
+            const prefix = penalPrefixForLoanType(loan.loantype); // whitelisted prefix, safe to inline
+            const rows = await runner.query(
+                `SELECT ${prefix}gracedays AS g FROM busrules ORDER BY appdate DESC, srno DESC NULLS LAST LIMIT 1`,
+            );
+            return parseInt(rows[0]?.g, 10) || 0;
+        } catch {
+            return 0;
+        }
+    }
+
+    /**
+     * ES-522: the unpaid installment due in the closure month, when the closure date is still inside the grace period
+     * (day of month <= grace day). Undefined when grace is 0, the month's installment is paid, or grace has passed.
+     */
+    private currentMonthInGrace(installments: InstallmentStatus[], asOf: Date, graceDay: number): InstallmentStatus | undefined {
+        if (!(graceDay > 0)) return undefined;
+        const cutoff = Math.min(graceDay, daysInMonth(asOf.getFullYear(), asOf.getMonth()));
+        if (asOf.getDate() > cutoff) return undefined;
+        return installments.find(i => i.isDue && !i.isFullyPaid
+            && i.dueDate.getFullYear() === asOf.getFullYear() && i.dueDate.getMonth() === asOf.getMonth());
+    }
+
+    /**
+     * ES-522: separate record of the delayed predecessor-payroll money handed back to the member. Principal and
+     * interest are kept in separate columns (principal_amount / interest_amount); amount is their total.
+     */
+    private async ensurePayrollLagRefundTable(runner: DataSource | QueryRunner): Promise<void> {
+        await runner.query(`CREATE TABLE IF NOT EXISTS loan_payroll_lag_refunds (
+            id SERIAL PRIMARY KEY,
+            mbno NUMERIC NOT NULL,
+            loantype VARCHAR(10) NOT NULL,
+            loancaseno VARCHAR(30) NOT NULL,
+            amount NUMERIC(14,2) NOT NULL CHECK (amount > 0),
+            principal_amount NUMERIC(14,2) NOT NULL DEFAULT 0,
+            interest_amount NUMERIC(14,2) NOT NULL DEFAULT 0,
+            refunded_on DATE NOT NULL,
+            voucher_no VARCHAR(40),
+            narration VARCHAR(300),
+            kind VARCHAR(30) NOT NULL DEFAULT 'REFUNDED',
+            recorded_by VARCHAR(80),
+            created_at TIMESTAMP NOT NULL DEFAULT now()
+        )`);
+        await runner.query(`ALTER TABLE loan_payroll_lag_refunds ADD COLUMN IF NOT EXISTS principal_amount NUMERIC(14,2) NOT NULL DEFAULT 0`);
+        await runner.query(`ALTER TABLE loan_payroll_lag_refunds ADD COLUMN IF NOT EXISTS interest_amount NUMERIC(14,2) NOT NULL DEFAULT 0`);
+    }
+
+    /** Tracked principal already returned to / netted for the member for this loan (rows written before the split count as principal). */
+    private async getPayrollLagRefunded(runner: DataSource | QueryRunner, mbno: string, loantype: string, loancaseno: string): Promise<number> {
+        const t = await runner.query(`SELECT to_regclass('public.loan_payroll_lag_refunds') AS t`);
+        if (!t[0]?.t) return 0;
+        const rows = await runner.query(
+            `SELECT COALESCE(SUM(CASE WHEN COALESCE(principal_amount,0) = 0 AND COALESCE(interest_amount,0) = 0 THEN amount ELSE COALESCE(principal_amount,0) END), 0) AS total
+               FROM loan_payroll_lag_refunds WHERE mbno = $1 AND loantype = $2 AND loancaseno = $3`,
+            [mbno, loantype, loancaseno],
+        );
+        return round2(parseFloat(rows[0]?.total) || 0);
+    }
+
+    /** Tracked interest already returned to / netted for the member for this loan. */
+    private async getPayrollLagInterestRefunded(runner: DataSource | QueryRunner, mbno: string, loantype: string, loancaseno: string): Promise<number> {
+        const t = await runner.query(`SELECT to_regclass('public.loan_payroll_lag_refunds') AS t`);
+        if (!t[0]?.t) return 0;
+        const cols = await runner.query(`SELECT 1 FROM information_schema.columns WHERE table_name = 'loan_payroll_lag_refunds' AND column_name = 'interest_amount'`);
+        if (!cols.length) return 0;
+        const rows = await runner.query(
+            `SELECT COALESCE(SUM(interest_amount), 0) AS total FROM loan_payroll_lag_refunds WHERE mbno = $1 AND loantype = $2 AND loancaseno = $3`,
+            [mbno, loantype, loancaseno],
+        );
+        return round2(parseFloat(rows[0]?.total) || 0);
+    }
+
+    /**
+     * Interest that the predecessor-payroll deductions carried after this loan's consolidation (old-loan interest of
+     * the delayed EMIs). Same rows as the principal offset (is_payroll_lag_credit = true, on or after the effective date).
+     */
+    private async getPayrollLagInterestOffset(
+        runner: DataSource | QueryRunner,
+        loancaseno: string,
+        loan: any,
+        asOfDate: Date,
+        version: LoanScheduleVersion | null,
+    ): Promise<number> {
+        const effectiveDate = version?.effective_date ?? loan.payment_date;
+        const rows = await runner.query(
+            `SELECT COALESCE(SUM(interest_amount), 0) AS interest_offset
+             FROM loan_repayment_ledger
+             WHERE loancaseno = $1 AND mbno = $2 AND loantype = $3 AND payment_date <= $4
+               AND payment_date >= $5::date AND is_payroll_lag_credit = true`,
+            [loancaseno, loan.mbno, loan.loantype, asOfDate, effectiveDate],
+        );
+        return round2(parseFloat(rows[0]?.interest_offset) || 0);
+    }
+
+    private async recordPayrollLagRefund(
+        runner: DataSource | QueryRunner,
+        r: { mbno: string; loantype: string; loancaseno: string; principal: number; interest: number; refundedOn: Date; voucherNo: string | null; narration: string; recordedBy: string; kind: string },
+    ): Promise<void> {
+        await this.ensurePayrollLagRefundTable(runner);
+        await runner.query(
+            `INSERT INTO loan_payroll_lag_refunds (mbno, loantype, loancaseno, amount, principal_amount, interest_amount, refunded_on, voucher_no, narration, kind, recorded_by)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+            [r.mbno, r.loantype, r.loancaseno, round2(r.principal + r.interest), round2(r.principal), round2(r.interest), r.refundedOn, r.voucherNo, r.narration, r.kind, r.recordedBy],
+        );
+    }
+
+    /**
+     * ES-522: records that (part of) the delayed predecessor-payroll principal and/or interest was returned to the
+     * member (for example by a payment voucher). Each part cannot exceed what is still owed back.
+     */
+    async recordPayrollLagRefundForLoan(
+        loancaseno: string, mbno: string,
+        input: { principal?: number; interest?: number; amount?: number; refundedOn?: string; voucherNo?: string; narration?: string; recordedBy?: string },
+    ): Promise<{ recordedPrincipal: number; recordedInterest: number; principalStillOwedBack: number; interestStillOwedBack: number }> {
+        const loanRows = await this.dataSource.query(
+            `SELECT mbno, loantype, loan_amt, payment_date FROM loan_master WHERE loancaseno::text = $1 AND mbno = $2`, [loancaseno, mbno],
+        );
+        if (!loanRows.length) throw new BadRequestException(`Loan case ${loancaseno} not found for member ${mbno}`);
+        const loan = loanRows[0];
+        // "amount" is the old principal-only field, kept so existing callers still work
+        const principal = round2(Number(input.principal ?? input.amount ?? 0));
+        const interest = round2(Number(input.interest ?? 0));
+        if (!Number.isFinite(principal) || !Number.isFinite(interest) || principal < 0 || interest < 0 || principal + interest <= 0) {
+            throw new BadRequestException('principal and/or interest must be positive numbers');
+        }
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
+        try {
+            const version = await this.getCurrentScheduleVersion(queryRunner, loancaseno, loan, new Date());
+            await this.ensurePayrollLagRefundTable(queryRunner);
+            const principalOwed = round2(
+                (await this.getPayrollLagPrincipalOffset(queryRunner, loancaseno, loan, new Date(), version))
+                - (await this.getPayrollLagRefunded(queryRunner, loan.mbno, loan.loantype, loancaseno)));
+            const interestOwed = round2(
+                (await this.getPayrollLagInterestOffset(queryRunner, loancaseno, loan, new Date(), version))
+                - (await this.getPayrollLagInterestRefunded(queryRunner, loan.mbno, loan.loantype, loancaseno)));
+            if (principal > principalOwed + 0.005) throw new BadRequestException(`Only ₹${principalOwed.toFixed(2)} of delayed payroll principal is still owed back on this loan.`);
+            if (interest > interestOwed + 0.005) throw new BadRequestException(`Only ₹${interestOwed.toFixed(2)} of delayed payroll interest is still owed back on this loan.`);
+            const d = input.refundedOn ? new Date(input.refundedOn) : new Date();
+            await this.recordPayrollLagRefund(queryRunner, {
+                mbno: loan.mbno, loantype: loan.loantype, loancaseno, principal, interest, refundedOn: isNaN(d.getTime()) ? new Date() : d,
+                voucherNo: input.voucherNo ?? null, narration: input.narration ?? 'Delayed predecessor payroll money returned to member',
+                recordedBy: input.recordedBy ?? 'system', kind: 'REFUNDED',
+            });
+            return {
+                recordedPrincipal: principal, recordedInterest: interest,
+                principalStillOwedBack: round2(principalOwed - principal), interestStillOwedBack: round2(interestOwed - interest),
+            };
+        } finally {
+            await queryRunner.release();
+        }
+    }
+
+    async listPayrollLagRefunds(loancaseno: string, mbno: string): Promise<any[]> {
+        const t = await this.dataSource.query(`SELECT to_regclass('public.loan_payroll_lag_refunds') AS t`);
+        if (!t[0]?.t) return [];
+        await this.ensurePayrollLagRefundTable(this.dataSource);
+        return this.dataSource.query(
+            `SELECT id, loantype, amount, principal_amount, interest_amount, to_char(refunded_on,'YYYY-MM-DD') AS refunded_on, voucher_no, narration, kind, recorded_by
+               FROM loan_payroll_lag_refunds WHERE mbno = $1 AND loancaseno = $2 ORDER BY id`, [mbno, loancaseno],
+        );
+    }
+
     private firstDueMonthStart(version: LoanScheduleVersion): Date {
         const dueMonth = new Date(version.first_due_month);
         return new Date(dueMonth.getFullYear(), dueMonth.getMonth(), 1);
@@ -365,7 +537,7 @@ export class LoanRepaymentService {
         const instalAmt = scheduleVersion ? parseFloat(String(scheduleVersion.monthly_installment)) : (parseFloat(loan.instal_amt) || 0);
         const penaltyPolicy = await this.getLoanPenaltyPolicy(queryRunner, loan.loantype);
         const penalRateAnnual = penaltyPolicy.annualRate;
-        const graceDayOfMonth = parseInt(loan.gracedays, 10) || 0;
+        const graceDayOfMonth = await this.getEffectiveGraceDay(queryRunner, loan);
         const sameMonthPenalPct = parseFloat(loan.smpenalpct) || 0;
         const sameMonthPenalDivisor = parseFloat(loan.smpenaldiv) || 0;
         const disbursementDate = scheduleVersion ? new Date(scheduleVersion.effective_date) : new Date(loan.payment_date);
@@ -1505,6 +1677,7 @@ export class LoanRepaymentService {
         adjustment: number = 0,
         applyRdShare: boolean = true,
         mbno?: string,
+        adjustPayrollLag: boolean = false,
     ): Promise<any> {
         // loancaseno is NOT unique across members in this schema (legacy case
         // numbers collide between unrelated members' loans) — without mbno
@@ -1532,7 +1705,12 @@ export class LoanRepaymentService {
             await this.assertLedgerReconciled(queryRunner, loancaseno, loan);
             const scheduleVersion = await this.getCurrentScheduleVersion(queryRunner, loancaseno, loan, asOf);
             const penaltyPolicy = await this.getLoanPenaltyPolicy(queryRunner, loan.loantype);
-            const installments = await this.getInstallmentStatus(queryRunner, loancaseno, loan, asOf);
+            const allDueInstallments = await this.getInstallmentStatus(queryRunner, loancaseno, loan, asOf);
+            // ES-522: the installment of the closure month is NOT overdue while the closure date is inside its grace
+            // period: it is one of the remaining installments (averaged with the future ones) and carries no flat
+            // interest of its own. After the grace period it is an ordinary due (NR) installment, as before.
+            const graceInstallment = this.currentMonthInGrace(allDueInstallments, asOf, await this.getEffectiveGraceDay(queryRunner, loan));
+            const installments = graceInstallment ? allDueInstallments.filter(i => i !== graceInstallment) : allDueInstallments;
             const unpaid = installments.filter(i => !i.isFullyPaid);
             const k = installments.length;
 
@@ -1555,8 +1733,23 @@ export class LoanRepaymentService {
             // operator reads always adds up to the amount they collect, the
             // same way the society's manual worksheet does.
             const rounding = await this.getRoundingMode(queryRunner);
+            // ES-522: with "adjustPayrollLag" ON, the delayed predecessor-payroll principal is NOT netted from the loan:
+            // the outstanding principal shown (and the base of the AP closure interest) is the new loan's own principal
+            // (opening principal - its own monthly principal paid). What the member already paid in that delayed
+            // payroll is money owed BACK to him (unless already refunded / tracked), so it is deducted only from the
+            // amount he pays at the end (payroll lag refund due), not from the calculation base.
+            const payrollLagRefunded = await this.getPayrollLagRefunded(queryRunner, loan.mbno, loan.loantype, loancaseno);
+            const payrollLagRefundDue = adjustPayrollLag
+                ? round2(Math.max(0, payrollLagPrincipalOffset - payrollLagRefunded))
+                : 0;
+            // The old-loan INTEREST of the same delayed deductions is owed back too (accounted separately from the principal).
+            const payrollLagInterestOffset = await this.getPayrollLagInterestOffset(queryRunner, loancaseno, loan, asOf, scheduleVersion);
+            const payrollLagInterestRefunded = await this.getPayrollLagInterestRefunded(queryRunner, loan.mbno, loan.loantype, loancaseno);
+            const payrollLagInterestRefundDue = adjustPayrollLag
+                ? round2(Math.max(0, payrollLagInterestOffset - payrollLagInterestRefunded))
+                : 0;
             const outstandingPrincipal = applyLoanRounding(
-                loanAmt - totalPrincipalPaid - payrollLagPrincipalOffset, rounding,
+                loanAmt - totalPrincipalPaid - (adjustPayrollLag ? 0 : payrollLagPrincipalOffset), rounding,
             );
             const penalInterest = applyLoanRounding(unpaid.reduce((sum, i) => sum + i.penalDue, 0), rounding);
 
@@ -1605,7 +1798,7 @@ export class LoanRepaymentService {
             // never counted as an installment payment.
             const suggestedAdjustment = -(await this.getAutoPayrollLagCredit(queryRunner, loancaseno, asOf, loan.mbno));
             const finalClosureAmount = applyLoanRounding(
-                outstandingPrincipal + closureInterest + penalInterest + adjustment, rounding,
+                outstandingPrincipal + closureInterest + penalInterest + adjustment - payrollLagRefundDue - payrollLagInterestRefundDue, rounding,
             );
 
             const rdShareAdjustment = applyRdShare
@@ -1640,6 +1833,20 @@ export class LoanRepaymentService {
                 closureDate: toLocalDateString(asOf),
                 outstandingPrincipal,
                 payrollLagPrincipalOffset,
+                // ES-522
+                currentMonthInGrace: graceInstallment ? {
+                    installmentNo: graceInstallment.installmentNo,
+                    dueDate: toLocalDateString(graceInstallment.dueDate),
+                    principalDue: graceInstallment.principalDue,
+                } : null,
+                adjustPayrollLag,
+                payrollLagRefunded,
+                payrollLagRefundDue,
+                payrollLagInterestOffset,
+                payrollLagInterestRefunded,
+                payrollLagInterestRefundDue,
+                /** What is actually still on the loan account in the ledger after the delayed payroll (and any refund). */
+                ledgerPrincipal: round2(outstandingPrincipal - payrollLagRefundDue),
                 // Method B (AP) breakdown — see computeApClosureInterest's doc
                 // comment. nrPrincipal/nrInterest are the flat amounts still
                 // owed on installments already due; the average* fields and
@@ -1749,6 +1956,7 @@ export class LoanRepaymentService {
         receiptNo?: string,
         applyRdShare: boolean = true,
         mbno?: string,
+        adjustPayrollLag: boolean = false,
     ): Promise<{
         success: boolean;
         message: string;
@@ -1823,6 +2031,14 @@ export class LoanRepaymentService {
             // just showed the operator. includeFuture=true keeps this
             // covering every remaining installment, not just the due ones.
             const installments = await this.getInstallmentStatus(queryRunner, loancaseno, loan, asOf, true);
+            // ES-522: same grace rule as the quote: inside the grace period the closure month's installment is treated
+            // like a future installment (principal only; its interest is part of the average-principal interest).
+            const graceInstallment = this.currentMonthInGrace(installments, asOf, await this.getEffectiveGraceDay(queryRunner, loan));
+            if (graceInstallment) {
+                graceInstallment.isDue = false;
+                graceInstallment.interestDue = 0;
+                graceInstallment.penalDue = 0;
+            }
             const k = installments.filter(i => i.isDue).length;
             const unpaidDue = installments.filter(i => i.isDue && !i.isFullyPaid);
 
@@ -1840,8 +2056,24 @@ export class LoanRepaymentService {
             // both read the same RULE_LOAN_ROUNDING_MODE, so the figure an
             // operator was shown is the figure that gets posted.
             const rounding = await this.getRoundingMode(queryRunner);
+            // ES-522 (same rule as the quote): apPrincipalBasis drives the AP closure interest; outstandingPrincipal is what is
+            // really left on the ledger account and is what gets posted. With adjustPayrollLag ON the delayed payroll
+            // principal is only netted if it is still owed back to the member (not yet refunded).
+            const payrollLagRefunded = await this.getPayrollLagRefunded(queryRunner, loan.mbno, loan.loantype, loancaseno);
+            const payrollLagRefundDue = adjustPayrollLag
+                ? round2(Math.max(0, payrollLagPrincipalOffset - payrollLagRefunded))
+                : 0;
+            const postingOffset = adjustPayrollLag ? payrollLagRefundDue : payrollLagPrincipalOffset;
+            const payrollLagInterestOffset = await this.getPayrollLagInterestOffset(queryRunner, loancaseno, loan, asOf, scheduleVersion);
+            const payrollLagInterestRefunded = await this.getPayrollLagInterestRefunded(queryRunner, loan.mbno, loan.loantype, loancaseno);
+            const payrollLagInterestRefundDue = adjustPayrollLag
+                ? round2(Math.max(0, payrollLagInterestOffset - payrollLagInterestRefunded))
+                : 0;
+            const apPrincipalBasis = applyLoanRounding(
+                loanAmt - totalPrincipalPaid - (adjustPayrollLag ? 0 : payrollLagPrincipalOffset), rounding,
+            );
             const outstandingPrincipal = applyLoanRounding(
-                loanAmt - totalPrincipalPaid - payrollLagPrincipalOffset, rounding,
+                loanAmt - totalPrincipalPaid - postingOffset, rounding,
             );
             const monthlyPrincipal = scheduleVersion
                 ? parseFloat(String(scheduleVersion.monthly_principal))
@@ -1857,7 +2089,7 @@ export class LoanRepaymentService {
             // lump row below; nrInterest (already-due installments) is posted
             // naturally per-installment in the loop, same as it always was.
             const { apInterest, futureInstallmentCount, closureInterest } = this.computeApClosureInterest(
-                loanAmt, noOfInstal, instalAmt, annualRate, outstandingPrincipal, closureK, unpaidDue, rounding,
+                loanAmt, noOfInstal, instalAmt, annualRate, apPrincipalBasis, closureK, unpaidDue, rounding,
                 scheduleVersion ? monthlyPrincipal : undefined,
             );
 
@@ -1865,7 +2097,7 @@ export class LoanRepaymentService {
             // actual settlement, apply its principal offset to the final
             // future principal slice (then earlier future slices if needed),
             // so posted principal rows reconcile to the net closure principal.
-            let payrollOffsetRemaining = payrollLagPrincipalOffset;
+            let payrollOffsetRemaining = postingOffset;
             for (const inst of [...installments].reverse()) {
                 if (inst.isDue || inst.principalDue <= 0 || payrollOffsetRemaining <= 0) continue;
                 const applied = Math.min(inst.principalDue, payrollOffsetRemaining);
@@ -1967,6 +2199,23 @@ export class LoanRepaymentService {
                 );
             }
 
+            // ES-522: the old-loan interest of the delayed payroll deductions that is owed back to the member is posted as
+            // its OWN row (negative interest), separate from the delayed principal, so the closure rows still add up to
+            // the final amount actually collected.
+            if (payrollLagInterestRefundDue > 0) {
+                await queryRunner.query(
+                    `INSERT INTO loan_repayment_ledger
+                        (mbno, loancaseno, loantype, payment_date, payment_month, payment_year, payment_amount,
+                         principal_amount, interest_amount, penal_amount, months_overdue, receipt_no, narration, posted_by)
+                     VALUES ($1,$2,$3,$4,$5,$6,$7,0,$7,0,0,$8,$9,$10)`,
+                    [
+                        loan.mbno, loancaseno, loan.loantype, asOf, asOf.getMonth() + 1, asOf.getFullYear(),
+                        -payrollLagInterestRefundDue, receiptNo || null,
+                        'Early Closure - Delayed old-loan payroll interest returned to member (netted)', postedBy,
+                    ]
+                );
+            }
+
             // mbno-scoped — the single most important place this matters:
             // without it, closing a loan whose case number collides with
             // another member's could zero out the WRONG member's balance.
@@ -2010,7 +2259,7 @@ export class LoanRepaymentService {
             // include the post-consolidation payroll-lag offset, matching the
             // read-only quote exactly.
             const finalClosureAmount = applyLoanRounding(
-                outstandingPrincipal + closureInterest + penalInterest + adjustment, rounding,
+                outstandingPrincipal + closureInterest + penalInterest + adjustment - payrollLagInterestRefundDue, rounding,
             );
 
             // The per-installment rows above were posted at their own natural
@@ -2019,7 +2268,7 @@ export class LoanRepaymentService {
             // amount actually collected. One explicit row carries that
             // difference instead of leaving it as an unexplained gap.
             const postedSoFar = rawPrincipalPosted + rawInterestPosted + rawPenalInterest
-                + (futureInstallmentCount > 0 ? apInterest : 0) + adjustment;
+                + (futureInstallmentCount > 0 ? apInterest : 0) + adjustment - payrollLagInterestRefundDue;
             const roundingDelta = Math.round((finalClosureAmount - postedSoFar) * 100) / 100;
             // ES-450: rounding to a whole rupee can move the figure by less than one rupee. Anything bigger means the
             // posted rows do not add up to the closure amount, and a "rounding" row must never hide that: stop, roll back.
@@ -2095,6 +2344,13 @@ export class LoanRepaymentService {
             }
             const payableByMember = Math.round((finalClosureAmount - fromRd - fromShare) * 100) / 100;
 
+            if (adjustPayrollLag && (payrollLagRefundDue > 0 || payrollLagInterestRefundDue > 0)) {
+                await this.recordPayrollLagRefund(queryRunner, {
+                    mbno: loan.mbno, loantype: loan.loantype, loancaseno, principal: payrollLagRefundDue, interest: payrollLagInterestRefundDue, refundedOn: asOf,
+                    voucherNo: receiptNo ?? null, narration: 'Netted against early-closure payment (delayed predecessor payroll principal and interest, accounted separately)',
+                    recordedBy: postedBy, kind: 'NETTED_AT_CLOSURE',
+                });
+            }
             await queryRunner.commitTransaction();
 
             const sourceNote = (fromRd > 0 || fromShare > 0)

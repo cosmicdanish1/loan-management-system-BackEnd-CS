@@ -1,0 +1,1042 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Migration Column Maps</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Space+Grotesk:wght@600&display=swap">
+<style>
+:root{--bg:#f7f8fa;--fg:#1d1f23;--mut:#5b6573;--bd:#d6dbe2;--card:#ffffff;--accent:#2f6fd0}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#13161b;--fg:#e6e9ee;--mut:#9aa4b2;--bd:#2b313a;--card:#ffffff;--accent:#7fb0ff;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#13161b;--fg:#e6e9ee;--mut:#9aa4b2;--bd:#2b313a;--card:#ffffff;--accent:#7fb0ff;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 Inter,system-ui,Segoe UI,sans-serif;padding-block:20px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+h1{font:600 21px/1.25 "Space Grotesk",Inter,system-ui,sans-serif;margin:0 0 4px;text-wrap:balance}
+h2{font:600 17px/1.3 "Space Grotesk",Inter,system-ui,sans-serif;margin:28px 0 8px;text-wrap:balance}
+.sub{color:var(--mut);margin:0 0 12px;max-width:65ch}
+nav{display:flex;flex-wrap:wrap;gap:6px 14px}nav a{color:var(--accent)}
+.legend{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 10px;font-size:13px;color:var(--mut)}
+.k{border:1px solid var(--bd);border-radius:6px;padding:2px 8px}
+.scroll{overflow-x:auto;border:1px solid var(--bd);border-radius:8px;padding:12px;background:var(--card);color:#1d1f23}
+.log{color:var(--mut);font-size:14px;max-width:75ch}
+</style></head><body><h1>Legacy MS SQL to Postgres: column maps</h1>
+<p class="sub">One map per table, updated with every decision. Generated 2026-11-11 from migration-v1.md.</p>
+<nav><a href="#d0">member_master (decisions up to 2026-11-11)</a><a href="#d1">membercategory (decisions up to 2026-11-11)</a><a href="#d2">fundsmaster (decisions up to 2026-11-11)</a><a href="#d3">frs and frs_balance (decisions up to 2026-11-11)</a><a href="#d4">member_balances (decisions up to 2026-11-11)</a><a href="#d5">bank_cheq_master (decisions up to 2026-11-11)</a><a href="#d6">demand_master (decisions up to 2026-11-11)</a><a href="#d7">demand_masterdelete (decisions up to 2026-11-11)</a><a href="#d8">ledger (decisions up to 2026-11-11)</a><a href="#d9">ledger_data (decisions up to 2026-11-11)</a><a href="#d10">loan_product (decisions up to 2026-11-11)</a><a href="#d11">loan_master (decisions up to 2026-11-11)</a><a href="#d12">loan_masterhistory (decisions up to 2026-11-11)</a><a href="#d13">loan_pending (decisions up to 2026-11-11)</a><a href="#d14">loan_balance_history (decisions up to 2026-11-11)</a><a href="#d15">Phase 2 loan replay and the final load order (decisions up to 2026-11-11)</a><a href="#d16">headmaster (decisions up to 2026-11-11)</a><a href="#d17">yearend (decisions up to 2026-11-11)</a><a href="#d18">getworkingdate (decisions up to 2026-11-11)</a><a href="#d19">voucher_master (decisions up to 2026-11-11)</a><a href="#d20">bankopbal (decisions up to 2026-11-11)</a><a href="#d21">usermaster (decisions up to 2026-11-11)</a><a href="#d22">suretymaster (decisions up to 2026-11-11)</a><a href="#d23">tblcashbook (decisions up to 2026-11-11)</a><a href="#d24">tblcashbook derivation (rule proven on 3 printouts, 2026-11-11)</a><a href="#d25">castcategorymaster (decisions up to 2026-11-11)</a><a href="#d26">small tables (decisions up to 2026-11-11)</a><a href="#d27">production load, other groups (decisions up to 2026-11-12)</a><a href="#d28">the template and the load (decisions up to 2026-11-12)</a><a href="#d29">the run, end to end (plan of record, 2026-11-12)</a></nav>
+
+<section id="d0">
+  <h2>member_master (decisions up to 2026-11-11)</h2>
+  <div class="legend"><span class="k">solid arrow: copied exactly</span><span class="k">dashed arrow: derived from other legacy data</span><span class="k">thick arrow: special rule</span><span class="k">grey dashed box: new in the app, stays empty</span><span class="k">red box: pre-check that can block the run</span></div>
+  <div class="scroll"><pre class="mermaid">%%{init: {'theme':'base','themeVariables':{'primaryTextColor':'#1d1f23','lineColor':'#4a5260','fontFamily':'Inter, system-ui, sans-serif','fontSize':'14px'}}}%%
+flowchart LR
+  subgraph LEG["MS SQL legacy: member_master (42 columns, 7,312 rows)"]
+    L1["Identity (7)&lt;br/&gt;MBNO, PREFIX, F_NAME, M_NAME,&lt;br/&gt;L_NAME, SEX, FATHERS_NAME"]
+    L2["Work (9)&lt;br/&gt;DESIG, DEPT_NAME, WINGNO, OFFICENO,&lt;br/&gt;PFNO, LFNO, BRANCHMSNO,&lt;br/&gt;GROSS_SALARY, BASIC_PAY"]
+    L3["Contact and ID (5)&lt;br/&gt;PRESENT_ADDRESS, PERMANENT_ADDRESS,&lt;br/&gt;PHONENO, AADHARNO, PAN_NO"]
+    L4["Dates (9)&lt;br/&gt;DOB, AGE, DATE_OF_APPT, PERMANETDATE,&lt;br/&gt;QUASIPERDATE, SUPANUATIONDATE,&lt;br/&gt;MEMB_DATE, DECLARE_DATE, DOR"]
+    L5["Retirement date (1)&lt;br/&gt;DATE_OF_RETIREMENT"]
+    L6["Nominee (3)&lt;br/&gt;NOMINEE_NAME, NOMINEE_ADDRESS,&lt;br/&gt;NOMINEE_RELATION"]
+    L7["Flags and others (8)&lt;br/&gt;FLG_RETIRE, FLG_INCOMETAX, FLG_INSURED,&lt;br/&gt;INSUREAMT, ISACTIVE, REMARKS,&lt;br/&gt;CBSAC, FRS_NO"]
+  end
+  subgraph LEG2["MS SQL legacy: other tables"]
+    MC["membercategory&lt;br/&gt;MBNO, CATEGORYCODE (1 to 4)"]
+    CC["castcategorymaster&lt;br/&gt;1 OBC, 2 OPEN, 3 SC, 4 ST"]
+  end
+  subgraph PRE["Pre-checks before loading"]
+    DUP["No duplicate MBNO in legacy&lt;br/&gt;(society renumbers first)"]
+    EMP["Target member_master is empty"]
+  end
+  subgraph PG["Postgres: member_master (51 columns)"]
+    P1["Identity (7), same names"]
+    P2["Work (9), same names"]
+    P3["Contact and ID (5), same names"]
+    P4["Dates (8), same names"]
+    P5["date_of_retirement"]
+    P5b["dor"]
+    P6["Nominee (3), same names"]
+    P7["Flags and others (8), same names"]
+    FN["full_name"]
+    CAT["cast_category"]
+    NEW1["email"]
+    NEW2["signature_image_path, profile_photo_path,&lt;br/&gt;doc_front_path, doc_back_path"]
+    NEW3["share_amount, compulsory_deposit&lt;br/&gt;(stay 0, decision Q26)"]
+  end
+  RPT["Review reports&lt;br/&gt;18 members: DOR differs from DATE_OF_RETIREMENT&lt;br/&gt;4 members: no or conflicting category"]
+  DUP --&gt;|"blocks run if found"| L1
+  EMP --&gt;|"blocks run if not empty"| P1
+  L1 --&gt;|"copy exactly"| P1
+  L2 --&gt;|"copy exactly"| P2
+  L3 --&gt;|"copy exactly"| P3
+  L4 --&gt;|"copy exactly (DOR excluded)"| P4
+  L6 --&gt;|"copy exactly"| P6
+  L7 --&gt;|"copy exactly"| P7
+  L5 ==&gt;|"copy exactly"| P5
+  P5 ==&gt;|"DB trigger: dor follows date_of_retirement"| P5b
+  L4 -.-&gt;|"legacy DOR value"| RPT
+  L1 -.-&gt;|"F_NAME + M_NAME + L_NAME, trimmed"| FN
+  MC -.-&gt;|"CATEGORYCODE of the member"| CC
+  CC -.-&gt;|"category name"| CAT
+  CAT -.-&gt;|"no or conflicting category: leave empty"| RPT
+  classDef copy fill:#e8f1ff,stroke:#2f6fd0,color:#102a52;
+  classDef derived fill:#e9f7ec,stroke:#2e8b57,color:#12361f;
+  classDef newcol fill:#eeeeee,stroke:#888,color:#333,stroke-dasharray:4 3;
+  classDef check fill:#fde8e8,stroke:#c0392b,color:#5b1410;
+  classDef rpt fill:#fff4d6,stroke:#c28a00,color:#4a3600;
+  class L1,L2,L3,L4,L5,L6,L7,P1,P2,P3,P4,P5,P5b,P6,P7 copy;
+  class FN,CAT,MC,CC derived;
+  class NEW1,NEW2,NEW3 newcol;
+  class DUP,EMP check;
+  class RPT rpt;</pre></div>
+  <p class="log">Decision log for this diagram: insert only, no delete/merge (13.2) · duplicates blocked, society renumbers in legacy (Option 1, 13.6) · trigger kept on · `email` and the four file paths stay empty (Q28) · `share_amount`/`compulsory_deposit` stay 0 (Q26 decided) · missing or conflicting category left empty and reported (P1) · member_master FINAL (Q79, 2026-11-12).</p>
+</section>
+
+<section id="d1">
+  <h2>membercategory (decisions up to 2026-11-11)</h2>
+  <div class="legend"><span class="k">solid arrow: copied exactly</span><span class="k">dashed arrow: derived from other legacy data</span><span class="k">thick arrow: special rule</span><span class="k">grey dashed box: new in the app, stays empty</span><span class="k">red box: pre-check that can block the run</span></div>
+  <div class="scroll"><pre class="mermaid">%%{init: {'theme':'base','themeVariables':{'primaryTextColor':'#1d1f23','lineColor':'#4a5260','fontFamily':'Inter, system-ui, sans-serif','fontSize':'14px'}}}%%
+flowchart LR
+  subgraph LEG["MS SQL legacy"]
+    LM["MemberCategory (7,323 rows)&lt;br/&gt;MBNO, CategoryCode, MemberType"]
+    LC["castcategorymaster (4 rows)&lt;br/&gt;1 OBC, 2 OPEN, 3 SC, 4 ST"]
+    LT["MemberTypeMaster (4 rows)&lt;br/&gt;1 Regular, 2 Other Nominal,&lt;br/&gt;3 Co-Op Member, 4 Well Wisher"]
+  end
+  subgraph PG["Postgres"]
+    PM["membercategory&lt;br/&gt;mbno, categorycode, membertype"]
+    PC["castcategorymaster"]
+    PT["membertypemaster"]
+    MM["member_master.cast_category&lt;br/&gt;(Table 1)"]
+    APP["New app: no screen or code reads membercategory&lt;br/&gt;Member Type dropdown is not saved"]
+  end
+  RPT["Review report for the client&lt;br/&gt;3 members with no category, 1 conflict,&lt;br/&gt;3 rows with no member, 11 duplicates,&lt;br/&gt;1 Co-Op member shown as Regular"]
+  LC --&gt;|"load first, copy exactly"| PC
+  LT --&gt;|"load first, copy exactly"| PT
+  LM --&gt;|"copy exactly, all 7,323 rows, duplicates and orphans included"| PM
+  PM -.-&gt;|"CategoryCode, resolved through castcategorymaster"| MM
+  PC -.-&gt;|"category name"| MM
+  PM -.-&gt;|"MemberType: no place to store it"| APP
+  LM -.-&gt;|"anomalies"| RPT
+  classDef copy fill:#e8f1ff,stroke:#2f6fd0,color:#102a52;
+  classDef derived fill:#e9f7ec,stroke:#2e8b57,color:#12361f;
+  classDef newcol fill:#eeeeee,stroke:#888,color:#333,stroke-dasharray:4 3;
+  classDef rpt fill:#fff4d6,stroke:#c28a00,color:#4a3600;
+  class LM,LC,LT,PM,PC,PT copy;
+  class MM derived;
+  class APP newcol;
+  class RPT rpt;</pre></div>
+  <p class="log">Decision log for this diagram: copy exactly, nothing cleaned (P1), DECIDED 2026-11-11 (Q30) · both lookup tables loaded first · used as the source of `cast_category` · member type is not shown by the new app, reported (Q31, still open; default: accept and tell the client).</p>
+</section>
+
+<section id="d2">
+  <h2>fundsmaster (decisions up to 2026-11-11)</h2>
+  <div class="legend"><span class="k">solid arrow: copied exactly</span><span class="k">dashed arrow: derived from other legacy data</span><span class="k">thick arrow: special rule</span><span class="k">grey dashed box: new in the app, stays empty</span><span class="k">red box: pre-check that can block the run</span></div>
+  <div class="scroll"><pre class="mermaid">%%{init: {'theme':'base','themeVariables':{'primaryTextColor':'#1d1f23','lineColor':'#4a5260','fontFamily':'Inter, system-ui, sans-serif','fontSize':'14px'}}}%%
+flowchart LR
+  subgraph LEG["MS SQL legacy: FUNDSMASTER (19 columns, 7,313 rows)"]
+    K["MBNO"]
+    S["Shares (2)&lt;br/&gt;SHAREAMT, SHAREOPBAL&lt;br/&gt;GL head L1001"]
+    M0["FRS 1 (2)&lt;br/&gt;MDAMT, MDOPBAL&lt;br/&gt;GL head L1002, ledger type MD"]
+    C0["Compulsory deposit (2)&lt;br/&gt;CDAMT, CDOPBAL&lt;br/&gt;GL head L1004, ledger type CD"]
+    M1["FRS 2 (2)&lt;br/&gt;MD1_AMOUNT, MD1_OPBAL&lt;br/&gt;GL head L1045, ledger type MD1"]
+    MU["Unused (8)&lt;br/&gt;MD2 to MD5 amount and opening balance"]
+    O["Other (2)&lt;br/&gt;LNEXECREC, SUSPBAL"]
+  end
+  subgraph PG["Postgres: fundsmaster (19 columns)"]
+    PK["mbno"]
+    PS["shareamt, shareopbal"]
+    PM0["mdamt, mdopbal"]
+    PC0["cdamt, cdopbal"]
+    PM1["md1_amount, md1_opbal"]
+    PMU["md2 to md5 columns"]
+    PO["lnexecrec, suspbal"]
+  end
+  SCR["New app screen Modify Member Balance&lt;br/&gt;labels MD1 as Regular Loan, MD2 as Emergency Loan&lt;br/&gt;(decided: owner renames MD1 to FRS 2 and MD2 to Not used before go-live, Q32)"]
+  RPT["Review report for the client&lt;br/&gt;4 rows with no member, 6 negative opening balances,&lt;br/&gt;1 suspense balance, 517 NULL MD1_AMOUNT,&lt;br/&gt;member totals vs ledger head opening balances"]
+  K --&gt;|"copy exactly"| PK
+  S --&gt;|"copy exactly"| PS
+  M0 --&gt;|"copy exactly"| PM0
+  C0 --&gt;|"copy exactly"| PC0
+  M1 --&gt;|"copy exactly"| PM1
+  MU --&gt;|"copy exactly"| PMU
+  O --&gt;|"copy exactly"| PO
+  PM1 -.-&gt;|"shown under the wrong name"| SCR
+  PMU -.-&gt;|"shown as Emergency Loan"| SCR
+  K -.-&gt;|"anomalies and totals"| RPT
+  classDef copy fill:#e8f1ff,stroke:#2f6fd0,color:#102a52;
+  classDef check fill:#fde8e8,stroke:#c0392b,color:#5b1410;
+  classDef rpt fill:#fff4d6,stroke:#c28a00,color:#4a3600;
+  class K,S,M0,C0,M1,MU,O,PK,PS,PM0,PC0,PM1,PMU,PO copy;
+  class SCR check;
+  class RPT rpt;</pre></div>
+  <p class="log">Decision log for this diagram: FINAL 2026-11-11: pure copy of all 19 columns and all 7,313 rows, nothing cleaned (P1) · MD1 stays FRS 2; the app label is renamed to FRS 2 by the owner (Q32) · the 517 empty MD1_AMOUNT stay NULL (Q33) · Q34 (year-end archive) is an app review for the owner, not a migration item.</p>
+</section>
+
+<section id="d3">
+  <h2>frs and frs_balance (decisions up to 2026-11-11)</h2>
+  <div class="legend"><span class="k">solid arrow: copied exactly</span><span class="k">dashed arrow: derived from other legacy data</span><span class="k">thick arrow: special rule</span><span class="k">grey dashed box: new in the app, stays empty</span><span class="k">red box: pre-check that can block the run</span></div>
+  <div class="scroll"><pre class="mermaid">%%{init: {'theme':'base','themeVariables':{'primaryTextColor':'#1d1f23','lineColor':'#4a5260','fontFamily':'Inter, system-ui, sans-serif','fontSize':'14px'}}}%%
+flowchart LR
+  subgraph LEG["MS SQL legacy"]
+    LF["FRS (6,454 rows)&lt;br/&gt;SR_NO, MBNO, PFNO, MBNAME,&lt;br/&gt;FRS, FRS_FUND"]
+    LB["FRS_Balance (6,735 rows)&lt;br/&gt;Mbno (really the PF number), Balance"]
+  end
+  subgraph PG["Postgres"]
+    PF["frs&lt;br/&gt;same 6 columns"]
+    PB["frs_balance&lt;br/&gt;same 2 columns"]
+  end
+  APP["New app: no code reads frs or frs_balance&lt;br/&gt;FRS amounts come from fundsmaster (MD, MD1)&lt;br/&gt;and member_balances.frsbalance"]
+  MM["member_master&lt;br/&gt;MBNO and PFNO"]
+  RPT["Review report for the client&lt;br/&gt;3 repeated member numbers, 33 rows with no member,&lt;br/&gt;23 name differences, list stops at member 990042275"]
+  LF --&gt;|"copy exactly (member loop)"| PF
+  LB ==&gt;|"copy exactly (whole-table step, not member based)"| PB
+  LB -.-&gt;|"Mbno matches PFNO, not MBNO"| MM
+  LF -.-&gt;|"MBNO and PFNO"| MM
+  PF -.-&gt;|"not used"| APP
+  PB -.-&gt;|"not used"| APP
+  LF -.-&gt;|"anomalies"| RPT
+  classDef copy fill:#e8f1ff,stroke:#2f6fd0,color:#102a52;
+  classDef derived fill:#e9f7ec,stroke:#2e8b57,color:#12361f;
+  classDef newcol fill:#eeeeee,stroke:#888,color:#333,stroke-dasharray:4 3;
+  classDef rpt fill:#fff4d6,stroke:#c28a00,color:#4a3600;
+  class LF,LB,PF,PB copy;
+  class MM derived;
+  class APP newcol;
+  class RPT rpt;</pre></div>
+  <p class="log">Decision log for this diagram: both tables copied exactly as archive tables, nothing cleaned (P1), DECIDED 2026-11-11 (Q35) · `frs_balance` needs a whole-table copy step, not the member loop · legacy column names kept (Q36, proposed, still open).</p>
+</section>
+
+<section id="d4">
+  <h2>member_balances (decisions up to 2026-11-11)</h2>
+  <div class="legend"><span class="k">solid arrow: copied exactly</span><span class="k">dashed arrow: derived from other legacy data</span><span class="k">thick arrow: special rule</span><span class="k">grey dashed box: new in the app, stays empty</span><span class="k">red box: pre-check that can block the run</span></div>
+  <div class="scroll"><pre class="mermaid">%%{init: {'theme':'base','themeVariables':{'primaryTextColor':'#1d1f23','lineColor':'#4a5260','fontFamily':'Inter, system-ui, sans-serif','fontSize':'14px'}}}%%
+flowchart LR
+  subgraph LEG["MS SQL legacy"]
+    MB["Member_Balances (6,505 rows)&lt;br/&gt;2019 snapshot, 21 columns"]
+    FM["FUNDSMASTER&lt;br/&gt;SHAREOPBAL, CDOPBAL, MDOPBAL, MD1_OPBAL&lt;br/&gt;(opening balances 31-Oct-2019)"]
+    LG["LEDGER&lt;br/&gt;movements by member&lt;br/&gt;head codes L1001, L1004, L1002, L1045"]
+  end
+  subgraph PG["Postgres: member_balances (21 columns)"]
+    ID["SrNo, MbNo, PFNo, Member_Name, OfficeNo,&lt;br/&gt;Dep_Date, DR_CR, IsCompound"]
+    SH["Shares"]
+    CD["Compulsory_Deposit"]
+    FR["FRSBalance"]
+    RD["RD_Amt"]
+    LN["RegularLoan, Emergency_Loan_Balance,&lt;br/&gt;instalments, interest columns, rates"]
+  end
+  P2["Phase 2 loan replay&lt;br/&gt;rewrites loan balances from the ledger"]
+  GL["Check: totals within tolerance of&lt;br/&gt;GL heads L1001 and L1004"]
+  RPT["Review report for the client&lt;br/&gt;negative balances, FRS heads that do not tie,&lt;br/&gt;junk date 2209, 107 rows without a member"]
+  APP["New app: reads this table as CURRENT balance&lt;br/&gt;and adds every posting to it"]
+  MB --&gt;|"copy exactly"| ID
+  MB --&gt;|"copy exactly, then replaced"| LN
+  MB ==&gt;|"copy as it is, meaning to decide (Q39)"| RD
+  FM -.-&gt;|"opening balance"| SH
+  LG -.-&gt;|"plus net movement, head L1001"| SH
+  FM -.-&gt;|"opening balance"| CD
+  LG -.-&gt;|"plus net movement, head L1004"| CD
+  FM -.-&gt;|"MD and MD1 openings"| FR
+  LG -.-&gt;|"plus net movement, heads L1002 and L1045 (Q38)"| FR
+  LN --&gt;|"balances rebuilt"| P2
+  SH --&gt; GL
+  CD --&gt; GL
+  SH --&gt; APP
+  CD --&gt; APP
+  GL -.-&gt; RPT
+  classDef copy fill:#e8f1ff,stroke:#2f6fd0,color:#102a52;
+  classDef derived fill:#e9f7ec,stroke:#2e8b57,color:#12361f;
+  classDef newcol fill:#eeeeee,stroke:#888,color:#333,stroke-dasharray:4 3;
+  classDef check fill:#fde8e8,stroke:#c0392b,color:#5b1410;
+  classDef rpt fill:#fff4d6,stroke:#c28a00,color:#4a3600;
+  class MB,ID,LN,RD copy;
+  class FM,LG,SH,CD,FR,P2 derived;
+  class APP newcol;
+  class GL check;
+  class RPT rpt;</pre></div>
+  <p class="log">Decision log for this diagram: NOT a plain copy: the legacy snapshot holds 2019 opening values (Q37 confirmed in the old program for member 990042276, see 19.9) · shares and compulsory deposit derived from opening balance + ledger BY HEAD CODE, one row per member · FRS balance derived (Q38) · RD_Amt copied as it is (Q39) · loan columns copied then rebuilt by Phase 2 · Q37 confirmed (CD, 1 member) · Q38 decided: FRS balance derived (FRS 1 + FRS 2, by head code L1002 + L1045), FRS heads that do not tie reported, not blocking · Q39 decided: RD_Amt copied as it is (app label to be fixed later by the owner) · member_balances FINAL.</p>
+</section>
+
+<section id="d5">
+  <h2>bank_cheq_master (decisions up to 2026-11-11)</h2>
+  <div class="legend"><span class="k">solid arrow: copied exactly</span><span class="k">dashed arrow: derived from other legacy data</span><span class="k">thick arrow: special rule</span><span class="k">grey dashed box: new in the app, stays empty</span><span class="k">red box: pre-check that can block the run</span></div>
+  <div class="scroll"><pre class="mermaid">%%{init: {'theme':'base','themeVariables':{'primaryTextColor':'#1d1f23','lineColor':'#4a5260','fontFamily':'Inter, system-ui, sans-serif','fontSize':'14px'}}}%%
+flowchart LR
+  subgraph LEG["MS SQL legacy"]
+    LC["bank_cheq_master (21,547 rows)&lt;br/&gt;MBNO, RECEIPT_VCHR_NO, CODE, CHEQNO,&lt;br/&gt;CHEQAMT, DATES, Reconcile_Flag"]
+  end
+  subgraph PG["Postgres: bank_cheq_master"]
+    PC["same 7 columns&lt;br/&gt;all 21,547 rows"]
+  end
+  LOOP["Member-by-member loop&lt;br/&gt;would drop 4,152 rows (MBNO 0 or no member)"]
+  STEP["Whole-table copy step"]
+  APP["New app: no code reads this table"]
+  RPT["Review report for the client&lt;br/&gt;1,068 incomplete rows, 223 without ledger voucher,&lt;br/&gt;379 without member, Reconcile_Flag all N"]
+  LC -.-&gt;|"not used for this table"| LOOP
+  LC ==&gt;|"copy exactly (Q40)"| STEP
+  STEP --&gt; PC
+  PC -.-&gt;|"not used"| APP
+  LC -.-&gt;|"anomalies"| RPT
+  classDef copy fill:#e8f1ff,stroke:#2f6fd0,color:#102a52;
+  classDef derived fill:#e9f7ec,stroke:#2e8b57,color:#12361f;
+  classDef newcol fill:#eeeeee,stroke:#888,color:#333,stroke-dasharray:4 3;
+  classDef check fill:#fde8e8,stroke:#c0392b,color:#5b1410;
+  classDef rpt fill:#fff4d6,stroke:#c28a00,color:#4a3600;
+  class LC,PC,STEP copy;
+  class APP newcol;
+  class LOOP check;
+  class RPT rpt;</pre></div>
+  <p class="log">Decision log for this diagram: pure copy, all rows exactly, nothing cleaned (P1, Q40 decided) · needs a whole-table copy step because 4,152 rows are not member-scoped · app does not read it · Table 6 FINAL.</p>
+</section>
+
+<section id="d6">
+  <h2>demand_master (decisions up to 2026-11-11)</h2>
+  <div class="legend"><span class="k">solid arrow: copied exactly</span><span class="k">dashed arrow: derived from other legacy data</span><span class="k">thick arrow: special rule</span><span class="k">grey dashed box: new in the app, stays empty</span><span class="k">red box: pre-check that can block the run</span></div>
+  <div class="scroll"><pre class="mermaid">%%{init: {'theme':'base','themeVariables':{'primaryTextColor':'#1d1f23','lineColor':'#4a5260','fontFamily':'Inter, system-ui, sans-serif','fontSize':'14px'}}}%%
+flowchart LR
+  subgraph LEG["MS SQL legacy"]
+    LD["demand_master (333,877 rows, 52 columns)&lt;br/&gt;loan amounts, instalments, interest (RLN, ELN, ALN, MLN, EDL, fln)&lt;br/&gt;deposits (RD, MD, CD, SHR, MD1-MD5) and balances&lt;br/&gt;TotalDemand, demand_posted, PassFlag, RECEIPT_VCHR_NO, dates"]
+  end
+  subgraph PG["Postgres: demand_master"]
+    PD["same 52 columns&lt;br/&gt;all 333,877 rows"]
+  end
+  LG["ledger&lt;br/&gt;(RECEIPT_VCHR_NO of every row exists)"]
+  APP["New app: LIVE table&lt;br/&gt;loan repayment, loan position, short recovery,&lt;br/&gt;demand report, import, generation, notices"]
+  RPT["Review report for the client&lt;br/&gt;629 rows never passed (623 + 6),&lt;br/&gt;249 rows where TotalDemand is not the sum of parts"]
+  LD ==&gt;|"copy exactly, member by member (Q41)"| PD
+  PD -.-&gt;|"voucher link"| LG
+  PD --&gt; APP
+  LD -.-&gt;|"anomalies"| RPT
+  classDef copy fill:#e8f1ff,stroke:#2f6fd0,color:#102a52;
+  classDef derived fill:#e9f7ec,stroke:#2e8b57,color:#12361f;
+  classDef newcol fill:#eeeeee,stroke:#888,color:#333,stroke-dasharray:4 3;
+  classDef rpt fill:#fff4d6,stroke:#c28a00,color:#4a3600;
+  class LD,PD copy;
+  class LG derived;
+  class APP newcol;
+  class RPT rpt;</pre></div>
+  <p class="log">Decision log for this diagram: pure copy, all rows exactly, nothing recalculated (P1, Q41 decided) · safe in the member loop: no row without a member, no duplicates · 629 never-passed rows kept and reported (Q42 decided) · Phase 2 interaction to be checked with the loan tables · Table 7 FINAL.</p>
+</section>
+
+<section id="d7">
+  <h2>demand_masterdelete (decisions up to 2026-11-11)</h2>
+  <div class="legend"><span class="k">solid arrow: copied exactly</span><span class="k">dashed arrow: derived from other legacy data</span><span class="k">thick arrow: special rule</span><span class="k">grey dashed box: new in the app, stays empty</span><span class="k">red box: pre-check that can block the run</span></div>
+  <div class="scroll"><pre class="mermaid">%%{init: {'theme':'base','themeVariables':{'primaryTextColor':'#1d1f23','lineColor':'#4a5260','fontFamily':'Inter, system-ui, sans-serif','fontSize':'14px'}}}%%
+flowchart LR
+  subgraph LEG["MS SQL legacy"]
+    LX["demand_masterdelete (572,163 rows)&lt;br/&gt;demand columns plus DeletedOn&lt;br/&gt;history of regenerated or deleted demands"]
+    LD["demand_master (live)&lt;br/&gt;550,704 of the rows have a live twin here"]
+  end
+  subgraph PG["Postgres: demand_masterdelete"]
+    PX["same 39 columns&lt;br/&gt;all 572,163 rows"]
+  end
+  LOOP["Member-by-member loop&lt;br/&gt;would drop 8,080 rows (member not in member_master)"]
+  STEP["Whole-table copy step"]
+  APP["New app: no code reads this table"]
+  RPT["Review report for the client&lt;br/&gt;8,080 rows without a member (informational)"]
+  LX -.-&gt;|"not used for this table"| LOOP
+  LX ==&gt;|"copy exactly (Q43)"| STEP
+  STEP --&gt; PX
+  PX -.-&gt;|"not used"| APP
+  LX -.-&gt;|"superseded versions of"| LD
+  LX -.-&gt;|"orphans"| RPT
+  classDef copy fill:#e8f1ff,stroke:#2f6fd0,color:#102a52;
+  classDef derived fill:#e9f7ec,stroke:#2e8b57,color:#12361f;
+  classDef newcol fill:#eeeeee,stroke:#888,color:#333,stroke-dasharray:4 3;
+  classDef check fill:#fde8e8,stroke:#c0392b,color:#5b1410;
+  classDef rpt fill:#fff4d6,stroke:#c28a00,color:#4a3600;
+  class LX,PX,STEP copy;
+  class LD derived;
+  class APP newcol;
+  class LOOP check;
+  class RPT rpt;</pre></div>
+  <p class="log">Decision log for this diagram: pure copy, all rows exactly, history table (P1, Q43 decided) · whole-table copy step because 8,080 rows have no member · app does not read it · Table 8 FINAL.</p>
+</section>
+
+<section id="d8">
+  <h2>ledger (decisions up to 2026-11-11)</h2>
+  <div class="legend"><span class="k">solid arrow: copied exactly</span><span class="k">dashed arrow: derived from other legacy data</span><span class="k">thick arrow: special rule</span><span class="k">grey dashed box: new in the app, stays empty</span><span class="k">red box: pre-check that can block the run</span></div>
+  <div class="scroll"><pre class="mermaid">%%{init: {'theme':'base','themeVariables':{'primaryTextColor':'#1d1f23','lineColor':'#4a5260','fontFamily':'Inter, system-ui, sans-serif','fontSize':'14px'}}}%%
+flowchart LR
+  subgraph LEG["MS SQL legacy"]
+    LL["LEDGER (1,597,229 rows, 16 columns)&lt;br/&gt;TRANS_NO, TRANS_DATE, TRANS_TYPE, CODE, MBNO, ACC_NO,&lt;br/&gt;ACC_TYPE, TRANS_AMT, RECEIPT_VCHR_NO, VCHR_TYPE,&lt;br/&gt;MODEOFPAY, PL_BALANCE, NARRATION, USERNAME,&lt;br/&gt;Cust_Bank_Name, LedgerId"]
+  end
+  subgraph PG["Postgres: ledger (16 columns)"]
+    PL["same 16 columns&lt;br/&gt;all 1,597,229 rows&lt;br/&gt;LedgerId and TRANS_NO kept"]
+  end
+  LOOP["Member-by-member loop&lt;br/&gt;would leave 19,797 rows behind&lt;br/&gt;(MBNO 0 or member not in member_master)"]
+  STEP["Whole-table copy step&lt;br/&gt;batches, ordered by LedgerId, target must be empty"]
+  APP["New app: next numbers are MAX(trans_no)+1 and MAX(ledgerid)+1&lt;br/&gt;reads ledger for balances, GL, reports, loan replay"]
+  MB["member_balances (Table 5)&lt;br/&gt;derived from this ledger"]
+  RPT["Review report for the client&lt;br/&gt;20 unbalanced vouchers (credits exceed debits by 2,42,044),&lt;br/&gt;8 rows of 31-Mar-2019, 2,940 zero rows,&lt;br/&gt;174 members not in member_master"]
+  LL -.-&gt;|"not used for this table"| LOOP
+  LL ==&gt;|"copy exactly (Q44)"| STEP
+  STEP --&gt; PL
+  PL --&gt; APP
+  PL -.-&gt;|"opening balance + movements"| MB
+  LL -.-&gt;|"anomalies (Q45)"| RPT
+  classDef copy fill:#e8f1ff,stroke:#2f6fd0,color:#102a52;
+  classDef derived fill:#e9f7ec,stroke:#2e8b57,color:#12361f;
+  classDef newcol fill:#eeeeee,stroke:#888,color:#333,stroke-dasharray:4 3;
+  classDef check fill:#fde8e8,stroke:#c0392b,color:#5b1410;
+  classDef rpt fill:#fff4d6,stroke:#c28a00,color:#4a3600;
+  class LL,PL,STEP copy;
+  class MB derived;
+  class APP newcol;
+  class LOOP check;
+  class RPT rpt;</pre></div>
+  <p class="log">Decision log for this diagram: pure copy, every row and every id exactly, nothing renumbered or balanced (P1, Q44 decided) · whole-table step because 19,797 rows are not member-scoped · unbalanced vouchers and members without a master record reported only (Q45 decided) · Table 9 FINAL.</p>
+</section>
+
+<section id="d9">
+  <h2>ledger_data (decisions up to 2026-11-11)</h2>
+  <div class="legend"><span class="k">solid arrow: copied exactly</span><span class="k">dashed arrow: derived from other legacy data</span><span class="k">thick arrow: special rule</span><span class="k">grey dashed box: new in the app, stays empty</span><span class="k">red box: pre-check that can block the run</span></div>
+  <div class="scroll"><pre class="mermaid">%%{init: {'theme':'base','themeVariables':{'primaryTextColor':'#1d1f23','lineColor':'#4a5260','fontFamily':'Inter, system-ui, sans-serif','fontSize':'14px'}}}%%
+flowchart LR
+  subgraph LEG["MS SQL legacy"]
+    LD["ledger_data (4,733 rows)&lt;br/&gt;MBNO, PFNO, NAME, I1005_DR, L1004_CR,&lt;br/&gt;L1024_DR, L1004CR, L1004_DR, L1003_CR&lt;br/&gt;input of a year-end journal"]
+  end
+  subgraph PG["Postgres: ledger_data"]
+    PD["same 9 columns&lt;br/&gt;all 4,733 rows"]
+  end
+  STEP["Whole-table copy step"]
+  APP["New app: no code reads this table"]
+  RPT["Review report&lt;br/&gt;35 rows without a member"]
+  LD ==&gt;|"copy exactly (Q46)"| STEP
+  STEP --&gt; PD
+  PD -.-&gt;|"not used"| APP
+  LD -.-&gt;|"orphans"| RPT
+  classDef copy fill:#e8f1ff,stroke:#2f6fd0,color:#102a52;
+  classDef newcol fill:#eeeeee,stroke:#888,color:#333,stroke-dasharray:4 3;
+  classDef rpt fill:#fff4d6,stroke:#c28a00,color:#4a3600;
+  class LD,PD,STEP copy;
+  class APP newcol;
+  class RPT rpt;</pre></div>
+  <p class="log">Decision log for this diagram: pure copy, archive, whole-table step (P1, Q46 decided) · app does not read it · Table 10 FINAL.</p>
+</section>
+
+<section id="d10">
+  <h2>loan_product (decisions up to 2026-11-11)</h2>
+  <div class="legend"><span class="k">solid arrow: copied exactly</span><span class="k">dashed arrow: derived from other legacy data</span><span class="k">thick arrow: special rule</span><span class="k">grey dashed box: new in the app, stays empty</span><span class="k">red box: pre-check that can block the run</span></div>
+  <div class="scroll"><pre class="mermaid">%%{init: {'theme':'base','themeVariables':{'primaryTextColor':'#1d1f23','lineColor':'#4a5260','fontFamily':'Inter, system-ui, sans-serif','fontSize':'14px'}}}%%
+flowchart LR
+  subgraph LEG["MS SQL legacy"]
+    LP["loan_product (10,543 rows)&lt;br/&gt;Id, MBNo, OpBal, TotDr, TotCr, CloseBal,&lt;br/&gt;Amount, Interest, HeadType (ALN, RLN, ELN)&lt;br/&gt;only Interest is ever non-zero"]
+  end
+  subgraph PG["Postgres: loan_product"]
+    PP["same 9 columns&lt;br/&gt;all 10,543 rows"]
+  end
+  STEP["Whole-table copy step"]
+  APP["New app: no code reads this table&lt;br/&gt;(live loans come from loan_master and the loan replay)"]
+  RPT["Review report&lt;br/&gt;192 rows without a member, 2 repeated pairs,&lt;br/&gt;562 negative Interest values"]
+  LP ==&gt;|"copy exactly (Q47)"| STEP
+  STEP --&gt; PP
+  PP -.-&gt;|"not used"| APP
+  LP -.-&gt;|"anomalies"| RPT
+  classDef copy fill:#e8f1ff,stroke:#2f6fd0,color:#102a52;
+  classDef newcol fill:#eeeeee,stroke:#888,color:#333,stroke-dasharray:4 3;
+  classDef rpt fill:#fff4d6,stroke:#c28a00,color:#4a3600;
+  class LP,PP,STEP copy;
+  class APP newcol;
+  class RPT rpt;</pre></div>
+  <p class="log">Decision log for this diagram: pure copy, archive, whole-table step (P1, Q47 decided) · not a product catalogue despite the name · app does not read it · Table 11 FINAL.</p>
+</section>
+
+<section id="d11">
+  <h2>loan_master (decisions up to 2026-11-11)</h2>
+  <div class="legend"><span class="k">solid arrow: copied exactly</span><span class="k">dashed arrow: derived from other legacy data</span><span class="k">thick arrow: special rule</span><span class="k">grey dashed box: new in the app, stays empty</span><span class="k">red box: pre-check that can block the run</span></div>
+  <div class="scroll"><pre class="mermaid">%%{init: {'theme':'base','themeVariables':{'primaryTextColor':'#1d1f23','lineColor':'#4a5260','fontFamily':'Inter, system-ui, sans-serif','fontSize':'14px'}}}%%
+flowchart LR
+  subgraph LEG["MS SQL legacy"]
+    LM["loan_master (20,207 rows, 13 columns)&lt;br/&gt;MBNO, LOANTYPE, LOANCASENO, LOAN_AMT, PAYMENT_DATE, RATE,&lt;br/&gt;NO_OF_INSTAL, INSTAL_AMT, BALANCE, OPENBALANCE,&lt;br/&gt;PURPOSE, Intt_Amount, PenalRate&lt;br/&gt;BALANCE equals LOAN_AMT in 20,193 rows (never updated)"]
+    LG["LEDGER&lt;br/&gt;loan receipts, disbursements, interest"]
+  end
+  subgraph PG["Postgres: loan_master (23 columns)"]
+    A["13 legacy columns"]
+    D["gracedays, smpenalpct, smpenaldiv,&lt;br/&gt;loan_payment_model, loan_interest_method&lt;br/&gt;(new features, defaults)"]
+    B["consolidated_into_loancaseno, delay_months,&lt;br/&gt;payroll_lag_watch_until, payroll_lag_old_principal,&lt;br/&gt;payroll_lag_old_interest (derived by Phase 2)"]
+  end
+  P2["Phase 2 loan replay&lt;br/&gt;rebuilds balance, instalments, links from the ledger"]
+  APP["New app: LIVE table&lt;br/&gt;every posting updates balance"]
+  RPT["Review report&lt;br/&gt;188 rows without a member, 136 negative balances,&lt;br/&gt;7,341 rows with LOAN_AMT 0, 1,142 loans without instalment amount"]
+  LM ==&gt;|"copy exactly (Q48), whole-table step"| A
+  D -.-&gt;|"defaults (Q49)"| A
+  LG -.-&gt;|"replayed"| P2
+  A --&gt; P2
+  P2 --&gt;|"rewrites balance and derived columns"| B
+  P2 --&gt;|"balance"| A
+  A --&gt; APP
+  LM -.-&gt;|"anomalies"| RPT
+  classDef copy fill:#e8f1ff,stroke:#2f6fd0,color:#102a52;
+  classDef derived fill:#e9f7ec,stroke:#2e8b57,color:#12361f;
+  classDef newcol fill:#eeeeee,stroke:#888,color:#333,stroke-dasharray:4 3;
+  classDef rpt fill:#fff4d6,stroke:#c28a00,color:#4a3600;
+  class LM,A copy;
+  class LG,P2,B derived;
+  class D,APP newcol;
+  class RPT rpt;</pre></div>
+  <p class="log">Decision log for this diagram: 13 legacy columns copied exactly, whole-table step (Q48 decided) · legacy BALANCE is not maintained, so Phase 2 rebuilds the balance from the ledger · 5 new-feature columns take app defaults (Q49 decided) · 5 derived columns filled by Phase 2 · Table 12 FINAL.</p>
+</section>
+
+<section id="d12">
+  <h2>loan_masterhistory (decisions up to 2026-11-11)</h2>
+  <div class="legend"><span class="k">solid arrow: copied exactly</span><span class="k">dashed arrow: derived from other legacy data</span><span class="k">thick arrow: special rule</span><span class="k">grey dashed box: new in the app, stays empty</span><span class="k">red box: pre-check that can block the run</span></div>
+  <div class="scroll"><pre class="mermaid">%%{init: {'theme':'base','themeVariables':{'primaryTextColor':'#1d1f23','lineColor':'#4a5260','fontFamily':'Inter, system-ui, sans-serif','fontSize':'14px'}}}%%
+flowchart LR
+  subgraph LEG["MS SQL legacy"]
+    LH["loan_masterhistory (13,867 rows)&lt;br/&gt;the 13 loan_master columns plus RowId&lt;br/&gt;saved earlier versions of loan rows"]
+    LM["loan_master (live)&lt;br/&gt;13,268 history rows match a live loan,&lt;br/&gt;599 are loans no longer there"]
+  end
+  subgraph PG["Postgres: loan_masterhistory"]
+    PH["same 14 columns&lt;br/&gt;all 13,867 rows"]
+  end
+  STEP["Whole-table copy step"]
+  APP["New app: no code reads this table&lt;br/&gt;(Phase 2 does not read it either)"]
+  RPT["Review report&lt;br/&gt;113 rows without a member,&lt;br/&gt;599 loans that exist only here"]
+  LH ==&gt;|"copy exactly (Q50)"| STEP
+  STEP --&gt; PH
+  PH -.-&gt;|"not used"| APP
+  LH -.-&gt;|"earlier versions of"| LM
+  LH -.-&gt;|"anomalies"| RPT
+  classDef copy fill:#e8f1ff,stroke:#2f6fd0,color:#102a52;
+  classDef derived fill:#e9f7ec,stroke:#2e8b57,color:#12361f;
+  classDef newcol fill:#eeeeee,stroke:#888,color:#333,stroke-dasharray:4 3;
+  classDef rpt fill:#fff4d6,stroke:#c28a00,color:#4a3600;
+  class LH,PH,STEP copy;
+  class LM derived;
+  class APP newcol;
+  class RPT rpt;</pre></div>
+  <p class="log">Decision log for this diagram: pure copy, archive, whole-table step (P1, Q50 decided) · app and Phase 2 do not read it · Table 13 FINAL.</p>
+</section>
+
+<section id="d13">
+  <h2>loan_pending (decisions up to 2026-11-11)</h2>
+  <div class="legend"><span class="k">solid arrow: copied exactly</span><span class="k">dashed arrow: derived from other legacy data</span><span class="k">thick arrow: special rule</span><span class="k">grey dashed box: new in the app, stays empty</span><span class="k">red box: pre-check that can block the run</span></div>
+  <div class="scroll"><pre class="mermaid">%%{init: {'theme':'base','themeVariables':{'primaryTextColor':'#1d1f23','lineColor':'#4a5260','fontFamily':'Inter, system-ui, sans-serif','fontSize':'14px'}}}%%
+flowchart LR
+  subgraph LEG["MS SQL legacy"]
+    LP["loan_pending (19,217 rows, 15 columns)&lt;br/&gt;LOANCASENO, MBNO, LOANTYPE, APPLIED_AMT, SANCTIONED_AMT,&lt;br/&gt;APP_DATE, SANCTIONED_DATE, NO_OF_INSTAL, G1MBNO-G3MBNO,&lt;br/&gt;PURPOSE, FLG_SANCTIONED, FLG_PAID, FORM_NUMBER"]
+  end
+  subgraph PG["Postgres: loan_pending (22 columns)"]
+    A["15 legacy columns"]
+    N["application_kind = NEW, pass_flag = N,&lt;br/&gt;rate, penalrate, reagreement_id,&lt;br/&gt;rate_override_reason, rate_override_by = null&lt;br/&gt;(new features, defaults)"]
+  end
+  STEP["Whole-table copy step"]
+  APP["New app: LIVE table&lt;br/&gt;applications, sanction, status (flags), case number generator"]
+  SEQ["sequence_master LOAN_CASE&lt;br/&gt;must start above 21,233 (B20)"]
+  RPT["Review report&lt;br/&gt;191 rows without a member, case 11379 junk sanctioned amount,&lt;br/&gt;case 21055 sanctioned but not paid"]
+  LP ==&gt;|"copy exactly (Q51)"| STEP
+  STEP --&gt; A
+  N -.-&gt;|"defaults"| A
+  A --&gt; APP
+  APP -.-&gt;|"next case number"| SEQ
+  LP -.-&gt;|"anomalies (Q52)"| RPT
+  classDef copy fill:#e8f1ff,stroke:#2f6fd0,color:#102a52;
+  classDef derived fill:#e9f7ec,stroke:#2e8b57,color:#12361f;
+  classDef newcol fill:#eeeeee,stroke:#888,color:#333,stroke-dasharray:4 3;
+  classDef check fill:#fde8e8,stroke:#c0392b,color:#5b1410;
+  classDef rpt fill:#fff4d6,stroke:#c28a00,color:#4a3600;
+  class LP,A,STEP copy;
+  class N,APP newcol;
+  class SEQ check;
+  class RPT rpt;</pre></div>
+  <p class="log">Decision log for this diagram: 15 legacy columns copied exactly, whole-table step (Q51 decided) · 7 new-feature columns at defaults (Q51 decided) · junk sanctioned amount and unpaid flag kept and reported (Q52 decided) · case-number counter to start above 21,233 (B20) · Table 14 FINAL.</p>
+</section>
+
+<section id="d14">
+  <h2>loan_balance_history (decisions up to 2026-11-11)</h2>
+  <div class="legend"><span class="k">solid arrow: copied exactly</span><span class="k">dashed arrow: derived from other legacy data</span><span class="k">thick arrow: special rule</span><span class="k">grey dashed box: new in the app, stays empty</span><span class="k">red box: pre-check that can block the run</span></div>
+  <div class="scroll"><pre class="mermaid">%%{init: {'theme':'base','themeVariables':{'primaryTextColor':'#1d1f23','lineColor':'#4a5260','fontFamily':'Inter, system-ui, sans-serif','fontSize':'14px'}}}%%
+flowchart LR
+  subgraph LEG["MS SQL legacy"]
+    LB["loan_balance_history (189,011 rows)&lt;br/&gt;mbno, headtype, opbal, debit, credit, balance, bal_date, intrate&lt;br/&gt;daily snapshots: 34 days of Jan 2020 plus 4 rows of Nov 2026"]
+  end
+  subgraph PG["Postgres: loan_balance_history"]
+    PB["same 8 columns&lt;br/&gt;all 189,011 rows"]
+  end
+  STEP["Whole-table copy step"]
+  P2["Phase 2 loan replay&lt;br/&gt;rebuilds balances from the ledger,&lt;br/&gt;does not use these snapshots"]
+  APP["New app: no code reads this table"]
+  RPT["Review report&lt;br/&gt;3,100 rows without a member,&lt;br/&gt;52,133 rows that do not add up, 4 rows of Nov 2026"]
+  LB ==&gt;|"copy exactly (Q53)"| STEP
+  STEP --&gt; PB
+  PB -.-&gt;|"not a source of truth"| P2
+  PB -.-&gt;|"not used"| APP
+  LB -.-&gt;|"anomalies"| RPT
+  classDef copy fill:#e8f1ff,stroke:#2f6fd0,color:#102a52;
+  classDef derived fill:#e9f7ec,stroke:#2e8b57,color:#12361f;
+  classDef newcol fill:#eeeeee,stroke:#888,color:#333,stroke-dasharray:4 3;
+  classDef rpt fill:#fff4d6,stroke:#c28a00,color:#4a3600;
+  class LB,PB,STEP copy;
+  class P2 derived;
+  class APP newcol;
+  class RPT rpt;</pre></div>
+  <p class="log">Decision log for this diagram: pure copy, archive, whole-table step (P1, Q53 decided) · inconsistent snapshots, never a source for balances · app does not read it · Table 15 FINAL.</p>
+</section>
+
+<section id="d15">
+  <h2>Phase 2 loan replay and the final load order (decisions up to 2026-11-11)</h2>
+  <div class="legend"><span class="k">solid arrow: copied exactly</span><span class="k">dashed arrow: derived from other legacy data</span><span class="k">thick arrow: special rule</span><span class="k">grey dashed box: new in the app, stays empty</span><span class="k">red box: pre-check that can block the run</span></div>
+  <div class="scroll"><pre class="mermaid">%%{init: {'theme':'base','themeVariables':{'primaryTextColor':'#1d1f23','lineColor':'#4a5260','fontFamily':'Inter, system-ui, sans-serif','fontSize':'14px'}}}%%
+flowchart TB
+  subgraph L1["Step 1: load copied tables (Tables 1 to 15)"]
+    T1["member tables, ledger, fundsmaster,&lt;br/&gt;member_balances (derived), loan tables,&lt;br/&gt;archive tables (whole-table steps)"]
+  end
+  CNT["Step 2: set counters above legacy maxima&lt;br/&gt;sequence_master: loan case 21,233, member numbers, vouchers (B20)"]
+  CHK["Step 3: check loaded ledger and loan_master&lt;br/&gt;equal the legacy source (counts, hashes) (Q54)"]
+  DRY["Step 4a: Phase 2 dry run, all members, nothing written"]
+  RUN["Step 4b: Phase 2 real run in batches from a pinned member list&lt;br/&gt;each member in its own transaction, resumable"]
+  LEG["Legacy database&lt;br/&gt;read via sqlcmd: LOAN_MASTER, LEDGER"]
+  OUT["Writes: loan_master, loan_repayment_ledger (new, 144,883 rows in test),&lt;br/&gt;member_balances loan columns, legacy_replay_batch_log"]
+  FIN["Step 5: reconcile per member and in total&lt;br/&gt;loan balances vs ledger"]
+  RPT["Step 6: review report for the client&lt;br/&gt;flagged members by kind, failed members (26 in test),&lt;br/&gt;all report lines of Tables 1 to 15"]
+  BLK["Blocks the run (Q55): failed, ledger mismatch,&lt;br/&gt;ledger owes a balance with no open case"]
+  T1 --&gt; CNT --&gt; CHK --&gt; DRY --&gt; RUN --&gt; FIN --&gt; RPT
+  LEG -.-&gt;|"read"| DRY
+  LEG -.-&gt;|"read"| RUN
+  RUN --&gt; OUT
+  FIN -.-&gt; BLK
+  classDef copy fill:#e8f1ff,stroke:#2f6fd0,color:#102a52;
+  classDef derived fill:#e9f7ec,stroke:#2e8b57,color:#12361f;
+  classDef newcol fill:#eeeeee,stroke:#888,color:#333,stroke-dasharray:4 3;
+  classDef check fill:#fde8e8,stroke:#c0392b,color:#5b1410;
+  classDef rpt fill:#fff4d6,stroke:#c28a00,color:#4a3600;
+  class T1,LEG copy;
+  class DRY,RUN,OUT derived;
+  class CNT,CHK,FIN,BLK check;
+  class RPT rpt;</pre></div>
+  <p class="log">Decision log for this diagram: all 15 Phase 1 tables decided · Phase 2 writes loan_master, loan_repayment_ledger, member_balances loan columns and the batch log, never ledger, demand_master, loan_pending or loan_masterhistory · run order proposed (Q54 to Q56 decided) · counters set before Phase 2 (B20).</p>
+</section>
+
+<section id="d16">
+  <h2>headmaster (decisions up to 2026-11-11)</h2>
+  <div class="legend"><span class="k">solid arrow: copied exactly</span><span class="k">dashed arrow: derived from other legacy data</span><span class="k">thick arrow: special rule</span><span class="k">grey dashed box: new in the app, stays empty</span><span class="k">red box: pre-check that can block the run</span></div>
+  <div class="scroll"><pre class="mermaid">%%{init: {'theme':'base','themeVariables':{'primaryTextColor':'#1d1f23','lineColor':'#4a5260','fontFamily':'Inter, system-ui, sans-serif','fontSize':'14px'}}}%%
+flowchart LR
+  subgraph LEG["MS SQL legacy"]
+    LH["HEADMASTER (151 rows, 8 columns)&lt;br/&gt;CODE, PARENT_CODE, HPOSITION, HEAD_NAME,&lt;br/&gt;INTEREST, HeadType, OP_BAL, PFLAG&lt;br/&gt;6 heads have a blank PFLAG (A1048, A1050-A1054)"]
+  end
+  subgraph PG["Postgres: headmaster"]
+    P1["151 legacy heads&lt;br/&gt;same values"]
+    P2["6 heads: PFLAG = A&lt;br/&gt;(blank would reverse the sign of closing balances)"]
+    P3["I1013, I1014&lt;br/&gt;created by the app migration, kept"]
+  end
+  JX["Junk row (empty code, name x)&lt;br/&gt;test artefact, not carried"]
+  APP["New app: reads headmaster everywhere&lt;br/&gt;PFLAG decides debit-normal or credit-normal"]
+  CHK["Checks: every ledger CODE exists,&lt;br/&gt;OP_BAL sums per type, no blank PFLAG left"]
+  RPT["Review report&lt;br/&gt;6 PFLAG corrections, assets vs liabilities differ by 1 rupee"]
+  LH ==&gt;|"copy, insert only missing codes (Q57)"| P1
+  LH ==&gt;|"PFLAG blank becomes A (Q57)"| P2
+  P3 -.-&gt;|"already there"| P1
+  LH -.-&gt;|"not carried"| JX
+  P1 --&gt; APP
+  P2 --&gt; APP
+  P3 --&gt; APP
+  P1 --&gt; CHK
+  CHK -.-&gt; RPT
+  classDef copy fill:#e8f1ff,stroke:#2f6fd0,color:#102a52;
+  classDef derived fill:#e9f7ec,stroke:#2e8b57,color:#12361f;
+  classDef newcol fill:#eeeeee,stroke:#888,color:#333,stroke-dasharray:4 3;
+  classDef check fill:#fde8e8,stroke:#c0392b,color:#5b1410;
+  classDef rpt fill:#fff4d6,stroke:#c28a00,color:#4a3600;
+  class LH,P1 copy;
+  class P2 derived;
+  class P3,APP,JX newcol;
+  class CHK check;
+  class RPT rpt;</pre></div>
+  <p class="log">Decision log for this diagram: 151 legacy heads loaded as they are, insert only missing codes (Q57 decided) · the 6 blank PFLAG become A because the app treats blank as credit-normal (Q57 decided) · I1013 and I1014 come from the app migration and are kept · junk row not carried · opening-balance rounding of 1 rupee kept and reported (Q58 decided) · Table 16 FINAL.</p>
+</section>
+
+<section id="d17">
+  <h2>yearend (decisions up to 2026-11-11)</h2>
+  <div class="legend"><span class="k">solid arrow: copied exactly</span><span class="k">dashed arrow: derived from other legacy data</span><span class="k">thick arrow: special rule</span><span class="k">grey dashed box: new in the app, stays empty</span><span class="k">red box: pre-check that can block the run</span></div>
+  <div class="scroll"><pre class="mermaid">%%{init: {'theme':'base','themeVariables':{'primaryTextColor':'#1d1f23','lineColor':'#4a5260','fontFamily':'Inter, system-ui, sans-serif','fontSize':'14px'}}}%%
+flowchart LR
+  subgraph LEG["MS SQL legacy"]
+    LY["YEAREND (8 rows)&lt;br/&gt;YEARCODE 1, 3-9, START_DATE, END_DATE, USERNAME&lt;br/&gt;year 9 = 2026-04-01 to 2027-03-31"]
+    LH["YEAREND_HEAD (0 rows)"]
+  end
+  subgraph PG["Postgres"]
+    PY["yearend: 8 legacy rows&lt;br/&gt;closed_at empty (new column)"]
+    PH["yearend_head: empty at load"]
+  end
+  TST["Test rows: 2 years, 906 yearend_head&lt;br/&gt;not carried"]
+  OP["headmaster.op_bal&lt;br/&gt;stays 31-Oct-2019 (Table 16)"]
+  CONF["Design conflict (33.3)&lt;br/&gt;reports: op_bal + whole ledger&lt;br/&gt;year-end: op_bal + one year, then rolls op_bal forward&lt;br/&gt;= wrong archive and double counting at the first year-end"]
+  OWN["Owner item: settle before 31-Mar-2027&lt;br/&gt;no Year-End run on the migrated database until then"]
+  LY ==&gt;|"copy exactly (Q59)"| PY
+  LH -.-&gt;|"nothing to carry"| PH
+  TST -.-&gt;|"left out"| PY
+  PY -.-&gt; CONF
+  OP -.-&gt; CONF
+  CONF --&gt; OWN
+  classDef copy fill:#e8f1ff,stroke:#2f6fd0,color:#102a52;
+  classDef derived fill:#e9f7ec,stroke:#2e8b57,color:#12361f;
+  classDef newcol fill:#eeeeee,stroke:#888,color:#333,stroke-dasharray:4 3;
+  classDef check fill:#fde8e8,stroke:#c0392b,color:#5b1410;
+  classDef rpt fill:#fff4d6,stroke:#c28a00,color:#4a3600;
+  class LY,LH,PY copy;
+  class OP derived;
+  class PH,TST newcol;
+  class CONF check;
+  class OWN rpt;</pre></div>
+  <p class="log">Decision log for this diagram: 8 legacy years loaded as they are, closed_at empty, test rows not carried (Q59 decided) · op_bal stays at 31-Oct-2019 and the year-end design conflict goes to the owner before 31-Mar-2027 (Q60 decided) · Table 17 FINAL.</p>
+</section>
+
+<section id="d18">
+  <h2>getworkingdate (decisions up to 2026-11-11)</h2>
+  <div class="legend"><span class="k">solid arrow: copied exactly</span><span class="k">dashed arrow: derived from other legacy data</span><span class="k">thick arrow: special rule</span><span class="k">grey dashed box: new in the app, stays empty</span><span class="k">red box: pre-check that can block the run</span></div>
+  <div class="scroll"><pre class="mermaid">%%{init: {'theme':'base','themeVariables':{'primaryTextColor':'#1d1f23','lineColor':'#4a5260','fontFamily':'Inter, system-ui, sans-serif','fontSize':'14px'}}}%%
+flowchart LR
+  subgraph LEG["MS SQL legacy"]
+    LW["getworkingdate (2,358 rows, 6 columns)&lt;br/&gt;WORKING_DATE, PAYMENT_VOUCHER, RECEIPT_VOUCHER,&lt;br/&gt;JOURNAL_VOUCHER, DAYEND_FLAG, UPDATEGL_FLAG&lt;br/&gt;2,357 days closed (Y), 1 open day: 2026-11-04"]
+  end
+  subgraph PG["Postgres: getworkingdate"]
+    PW["same 6 columns, all 2,358 rows"]
+  end
+  TST["12 test days (13 to 24 Aug 2026)&lt;br/&gt;not carried"]
+  APP["New app: a day with flag Y is closed, nothing can be posted;&lt;br/&gt;postings take the pending working date; Day-End closes it and opens the next"]
+  CUT["Cut-over rule (Q62)&lt;br/&gt;final dump at freeze, load, go live the same day"]
+  RPT["Review report&lt;br/&gt;24-Sep-2021 appears twice,&lt;br/&gt;31-Mar-2019 ledger date has no row"]
+  LW ==&gt;|"copy exactly (Q61)"| PW
+  TST -.-&gt;|"left out"| PW
+  PW --&gt; APP
+  CUT -.-&gt;|"keeps the working date current"| APP
+  LW -.-&gt;|"anomalies"| RPT
+  classDef copy fill:#e8f1ff,stroke:#2f6fd0,color:#102a52;
+  classDef newcol fill:#eeeeee,stroke:#888,color:#333,stroke-dasharray:4 3;
+  classDef check fill:#fde8e8,stroke:#c0392b,color:#5b1410;
+  classDef rpt fill:#fff4d6,stroke:#c28a00,color:#4a3600;
+  class LW,PW copy;
+  class APP,TST newcol;
+  class CUT check;
+  class RPT rpt;</pre></div>
+  <p class="log">Decision log for this diagram: all 2,358 legacy rows loaded as they are, test days left out (Q61 decided) · cut-over rule: freeze, final dump, load and go live the same day (Q62 decided) · Table 18 FINAL.</p>
+</section>
+
+<section id="d19">
+  <h2>voucher_master (decisions up to 2026-11-11)</h2>
+  <div class="legend"><span class="k">solid arrow: copied exactly</span><span class="k">dashed arrow: derived from other legacy data</span><span class="k">thick arrow: special rule</span><span class="k">grey dashed box: new in the app, stays empty</span><span class="k">red box: pre-check that can block the run</span></div>
+  <div class="scroll"><pre class="mermaid">%%{init: {'theme':'base','themeVariables':{'primaryTextColor':'#1d1f23','lineColor':'#4a5260','fontFamily':'Inter, system-ui, sans-serif','fontSize':'14px'}}}%%
+flowchart LR
+  subgraph LEG["MS SQL legacy"]
+    LV["VOUCHER_MASTER (1 row)&lt;br/&gt;P27334, R58815, J34395, D00801"]
+    LL["LEDGER&lt;br/&gt;highest P27332, R58811, J34394, D00800"]
+  end
+  subgraph PG["Postgres: voucher_master (exactly 1 row)"]
+    PV["P_VCHR_NO, R_VCHR_NO, J_VCHR_NO, D_VCHR_NO&lt;br/&gt;legacy values, never lower than the ledger"]
+  end
+  TST["Test row P26212, R58421, J34247, D01204&lt;br/&gt;not carried"]
+  CHK["Check: each counter &gt;= highest ledger number of its letter&lt;br/&gt;otherwise raise it (never lower)"]
+  APP1["New app: generateVoucherNo&lt;br/&gt;highest + 1, row lock (savings, interest, journal, ...)"]
+  APP2["New app: sequence_master VOUCHER_NO, prefix VCH&lt;br/&gt;restarts yearly (voucher, CD, dividend, ...)"]
+  OWN["Owner item: two numbering schemes in one app (B20)"]
+  LV ==&gt;|"copy exactly (Q63)"| PV
+  TST -.-&gt;|"left out"| PV
+  LL -.-&gt;|"compare"| CHK
+  CHK --&gt; PV
+  PV --&gt; APP1
+  APP2 -.-&gt; OWN
+  APP1 -.-&gt; OWN
+  classDef copy fill:#e8f1ff,stroke:#2f6fd0,color:#102a52;
+  classDef derived fill:#e9f7ec,stroke:#2e8b57,color:#12361f;
+  classDef newcol fill:#eeeeee,stroke:#888,color:#333,stroke-dasharray:4 3;
+  classDef check fill:#fde8e8,stroke:#c0392b,color:#5b1410;
+  classDef rpt fill:#fff4d6,stroke:#c28a00,color:#4a3600;
+  class LV,PV copy;
+  class LL derived;
+  class TST,APP1,APP2 newcol;
+  class CHK check;
+  class OWN rpt;</pre></div>
+  <p class="log">Decision log for this diagram: one legacy row loaded as it is, counters never lower than the ledger (Q63 decided) · test row not carried · two numbering schemes in the app recorded as an owner item (B20 corrected) · Table 19 FINAL.</p>
+</section>
+
+<section id="d20">
+  <h2>bankopbal (decisions up to 2026-11-11)</h2>
+  <div class="legend"><span class="k">solid arrow: copied exactly</span><span class="k">dashed arrow: derived from other legacy data</span><span class="k">thick arrow: special rule</span><span class="k">grey dashed box: new in the app, stays empty</span><span class="k">red box: pre-check that can block the run</span></div>
+  <div class="scroll"><pre class="mermaid">%%{init: {'theme':'base','themeVariables':{'primaryTextColor':'#1d1f23','lineColor':'#4a5260','fontFamily':'Inter, system-ui, sans-serif','fontSize':'14px'}}}%%
+flowchart LR
+  subgraph LEG["MS SQL legacy"]
+    LB["BANKOPBAL (130 rows)&lt;br/&gt;TrfId, FyCode 1, HeadCode, ParentCode, ClosingBalance&lt;br/&gt;balances at 31-Oct-2019"]
+    LH["HEADMASTER.OP_BAL&lt;br/&gt;same opening position (Table 16)"]
+  end
+  subgraph PG["Postgres: bankopbal"]
+    PB["same 5 columns, 130 legacy rows (archive)"]
+  end
+  TST["151 test rows&lt;br/&gt;(copy of a test year-end)&lt;br/&gt;not carried"]
+  APP["New app: writes this table at year-end,&lt;br/&gt;never reads it; opening balances come from headmaster.op_bal"]
+  LB ==&gt;|"copy exactly (Q64)"| PB
+  TST -.-&gt;|"left out"| PB
+  LB -.-&gt;|"equals within 0.50"| LH
+  PB -.-&gt;|"not used"| APP
+  classDef copy fill:#e8f1ff,stroke:#2f6fd0,color:#102a52;
+  classDef derived fill:#e9f7ec,stroke:#2e8b57,color:#12361f;
+  classDef newcol fill:#eeeeee,stroke:#888,color:#333,stroke-dasharray:4 3;
+  class LB,PB copy;
+  class LH derived;
+  class TST,APP newcol;</pre></div>
+  <p class="log">Decision log for this diagram: pure copy of the 130 rows as an archive (P1, Q64 decided) · opening balances stay in headmaster.op_bal · test rows not carried · Table 20 FINAL.</p>
+</section>
+
+<section id="d21">
+  <h2>usermaster (decisions up to 2026-11-11)</h2>
+  <div class="legend"><span class="k">solid arrow: copied exactly</span><span class="k">dashed arrow: derived from other legacy data</span><span class="k">thick arrow: special rule</span><span class="k">grey dashed box: new in the app, stays empty</span><span class="k">red box: pre-check that can block the run</span></div>
+  <div class="scroll"><pre class="mermaid">%%{init: {'theme':'base','themeVariables':{'primaryTextColor':'#1d1f23','lineColor':'#4a5260','fontFamily':'Inter, system-ui, sans-serif','fontSize':'14px'}}}%%
+flowchart LR
+  subgraph LEG["MS SQL legacy"]
+    LU["USERMASTER (27), USERINFO (1),&lt;br/&gt;USERRIGHTS (2,242), USERLEVELDEFAULTRIGHTS (144)"]
+  end
+  subgraph PG["Postgres (production, fresh)"]
+    PU["user tables: created by the owner at go-live&lt;br/&gt;users, passwords, roles, levels, rights"]
+    CFG["userlevelmaster, menumaster&lt;br/&gt;the app's own configuration (kept as the app has them)"]
+  end
+  LED["Legacy ledger USERNAME text&lt;br/&gt;(for example Administrator/CHANCHAL/28)&lt;br/&gt;kept as text, no link to users"]
+  GO["Go-live checklist&lt;br/&gt;create first admin, then all users;&lt;br/&gt;start new user ids above 55"]
+  LU -.-&gt;|"NOT migrated (decision 2026-11-11)"| PU
+  PU --&gt; GO
+  LED -.-&gt;|"unaffected"| GO
+  classDef copy fill:#e8f1ff,stroke:#2f6fd0,color:#102a52;
+  classDef newcol fill:#eeeeee,stroke:#888,color:#333,stroke-dasharray:4 3;
+  classDef rpt fill:#fff4d6,stroke:#c28a00,color:#4a3600;
+  class LU,LED copy;
+  class PU,CFG newcol;
+  class GO rpt;</pre></div>
+  <p class="log">Decision log for this diagram: user tables (usermaster, userinfo, userrights, userleveldefaultrights) NOT migrated: users, roles and passwords are created fresh in production (decided 2026-11-11) · Q65, Q66, Q10, Q15 closed · userlevelmaster and menumaster stay as the app has them · go-live checklist item added.</p>
+</section>
+
+<section id="d22">
+  <h2>suretymaster (decisions up to 2026-11-11)</h2>
+  <div class="legend"><span class="k">solid arrow: copied exactly</span><span class="k">dashed arrow: derived from other legacy data</span><span class="k">thick arrow: special rule</span><span class="k">grey dashed box: new in the app, stays empty</span><span class="k">red box: pre-check that can block the run</span></div>
+  <div class="scroll"><pre class="mermaid">%%{init: {'theme':'base','themeVariables':{'primaryTextColor':'#1d1f23','lineColor':'#4a5260','fontFamily':'Inter, system-ui, sans-serif','fontSize':'14px'}}}%%
+flowchart LR
+  subgraph LEG["MS SQL legacy"]
+    LS["SURETYMASTER (6 rows, 7 columns)&lt;br/&gt;mbno, Amount, G1MBNO, G2MBNO, G1Amt, G2Amt, AddFlag&lt;br/&gt;no guarantor named, 5 amounts negative"]
+  end
+  subgraph PG["Postgres: suretymaster (8 columns)"]
+    P7["7 legacy columns, 6 rows as they are"]
+    LC["loancaseno = empty&lt;br/&gt;(new column; the app claims the row on first edit)"]
+  end
+  TST["5 test rows&lt;br/&gt;not carried"]
+  APP["New app: loan application and Change Loan Surety&lt;br/&gt;write it, Saakh score reads it"]
+  LP["loan_pending G1MBNO-G3MBNO&lt;br/&gt;real guarantors per loan (Table 14)"]
+  LS ==&gt;|"copy exactly (Q67)"| P7
+  LC -.-&gt;|"empty on legacy rows"| P7
+  TST -.-&gt;|"left out"| P7
+  P7 --&gt; APP
+  LP -.-&gt;|"guarantors live here"| APP
+  classDef copy fill:#e8f1ff,stroke:#2f6fd0,color:#102a52;
+  classDef derived fill:#e9f7ec,stroke:#2e8b57,color:#12361f;
+  classDef newcol fill:#eeeeee,stroke:#888,color:#333,stroke-dasharray:4 3;
+  class LS,P7 copy;
+  class LP derived;
+  class LC,TST,APP newcol;</pre></div>
+  <p class="log">Decision log for this diagram: 6 legacy rows copied exactly, loancaseno left empty by design (Q67 decided) · 5 test rows not carried · Table 22 FINAL.</p>
+</section>
+
+<section id="d23">
+  <h2>tblcashbook (decisions up to 2026-11-11)</h2>
+  <div class="legend"><span class="k">solid arrow: copied exactly</span><span class="k">dashed arrow: derived from other legacy data</span><span class="k">thick arrow: special rule</span><span class="k">grey dashed box: new in the app, stays empty</span><span class="k">red box: pre-check that can block the run</span></div>
+  <div class="scroll"><pre class="mermaid">%%{init: {'theme':'base','themeVariables':{'primaryTextColor':'#1d1f23','lineColor':'#4a5260','fontFamily':'Inter, system-ui, sans-serif','fontSize':'14px'}}}%%
+flowchart LR
+  subgraph LEG["MS SQL legacy"]
+    LC["tblcashbook (444 rows, 6 columns)&lt;br/&gt;working table of the old Cash Book routine&lt;br/&gt;no date, no voucher"]
+    LL["LEDGER&lt;br/&gt;R and P voucher lines, MODEOFPAY C or B,&lt;br/&gt;demand vouchers D"]
+  end
+  subgraph PG["Postgres: tblcashbook (10 columns)"]
+    P6["6 legacy columns"]
+    P4["trans_date, voucher_no, voucher_id, username&lt;br/&gt;(new, written when a voucher is passed)"]
+  end
+  APP["New app: Cash Book 2 daily and Day-End opening balance&lt;br/&gt;read ONLY this table;&lt;br/&gt;opening = sum of all earlier rows"]
+  GAP["Gap: no rows before go-live&lt;br/&gt;opening balance 0, old dates empty"]
+  OPT["Options (Q68): 1 empty, 2 derive from the ledger&lt;br/&gt;(check on old printouts), 3 one opening row"]
+  LC -.-&gt;|"not carried (no date, working data)"| P6
+  LL -.-&gt;|"option 2: derive rows"| P4
+  P6 --&gt; APP
+  P4 --&gt; APP
+  APP -.-&gt; GAP
+  GAP --&gt; OPT
+  classDef copy fill:#e8f1ff,stroke:#2f6fd0,color:#102a52;
+  classDef derived fill:#e9f7ec,stroke:#2e8b57,color:#12361f;
+  classDef newcol fill:#eeeeee,stroke:#888,color:#333,stroke-dasharray:4 3;
+  classDef check fill:#fde8e8,stroke:#c0392b,color:#5b1410;
+  classDef rpt fill:#fff4d6,stroke:#c28a00,color:#4a3600;
+  class LC,P6 copy;
+  class LL derived;
+  class P4,APP newcol;
+  class GAP check;
+  class OPT rpt;</pre></div>
+  <p class="log">Decision log for this diagram: the 444 legacy rows and the 855 test rows are not carried (no date, working data) · the app needs history or an opening row for Cash Book 2 and the Day-End opening balance (Q68 decided: option 2, derive from the ledger; rule to be fixed on old printouts, Q69 pending) · replaces the "do not copy, regenerated" proposal of section 4.9.</p>
+</section>
+
+<section id="d24">
+  <h2>tblcashbook derivation (rule proven on 3 printouts, 2026-11-11)</h2>
+  <div class="legend"><span class="k">solid arrow: copied exactly</span><span class="k">dashed arrow: derived from other legacy data</span><span class="k">thick arrow: special rule</span><span class="k">grey dashed box: new in the app, stays empty</span><span class="k">red box: pre-check that can block the run</span></div>
+  <div class="scroll"><pre class="mermaid">%%{init: {'theme':'base','themeVariables':{'primaryTextColor':'#1d1f23','lineColor':'#4a5260','fontFamily':'Inter, system-ui, sans-serif','fontSize':'14px'}}}%%
+flowchart LR
+  subgraph LEG["MS SQL legacy ledger"]
+    LL["every line of the date except A1001&lt;br/&gt;CR = receipt, DR = payment&lt;br/&gt;MODEOFPAY C = cash, else transfer&lt;br/&gt;(all voucher types incl. journal)"]
+  end
+  RULE["Old Cash Book rule&lt;br/&gt;proven on 01-Nov-2019, 31-Mar-2023, 09-Oct-2026&lt;br/&gt;(heads and totals equal)"]
+  subgraph PG["Postgres: tblcashbook"]
+    ROWS["derived rows: one per date and head&lt;br/&gt;23,632 rows on this dump"]
+    OPEN["opening row 31-Oct-2019&lt;br/&gt;sized so the first live day opens at the ledger cash in hand"]
+  end
+  APP["New Cash Book 2 and Day-End opening&lt;br/&gt;opening = sum of all earlier rows"]
+  OWN["Owner item B33: old dates show new-formula openings;&lt;br/&gt;change the report to compute openings from the ledger if needed"]
+  LL --&gt; RULE --&gt; ROWS
+  OPEN --&gt; APP
+  ROWS --&gt; APP
+  APP -.-&gt; OWN
+  classDef copy fill:#e8f1ff,stroke:#2f6fd0,color:#102a52;
+  classDef derived fill:#e9f7ec,stroke:#2e8b57,color:#12361f;
+  classDef newcol fill:#eeeeee,stroke:#888,color:#333,stroke-dasharray:4 3;
+  classDef check fill:#fde8e8,stroke:#c0392b,color:#5b1410;
+  classDef rpt fill:#fff4d6,stroke:#c28a00,color:#4a3600;
+  class LL copy;
+  class RULE,ROWS,OPEN derived;
+  class APP newcol;
+  class OWN rpt;</pre></div>
+  <p class="log">Decision log for this diagram: option 2 chosen (Q68) · body rule proven on three printouts (Q69 closed) · rows derived per date and head, opening row sized to the ledger cash in hand (Q70 decided) · opening and closing of old dates follow the new report formula, owner item B33 · Table 23 FINAL.</p>
+</section>
+
+<section id="d25">
+  <h2>castcategorymaster (decisions up to 2026-11-11)</h2>
+  <div class="legend"><span class="k">solid arrow: copied exactly</span><span class="k">dashed arrow: derived from other legacy data</span><span class="k">thick arrow: special rule</span><span class="k">grey dashed box: new in the app, stays empty</span><span class="k">red box: pre-check that can block the run</span></div>
+  <div class="scroll"><pre class="mermaid">%%{init: {'theme':'base','themeVariables':{'primaryTextColor':'#1d1f23','lineColor':'#4a5260','fontFamily':'Inter, system-ui, sans-serif','fontSize':'14px'}}}%%
+flowchart LR
+  subgraph LEG["MS SQL legacy"]
+    LC["castcategorymaster (4 rows)&lt;br/&gt;1 OBC, 2 OPEN, 3 SC, 4 ST"]
+    LM["membercategory (Table 2)&lt;br/&gt;member to category id"]
+  end
+  subgraph PG["Postgres: castcategorymaster"]
+    PC["same 2 columns, 4 legacy rows&lt;br/&gt;primary key and unique name index satisfied"]
+  end
+  TST["6 test rows: script-injection string,&lt;br/&gt;General, second OBC&lt;br/&gt;not carried"]
+  MM["member_master.cast_category (Table 1)&lt;br/&gt;derived name: OBC, OPEN, SC or ST"]
+  UI["Member Master dropdown and Cast Category screen"]
+  LC ==&gt;|"copy exactly (Q71)"| PC
+  TST -.-&gt;|"left out"| PC
+  LM -.-&gt;|"id to name"| MM
+  PC -.-&gt;|"names"| MM
+  PC --&gt; UI
+  classDef copy fill:#e8f1ff,stroke:#2f6fd0,color:#102a52;
+  classDef derived fill:#e9f7ec,stroke:#2e8b57,color:#12361f;
+  classDef newcol fill:#eeeeee,stroke:#888,color:#333,stroke-dasharray:4 3;
+  class LC,LM,PC copy;
+  class MM derived;
+  class TST,UI newcol;</pre></div>
+  <p class="log">Decision log for this diagram: 4 legacy rows loaded exactly, ids 1 to 4 (Q71 decided; answers Q27) · test rows, `General` and the duplicate `OBC` not carried · Table 24 FINAL.</p>
+</section>
+
+<section id="d26">
+  <h2>small tables (decisions up to 2026-11-11)</h2>
+  <div class="legend"><span class="k">solid arrow: copied exactly</span><span class="k">dashed arrow: derived from other legacy data</span><span class="k">thick arrow: special rule</span><span class="k">grey dashed box: new in the app, stays empty</span><span class="k">red box: pre-check that can block the run</span></div>
+  <div class="scroll"><pre class="mermaid">%%{init: {'theme':'base','themeVariables':{'primaryTextColor':'#1d1f23','lineColor':'#4a5260','fontFamily':'Inter, system-ui, sans-serif','fontSize':'14px'}}}%%
+flowchart LR
+  subgraph LEG["MS SQL legacy"]
+    DP["demandprintorder (6)"]
+    DR["demand_receipt (11, never passed)"]
+    AB["accountbalance (146, stale snapshot)"]
+    BS["balancesheet (151, stale snapshot)"]
+    LT["logintime (24,338, old users)"]
+  end
+  subgraph PG["Postgres"]
+    P1["demandprintorder: 6 rows&lt;br/&gt;used by the Demand Print Order screen"]
+    P2["demand_receipt: 11 rows (archive)"]
+  end
+  LIVE["Computed live by the app:&lt;br/&gt;head balances from headmaster + ledger,&lt;br/&gt;balancesheet via Build Tree"]
+  USR["User data created fresh in production&lt;br/&gt;(decision 2026-11-11)"]
+  DP ==&gt;|"copy exactly (Q72)"| P1
+  DR ==&gt;|"copy exactly (Q72)"| P2
+  AB -.-&gt;|"not carried (Q73)"| LIVE
+  BS -.-&gt;|"not carried (Q73)"| LIVE
+  LT -.-&gt;|"not carried (Q73)"| USR
+  classDef copy fill:#e8f1ff,stroke:#2f6fd0,color:#102a52;
+  classDef newcol fill:#eeeeee,stroke:#888,color:#333,stroke-dasharray:4 3;
+  classDef rpt fill:#fff4d6,stroke:#c28a00,color:#4a3600;
+  class DP,DR,AB,BS,LT,P1,P2 copy;
+  class LIVE,USR newcol;</pre></div>
+  <p class="log">Decision log for this diagram: `demandprintorder` and `demand_receipt` copied exactly (Q72 decided) · `accountbalance`, `balancesheet` (stale snapshots, computed live) and `logintime` (user data) not carried (Q73 decided) · Tables 25 to 29 FINAL.</p>
+</section>
+
+<section id="d27">
+  <h2>production load, other groups (decisions up to 2026-11-12)</h2>
+  <div class="legend"><span class="k">solid arrow: copied exactly</span><span class="k">dashed arrow: derived from other legacy data</span><span class="k">thick arrow: special rule</span><span class="k">grey dashed box: new in the app, stays empty</span><span class="k">red box: pre-check that can block the run</span></div>
+  <div class="scroll"><pre class="mermaid">%%{init: {'theme':'base','themeVariables':{'primaryTextColor':'#1d1f23','lineColor':'#4a5260','fontFamily':'Inter, system-ui, sans-serif','fontSize':'14px'}}}%%
+flowchart LR
+  subgraph LEG["MS SQL legacy"]
+    GB["Group B config (9 tables, identical to the test DB)"]
+    BR["busrules (4,025 versions, last 2025-11-19)"]
+    CE["Groups C, E, G, 98 procedures, 10 views, 4 triggers&lt;br/&gt;incl. _LEDGER_20072023 (2023 backup)"]
+  end
+  subgraph PG["Production Postgres (fresh)"]
+    P1["9 config tables loaded exactly"]
+    P2["busrules: 4,025 rows + 1 new current row&lt;br/&gt;with the society's values for 11 new columns"]
+    P3["App configuration: menus, roles, counters, system config&lt;br/&gt;built by migrations + seed, or a template (Q76)"]
+    P4["Group F tables: new in the app, start empty"]
+  end
+  SOC["Society: values for the 11 new rule columns (Q75)"]
+  GB ==&gt;|"load exactly (Q74)"| P1
+  BR ==&gt;|"load exactly (Q75)"| P2
+  SOC -.-&gt; P2
+  CE -.-&gt;|"not carried, stay in the legacy DB"| P4
+  classDef copy fill:#e8f1ff,stroke:#2f6fd0,color:#102a52;
+  classDef derived fill:#e9f7ec,stroke:#2e8b57,color:#12361f;
+  classDef newcol fill:#eeeeee,stroke:#888,color:#333,stroke-dasharray:4 3;
+  classDef rpt fill:#fff4d6,stroke:#c28a00,color:#4a3600;
+  class GB,BR,P1 copy;
+  class P2 derived;
+  class CE,P3,P4 newcol;
+  class SOC rpt;</pre></div>
+  <p class="log">Decision log for this diagram: Group B config tables loaded exactly from legacy because a fresh production database has no source for them (Q74, proposed) · busrules loaded exactly plus one new current row with the society's values for the new columns (Q75, proposed; values needed) · production database build method decides how app configuration gets there (Q76, open) · groups C, E, G and legacy objects not carried · first register (Q1 to Q20) reconciled in 42.5.</p>
+</section>
+
+<section id="d28">
+  <h2>the template and the load (decisions up to 2026-11-12)</h2>
+  <div class="legend"><span class="k">solid arrow: copied exactly</span><span class="k">dashed arrow: derived from other legacy data</span><span class="k">thick arrow: special rule</span><span class="k">grey dashed box: new in the app, stays empty</span><span class="k">red box: pre-check that can block the run</span></div>
+  <div class="scroll"><pre class="mermaid">%%{init: {'theme':'base','themeVariables':{'primaryTextColor':'#1d1f23','lineColor':'#4a5260','fontFamily':'Inter, system-ui, sans-serif','fontSize':'14px'}}}%%
+flowchart TB
+  subgraph TPL["Production template database (restored first)"]
+    SCH["Schema at the shipped code version&lt;br/&gt;+ migrations table"]
+    CFG["App configuration rows (group 4)&lt;br/&gt;menus, roles, system config, report order ..."]
+    EMP["All data tables empty&lt;br/&gt;incl. license_keys, user tables, logs"]
+  end
+  subgraph LOAD["Migration fills the template"]
+    L1["Group 1: legacy tables (exact copies)"]
+    L2["Group 2: derived at load&lt;br/&gt;office_master, wing_master, share_monthly_balance"]
+    L3["Group 3: Phase 2 loan replay&lt;br/&gt;loan_repayment_ledger, schedules, flags"]
+    CNT["sequence_master counters set above legacy maxima"]
+  end
+  GO["Go-live: create users, issue licence,&lt;br/&gt;society's busrules values (Q75)"]
+  SCH --&gt; CFG --&gt; EMP
+  EMP --&gt; L1 --&gt; L2 --&gt; L3 --&gt; CNT --&gt; GO
+  classDef copy fill:#e8f1ff,stroke:#2f6fd0,color:#102a52;
+  classDef derived fill:#e9f7ec,stroke:#2e8b57,color:#12361f;
+  classDef newcol fill:#eeeeee,stroke:#888,color:#333,stroke-dasharray:4 3;
+  classDef rpt fill:#fff4d6,stroke:#c28a00,color:#4a3600;
+  class L1 copy;
+  class L2,L3,CNT derived;
+  class SCH,CFG,EMP newcol;
+  class GO rpt;</pre></div>
+  <p class="log">Decision log for this diagram: production is built from a template (Q76 = b) that holds the schema and the app configuration only, every data table empty · groups 1 to 3 filled by the migration · office/wing masters and the monthly share snapshots derived at load (Q77, Q78 proposed) · license keys and users left for go-live · the society's busrules values still needed (Q75).</p>
+</section>
+
+<section id="d29">
+  <h2>the run, end to end (plan of record, 2026-11-12)</h2>
+  <div class="legend"><span class="k">solid arrow: copied exactly</span><span class="k">dashed arrow: derived from other legacy data</span><span class="k">thick arrow: special rule</span><span class="k">grey dashed box: new in the app, stays empty</span><span class="k">red box: pre-check that can block the run</span></div>
+  <div class="scroll"><pre class="mermaid">%%{init: {'theme':'base','themeVariables':{'primaryTextColor':'#1d1f23','lineColor':'#4a5260','fontFamily':'Inter, system-ui, sans-serif','fontSize':'14px'}}}%%
+flowchart TB
+  PRE["Pre-flight: freeze legacy, final dump, baseline,&lt;br/&gt;checks (codes, drift, duplicate members), restore template, pg_dump"]
+  S1["1-4 Reference and master data&lt;br/&gt;config tables, headmaster (PFLAG fix), years, days, voucher counters, busrules + go-live row, office/wing"]
+  S5["5-6 Members&lt;br/&gt;member_master (insert only), categories, funds, frs, surety"]
+  S7["7 Ledger (whole table, ids kept)"]
+  S8["8-9 Loans and demands&lt;br/&gt;loan tables (defaults), demand tables, cheques"]
+  S10["10-13 Derived&lt;br/&gt;member_balances by head code, share_monthly_balance,&lt;br/&gt;tblcashbook + opening row, counters"]
+  S14["14 Phase 2 loan replay&lt;br/&gt;equality check, dry run, batches, reconcile"]
+  VER["15 Verification suite + review report"]
+  GO["Go-live: first admin, users (ids above 55), licence,&lt;br/&gt;society busrules values, no Year-End run (B25)"]
+  PRE --&gt; S1 --&gt; S5 --&gt; S7 --&gt; S8 --&gt; S10 --&gt; S14 --&gt; VER --&gt; GO
+  classDef copy fill:#e8f1ff,stroke:#2f6fd0,color:#102a52;
+  classDef derived fill:#e9f7ec,stroke:#2e8b57,color:#12361f;
+  classDef check fill:#fde8e8,stroke:#c0392b,color:#5b1410;
+  classDef rpt fill:#fff4d6,stroke:#c28a00,color:#4a3600;
+  class S1,S5,S7,S8 copy;
+  class S10,S14 derived;
+  class PRE,VER check;
+  class GO rpt;</pre></div>
+  <p class="log">Decision log for this diagram: run order and checks for all decided tables consolidated (Q77, Q78 decided yes) · blockers: three duplicate members renumbered, the society's busrules values, the confirmations of 44.6 (Q79), the stored-procedure review · script work listed in 44.5 · question pending: Q79.</p>
+</section>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.1/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad:true,securityLevel:'loose',flowchart:{useMaxWidth:false,htmlLabels:true,curve:'basis'}});</script>
+</body></html>

@@ -50,6 +50,19 @@ export class DashboardNotice {
     @Column({ name: 'audience_office', type: 'integer', nullable: true })
     audienceOffice: number | null;
 
+    // A private note is a personal sticky note: only the user in `postedBy` sees it, until they publish it
+    // (which simply clears this flag, so it becomes an ordinary notice on everyone's board).
+    @Column({ name: 'is_private', type: 'boolean', default: false })
+    isPrivate: boolean;
+
+    // Set by an administrator only. Important notices stay at the top of every user's board.
+    @Column({ name: 'is_important', type: 'boolean', default: false })
+    isImportant: boolean;
+
+    // Sticky-note colour chosen by the author (one of NOTE_COLORS); NULL = default.
+    @Column({ name: 'color', type: 'varchar', length: 12, nullable: true })
+    color: string | null;
+
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;
 

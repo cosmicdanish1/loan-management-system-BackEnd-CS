@@ -763,9 +763,21 @@ export class InterestService {
 
     const accountTypeCode = dto.accountType || 'SB';
     const allMembers = await this.getEligibleMembers();
-    const eligibleMembers = dto.memberNo
+    let eligibleMembers = dto.memberNo
       ? allMembers.filter(m => m.mbno === dto.memberNo)
       : allMembers;
+    // ES-510: a member with no ledger row of this account type up to the period end has no balance and no movement,
+    // so the calculation can only give 0 interest and the member is left out of the result anyway. Before, the daily
+    // calculation ran for every active member (two queries each) even when only a few held the account. FD and RD
+    // read their own tables, so they keep the full list.
+    if (accountTypeCode !== 'FD' && accountTypeCode !== 'RD' && eligibleMembers.length > 0) {
+      const holders: Array<{ mbno: string }> = await this.dataSource.query(
+        `SELECT DISTINCT mbno FROM ledger WHERE acc_type = $1 AND trans_date <= $2`,
+        [accountTypeCode, toDate],
+      );
+      const holderSet = new Set(holders.map(h => String(h.mbno)));
+      eligibleMembers = eligibleMembers.filter(m => holderSet.has(String(m.mbno)));
+    }
     const memberCalculations: InterestCalculationResultDto[] = [];
     let totalInterestAmount = 0;
 

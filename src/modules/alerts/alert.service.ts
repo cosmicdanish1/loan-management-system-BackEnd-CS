@@ -441,6 +441,11 @@ export class AlertService implements OnModuleInit, OnModuleDestroy {
 
     // ───────────────────────── business events ─────────────────────────
 
+    easterEggsCompleted(e: { username: string }): void {
+        if (!this.on('easter.complete')) return;
+        this.send('easter.complete', 'activity', `🥚✨ <b>${esc(e.username)}</b> found every hidden Easter egg in the app. The hunt is complete!`);
+    }
+
     dayEndDone(e: { date: string; seconds: number }): void {
         if (!this.on('dayend.done')) return;
         this.send('dayend.done', 'business', `✅ <b>Day-end completed</b>  ·  ${esc(e.date)}\n⏱ ${e.seconds} s`);

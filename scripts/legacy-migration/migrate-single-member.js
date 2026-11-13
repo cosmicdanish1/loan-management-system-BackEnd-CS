@@ -165,6 +165,17 @@ function fingerprint(rows, columns) {
   return crypto.createHash('sha256').update(JSON.stringify(records)).digest('hex');
 }
 
+
+// The target has trigger trg_member_master_sync_retirement: on insert, dor := date_of_retirement (or dor if that is empty).
+// The source hash must expect that, otherwise every member with an empty legacy DOR fails verification.
+function withRetirementTrigger(spec, rows) {
+  if (spec.target !== 'member_master') return rows;
+  return rows.map(r => {
+    const v = (r.date_of_retirement !== null && r.date_of_retirement !== undefined && r.date_of_retirement !== '') ? r.date_of_retirement : r.dor;
+    return { ...r, dor: v ?? null, date_of_retirement: v ?? null };
+  });
+}
+
 function ownerColumn(columns, spec) {
   const owner = columns.find(c => c.source.name.toLowerCase() === spec.member.toLowerCase());
   if (!owner) throw new Error(`${spec.source}: member column is not shared`);
@@ -198,7 +209,7 @@ async function main() {
 
   const pg = new Client(targetConfig());
   let backup = null;
-  if (EXECUTE) {
+  if (EXECUTE && !process.env.SKIP_BACKUP) {
     console.log('Creating full PostgreSQL backup...');
     backup = backupTarget();
     console.log(`Backup verified: ${backup.path} (${backup.bytes} bytes)`);
@@ -232,7 +243,7 @@ async function main() {
       const deleted = (await pg.query(`DELETE FROM ${pgQuote(spec.target)} WHERE trim(${pgQuote(ownerCol)}::text) = $1`, [MEMBER])).rowCount;
       await insertRows(pg, spec, columns, sourceRows);
       const copied = await targetRows(pg, spec, columns, ownerCol);
-      const sourceHash = fingerprint(sourceRows, columns), targetHash = fingerprint(copied, columns);
+      const sourceHash = fingerprint(withRetirementTrigger(spec, sourceRows), columns), targetHash = fingerprint(copied, columns);
       if (copied.length !== sourceRows.length || sourceHash !== targetHash) {
         throw new Error(`${spec.target}: verification failed source=${sourceRows.length}/${sourceHash} target=${copied.length}/${targetHash}`);
       }

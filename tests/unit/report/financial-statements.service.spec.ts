@@ -138,6 +138,40 @@ describe('FinancialStatementsService', () => {
       expect(res.data.totals.difference).toBe(0);
     });
 
+    it('ES-332: the net surplus of income over expense is carried on the liability side so the sheet can balance', async () => {
+      dataSource.query
+        .mockResolvedValueOnce([
+          { head_code: 'L1001', head_name: 'Share Value', maincd: 1, opening_balance: '-100', debit: '10', credit: '60', closingbalance: '150' },
+          { head_code: 'A1001', head_name: 'Cash', maincd: 2, opening_balance: '100', debit: '90', credit: '0', closingbalance: '190' },
+        ])
+        .mockResolvedValueOnce([{ net_result: '40' }]);
+      const res = await service.getBalanceSheet('2026-09-30');
+      expect(res.data.liabilities.map((r: any) => r.headCode)).toEqual(['L1001', 'PL-NET']);
+      expect(res.data.liabilities[0].openingBalance).toBe(100); // natural side: opening + credit - debit = closing
+      expect(res.data.totals).toMatchObject({ totalLiabilities: 190, totalAssets: 190, netResult: 40, difference: 0 });
+    });
+    it('ES-332: a net deficit is carried on the asset side', async () => {
+      dataSource.query
+        .mockResolvedValueOnce([
+          { head_code: 'L1001', head_name: 'Share Value', maincd: 1, opening_balance: '-100', debit: '0', credit: '0', closingbalance: '100' },
+          { head_code: 'A1001', head_name: 'Cash', maincd: 2, opening_balance: '70', debit: '0', credit: '0', closingbalance: '70' },
+        ])
+        .mockResolvedValueOnce([{ net_result: '-30' }]);
+      const res = await service.getBalanceSheet('2026-09-30');
+      expect(res.data.assets.map((r: any) => r.headCode)).toEqual(['A1001', 'PL-NET']);
+      expect(res.data.totals).toMatchObject({ totalLiabilities: 100, totalAssets: 100, netResult: -30, difference: 0 });
+    });
+    it('ES-332: the net result ignores the zero-suppress filters (second query has no WHERE filter)', async () => {
+      dataSource.query.mockResolvedValue([]);
+      await service.getBalanceSheet('2026-09-30', false, false);
+      const second = dataSource.query.mock.calls[1][0] as string;
+      expect(second).not.toContain('ABS(closingbalance) > 0.004');
+    });
+    it('ES-332: a date that is not a real YYYY-MM-DD date is refused (was 200 for today)', async () => {
+      await expect(service.getBalanceSheet('not-a-date')).rejects.toThrow(/YYYY-MM-DD/);
+      await expect(service.getBalanceSheet('2026-13-45')).rejects.toThrow(/YYYY-MM-DD/);
+    });
+
     it('supports suppressing zero closing balance or zero transaction accounts', async () => {
       dataSource.query.mockResolvedValueOnce([]);
 

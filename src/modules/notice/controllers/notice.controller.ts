@@ -1,17 +1,31 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, Req } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, ForbiddenException, Param, ParseIntPipe, Post, Put, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
-import { NoticeService } from '../services/notice.service';
+import { NoticeService, NOTE_COLORS, type NoticeViewer } from '../services/notice.service';
 import { DashboardNoticeType } from '../entities/dashboard-notice.entity';
+import { isAdminUser } from '../../auth/twofa/manage.guard';
+
+// The signed-in user, never a name sent by the screen (ES-434).
+const viewerOf = (req: any): NoticeViewer => ({
+    username: String(req?.user?.username ?? 'unknown').slice(0, 100),
+    isAdmin: isAdminUser(req?.user),
+});
 
 @ApiTags('Dashboard Notices')
 @Controller('dashboard-notices')
 export class NoticeController {
     constructor(private readonly noticeService: NoticeService) { }
 
-    @ApiOperation({ summary: 'List all dashboard notices, shared across every PC' })
+    @ApiOperation({ summary: 'Notices everyone sees, plus the signed-in user\'s own private notes' })
     @Get()
-    async findAll() {
-        return this.noticeService.findAll();
+    async findAll(@Req() req?: any) {
+        return this.noticeService.findAll(viewerOf(req));
+    }
+
+    @ApiOperation({ summary: 'What the signed-in user may do on the notice board' })
+    @Get('access')
+    async access(@Req() req?: any) {
+        const viewer = viewerOf(req);
+        return { username: viewer.username, isAdmin: viewer.isAdmin, colors: NOTE_COLORS };
     }
 
     @ApiOperation({ summary: 'Post a new dashboard notice' })
@@ -24,6 +38,9 @@ export class NoticeController {
         showOnMobile?: boolean;
         audienceWing?: string | null;
         audienceOffice?: number | null;
+        isPrivate?: boolean;
+        isImportant?: boolean;
+        color?: string | null;
     }, @Req() req?: any) {
         // Checked here so a bad body is a 400, not a database error (ES-371)
         const title = typeof data?.title === 'string' ? data.title.trim() : '';
@@ -55,9 +72,30 @@ export class NoticeController {
         } else if (data.audienceWing != null || data.audienceOffice != null) {
             throw new BadRequestException('an audience can only be set when showOnMobile is true');
         }
-        // The poster is the signed-in user, never a name sent in the body (ES-434)
-        const postedBy = String(req?.user?.username ?? 'unknown').slice(0, 100);
-        return this.noticeService.create({ ...data, title, message, postedBy, showOnMobile, audienceWing, audienceOffice });
+        const viewer = viewerOf(req);
+        const isPrivate = data.isPrivate === true;
+        const isImportant = data.isImportant === true;
+        if (isImportant && !viewer.isAdmin) throw new ForbiddenException('Only an administrator can mark a notice as important');
+        if (isPrivate && isImportant) throw new BadRequestException('a private note cannot be important');
+        if (isPrivate && showOnMobile) throw new BadRequestException('a private note cannot be shown on the mobile app');
+        let color: string | null = null;
+        if (data.color != null && data.color !== '') {
+            if (!(NOTE_COLORS as readonly string[]).includes(data.color)) {
+                throw new BadRequestException(`color must be one of: ${NOTE_COLORS.join(', ')}`);
+            }
+            color = data.color;
+        }
+        return this.noticeService.create({
+            title, message, type: data.type, postedBy: viewer.username,
+            showOnMobile, audienceWing, audienceOffice, isPrivate, isImportant, color,
+        }, viewer);
+    }
+
+    @ApiOperation({ summary: 'Publish a private note to everyone, or take your own notice back to private' })
+    @Put(':id/visibility')
+    async setVisibility(@Param('id', ParseIntPipe) id: number, @Body() data: { isPrivate: boolean }, @Req() req?: any) {
+        if (typeof data?.isPrivate !== 'boolean') throw new BadRequestException('isPrivate must be true or false');
+        return this.noticeService.setPrivate(id, data.isPrivate, viewerOf(req));
     }
 
     // 4.4 fix: a missing/malformed body crashed with 500 "Cannot read properties
@@ -77,8 +115,8 @@ export class NoticeController {
 
     @ApiOperation({ summary: 'Delete a dashboard notice' })
     @Delete(':id')
-    async remove(@Param('id', ParseIntPipe) id: number) {
-        await this.noticeService.remove(id);
+    async remove(@Param('id', ParseIntPipe) id: number, @Req() req?: any) {
+        await this.noticeService.remove(id, viewerOf(req));
         return { success: true };
     }
 }

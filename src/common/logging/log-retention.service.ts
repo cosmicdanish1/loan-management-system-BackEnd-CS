@@ -38,11 +38,14 @@ export class LogRetentionService {
   private readonly logger = new Logger('LogRetention');
   private readonly logDir: string;
   private readonly maxAgeMs: number;
+  private readonly maxTotalBytes: number;
 
   constructor(private readonly configService: ConfigService) {
     this.logDir = this.configService.get('LOG_FILE_PATH', './logs');
     const maxAgeDays = parseInt(this.configService.get('LOG_MAX_AGE_DAYS', '60'), 10);
     this.maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
+    const maxTotalGb = Number(this.configService.get('LOG_MAX_TOTAL_GB', '5'));
+    this.maxTotalBytes = (maxTotalGb > 0 ? maxTotalGb : 5) * 1024 ** 3;
   }
 
   @Cron('7 * * * *') // hourly
@@ -68,6 +71,29 @@ export class LogRetentionService {
           touchedDirs.add(path.dirname(f.path));
         }
       }
+    }
+
+    // Total-size cap: age alone cannot protect the PC's disk (a busy day writes hundreds of MB), so once the whole
+    // logs folder passes LOG_MAX_TOTAL_GB the oldest closed files go first, whatever their age.
+    const survivors = files.filter((f) => fs.existsSync(f.path));
+    let total = survivors.reduce((sum, f) => sum + f.size, 0);
+    if (total > this.maxTotalBytes) {
+      const oldestFirst = survivors.filter((f) => f.deletable).sort((a, b) => a.mtimeMs - b.mtimeMs);
+      let capDeleted = 0;
+      for (const f of oldestFirst) {
+        if (total <= this.maxTotalBytes) break;
+        if (this.deleteFile(f)) {
+          total -= f.size;
+          freedBytes += f.size;
+          deletedCount++;
+          capDeleted++;
+          touchedDirs.add(path.dirname(f.path));
+        }
+      }
+      this.logger.warn(
+        `Log folder exceeded ${(this.maxTotalBytes / 1024 ** 3).toFixed(1)}GB (LOG_MAX_TOTAL_GB): deleted ${capDeleted} oldest closed log file(s); ` +
+          `folder is now ~${(total / 1024 ** 2).toFixed(0)}MB.`,
+      );
     }
 
     for (const dir of touchedDirs) {
@@ -140,7 +166,10 @@ export class LogRetentionService {
       }
       try {
         const stat = fs.statSync(full);
-        results.push({ path: full, size: stat.size, mtimeMs: stat.mtimeMs, deletable: e.name.endsWith('.gz') });
+        // Zipped rotations are deletable. So are the numbered backups of a per-PC client log (clients/<host>.log.1..3):
+        // those are closed files, unlike winston's own size-rotated "<name>.log.N", which can still be the open file.
+        const closedClientBackup = path.basename(dir) === 'clients' && /\.log\.\d+$/.test(e.name);
+        results.push({ path: full, size: stat.size, mtimeMs: stat.mtimeMs, deletable: e.name.endsWith('.gz') || closedClientBackup });
       } catch {
         /* file disappeared between readdir and stat (e.g. mid-rotation), skip */
       }

@@ -155,6 +155,13 @@ const httpAccessFilter = winston.format((info) =>
   String(info.context || '') === 'HttpAccess' ? info : false,
 );
 
+// combined.log is the "everything else" file: access lines and audit entries already have their own files, and
+// repeating them here (with full bodies) doubled the daily log volume.
+const notAccessOrAuditFilter = winston.format((info) => {
+  const ctx = String(info.context || '');
+  return ctx === 'HttpAccess' || ctx === 'Audit' ? false : info;
+});
+
 function getLogPath(configService: ConfigService): string {
   return configService.get('LOG_FILE_PATH', './logs');
 }
@@ -264,7 +271,7 @@ export function createWinstonConfig(configService: ConfigService): winston.Logge
     }),
 
     // Combined — everything at the configured level (SQL debug is excluded here)
-    createRotateTransport(logPath, 'combined', logLevel, maxSize, maxDays),
+    createRotateTransport(logPath, 'combined', logLevel, maxSize, maxDays, notAccessOrAuditFilter),
 
     // Errors only
     createRotateTransport(logPath, 'error', 'error', maxSize, maxDays),

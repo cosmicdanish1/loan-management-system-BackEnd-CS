@@ -326,7 +326,7 @@ export class LoanV2Controller {
     @ApiOperation({ summary: 'Read-only early-closure quote using the true reducing-balance schedule' })
     async calculateEarlyClosure(
         @Param('caseNo') caseNo: string,
-        @Body() body: { closureDate?: string; adjustment?: number; applyRdShare?: boolean; mbno?: string },
+        @Body() body: { closureDate?: string; adjustment?: number; applyRdShare?: boolean; mbno?: string; adjustPayrollLag?: boolean },
     ) {
         return this.loanRepaymentService.calculateEarlyClosure(
             caseNo,
@@ -334,7 +334,33 @@ export class LoanV2Controller {
             body?.adjustment ?? 0,
             body?.applyRdShare ?? true,
             body?.mbno,
+            body?.adjustPayrollLag === true,
         );
+    }
+
+    // ES-522: delayed predecessor-payroll principal handed back to the member (tracked separately from the loan).
+    @Get('early-closure/payroll-lag-refunds/:caseNo')
+    @ApiOperation({ summary: 'Delayed predecessor-payroll principal already returned to the member (ES-522)' })
+    async listPayrollLagRefunds(@Param('caseNo') caseNo: string, @Query('mbno') mbno: string) {
+        if (!mbno) throw new BadRequestException('mbno is required.');
+        return this.loanRepaymentService.listPayrollLagRefunds(caseNo, mbno);
+    }
+
+    @Post('early-closure/payroll-lag-refunds/:caseNo')
+    @RequireMenuAction('LOAN_EARLY_CLOSURE')
+    @ApiOperation({ summary: 'Record that delayed predecessor-payroll principal was returned to the member (ES-522)' })
+    async recordPayrollLagRefund(
+        @Param('caseNo') caseNo: string,
+        @Body() body: { mbno: string; principal?: number; interest?: number; amount?: number; refundedOn?: string; voucherNo?: string; narration?: string },
+        @Req() req: any,
+    ) {
+        if (!body?.mbno) throw new BadRequestException('mbno is required.');
+        return this.loanRepaymentService.recordPayrollLagRefundForLoan(caseNo, String(body.mbno), {
+            principal: body.principal !== undefined ? Number(body.principal) : undefined,
+            interest: body.interest !== undefined ? Number(body.interest) : undefined,
+            amount: body.amount !== undefined ? Number(body.amount) : undefined, refundedOn: body.refundedOn, voucherNo: body.voucherNo, narration: body.narration,
+            recordedBy: req?.user?.username || 'system',
+        });
     }
 
     // ES-116: asks for the performer's own authenticator code when the Early Loan Closure switch is ON.
@@ -344,7 +370,7 @@ export class LoanV2Controller {
     @ApiOperation({ summary: 'Actually settle a loan early -- writes ledger entries and zeroes the balance' })
     async executeEarlyClosure(
         @Param('caseNo') caseNo: string,
-        @Body() body: { closureDate?: string; adjustment?: number; postedBy?: string; receiptNo?: string; applyRdShare?: boolean; mbno?: string },
+        @Body() body: { closureDate?: string; adjustment?: number; postedBy?: string; receiptNo?: string; applyRdShare?: boolean; mbno?: string; adjustPayrollLag?: boolean },
         @Req() req: any,
     ) {
         return this.loanRepaymentService.executeEarlyClosure(
@@ -356,6 +382,7 @@ export class LoanV2Controller {
             body?.receiptNo,
             body?.applyRdShare ?? true,
             body?.mbno,
+            body?.adjustPayrollLag === true,
         );
     }
 

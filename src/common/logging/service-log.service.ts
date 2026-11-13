@@ -29,6 +29,9 @@ export interface ServiceLogEntry {
   action?: string;
   message?: string;
   userId?: number;
+  /** Explicit correlation id; when omitted the current request's CLS id is used. Frontend log rows pass the id of
+   *  the API call they describe, instead of the id of the /client-logs upload request that carried them. */
+  requestId?: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -136,7 +139,7 @@ export class ServiceLogService implements OnModuleInit {
         [
           entry.service || 'other',
           entry.level ?? 'info',
-          this.currentRequestId() ?? null,
+          (entry.requestId ? String(entry.requestId).slice(0, 64) : this.currentRequestId()) ?? null,
           entry.userId ?? null,
           entry.action ?? null,
           entry.message ? redactText(entry.message) : null,

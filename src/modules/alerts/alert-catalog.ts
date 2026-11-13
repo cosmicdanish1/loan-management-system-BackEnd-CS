@@ -57,6 +57,7 @@ export const ALERT_CATALOG: AlertDef[] = [
     { key: 'admin.rights', group: 'activity', label: 'Rights changed', description: 'Default rights of a user level were changed' },
     { key: 'admin.password', group: 'activity', label: 'Passwords changed', description: 'A user changed their own password, or an administrator reset one' },
 
+    { key: 'easter.complete', group: 'activity', label: 'Easter-egg hunt finished', description: 'A user found every hidden Easter egg' },
     { key: 'dayend.done', group: 'business', label: 'Day-end completed', description: 'The day-end process finished' },
     { key: 'dayend.failed', group: 'business', label: 'Day-end failed', description: 'The day-end process failed and was rolled back' },
     { key: 'backup.ok', group: 'business', label: 'Backup succeeded', description: 'A database backup finished' },

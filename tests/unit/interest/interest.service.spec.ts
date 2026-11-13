@@ -153,3 +153,20 @@ describe('interest/InterestService private calculations', () => {
     it('a negative balance never produces negative interest', async () => { const r = await run(-5000, [], d(2026, 4, 1), d(2026, 4, 30), 4); expect(r.interestAmount).toBeGreaterThanOrEqual(0); });
   });
 });
+
+describe('interest/InterestService.previewInterestCalculation (ES-510)', () => {
+  it('SB preview calculates only the members who hold an SB ledger account up to the period end', async () => {
+    const t = mk();
+    (t.anySvc.dataSource ?? (t.anySvc as any).dataSource).query = jest.fn().mockResolvedValue([{ mbno: '2' }]);
+    const r = await t.svc.previewInterestCalculation(dto());
+    expect(t.anySvc.calculateMemberInterest).toHaveBeenCalledTimes(1);
+    expect(t.anySvc.calculateMemberInterest.mock.calls[0][0].mbno).toBe('2');
+    expect(r.totalMembers).toBe(1);
+  });
+  it('FD preview keeps every eligible member (it reads its own tables)', async () => {
+    const t = mk();
+    const r = await t.svc.previewInterestCalculation(dto({ accountType: 'FD' }));
+    expect(t.anySvc.calculateMemberInterest).toHaveBeenCalledTimes(2);
+    expect(r.totalMembers).toBe(2);
+  });
+});

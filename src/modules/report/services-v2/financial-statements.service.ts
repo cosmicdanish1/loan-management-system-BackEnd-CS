@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { HEAD_BALANCES_SELECT, HEAD_BALANCES_SELECT_AS_ON } from '../../utilities/head-balances.sql';
 
@@ -221,7 +221,12 @@ export class FinancialStatementsService {
      * Get Balance Sheet data
      */
     async getBalanceSheet(asOnDate?: string, includeZeroClosing = true, includeZeroTransaction = true) {
-        const hasDate = !!asOnDate && /^\d{4}-\d{2}-\d{2}$/.test(asOnDate);
+        // ES-332: a date that is given but is not a real YYYY-MM-DD date was silently ignored (the sheet came back for
+        // "today" with a 200). It is now refused.
+        const given = asOnDate !== undefined && asOnDate !== null && String(asOnDate).trim() !== '';
+        const hasDate = given && /^\d{4}-\d{2}-\d{2}$/.test(String(asOnDate)) && !Number.isNaN(Date.parse(String(asOnDate)));
+        if (given && !hasDate) throw new BadRequestException('asOnDate must be a valid date in YYYY-MM-DD format.');
+        const base = hasDate ? HEAD_BALANCES_SELECT_AS_ON(1) : HEAD_BALANCES_SELECT;
         const filters: string[] = [];
         // "Suppress A/c with Zero Closing Balance" / "Zero Transaction A/c" (no debit and no credit)
         if (!includeZeroClosing) filters.push('ABS(closingbalance) > 0.004');
@@ -235,48 +240,72 @@ export class FinancialStatementsService {
                 credit,
                 closingbalance,
                 maincd
-            FROM (${hasDate ? HEAD_BALANCES_SELECT_AS_ON(1) : HEAD_BALANCES_SELECT}) live
+            FROM (${base}) live
             ${filters.length ? 'WHERE ' + filters.join(' AND ') : ''}
             ORDER BY maincd, head_code
         `;
 
         const result = await this.dataSource.query(query, hasDate ? [asOnDate] : []);
-        
+
+        // ES-332: income (I) and expense (E) heads are not listed on a balance sheet, but their net result must be:
+        // assets = liabilities + (income - expense) until the year-end transfer moves it to the reserve. Without it the
+        // two sides can never agree. It is summed over ALL heads (not the zero-suppressed list above), so the display
+        // filters cannot change the result.
+        const netRows = await this.dataSource.query(
+            `SELECT COALESCE(SUM(CASE WHEN maincd = 3 THEN closingbalance WHEN maincd = 4 THEN -closingbalance ELSE 0 END), 0) AS net_result
+               FROM (${base}) live`,
+            hasDate ? [asOnDate] : [],
+        );
+        const netResult = Math.round((parseFloat(netRows?.[0]?.net_result) || 0) * 100) / 100;
+
         // Group by main categories
         const liabilities = result.filter((item: any) => item.maincd === 1);
         const assets = result.filter((item: any) => item.maincd === 2);
-        
+
+        // Natural-side figures: the head query stores a credit-normal opening balance as a negative number, which made
+        // "opening + credit - debit = closing" fail for every liability row. The sheet shows the opening on the same
+        // side as the closing.
+        const rowOf = (item: any, creditSide: boolean) => ({
+            headCode: item.head_code,
+            headName: item.head_name,
+            openingBalance: (creditSide ? -1 : 1) * (parseFloat(item.opening_balance) || 0),
+            debit: parseFloat(item.debit) || 0,
+            credit: parseFloat(item.credit) || 0,
+            closingBalance: parseFloat(item.closingbalance) || 0,
+        });
+        const liabilityRows = liabilities.map((item: any) => rowOf(item, true));
+        const assetRows = assets.map((item: any) => rowOf(item, false));
+
+        // The period result: a surplus is a liability to the members, a deficit is carried on the asset side.
+        if (Math.abs(netResult) > 0.004) {
+            const line = {
+                headCode: 'PL-NET',
+                headName: netResult >= 0 ? 'NET SURPLUS (INCOME - EXPENSE, NOT YET TRANSFERRED)' : 'NET DEFICIT (EXPENSE - INCOME, NOT YET TRANSFERRED)',
+                openingBalance: 0,
+                debit: 0,
+                credit: 0,
+                closingBalance: Math.abs(netResult),
+            };
+            (netResult >= 0 ? liabilityRows : assetRows).push(line);
+        }
+
         // Calculate totals
-        const totalLiabilities = liabilities.reduce((sum: number, item: any) => 
-            sum + (parseFloat(item.closingbalance) || 0), 0);
-        const totalAssets = assets.reduce((sum: number, item: any) => 
-            sum + (parseFloat(item.closingbalance) || 0), 0);
-            
+        const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+        const totalLiabilities = round2(liabilityRows.reduce((sum: number, r: any) => sum + r.closingBalance, 0));
+        const totalAssets = round2(assetRows.reduce((sum: number, r: any) => sum + r.closingBalance, 0));
+
         return {
             success: true,
             data: {
-                liabilities: liabilities.map((item: any) => ({
-                    headCode: item.head_code,
-                    headName: item.head_name,
-                    openingBalance: parseFloat(item.opening_balance) || 0,
-                    debit: parseFloat(item.debit) || 0,
-                    credit: parseFloat(item.credit) || 0,
-                    closingBalance: parseFloat(item.closingbalance) || 0
-                })),
-                assets: assets.map((item: any) => ({
-                    headCode: item.head_code,
-                    headName: item.head_name,
-                    openingBalance: parseFloat(item.opening_balance) || 0,
-                    debit: parseFloat(item.debit) || 0,
-                    credit: parseFloat(item.credit) || 0,
-                    closingBalance: parseFloat(item.closingbalance) || 0
-                })),
+                liabilities: liabilityRows,
+                assets: assetRows,
                 totals: {
                     totalLiabilities,
                     totalAssets,
-                    difference: totalAssets - totalLiabilities
-                }
-            }
+                    netResult,
+                    difference: round2(totalAssets - totalLiabilities),
+                },
+            },
         };
     }
 }

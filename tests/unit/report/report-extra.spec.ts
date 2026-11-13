@@ -227,12 +227,12 @@ describe('report extra: financial statements', () => {
       { head_code: 'A1', head_name: 'A', maincd: 2, closingbalance: '250' },
     ]]]);
     const r: any = await new FinancialStatementsService(d).getBalanceSheet();
-    expect(r.data.totals).toEqual({ totalLiabilities: 300, totalAssets: 250, difference: -50 });
+    expect(r.data.totals).toEqual({ totalLiabilities: 300, totalAssets: 250, netResult: 0, difference: -50 });
   });
-  it('balance sheet ignores a malformed as-on date instead of passing it to SQL', async () => {
+  it('balance sheet refuses a malformed as-on date and never passes it to SQL (ES-332)', async () => {
     const d = ds([[/FROM \(/, []]]);
-    await new FinancialStatementsService(d).getBalanceSheet("2026-09-30'; DROP");
-    expect(d.calls[0].params).toEqual([]);
+    await expect(new FinancialStatementsService(d).getBalanceSheet("2026-09-30'; DROP")).rejects.toThrow(/YYYY-MM-DD/);
+    expect(d.calls).toHaveLength(0);
   });
   it('balance sheet suppress options add SQL filters', async () => {
     const d = ds([[/FROM \(/, []]]);

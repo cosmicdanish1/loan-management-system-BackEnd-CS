@@ -11,10 +11,16 @@ import { QueryFailedError } from 'typeorm';
 import { ClsServiceManager } from 'nestjs-cls';
 import { AlertBridge } from '../../modules/alerts/alert-bridge';
 import { clientInfoOf } from '../../modules/alerts/client-info';
+import { ServiceLogService } from '../logging/service-log.service';
+import { safeStringify } from '../logging/safe-stringify';
 
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(GlobalExceptionFilter.name);
+  private readonly accessLogger = new Logger('HttpAccess');
+
+  /** serviceLog is optional so `new GlobalExceptionFilter()` (unit tests) still works; main.ts passes the real one. */
+  constructor(private readonly serviceLog?: ServiceLogService) {}
 
   /** Text that only makes sense to a developer: SQL / driver errors and JavaScript runtime errors. */
   private static readonly TECHNICAL =
@@ -88,6 +94,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     if (extra.code === undefined) extra.code = GlobalExceptionFilter.defaultCodeFor(status);
 
     this.alertTelegram(exception, request, status);
+    this.logRejectedCall(request, status, message);
 
     // Log the error. A handled client error (validation, not found, conflict, refused request) is normal
     // traffic: warn level, one line, no stack trace. Only server faults (5xx) and failed SQL (which is mapped
@@ -114,6 +121,37 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     };
 
     response.status(status).json(errorResponse);
+  }
+
+  /** Calls rejected before they reach the access-log interceptor (guard 401/403, unknown route, body-parser errors)
+   *  have no access-log line. Write one here so a failed login or an expired session is visible in http-access and
+   *  in service_log. Calls that did reach the interceptor are flagged and skipped. Never throws; no request body is
+   *  logged (a failed login body holds the password). */
+  private logRejectedCall(request: Request, status: number, message: unknown): void {
+    try {
+      if (!request || (request as any).accessLogged) return;
+      const entry = {
+        requestId: GlobalExceptionFilter.requestIdOf(request),
+        method: request.method,
+        url: request.originalUrl || request.url,
+        status,
+        user: (request as any).user?.username || 'anonymous',
+        clientIP: request.ip || request.socket?.remoteAddress,
+        userAgent: String(request.headers?.['user-agent'] ?? '').substring(0, 100),
+        requestQuery: request.query,
+        rejectedBeforeController: true,
+        error: Array.isArray(message) ? message.join('; ') : String(message),
+      };
+      this.accessLogger.warn(safeStringify(entry));
+      void this.serviceLog?.record({
+        service: 'api',
+        level: status >= 500 ? 'error' : 'warn',
+        action: `${request.method} ${request.originalUrl || request.url}`.substring(0, 80),
+        message: entry.url,
+        userId: (request as any).user?.id,
+        metadata: { status, user: entry.user, clientIP: entry.clientIP, requestQuery: entry.requestQuery, rejectedBeforeController: true, error: entry.error },
+      });
+    } catch { /* logging must never break error handling */ }
   }
 
   /** Stable code for an error that did not name one, from its HTTP status. */

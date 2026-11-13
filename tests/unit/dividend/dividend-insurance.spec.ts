@@ -13,7 +13,7 @@ const runnerOf = (route: (sql: string, p?: any[]) => any) => {
 
 describe('dividend/DividendCalculationService', () => {
   const fyRow = [{ start_date: '2026-04-01', end_date: '2027-03-31' }];
-  const mk = (rows: any[] = [], fy: any[] = fyRow) => runnerOf((sql) => (/FROM yearend/.test(sql) ? fy : /FROM share_monthly_balance/.test(sql) ? rows : undefined));
+  const mk = (rows: any[] = [], fy: any[] = fyRow) => runnerOf((sql) => (/FROM yearend/.test(sql) ? fy : /FROM share_monthly_balance/.test(sql) ? rows : /INSERT INTO dividend_master/.test(sql) ? [{ mbno: 'x' }] : undefined));
   it('a financial year has 12 months from April to March', async () => {
     const m = await new DividendCalculationService(mk().ds).getFinancialYearMonths(3);
     expect(m).toHaveLength(12); expect(m[0]).toEqual({ month: 4, year: 2026 }); expect(m[11]).toEqual({ month: 3, year: 2027 });
@@ -43,6 +43,11 @@ describe('dividend/DividendCalculationService', () => {
     const r = await new DividendCalculationService(t.ds).commitDividendForYear(3, 10);
     const ins = t.calls.filter((c) => /INSERT INTO dividend_master/.test(c[0])); expect(r).toEqual({ success: true, calculationYear: 2026, membersCommitted: 2 }); expect(ins).toHaveLength(2);
     expect(ins[0][0]).toContain("dividend_master.is_paid != 'Y'"); expect(t.qr.commitTransaction).toHaveBeenCalledTimes(1);
+  });
+  it('ES-498: membersCommitted counts only the rows really written (credited / paid rows return nothing)', async () => {
+    const t = runnerOf((sql, p) => { if (/FROM yearend/.test(sql)) return fyRow; if (/FROM share_monthly_balance/.test(sql)) return [{ mbno: '5', months_found: 12, total_product: '1200' }, { mbno: '6', months_found: 12, total_product: '2400' }]; if (/INSERT INTO dividend_master/.test(sql)) return p![0] === '5' ? [] : [{ mbno: '6' }]; return undefined; });
+    const r = await new DividendCalculationService(t.ds).commitDividendForYear(3, 10);
+    expect(r.membersCommitted).toBe(1);
   });
   it('commit rolls back when an insert fails', async () => {
     const t = runnerOf((sql) => { if (/INSERT INTO dividend_master/.test(sql)) throw new Error('x'); if (/credited_at IS NOT NULL OR is_paid/.test(sql)) return []; return /FROM yearend/.test(sql) ? fyRow : [{ mbno: '5', months_found: 12, total_product: '1200' }]; });

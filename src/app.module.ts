@@ -3,7 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { WinstonModule } from 'nest-winston';
-import * as winston from 'winston';
+import { createWinstonConfig } from './common/logging/logging.config';
 import * as Joi from 'joi';
 import * as crypto from 'crypto';
 import { ClsModule } from 'nestjs-cls';
@@ -48,6 +48,7 @@ import { MemberStatusModule } from './modules/member-status/member-status.module
 import { GroupInsuranceModule } from './modules/group-insurance/group-insurance.module';
 import { NotificationCentreModule } from './modules/notification-centre/notification-centre.module';
 import { AlertsModule } from './modules/alerts/alerts.module';
+import { EasterEggsModule } from './modules/easter-eggs/easter-eggs.module';
 import { LoggingModule } from './common/logging/logging.module';
 
 @Module({
@@ -140,32 +141,7 @@ import { LoggingModule } from './common/logging/logging.module';
     WinstonModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        transports: [
-          new winston.transports.Console({
-            format: winston.format.combine(
-              winston.format.timestamp(),
-              winston.format.colorize(),
-              winston.format.simple(),
-            ),
-          }),
-          new winston.transports.File({
-            filename: `${configService.get('LOG_FILE_PATH', './logs')}/error.log`,
-            level: 'error',
-            format: winston.format.combine(
-              winston.format.timestamp(),
-              winston.format.json(),
-            ),
-          }),
-          new winston.transports.File({
-            filename: `${configService.get('LOG_FILE_PATH', './logs')}/combined.log`,
-            format: winston.format.combine(
-              winston.format.timestamp(),
-              winston.format.json(),
-            ),
-          }),
-        ],
-      }),
+      useFactory: (configService: ConfigService) => createWinstonConfig(configService),
     }),
 
     // Feature modules
@@ -200,6 +176,7 @@ import { LoggingModule } from './common/logging/logging.module';
     LicenseModule,
     ClientLogsModule,
     NoticeModule,
+    EasterEggsModule,
     AlertsModule, // Telegram alerts: errors, logins, backups, licence, daily digest
     SupportModule, // Raise a Query desk (Jira + Telegram)
     MobileModule, // Fibe Mobile member app API (/api/v1/mobile): isolated token, limits, DB pool

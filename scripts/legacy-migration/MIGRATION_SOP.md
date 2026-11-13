@@ -10,6 +10,47 @@ work — commands below are PowerShell; swap `$env:VAR="x"` for
 
 ---
 
+## Quick start (no Claude needed)
+
+Run everything from `backend/`. **Every script is a dry run unless you add `--execute`.** Legacy is only ever read.
+
+### A. Migrate ONE member (latest legacy data) — one command
+
+```bash
+node scripts/legacy-migration/migrate-member.js 610031839             # dry run: copies + verifies, rolls back, replays in dry mode
+node scripts/legacy-migration/migrate-member.js 610031839 --execute   # real run
+```
+It does three things in order: (1) Phase 1 copy of that member's rows in all 15 tables (delete-then-insert for that member only, row count + SHA-256 verified), (2) removes that member's OLD Phase 2 output (`loan_repayment_ledger`, `loan_schedule_versions`, `loan_rb_schedule`, `loan_payment_flags`, `legacy_replay_batch_log`) so Phase 2 does not skip him as "already done", (3) Phase 2 repayment replay for him. Re-running is safe and refreshes him from the current legacy data.
+Several members: put one mbno per line in a file and run `migrate-member.js --file=path/to/list.txt [--execute]`.
+Only refresh one table (e.g. the ledger) without touching Phase 2 results: `node scripts/legacy-migration/migrate-single-member.js 610031839 --tables=ledger --execute`.
+
+### B. Migrate ALL members
+1. Dry run Phase 1: `node scripts/legacy-migration/migrate-all-members.js` (rolls back; hours-free, minutes).
+2. Real Phase 1: `$env:SKIP_BACKUP="1"; node scripts/legacy-migration/migrate-all-members.js --execute` (Git Bash: `SKIP_BACKUP=1 node ...`). Expect `Flagged: 0`.
+3. Dry run Phase 2: `node scripts/legacy-migration/run-phase2.js`.
+4. Real Phase 2 (hours): `DRY_RUN=false CONFIRM_LIVE_RUN=yes-i-mean-it` then `node scripts/legacy-migration/run-phase2.js > scripts/legacy-migration/reports/phase2-run.log 2>&1`. If members were migrated before, clear the old replay output first (wipe script in section 1) or they are skipped as `done`.
+See sections 1-5 below for details and for reading the flags.
+
+### C. The production runner (fresh empty production database, all tables, all checks)
+A separate, newer tool for the one-time go-live load into an **empty template** database: `scripts/legacy-migration/runner/` — see its `README.md` (dry run: `node scripts/legacy-migration/runner/run-migration.js`). It is not used for per-member refreshes of the test database.
+
+### Dry-run summary
+| Task | Dry run (default) | Real |
+|---|---|---|
+| One member, everything | `migrate-member.js <mbno>` | add `--execute` |
+| One member, Phase 1 only | `migrate-single-member.js <mbno>` | add `--execute` |
+| All, Phase 1 | `migrate-all-members.js` | add `--execute` |
+| Phase 2 | `run-phase2.js` | set `DRY_RUN=false` and `CONFIRM_LIVE_RUN=yes-i-mean-it` |
+
+### Known notes
+- The target Postgres has a trigger that fills `dor` from `date_of_retirement`; the scripts now expect that when verifying `member_master` (earlier versions failed verification for members with an empty legacy `DOR`).
+- Combined interest split: legacy posts ONE I1002 interest entry for a member's regular+emergency loan. Phase 2 now splits it using the regular-loan-only vouchers with the SAME regular-loan EMI nearest in time (a refinanced regular loan used to keep the old loan's interest and inflate the emergency loan's). Members migrated before this fix (about 225 with several regular-only amounts) should be re-run with migrate-member.js --file=list.txt --execute. Mixed vouchers with no regular-only voucher at all (about 248 members) are still flagged and left unsplit.
+- Affected-member lists (made from legacy, NOT migrated): reports/interest-split-affected-members.csv (473 members: 225 with several regular-only interest amounts, 248 with none) and reports/interest-split-rerun-members.txt (the 225, one mbno per line). When you decide to refresh them: node scripts/legacy-migration/migrate-member.js --file=scripts/legacy-migration/reports/interest-split-rerun-members.txt (dry run first), then add --execute.
+- Result of the interest-split re-run of the 225 members (2026-11-12): reports/interest-split-rerun-result.csv (one row per member and loan: replay status, repayments, flags, monthly principal/interest before and after). 6 members ended Phase 2 as failed and need one-by-one review: 130028955, 610029800, 610030854, 610031044, 610031279, 610031645. Note: single-member and batch runs via migrate-member.js now skip the per-member pg_dump (SKIP_BACKUP), which used to fill the disk (about 190 MB per member in backend/backups).
+- Phase 2 flags such as "Overpayment … not applied to any loan", "INFO … interest-only credit(s)", "schedule from legacy loan terms … please confirm the terms" and "has invalid loan_amt (₹0) … excluded" are informational (see section 3).
+
+---
+
 ## 0. One-time prerequisites (already set up, listed for reference)
 
 - Postgres connection: read from `backend/.env` (`DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD`, `DB_DATABASE`)

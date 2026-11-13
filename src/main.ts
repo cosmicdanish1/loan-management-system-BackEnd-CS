@@ -8,12 +8,20 @@ import { GlobalExceptionFilter } from './common/filters/global-exception.filter'
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import * as compression from 'compression';
 import { json, urlencoded } from 'express';
+import { WINSTON_MODULE_NEST_PROVIDER } from 'nest-winston';
+import { DataSource } from 'typeorm';
+import { HttpAccessLogInterceptor } from './common/interceptors/http-access-log.interceptor';
+import { ServiceLogService } from './common/logging/service-log.service';
+import { patchQueryResultLogging } from './common/logging/query-result-logger';
 
 async function bootstrap() {
   // The default body-parser limit is 100 KB: a desktop client's batched log upload (/client-logs) is
   // routinely larger and was rejected with "PayloadTooLargeError" (ES-44/ES-71), so those logs were lost.
   // Parsers are registered explicitly with a higher limit instead of Nest's built-in defaults.
-  const app = await NestFactory.create(AppModule, { bodyParser: false });
+  const app = await NestFactory.create(AppModule, { bodyParser: false, bufferLogs: true });
+  // Winston is the application logger: every Nest Logger.* call goes through the rotating, redacting, request-id
+  // stamped file transports from createWinstonConfig. Without this the files stay empty (logs stopped 2026-09-05).
+  app.useLogger(app.get(WINSTON_MODULE_NEST_PROVIDER));
   app.use(json({ limit: '5mb' }));
   app.use(urlencoded({ extended: true, limit: '5mb' }));
   app.use(compression());
@@ -50,6 +58,18 @@ async function bootstrap() {
     credentials: true,
   });
 
+  // Easter egg: credits for anyone inspecting traffic or visiting /humans.txt
+  (app.getHttpAdapter().getInstance() as any).use((req: any, res: any, next: any) => {
+    res.setHeader('X-Crafted-By', 'The Kova Studio');
+    if (req.path === '/humans.txt') {
+      res.type('text/plain').send(
+        '/* TEAM */\nMD Danish Qureshi\nAkshay Kumar\n\n/* STUDIO */\nThe Kova Studio\n\n/* NOTE */\nOur first application to go into production, built with love.\n\n/* RIDDLE */\nOpen the glass window of the browser (F12) and read the art.\n',
+      );
+      return;
+    }
+    next();
+  });
+
   // Global pipes
   app.useGlobalPipes(
     new ValidationPipe({
@@ -65,10 +85,14 @@ async function bootstrap() {
   );
 
   // Global filters
-  app.useGlobalFilters(new GlobalExceptionFilter());
+  app.useGlobalFilters(new GlobalExceptionFilter(app.get(ServiceLogService)));
 
   // Global interceptors
-  app.useGlobalInterceptors(new TransformInterceptor());
+  // HttpAccessLogInterceptor is DI-resolved so it can use ServiceLogService (one http-access line + one service_log row per call).
+  app.useGlobalInterceptors(app.get(HttpAccessLogInterceptor), new TransformInterceptor());
+
+  // Log every DB query's full result (db-queries file + service_log), not just the SQL text.
+  await patchQueryResultLogging(app.get(DataSource), app.get(ServiceLogService));
 
   // Swagger documentation
   const config = new DocumentBuilder()

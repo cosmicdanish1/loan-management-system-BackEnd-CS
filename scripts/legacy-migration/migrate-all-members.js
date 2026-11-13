@@ -80,6 +80,13 @@ const COPY_TABLES = [
   { source: 'MemberCategory', target: 'membercategory', member: 'MBNO' },
 ];
 
+// EXCLUDE_TABLES: comma list of target table names to leave out of this run entirely
+// (for example `fundsmaster,member_balances` when the Modify Balance data must not be touched).
+for (const name of String(process.env.EXCLUDE_TABLES || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean)) {
+  const i = COPY_TABLES.findIndex(t => t.target.toLowerCase() === name);
+  if (i >= 0) COPY_TABLES.splice(i, 1);
+}
+
 function effectiveEnv() {
   const file = path.join(BACKEND, '.env');
   return { ...(fs.existsSync(file) ? dotenv.parse(fs.readFileSync(file)) : {}), ...process.env };
@@ -196,6 +203,17 @@ function fingerprint(rows, columns) {
   return sum.toString(16);
 }
 
+
+// The target has trigger trg_member_master_sync_retirement: on insert, dor := date_of_retirement (or dor if that is empty).
+// The source hash must expect that, otherwise every member with an empty legacy DOR fails verification.
+function withRetirementTrigger(spec, rows) {
+  if (spec.target !== 'member_master') return rows;
+  return rows.map(r => {
+    const v = (r.date_of_retirement !== null && r.date_of_retirement !== undefined && r.date_of_retirement !== '') ? r.date_of_retirement : r.dor;
+    return { ...r, dor: v ?? null, date_of_retirement: v ?? null };
+  });
+}
+
 function ownerColumn(columns, spec) {
   const owner = columns.find(c => c.source.name.toLowerCase() === spec.member.toLowerCase());
   if (!owner) throw new Error(`${spec.source}: member column is not shared`);
@@ -269,7 +287,7 @@ async function processBatch(pg, batchIndex, memberIds, columnsByTable) {
         await insertRows(pg, spec, columns, safeSourceRows);
       }
       const copied = await targetRows(pg, spec, columns, ownerCol, safeMembers);
-      const sourceHash = fingerprint(safeSourceRows, columns), targetHash = fingerprint(copied, columns);
+      const sourceHash = fingerprint(withRetirementTrigger(spec, safeSourceRows), columns), targetHash = fingerprint(copied, columns);
       if (copied.length !== safeSourceRows.length || sourceHash !== targetHash) {
         throw new Error(`${spec.target} batch ${batchIndex}: verification failed source=${safeSourceRows.length}/${sourceHash} target=${copied.length}/${targetHash}`);
       }
