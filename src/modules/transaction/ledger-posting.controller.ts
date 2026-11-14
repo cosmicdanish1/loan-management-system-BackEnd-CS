@@ -1,3 +1,4 @@
+import { RequireMenuAction } from '../auth/guards/menu-right.guard';
 import { Controller, Get, Post, Body, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { LedgerPostingService, LedgerSummaryDto, LedgerPostingDto } from './services-v2/ledger-posting.service';
@@ -15,6 +16,7 @@ export class LedgerPostingController {
         return this.service.getSummary({ month, year, branch });
     }
 
+    @RequireMenuAction('UPDATION_LEDGER_POSTING') // ES-464
     @Post('post')
     @ApiOperation({ summary: 'Post updates to General Ledger' })
     @ApiResponse({ status: 200, description: 'Ledger updated successfully' })

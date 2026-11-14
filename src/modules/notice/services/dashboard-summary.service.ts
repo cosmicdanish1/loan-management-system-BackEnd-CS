@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { CREDIT_TYPES_SQL, DEBIT_TYPES_SQL } from '../../report/services-v2/ledger-types';
 
 /**
  * Figures for the dashboard widgets, in one call. Every section runs on its own, so
@@ -26,6 +27,46 @@ export class DashboardSummaryService {
             this.logger.warn(`Dashboard summary "${name}" failed: ${err?.message}`);
             return null;
         }
+    }
+
+    /**
+     * Cash-In-Hand (A1001) opening, receipts, payments and closing for each of the last `days` days, in ONE query.
+     * Same rules as the daily Cash-Book (receipts = debit legs, payments = credit legs), so the figures match it.
+     * The dashboard used to ask for the Cash-Book report once per day (7 reports of 2-5 seconds each) on every load.
+     */
+    async getCashTrend(daysRequested = 7) {
+        const days = Math.min(31, Math.max(1, Math.floor(Number(daysRequested)) || 7));
+        const rows = await this.dataSource.query(`
+            WITH span AS (SELECT (current_date - ($1::int - 1))::date AS first_day),
+            opening AS (
+                SELECT coalesce(sum(CASE WHEN trans_type IN ${DEBIT_TYPES_SQL} THEN CAST(trans_amt AS numeric) ELSE 0 END), 0) -
+                       coalesce(sum(CASE WHEN trans_type IN ${CREDIT_TYPES_SQL} THEN CAST(trans_amt AS numeric) ELSE 0 END), 0) AS balance
+                FROM ledger, span
+                WHERE code = 'A1001' AND trans_date < span.first_day
+            ),
+            daily AS (
+                SELECT trans_date::date AS day,
+                       coalesce(sum(CASE WHEN trans_type IN ${DEBIT_TYPES_SQL} THEN CAST(trans_amt AS numeric) ELSE 0 END), 0) AS receipts,
+                       coalesce(sum(CASE WHEN trans_type IN ${CREDIT_TYPES_SQL} THEN CAST(trans_amt AS numeric) ELSE 0 END), 0) AS payments
+                FROM ledger, span
+                WHERE code = 'A1001' AND trans_date >= span.first_day AND trans_date < current_date + 1
+                GROUP BY 1
+            )
+            SELECT to_char(g.day, 'YYYY-MM-DD') AS date,
+                   (SELECT balance FROM opening)::float AS opening_base,
+                   coalesce(d.receipts, 0)::float AS receipts,
+                   coalesce(d.payments, 0)::float AS payments
+            FROM generate_series((SELECT first_day FROM span), current_date, interval '1 day') AS g(day)
+            LEFT JOIN daily d ON d.day = g.day::date
+            ORDER BY g.day
+        `, [days]);
+
+        let running = Number(rows[0]?.opening_base) || 0;
+        return rows.map((r: any) => {
+            const opening = running;
+            running = opening + r.receipts - r.payments;
+            return { date: r.date, opening, receipts: r.receipts, payments: r.payments, closing: running };
+        });
     }
 
     async getSummary() {

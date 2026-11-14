@@ -110,13 +110,30 @@ export class FinancialYearService {
             throw new BadRequestException(`Financial Year ${yearCode} already has archived closing entries. Pass force=true to delete anyway.`);
         }
 
-        if (hasArchive) {
-            await this.dataSource.query(`DELETE FROM yearend_head WHERE yearcode = $1`, [yearCode]);
-            await this.dataSource.query(`DELETE FROM yearend_member WHERE yearcode = $1`, [yearCode]);
-            await this.dataSource.query(`DELETE FROM bankopbal WHERE fycode = $1`, [yearCode]);
+        // ES-459: the forced delete was four separate statements with no lock — a year-end run in between could
+        // be half-deleted. Now one transaction under the same lock as the year-end run, closed state re-read inside.
+        const qr = this.dataSource.createQueryRunner();
+        await qr.connect();
+        await qr.startTransaction();
+        try {
+            await qr.query(`SELECT pg_advisory_xact_lock(hashtext('yearend.close'))`);
+            const cur = await qr.query(`SELECT closed_at FROM yearend WHERE yearcode = $1`, [yearCode]);
+            if (cur[0]?.closed_at) {
+                throw new BadRequestException(`Financial Year ${yearCode} is closed and cannot be deleted.`);
+            }
+            if (hasArchive) {
+                await qr.query(`DELETE FROM yearend_head WHERE yearcode = $1`, [yearCode]);
+                await qr.query(`DELETE FROM yearend_member WHERE yearcode = $1`, [yearCode]);
+                await qr.query(`DELETE FROM bankopbal WHERE fycode = $1`, [yearCode]);
+            }
+            await qr.query(`DELETE FROM yearend WHERE yearcode = $1`, [yearCode]);
+            await qr.commitTransaction();
+        } catch (e) {
+            await qr.rollbackTransaction();
+            throw e;
+        } finally {
+            await qr.release();
         }
-
-        await this.financialYearRepository.delete({ yearCode });
         return { message: `Financial Year ${yearCode} deleted.` };
     }
 
@@ -405,10 +422,14 @@ export class FinancialYearService {
             throw new BadRequestException(`Financial Year ${yearCode} is already closed (closed at ${fy.closedAt.toISOString()}).`);
         }
 
-        await this.financialYearRepository.update(
-            { yearCode },
-            { closedAt: new Date(), username },
+        // ES-459: close only if still open, in one statement (two parallel calls can no longer both stamp closed_at)
+        const closed = await this.dataSource.query(
+            `UPDATE yearend SET closed_at = NOW(), username = $1 WHERE yearcode = $2 AND closed_at IS NULL RETURNING yearcode`,
+            [username, yearCode],
         );
+        if (!closed || (Array.isArray(closed[0]) ? closed[0].length === 0 : closed.length === 0)) {
+            throw new BadRequestException(`Financial Year ${yearCode} is already closed.`);
+        }
 
         this.logger.log(`Financial Year ${yearCode} closed by ${username}`);
         return { message: `Financial Year ${yearCode} has been formally closed.` };
@@ -503,6 +524,17 @@ export class FinancialYearService {
         await queryRunner.startTransaction();
 
         try {
+            // ES-459: the "already closed" check above ran outside the transaction, so two parallel runs both passed it
+            // and both carried the profit into L1006. Serialise year-end runs with a transaction lock, then re-read
+            // closed_at under the lock: the second run waits, sees the year closed and stops.
+            await queryRunner.query(`SELECT pg_advisory_xact_lock(hashtext('yearend.close'))`);
+            const lockedFY = await queryRunner.query(`SELECT closed_at FROM yearend WHERE yearcode = $1`, [yearCode]);
+            if (lockedFY[0]?.closed_at) {
+                throw new BadRequestException(
+                    `Financial Year ${yearCode} is already closed (${new Date(lockedFY[0].closed_at).toISOString()}). P&L Year End can only be run once per year.`
+                );
+            }
+
             // Step 1: Calculate Profit = SUM(Income closing) - SUM(Expense closing)
             // Excludes PL_YEAR_END_EXCLUDED_HEAD_CODES (see constant doc) — legacy
             // report-formatting heads with no real transactional activity that must
@@ -609,6 +641,7 @@ export class FinancialYearService {
         } catch (error: any) {
             await queryRunner.rollbackTransaction();
             this.logger.error('P&L Year End Process failed', error);
+            if (error instanceof BadRequestException) throw error; // ES-459: keep the plain message (e.g. "already closed")
             throw new BadRequestException('P&L Year End failed: ' + error.message);
         } finally {
             await queryRunner.release();

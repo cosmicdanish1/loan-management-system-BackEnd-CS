@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { buildValidationException } from './common/validation/friendly-validation';
+import { createHeavyReportGate } from './common/concurrency/single-flight';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import * as compression from 'compression';
@@ -25,6 +26,7 @@ async function bootstrap() {
   app.use(json({ limit: '5mb' }));
   app.use(urlencoded({ extended: true, limit: '5mb' }));
   app.use(compression());
+  app.use(createHeavyReportGate()); // ES-267: heavy reports share a few slots so they cannot use up the database pool
   const configService = app.get(ConfigService);
   const logger = new Logger('Bootstrap');
 
@@ -53,9 +55,30 @@ async function bootstrap() {
   // a local Electron renderer that Chromium labels differently).
   // Electron apps do not send a meaningful Origin header, so whitelist-based
   // CORS is both ineffective and harmful here — allow all origins instead.
+  // ES-295: the old reflect-everything rule let any website a user visits call the API with their credentials.
+  // Allowed now: requests with no Origin (Electron, mobile app, curl), the "null"/file:// origin of a packaged
+  // Electron renderer, localhost, private LAN addresses (10.x, 172.16-31.x, 192.168.x) and any origin listed in
+  // CORS_ALLOWED_ORIGINS (comma separated, e.g. a Cloudflare Tunnel host). Everything else gets no CORS headers.
+  const extraOrigins = String(configService.get('CORS_ALLOWED_ORIGINS', ''))
+    .split(',').map((s) => s.trim()).filter(Boolean);
+  const lanOrigin = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|10(\.\d{1,3}){3}|192\.168(\.\d{1,3}){2}|172\.(1[6-9]|2\d|3[01])(\.\d{1,3}){2})(:\d+)?$/i;
   app.enableCors({
-    origin: (_origin, callback) => callback(null, true),
+    origin: (origin, callback) => {
+      if (!origin || origin === 'null' || origin.startsWith('file://') || lanOrigin.test(origin) || extraOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(null, false);
+    },
     credentials: true,
+  });
+
+  // ES-295: basic security headers (helmet is not installed) and no framework banner.
+  (app.getHttpAdapter().getInstance() as any).disable('x-powered-by');
+  (app.getHttpAdapter().getInstance() as any).use((_req: any, res: any, next: any) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    next();
   });
 
   // Easter egg: credits for anyone inspecting traffic or visiting /humans.txt
@@ -112,8 +135,12 @@ async function bootstrap() {
     )
     .build();
 
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document);
+  // ES-295: the API documentation maps every route, so it is served only when SWAGGER_ENABLED=true (off by default).
+  const swaggerOn = String(configService.get('SWAGGER_ENABLED', 'false')).toLowerCase() === 'true';
+  if (swaggerOn) {
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('api/docs', app, document);
+  }
 
   const port = configService.get('PORT', 3000);
   // BUG FIX: bind to 0.0.0.0 so NestJS listens on ALL network interfaces
@@ -123,7 +150,7 @@ async function bootstrap() {
   await app.listen(port, '0.0.0.0');
 
   logger.log(`🚀 Application is running on: http://0.0.0.0:${port} (all interfaces)`);
-  logger.log(`📚 Swagger documentation: http://localhost:${port}/api/docs`);
+  if (swaggerOn) logger.log(`📚 Swagger documentation: http://localhost:${port}/api/docs`);
 }
 
 bootstrap();

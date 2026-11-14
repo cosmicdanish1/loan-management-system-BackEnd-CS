@@ -3,10 +3,13 @@ import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { OfficeService } from '../services/office.service';
 import { CreateOfficeDto, UpdateOfficeDto } from '../dto/office.dto';
 
+import { RequireMenuAction } from '../../auth/guards/menu-right.guard';
 @ApiTags('Admin - Office Master')
 @Controller('admin/offices')
 export class OfficeController {
     constructor(private readonly officeService: OfficeService) { }
+
+    @RequireMenuAction('WING_OFFICE_MASTER') // ES-298
 
     @Post()
     @ApiOperation({ summary: 'Create a new office' })
@@ -29,12 +32,16 @@ export class OfficeController {
         return this.officeService.findOne(id);
     }
 
+    @RequireMenuAction('WING_OFFICE_MASTER') // ES-298
+
     @Patch(':id')
     @ApiOperation({ summary: 'Update an office' })
     @ApiResponse({ status: 200, description: 'The office has been successfully updated.' })
     update(@Param('id', ParseIntPipe) id: number, @Body() updateDto: UpdateOfficeDto) {
         return this.officeService.update(id, updateDto);
     }
+
+    @RequireMenuAction('WING_OFFICE_MASTER') // ES-298
 
     @Delete(':id')
     @ApiOperation({ summary: 'Delete an office' })

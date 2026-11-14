@@ -7,6 +7,7 @@ import {
     Param,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { RequireMenuAction } from '../auth/guards/menu-right.guard';
 import {
     CashBookReportsService,
     MemberReportsService,
@@ -356,6 +357,7 @@ export class ReportV2Controller {
         return this.financialStatements.createReportSchedule(dto);
     }
 
+    @RequireMenuAction('P_L_BALANCE_SHEET') // ES-298
     @Get('balance-sheet')
     @ApiOperation({ summary: 'Get Balance Sheet' })
     async getBalanceSheet(

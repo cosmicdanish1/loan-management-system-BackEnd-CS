@@ -1,3 +1,4 @@
+import { RequireMenuAction } from '../../auth/guards/menu-right.guard';
 import { Controller, Get, Post, Body, Param, Query, UseGuards, ParseIntPipe } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
@@ -9,6 +10,7 @@ import { RdMemberConfigService } from '../services/rd-member-config.service';
 export class RdMemberConfigController {
     constructor(private readonly service: RdMemberConfigService) { }
 
+    @RequireMenuAction('RD_AC_OPENING', 'PASS_RD_AC') // ES-464
     @Post(':mbno/:yearcode')
     @ApiOperation({ summary: "Set a member's monthly RD amount for a financial year" })
     async setMonthlyAmount(

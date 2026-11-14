@@ -27,7 +27,7 @@ function build(over: any = {}) {
   const config: any = { get: jest.fn((k: string, d?: any) => ({ JWT_SECRET: 's', JWT_REFRESH_SECRET: 'r' } as any)[k] ?? d) };
   const twofa: any = { gate: jest.fn().mockResolvedValue({ mode: 'none', required: false, enrolled: false, trusted: false }), getSettings: jest.fn().mockResolvedValue({ rememberDays: 30 }), signChallenge: jest.fn(() => 'chal') };
   Object.assign(userMasterRepo, over.userMasterRepo || {});
-  const svc = new AuthService(userMasterRepo, levelRepo, loginRepo, infoRepo, rightsRepo, defRightsRepo, jwt, config, twofa);
+  const svc = new AuthService(userMasterRepo, levelRepo, loginRepo, infoRepo, rightsRepo, defRightsRepo, jwt, config, twofa, { assertNotReused: async () => undefined, recordHash: async () => undefined, recordCurrent: async () => undefined } as any);
   return { svc, userMasterRepo, levelRepo, loginRepo, infoRepo, rightsRepo, defRightsRepo, jwt, config, twofa };
 }
 

@@ -386,9 +386,19 @@ export class MemberCrudService {
      * Save or update member master (legacy table support)
      */
     /** ES-481: plain field messages (same shape as the global validation pipe) instead of "Database operation failed". */
-    private assertMemberFields(d: any): void {
+    private assertMemberFields(d: any, existing: any = null): void {
         const problems: FieldProblem[] = [];
         const blank = (v: any) => v === undefined || v === null || String(v).trim() === '';
+        // ES-309: format rules apply to what is NEW. When an existing member is edited, a value that is the same as the
+        // stored one is not checked again, so members migrated with an old-style phone / dates can still be edited.
+        const norm = (v: any): string => {
+            if (v instanceof Date) return Number.isNaN(v.getTime()) ? '' : `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
+            const s = String(v ?? '').trim();
+            return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : s;
+        };
+        const changed = (field: string): boolean => !existing || norm(existing[field]) !== norm(d?.[field]);
+        const bad = (field: string, label: string, code: string, message: string, params?: Record<string, string | number>) =>
+            problems.push({ field, label, code, message, ...(params ? { params } : {}) });
         const req = (field: string, label: string) => {
             if (blank(d?.[field])) problems.push({ field, label, code: 'FIELD_REQUIRED', message: `${label} is required.` });
         };
@@ -405,6 +415,46 @@ export class MemberCrudService {
             const v = d?.[field];
             if (!blank(v) && Number.isNaN(new Date(v).getTime())) problems.push({ field, label, code: 'FIELD_DATE', message: `${label} must be a valid date.` });
         }
+
+        // ---- ES-309 ----
+        const textLimits: Array<[string, string, number]> = [
+            ['f_name', 'First name', 50], ['m_name', 'Middle name', 50], ['l_name', 'Last name', 50], ['fathers_name', "Father's name", 100],
+            ['desig', 'Designation', 40], ['dept_name', 'Department', 50], ['present_address', 'Present address', 200],
+            ['permanent_address', 'Permanent address', 200], ['nominee_name', 'Nominee name', 40], ['remarks', 'Remarks', 100],
+            ['pfno', 'PF number', 10], ['prefix', 'Title', 10], ['frs_no', 'FRS number', 20], ['wingno', 'Wing', 6],
+        ];
+        for (const [field, label, max] of textLimits) {
+            const v = d?.[field];
+            if (!blank(v) && changed(field) && String(v).length > max) bad(field, label, 'FIELD_MAX_LENGTH', `${label} can be at most ${max} characters.`, { max });
+        }
+        for (const [field, label] of [['gross_salary', 'Gross salary'], ['basic_pay', 'Basic pay'], ['compulsory_deposit', 'Compulsory deposit'],
+            ['share_amount', 'Share amount'], ['insureamt', 'Insurance amount']] as const) {
+            const v = d?.[field];
+            if (!blank(v) && Number.isFinite(Number(v)) && Number(v) > 99999999.99 && changed(field)) bad(field, label, 'FIELD_MAX', `${label} cannot be more than 9,99,99,999.99.`, { max: 99999999.99 });
+        }
+        if (!blank(d?.age) && Number.isFinite(Number(d.age)) && Number(d.age) >= 0 && changed('age')
+            && (!Number.isInteger(Number(d.age)) || Number(d.age) > 99)) bad('age', 'Age', 'FIELD_INTEGER', 'Age must be a whole number from 0 to 99.');
+        if (!blank(d?.sex) && changed('sex') && !/^[MFOT]$/i.test(String(d.sex).trim())) bad('sex', 'Gender', 'FIELD_FORMAT', 'Gender must be M, F, O or T.');
+        const phone = String(d?.phoneno ?? '').trim();
+        if (phone && changed('phoneno')) {
+            const digits = phone.replace(/\D/g, '').length;
+            if (!/^[0-9+\-\s()]+$/.test(phone) || digits < 10 || digits > 15) bad('phoneno', 'Phone number', 'FIELD_FORMAT', 'Phone number must have 10 to 15 digits (digits, spaces, + and - only).');
+        }
+        const aadhaar = String(d?.aadharno ?? '').trim();
+        if (aadhaar && changed('aadharno') && !/^\d{12}$/.test(aadhaar.replace(/[\s-]/g, ''))) bad('aadharno', 'Aadhaar number', 'FIELD_FORMAT', 'Aadhaar number must have exactly 12 digits.');
+        const pan = String(d?.pan_no ?? '').trim();
+        if (pan && changed('pan_no') && !/^[A-Za-z]{5}\d{4}[A-Za-z]$/.test(pan)) bad('pan_no', 'PAN', 'FIELD_FORMAT', 'PAN must look like ABCDE1234F (5 letters, 4 digits, 1 letter).');
+        const dobT = blank(d?.dob) ? NaN : new Date(d.dob).getTime();
+        const dorValue = !blank(d?.dor) ? d.dor : d?.date_of_retirement;
+        const dorT = blank(dorValue) ? NaN : new Date(dorValue).getTime();
+        if (Number.isFinite(dobT) && changed('dob')) {
+            if (dobT > Date.now()) bad('dob', 'Date of birth', 'FIELD_DATE_FUTURE', 'Date of birth cannot be in the future.');
+            else if (dobT < new Date('1900-01-01').getTime()) bad('dob', 'Date of birth', 'FIELD_DATE_RANGE', 'Date of birth cannot be before 1900.');
+        }
+        if (Number.isFinite(dobT) && Number.isFinite(dorT) && dorT < dobT
+            && (changed('dob') || (!blank(d?.dor) ? changed('dor') : changed('date_of_retirement')))) {
+            bad('dor', 'Retirement date', 'FIELD_DATE_ORDER', 'Retirement date cannot be before the date of birth.');
+        }
         if (problems.length) {
             throw new BadRequestException({
                 statusCode: 400, error: 'Bad Request', code: 'VALIDATION_FAILED',
@@ -414,7 +464,14 @@ export class MemberCrudService {
     }
 
     async saveMemberMaster(memberData: any) {
-        this.assertMemberFields(memberData);
+        // ES-309: when an existing member is edited, only changed values are format-checked (see assertMemberFields)
+        let existing: any = null;
+        if (memberData?.mbno && memberData.mbno !== 'auto' && /^\d+$/.test(String(memberData.mbno).trim())) {
+            try {
+                existing = (await this.dataSource.query(`SELECT * FROM member_master WHERE mbno = $1`, [String(memberData.mbno).trim()]))?.[0] ?? null;
+            } catch { existing = null; }
+        }
+        this.assertMemberFields(memberData, existing);
         try {
             // ES-99: date_of_retirement is the single retirement date. Clients may still
             // send it as `dor`; accept either and write the same value to both columns.

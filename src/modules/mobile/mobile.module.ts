@@ -17,6 +17,7 @@ import { MobileStatusService } from './status/mobile-status.service';
 import { ActivationService } from './access/activation.service';
 import { AppCodeService } from './access/app-code.service';
 import { MemberAuthService } from './access/member-auth.service';
+import { MemberAccountService } from './access/member-account.service';
 import { MemberDirectoryService } from './access/member-directory.service';
 import { MobileAuthController } from './access/mobile-auth.controller';
 import { MobileCryptoService } from './access/mobile-crypto';
@@ -27,6 +28,10 @@ import { MobileBootstrapService } from './mobile-bootstrap.service';
 import { FeatureFlagService } from './data/feature-flag.service';
 import { MemberDataController } from './data/member-data.controller';
 import { MemberDataService } from './data/member-data.service';
+import { MemberCacheInterceptor } from './data/response-cache.interceptor';
+import { StatementPdfService } from './data/statement-pdf.service';
+import { MobileOpsService } from './admin/mobile-ops.service';
+import { BlocklistService } from './security/blocklist.service';
 import { LoanV2Module } from '../loan/loan-v2.module';
 import { MemberLedgerModule } from '../member-ledger/member-ledger.module';
 import { MemberV2Module } from '../member/member-v2.module';
@@ -112,12 +117,17 @@ import { PriorityMiddleware } from './queue/priority.middleware';
     SessionService,
     ActivationService,
     MemberAuthService,
+    MemberAccountService,
     AppCodeService,
     MobileAdminService,
     MobileBootstrapService,
     AdmissionService,
     FeatureFlagService,
     MemberDataService,
+    MemberCacheInterceptor,
+    StatementPdfService,
+    MobileOpsService,
+    BlocklistService,
   ],
   exports: [MemberTokenService, MobileAuditService, MemberJwtGuard, AppCodeService, AdmissionService],
 })

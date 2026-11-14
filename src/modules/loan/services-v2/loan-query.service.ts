@@ -227,6 +227,9 @@ export class LoanQueryService {
                 balance: parseFloat(loan.balance) || 0,
                 no_of_instal: loan.no_of_instal,
                 instal_amt: parseFloat(loan.instal_amt) || 0,
+                // ES-539: the date the loan was actually taken (disbursed) and its rate, shown in Loan Early Closure.
+                loan_date: loan.payment_date ? new Date(loan.payment_date).toLocaleDateString('en-CA') : null,
+                rate: loan.rate !== null && loan.rate !== undefined ? parseFloat(loan.rate) || 0 : null,
                 consolidatedIntoLoancaseno: loan.consolidated_into_loancaseno || null,
                 ledgerBalance: Math.round((loan.loantype === 'RLN' ? ledgerByClass.RLN : ledgerByClass.OTHER) * 100) / 100,
                 ledgerShowsRepaid: (parseFloat(loan.balance) || 0) > 0

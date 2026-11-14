@@ -26,6 +26,12 @@ export class GlobalExceptionFilter implements ExceptionFilter {
   private static readonly TECHNICAL =
     /null value in column|violates (not-null|foreign key|unique|check)|relation "|column "[^"]+"|invalid input syntax|syntax error at|duplicate key value|Cannot read propert|Cannot set propert|is not iterable|is not a function|is not defined|undefined \(reading|\bECONN|\bETIMEDOUT|out of range for type|Unexpected token|at (async )?[A-Za-z_.]+ \(/i;
 
+  /** The database pool had no free connection in time (pg: "timeout exceeded when trying to connect" / "remaining connection slots"). */
+  private static isPoolBusy(exception: unknown): boolean {
+    const text = exception instanceof Error ? exception.message : '';
+    return /timeout exceeded when trying to connect|remaining connection slots|too many clients already|Connection terminated due to connection timeout/i.test(text);
+  }
+
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
@@ -58,6 +64,20 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         message = errorResponse;
         error = exception.name;
       }
+    } else if (GlobalExceptionFilter.isPoolBusy(exception)) {
+      // ES-267: no free database connection within the wait time. This is "the server is busy", not a fault in the
+      // request: answer 503 with a retry hint instead of a generic 500.
+      status = HttpStatus.SERVICE_UNAVAILABLE;
+      error = 'Service Unavailable';
+      message = 'The server is busy right now. Please try again in a few seconds.';
+      extra = { code: 'SERVER_BUSY', retryAfterSeconds: 3 };
+      try { response.setHeader('Retry-After', '3'); } catch { /* headers already sent */ }
+    } else if (exception instanceof QueryFailedError && /statement timeout/i.test(exception.message)) {
+      // A single query ran longer than the allowed time (DB_STATEMENT_TIMEOUT_MS) and was stopped by the database.
+      status = HttpStatus.GATEWAY_TIMEOUT;
+      error = 'Gateway Timeout';
+      message = 'This request took too long and was stopped. Narrow the date range or try again later.';
+      extra = { code: 'REQUEST_TOO_SLOW' };
     } else if (exception instanceof QueryFailedError) {
       status = HttpStatus.BAD_REQUEST;
       message = 'Database operation failed';

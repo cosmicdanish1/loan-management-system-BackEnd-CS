@@ -765,7 +765,13 @@ export class PassTransactionService {
                 }
 
                 // Post Breakdown for Loan
+                // ES-513: the staged voucher also carries the Receipt lines of the share / RD shortfall (the Loan Payment
+                // screen shows them as deductions). Those amounts are posted ONCE, by the deductions loop below, to
+                // their own heads. They used to be posted here as well: a second credit to the same heads, and a cash
+                // payment of the same amount in the Cash Book (45,000 + 2,500 + 2,500 paid out for a 45,000 payout).
+                const deductionHeadCodes = new Set(deductions.map((d: any) => String(d.code ?? '').trim()).filter(Boolean));
                 for (const detail of details) {
+                    if (deductionHeadCodes.has(String(detail.code ?? '').trim())) continue;
                     const fullAmt = parseMoney(detail.trans_amt);
                     const withheld = Math.min(remainingDeduction, fullAmt);
                     remainingDeduction -= withheld;

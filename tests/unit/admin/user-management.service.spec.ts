@@ -25,7 +25,7 @@ function mk(over: { rows?: any; taken?: number; adminCount?: number; level?: any
   const qr: any = { connect: jest.fn(), startTransaction: jest.fn(), commitTransaction: jest.fn(), rollbackTransaction: jest.fn(), release: jest.fn(), manager: em, query: jest.fn().mockResolvedValue([{ next_id: 8 }]) };
   const ds: any = { createQueryRunner: jest.fn(() => qr) };
   const actRepo: any = { create: jest.fn((x) => x), save: jest.fn(async (x) => ({ id: 1, ...x })), findAndCount: jest.fn().mockResolvedValue([[], 0]) };
-  const svc = new UserManagementService(actRepo, um, levelRepo, {} as any, ds);
+  const svc = new UserManagementService(actRepo, um, levelRepo, {} as any, ds, { assertNotReused: async () => undefined, recordHash: async () => undefined, recordCurrent: async () => undefined } as any);
   // admin counting uses the same query builder mock; make its count configurable
   if (over.adminCount !== undefined) (um.createQueryBuilder as jest.Mock).mockReturnValue(countQb);
   return { svc, um, qb, qr, em, levelRepo, actRepo };

@@ -3,12 +3,15 @@ import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { CastCategoryService } from '../services/cast-category.service';
 import { CreateCastCategoryDto, UpdateCastCategoryDto } from '../dto/cast-category.dto';
 
+import { RequireMenuAction } from '../../auth/guards/menu-right.guard';
 @ApiTags('Admin - Cast Categories')
 @Controller('admin/cast-categories')
 export class CastCategoryController {
     private readonly logger = new Logger(CastCategoryController.name);
 
     constructor(private readonly castCategoryService: CastCategoryService) { }
+
+    @RequireMenuAction('CAST_CATEGORY') // ES-298
 
     @Post()
     @ApiOperation({ summary: 'Create a new caste category' })
@@ -31,12 +34,16 @@ export class CastCategoryController {
         return this.castCategoryService.findOne(id);
     }
 
+    @RequireMenuAction('CAST_CATEGORY') // ES-298
+
     @Patch(':id')
     @ApiOperation({ summary: 'Update a caste category' })
     async update(@Param('id', ParseIntPipe) id: number, @Body() updateCastCategoryDto: UpdateCastCategoryDto) {
         this.logger.log(`[CastCategory] PATCH id=${id}: ${JSON.stringify(updateCastCategoryDto)}`);
         return this.castCategoryService.update(id, updateCastCategoryDto);
     }
+
+    @RequireMenuAction('CAST_CATEGORY') // ES-298
 
     @Delete(':id')
     @ApiOperation({ summary: 'Delete a caste category' })

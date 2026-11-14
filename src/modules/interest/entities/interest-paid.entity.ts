@@ -42,7 +42,7 @@ export class InterestPaid {
   @Column({ name: 'vchrno', type: 'varchar', length: 20, default: '' })
   voucherNumber: string;
 
-  @Column({ name: 'account_number', type: 'numeric', precision: 9, scale: 0, nullable: true })
+  @Column({ name: 'account_number', type: 'numeric', precision: 18, scale: 0, nullable: true }) // ES-365: was 9 digits, member numbers can have 10
   accountNumber: string;
 
   // BUG FIX 53: rowid is NOT NULL with no default/sequence and wasn't mapped —

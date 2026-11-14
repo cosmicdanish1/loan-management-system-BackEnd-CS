@@ -31,6 +31,7 @@ export class TransactionV2Controller {
 
     // ==================== Voucher Operations ====================
 
+    @RequireMenuAction('RECEIPT_PAYMENT_VOUCHER_CREATION', 'RECEIPT_PAYMENT', 'VOUCHER_PAYMENT', 'JOURNAL_TRANSFER_ENTRY', 'LOAN_PAYMENT') // ES-464
     @Post('voucher')
     @ApiOperation({ summary: 'Create a generic voucher (Payment/Receipt/Journal)' })
     @ApiResponse({ status: 201, description: 'Voucher created successfully' })
@@ -39,6 +40,7 @@ export class TransactionV2Controller {
         return this.voucherService.createVoucher({ ...voucherData, createdBy: req?.user?.username || 'SYSTEM' });
     }
 
+    @RequireMenuAction('LOAN_PAYMENT', 'LOAN_ENTRY', 'LOAN_REPAYMENT') // ES-464
     @Post('loan-voucher')
     @ApiOperation({ summary: 'Generate a loan disbursement voucher' })
     @ApiResponse({ status: 201, description: 'Loan voucher generated successfully' })
@@ -58,6 +60,7 @@ export class TransactionV2Controller {
         return this.voucherService.getVoucherDetails(voucherNo);
     }
 
+    @RequireMenuAction('RECEIPT_PAYMENT_VOUCHER_CREATION', 'RECEIPT_PAYMENT', 'VOUCHER_PAYMENT', 'JOURNAL_TRANSFER_ENTRY', 'LOAN_PAYMENT', 'PASS_TRANSACTIONS') // ES-464
     @Delete('voucher/:voucherNo')
     @RequirePassAuthority() // rejecting a pending voucher is part of the pass decision (ES-362)
     @ApiOperation({ summary: 'Delete/Reject a pending voucher' })
@@ -77,9 +80,10 @@ export class TransactionV2Controller {
     @ApiResponse({ status: 200, description: 'Transaction passed successfully' })
     async passTransaction(
         @Param('voucherNo') voucherNo: string,
-        @Body() body?: { postedBy?: string }
+        @Req() req: any,
     ) {
-        return this.passTransactionService.passTransaction(voucherNo, body?.postedBy || 'admin');
+        // ES-464: the posting user is the signed-in user (token), never a name sent in the body
+        return this.passTransactionService.passTransaction(voucherNo, req?.user?.username || 'system');
     }
 
     @RequireMenuAction('PASS_TRANSACTIONS')
@@ -90,8 +94,8 @@ export class TransactionV2Controller {
     @ApiResponse({ status: 200, description: 'Transaction reversed successfully' })
     async reverseTransaction(
         @Param('voucherNo') voucherNo: string,
-        @Body() body?: { reversedBy?: string }
+        @Req() req: any,
     ) {
-        return this.passTransactionService.reverseTransaction(voucherNo, body?.reversedBy || 'admin');
+        return this.passTransactionService.reverseTransaction(voucherNo, req?.user?.username || 'system');
     }
 }

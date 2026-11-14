@@ -1,3 +1,4 @@
+import { RequireMenuAction } from '../auth/guards/menu-right.guard';
 import { Controller, Post, Body, UseInterceptors, UploadedFile, BadRequestException, UseGuards } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiResponse, ApiConsumes } from '@nestjs/swagger';
@@ -19,6 +20,7 @@ export class DemandGenerationController {
         private readonly importService: DemandImportService,
     ) { }
 
+    @RequireMenuAction('GENERATE') // ES-464
     @Post('generate')
     @ApiOperation({ summary: 'Generate demand specifically for a period' })
     @ApiResponse({ status: 201, description: 'Demand generated successfully' })
@@ -60,6 +62,7 @@ export class DemandGenerationController {
         };
     }
 
+    @RequireMenuAction('IMPORT_DEMAND_LIST') // ES-464
     @Post('import-process')
     @ApiOperation({ summary: 'Save previously-previewed demand import rows for the selected month/year' })
     async processImport(@Body() body: { month: string; year: string; branch?: string; data: any[] }) {

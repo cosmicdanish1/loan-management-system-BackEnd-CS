@@ -609,6 +609,18 @@ function buildLedgerAttribution(cases: LegacyCase[], events: LegacyEvent[], jpai
             const drs = dayEvents.filter(e => e.transType === 'DR');
             const crs = dayEvents.filter(e => e.transType === 'CR');
 
+            // Journal transfers OUT of this loan head on the very day a new loan is disbursed (a matched two-leg journal that credits this head
+            // and debits the other loan head, e.g. 610031839 on 2024-01-15: J26313 moved Rs 6,250 from the regular to the emergency loan).
+            // The society fixed the new loan's principal AFTER such a transfer (ledger balance after the day = a round Rs 10,00,000), so the
+            // transfer is part of the consolidation boundary: it reduces the balance carried from the older loan and is NOT a repayment of
+            // the new loan (2026-11-14, Phase 2 issue P2-001, see PHASE2_ISSUES.md).
+            const startsToday = active.some(c => !c.supersededCarry && day10(c.legacyCase.paymentDate) === day && c.startPrincipal === undefined);
+            const journalOut = startsToday
+                ? crs.filter(e => e.vchrType === 'J' && jpairs.some(p => p.date.slice(0, 10) === day && p.receiptVchrNo === e.receiptVchrNo && p.fromHead === type))
+                : [];
+            const journalOutSet = new Set(journalOut);
+            const journalOutTotal = round2(journalOut.reduce((s, e) => s + e.amt, 0));
+
             if (drs.length) {
                 const total = round2(drs.reduce((s, e) => s + e.amt, 0));
                 const starting = active.find(c => !c.supersededCarry && day10(c.legacyCase.paymentDate) === day && c.startPrincipal === undefined);
@@ -616,8 +628,19 @@ function buildLedgerAttribution(cases: LegacyCase[], events: LegacyEvent[], jpai
                 B = round2(B + total);
                 if (starting) {
                     const prev = cur;
-                    const carry = prev ? Math.max(0, remaining.get(prev) || 0) : 0;
-                    if (prev && prev !== starting && carry > EPS) {
+                    const carryBeforeTransfer = prev ? Math.max(0, remaining.get(prev) || 0) : 0;
+                    // the transfer out is taken from the older balance first
+                    const carry = Math.max(0, round2(carryBeforeTransfer - journalOutTotal));
+                    if (journalOutTotal > EPS) {
+                        B = round2(B - journalOutTotal);
+                        flags.push(`INFO JOURNAL_TRANSFER_OUT_AT_DISBURSAL case ${caseNo(starting)} (${type}) on ${day}: journal ${journalOut.map(e => e.receiptVchrNo).join(',')} moved ₹${journalOutTotal} out of this loan head the same day; `
+                            + `it is part of the opening principal (older balance carried ₹${carryBeforeTransfer} -> ₹${carry}), not a repayment of the new loan`);
+                        for (const e of journalOut) {
+                            const jp = jpairs.find(p => p.date.slice(0, 10) === day && p.receiptVchrNo === e.receiptVchrNo && p.fromHead === type);
+                            if (jp) jp.resolvedFromCase = prev ? caseNo(prev) : caseNo(starting);
+                        }
+                    }
+                    if (prev && prev !== starting && carryBeforeTransfer > EPS) {
                         prev.closed = true; prev.closedDate = day;
                         remaining.set(prev, 0);
                         starting.toppedUpBy = carry;
@@ -657,6 +680,8 @@ function buildLedgerAttribution(cases: LegacyCase[], events: LegacyEvent[], jpai
             }
 
             for (const e of crs) {
+                // already netted into the opening principal of the loan that started today (P2-001)
+                if (journalOutSet.has(e) && cur && cur.startPrincipal !== undefined && drs.length && journalOutTotal > EPS) continue;
                 if (!cur && B > EPS) {
                     const re = newestOnOrBefore(day) || active[0];
                     if (re) {

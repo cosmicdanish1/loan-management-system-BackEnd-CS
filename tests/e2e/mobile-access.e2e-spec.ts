@@ -24,6 +24,8 @@ import { SharedModule } from '../../src/modules/shared/shared.module';
 import { MobileAdminService } from '../../src/modules/mobile/admin/mobile-admin.service';
 import { MemberDirectoryService } from '../../src/modules/mobile/access/member-directory.service';
 import { AdmissionService } from '../../src/modules/mobile/queue/admission.service';
+import { AppCodeService } from '../../src/modules/mobile/access/app-code.service';
+import { MemberAuthService } from '../../src/modules/mobile/access/member-auth.service';
 import { MOBILE_DS } from '../../src/modules/mobile/mobile.constants';
 
 @Public()
@@ -302,6 +304,88 @@ describe('Member access (e2e, dev DB, test member only)', () => {
       expect(sum.sharedNumbers[0].members).toBeGreaterThan(3);
     }
   });
+
+  it('member account routes: mobile-number login, MPIN change, phones, request status, deactivate (ES-392)', guard(async () => {
+    await activate(DEVICE);
+    const get = (url: string, headers: Record<string, string> = {}) => http().get('/api/v1/mobile' + url).set({ Authorization: `Bearer ${access}`, ...headers });
+    const del = (url: string, headers: Record<string, string> = {}) => http().delete('/api/v1/mobile' + url).set({ Authorization: `Bearer ${access}`, ...headers });
+    // Only 3 App Code steps fit in the +-30 s window and a used step is refused (replay protection), so the test clears the
+    // "last used step" before each approval. That protection itself is covered in the App Code test above.
+    // It asks AppCodeService directly: the HTTP step-up route allows 10 calls a minute per IP and the App Code test above used them.
+    let myDeviceId = 0;
+    const approval = async (action: string) => {
+      await ds.query(`UPDATE mobile_device SET appcode_last_step = NULL WHERE mbno = $1`, [mbno]);
+      return (await app.get(AppCodeService).stepUp({ mbno: mbno!, deviceId: myDeviceId }, action, totp(0), {})).approval;
+    };
+
+    // sign in: needs a member number or a mobile number; an unknown / ambiguous mobile number looks like any wrong login
+    expect((await post('/auth/login', { mpin: GOOD_MPIN, deviceId: DEVICE }).expect(400)).body.code).toBe('MBNO_OR_MOBILE_REQUIRED');
+    expect((await post('/auth/login', { mobile: '0000000000', mpin: GOOD_MPIN, deviceId: DEVICE }).expect(401)).body.code).toBe('INVALID_CREDENTIALS');
+    const m = (await directory.getMember(mbno!))!;
+    if (m.phone10 && (await directory.findMbnoByPhone(m.phone10)) === mbno) {
+      await post('/auth/login', { mobile: m.phone10, mpin: GOOD_MPIN, deviceId: DEVICE }).expect(200);
+    }
+
+    // phones: one trusted phone, and it is the current one
+    const list = (await get('/auth/devices').expect(200)).body;
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({ isCurrent: true, platform: 'android' });
+    myDeviceId = list[0].id;
+    expect(JSON.stringify(list)).not.toContain(DEVICE); // the raw device id never comes back
+
+    // change MPIN: no approval / junk approval refused; wrong old MPIN counts; weak, same and good new MPIN
+    const body = { oldMpin: GOOD_MPIN, newMpin: '735190' };
+    const chg = (b: object, ap?: string) => http().post('/api/v1/mobile/auth/mpin/change').set({ Authorization: `Bearer ${access}`, ...(ap ? { 'X-Step-Up-Approval': ap } : {}) }).send(b);
+    expect((await chg(body).expect(403)).body.code).toBe('APPCODE_REQUIRED');
+    expect((await chg(body, 'junk').expect(403)).body.code).toBe('APPCODE_REQUIRED');
+    const wrongAction = await approval('BIOMETRIC_TOGGLE'); // an approval for another action does not work here
+    expect((await chg(body, wrongAction).expect(403)).body.code).toBe('APPCODE_REQUIRED');
+    const ap1 = await approval('CHANGE_MPIN');
+    const wrongOld = await chg({ oldMpin: '918273', newMpin: '735190' }, ap1).expect(401);
+    expect(wrongOld.body).toMatchObject({ code: 'INVALID_CREDENTIALS', attemptsLeft: 4 });
+    expect((await chg({ oldMpin: GOOD_MPIN, newMpin: GOOD_MPIN }, ap1).expect(400)).body.code).toBe('MPIN_SAME_AS_OLD');
+    expect((await chg({ oldMpin: GOOD_MPIN, newMpin: '123456' }, ap1).expect(400)).body.code).toBe('MPIN_TOO_WEAK');
+    expect((await chg(body, ap1).expect(200)).body).toEqual({ changed: true });
+    await login(GOOD_MPIN).expect(401);
+    await login('735190').expect(200);
+    const row: any[] = await ds.query(`SELECT failed_attempts FROM mobile_account WHERE mbno = $1`, [mbno]);
+    expect(Number(row[0].failed_attempts)).toBe(0); // a good change resets the wrong-MPIN counter
+
+    // remove another phone: needs the approval, never the current phone, only the member's own, only once
+    await ds.query(`INSERT INTO mobile_device (mbno, device_id_hash, platform, model) VALUES ($1, 'qa-second-phone-hash', 'ios', 'QA Phone 2')`, [mbno]);
+    const two = (await get('/auth/devices').expect(200)).body;
+    expect(two).toHaveLength(2);
+    const other = two.find((d: any) => !d.isCurrent);
+    const mine = two.find((d: any) => d.isCurrent);
+    expect((await del(`/auth/devices/${other.id}`).expect(403)).body.code).toBe('APPCODE_REQUIRED');
+    const ap2 = await approval('ADD_REMOVE_DEVICE');
+    expect((await del(`/auth/devices/${mine.id}`, { 'X-Step-Up-Approval': ap2 }).expect(400)).body.code).toBe('CANNOT_REMOVE_CURRENT_DEVICE');
+    await del(`/auth/devices/${other.id}`, { 'X-Step-Up-Approval': ap2 }).expect(200);
+    expect((await del(`/auth/devices/${other.id}`, { 'X-Step-Up-Approval': ap2 }).expect(404)).body.code).toBe('DEVICE_NOT_FOUND');
+    expect((await get('/auth/devices').expect(200)).body).toHaveLength(1);
+
+    // activation request status: only for a request sent from THIS phone
+    await ds.query(`INSERT INTO mobile_activation_request (mbno, status, device_id_hash) VALUES ($1, 'NEW', $2)`, [mbno, require('crypto').createHash('sha256').update(DEVICE).digest('hex')]);
+    const st = (h?: Record<string, string>) => http().get(`/api/v1/mobile/auth/activation-request/status?mbno=${mbno}`).set(h ?? {});
+    expect((await st({ 'X-Device-Id': DEVICE }).expect(200)).body).toMatchObject({ status: 'WAITING' });
+    expect((await st({ 'X-Device-Id': DEVICE2 }).expect(200)).body).toEqual({ status: 'NONE' });
+    expect((await st().expect(200)).body).toEqual({ status: 'NONE' });
+    await ds.query(`UPDATE mobile_activation_request SET status = 'APPROVED' WHERE mbno = $1`, [mbno]);
+    expect((await st({ 'X-Device-Id': DEVICE }).expect(200)).body.status).toBe('APPROVED');
+
+    // deactivate: everything ends, the MPIN is gone, staff must issue a new code
+    const deact = (ap?: string) => http().post('/api/v1/mobile/auth/deactivate').set({ Authorization: `Bearer ${access}`, ...(ap ? { 'X-Step-Up-Approval': ap } : {}) });
+    expect((await deact().expect(403)).body.code).toBe('APPCODE_REQUIRED');
+    await deact(await approval('DEACTIVATE_ACCESS')).expect(200);
+    await http().get('/api/v1/mobile/probe/me').set('Authorization', `Bearer ${access}`).expect(401);
+    // (the service is called directly: the login route is limited to 20 calls a minute per IP and this suite has used them)
+    await expect(app.get(MemberAuthService).login({ mbno: mbno!, mpin: '735190', deviceId: DEVICE }, {})).rejects.toMatchObject({ response: { code: 'INVALID_CREDENTIALS' } });
+    const acct: any[] = await ds.query(`SELECT status, mpin_hash FROM mobile_account WHERE mbno = $1`, [mbno]);
+    expect(acct[0]).toMatchObject({ status: 'DEACTIVATED', mpin_hash: null });
+    const left: any[] = await ds.query(`SELECT count(*)::int AS n FROM mobile_device WHERE mbno = $1 AND NOT revoked`, [mbno]);
+    expect(left[0].n).toBe(0);
+    await admin.issueCode(mbno!, 'qa-staff'); // staff can start over
+  }));
 
   it('audit trail has the security events, without secrets', guard(async () => {
     const ev: any[] = await ds.query(`SELECT event, result, detail::text AS detail FROM mobile_audit_log WHERE mbno = $1`, [mbno]);

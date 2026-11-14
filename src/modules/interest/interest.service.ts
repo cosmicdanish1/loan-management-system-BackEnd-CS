@@ -1,4 +1,4 @@
-import { Injectable, Logger, BadRequestException, NotFoundException, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException, Inject, forwardRef, OnModuleInit } from '@nestjs/common';
 import { lockLedgerIds } from '../shared/utils/ledger-lock';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Between } from 'typeorm';
@@ -36,8 +36,24 @@ function interestParameterProblem(dto: { fromDate: any; toDate: any; interestRat
 }
 
 @Injectable()
-export class InterestService {
+export class InterestService implements OnModuleInit {
   private readonly logger = new Logger(InterestService.name);
+
+  /** ES-365: widen interestpaid.account_number (was numeric(9); member numbers can have 10 digits). Idempotent, runs on every start. */
+  async onModuleInit(): Promise<void> {
+    try {
+      await this.dataSource.query(
+        `DO $$ BEGIN
+           IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'interestpaid' AND column_name = 'account_number'
+                      AND COALESCE(numeric_precision, 0) < 18) THEN
+             ALTER TABLE interestpaid ALTER COLUMN account_number TYPE numeric(18,0);
+           END IF;
+         END $$;`,
+      );
+    } catch (e: any) {
+      this.logger.warn(`interestpaid.account_number widening skipped: ${e?.message ?? e}`);
+    }
+  }
 
   constructor(
     @InjectRepository(InterestMaster)
@@ -206,6 +222,18 @@ export class InterestService {
                    WHERE mbno = $2 AND account_number = $3 AND fdrdflag = 'F'`,
                   [fd.netInterest, member.mbno, fd.accountNumber]
                 );
+              }
+            }
+
+            // ES-366: the ledger got the interest credit but sbmaster.balance (read by passbook, statement and
+            // dashboard) did not. Add it in the same transaction; if the account row is missing, abort the run.
+            if (accountTypeCode === 'SB') {
+              const upd = await queryRunner.manager.query(
+                `UPDATE sbmaster SET balance = COALESCE(balance, 0) + $1 WHERE mbno::text = $2::text RETURNING mbno`,
+                [calculation.interestAmount, String(member.mbno)],
+              );
+              if (!upd || upd.length === 0) {
+                throw new Error(`Saving account row not found for member ${member.mbno}; cannot add interest to balance`);
               }
             }
 

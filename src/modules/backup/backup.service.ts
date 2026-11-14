@@ -203,6 +203,24 @@ export class BackupService implements OnApplicationBootstrap {
 
       const stats = fs.statSync(finalFilePath);
       const fileSize = stats.size;
+
+      // ES-355: write the same .meta (SHA-256 of the encrypted file) the plain backups get, so Verify can prove the whole
+      // encrypted file is intact instead of having nothing to compare against. A failure here never fails the backup.
+      try {
+        const checksum = await new Promise<string>((resolve, reject) => {
+          const hash = crypto.createHash('sha256');
+          const rs = fs.createReadStream(finalFilePath);
+          rs.on('data', (c) => hash.update(c));
+          rs.on('end', () => resolve(hash.digest('hex')));
+          rs.on('error', reject);
+        });
+        fs.writeFileSync(`${finalFilePath}.meta`, JSON.stringify({
+          filename: finalFileName, size: fileSize, checksum, createdAt: new Date().toISOString(),
+        }, null, 2));
+      } catch (metaError: any) {
+        this.logger.warn(`Could not write the checksum file for ${finalFileName}: ${metaError?.message}`);
+      }
+
       const duration = Date.now() - startTime;
 
       // Save to database log

@@ -3,10 +3,13 @@ import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { DesignationService } from '../services/designation.service';
 import { CreateDesignationDto, UpdateDesignationDto } from '../dto/designation.dto';
 
+import { RequireMenuAction } from '../../auth/guards/menu-right.guard';
 @ApiTags('Admin - Designations')
 @Controller('admin/designations')
 export class DesignationController {
     constructor(private readonly designationService: DesignationService) { }
+
+    @RequireMenuAction('DESIGNATION_MASTER') // ES-298
 
     @Post()
     @ApiOperation({ summary: 'Create a new designation' })
@@ -30,6 +33,8 @@ export class DesignationController {
         return this.designationService.findOne(code);
     }
 
+    @RequireMenuAction('DESIGNATION_MASTER') // ES-298
+
     @Patch(':code')
     @ApiOperation({ summary: 'Update a designation' })
     @ApiResponse({ status: 200, description: 'Designation updated successfully.' })
@@ -37,6 +42,8 @@ export class DesignationController {
     update(@Param('code') code: string, @Body() updateDesignationDto: UpdateDesignationDto) {
         return this.designationService.update(code, updateDesignationDto);
     }
+
+    @RequireMenuAction('DESIGNATION_MASTER') // ES-298
 
     @Delete(':code')
     @ApiOperation({ summary: 'Delete a designation' })

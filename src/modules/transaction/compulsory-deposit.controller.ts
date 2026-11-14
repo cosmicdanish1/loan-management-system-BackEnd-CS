@@ -1,3 +1,4 @@
+import { RequireMenuAction } from '../auth/guards/menu-right.guard';
 import { Controller, Get, Post, Body, UseGuards, Request } from '@nestjs/common';
 import { CompulsoryDepositService } from './services-v2/compulsory-deposit.service';
 import { PostCDTransactionDto } from './dto/compulsory-deposit.dto';
@@ -20,6 +21,7 @@ export class CompulsoryDepositController {
         return this.cdService.getIncomeHeads();
     }
 
+    @RequireMenuAction('COMPULSORY_DEPOSIT_TRANSACTION') // ES-464
     @Post('post')
     @ApiOperation({ summary: 'Execute bulk CD interest/incentive posting' })
     async postCD(@Body() dto: PostCDTransactionDto, @Request() req: any) {

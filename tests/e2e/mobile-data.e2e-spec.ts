@@ -214,6 +214,44 @@ describe('Member data routes (e2e, real data, read-only)', () => {
     await get(`/ledger?from=bad&to=${today}`).expect(400);
   }));
 
+  it('statement PDF: a real PDF for a recent range, the 12-month rule, bad dates, and the daily cap (ES-226)', guard(async () => {
+    const d = (n: number) => { const x = new Date(); x.setMonth(x.getMonth() - n); return x.toISOString().slice(0, 10); };
+    const today = new Date().toISOString().slice(0, 10);
+    const res = await get(`/statements/ledger?from=${d(6)}&to=${today}`).buffer(true).parse((r, cb) => { const c: Buffer[] = []; r.on('data', (x: Buffer) => c.push(x)); r.on('end', () => cb(null, Buffer.concat(c))); }).expect(200);
+    expect(res.headers['content-type']).toContain('application/pdf');
+    expect(res.headers['content-disposition']).toContain(`statement-${mbno}-`);
+    const pdf = res.body as Buffer;
+    expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
+    expect(pdf.length).toBeGreaterThan(1500);
+    expect((await get(`/statements/ledger?from=${d(30)}&to=${today}`).expect(403)).body.code).toBe('APPCODE_REQUIRED');
+    await get(`/statements/ledger?from=bad&to=${today}`).expect(400);
+    const logged: any[] = await ds.query(`SELECT detail::text AS detail FROM mobile_audit_log WHERE mbno = $1 AND event = 'STATEMENT_PDF' AND result = 'OK'`, [mbno]);
+    expect(logged.length).toBe(1);
+
+    // the per-member daily cap: pretend the member already took the allowed number today
+    const cap = Number(process.env.MOBILE_PDF_DAILY_CAP ?? 10);
+    for (let i = 1; i < cap; i++) await ds.query(`INSERT INTO mobile_audit_log (mbno, event, result) VALUES ($1, 'STATEMENT_PDF', 'OK')`, [mbno]);
+    const capped = await get(`/statements/ledger?from=${d(6)}&to=${today}`).expect(429);
+    expect(capped.body.code).toBe('PDF_DAILY_LIMIT');
+    await ds.query(`DELETE FROM mobile_audit_log WHERE mbno = $1 AND event = 'STATEMENT_PDF'`, [mbno]);
+  }));
+
+  it('read routes carry an ETag, repeat calls come from memory, and a matching If-None-Match gets 304 (ES-227)', guard(async () => {
+    const first = await get('/accounts').expect(200);
+    const tag = first.headers['etag'];
+    expect(tag).toMatch(/^W\/"[0-9a-f]{20}"$/);
+    expect(first.headers['cache-control']).toContain('private');
+    const second = await get('/accounts').expect(200);
+    expect(second.headers['x-cache']).toBe('HIT');
+    expect(second.headers['etag']).toBe(tag);
+    expect(second.body).toEqual(first.body);
+    const notModified = await get('/accounts').set('If-None-Match', tag).expect(304);
+    expect(notModified.text ?? '').toBe('');
+    // the ledger is never cached: it depends on a step-up approval
+    const l1 = await get(`/ledger?from=${new Date().toISOString().slice(0, 10)}&to=${new Date().toISOString().slice(0, 10)}`).expect(200);
+    expect(l1.headers['x-cache']).toBeUndefined();
+  }));
+
   it('notices list answers (only notices marked for mobile)', guard(async () => {
     const n = (await ok('/notices')).data;
     expect(Array.isArray(n.notices)).toBe(true);

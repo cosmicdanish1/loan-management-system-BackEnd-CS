@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards, ParseIntPipe } from '@nestjs/common';
+import { RequireMenuAction } from '../../auth/guards/menu-right.guard';
+import { Body, Controller, Get, Param, Post, Query, Req, UseGuards, ParseIntPipe } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RdFinancialYearClosingService, AuthorityOverride } from '../services/rd-financial-year-closing.service';
@@ -58,28 +59,33 @@ export class RdFinancialYearClosingController {
         return this.service.previewMemberClosing(mbno, yearcode, override);
     }
 
+    @RequireMenuAction('FIN_YEAR_CLOSING') // ES-464
     @Post(':mbno/:yearcode/close')
     @ApiOperation({ summary: "Close one member's RD financial year — credits interest, writes the audit summary, rolls the balance forward" })
     async closeOne(
         @Param('mbno') mbno: string,
         @Param('yearcode', ParseIntPipe) yearcode: number,
         @Body() body: CloseMemberBody,
+        @Req() req: any,
     ) {
+        const closedBy = req?.user?.username || 'system'; // ES-464: from the token, not the body
         const override: AuthorityOverride | undefined =
             body.overrideEligible === undefined
                 ? undefined
-                : { eligible: body.overrideEligible, reason: body.overrideReason || 'No reason given', by: body.closedBy };
-        return this.service.closeMemberYear(mbno, yearcode, body.closedBy, override);
+                : { eligible: body.overrideEligible, reason: body.overrideReason || 'No reason given', by: closedBy };
+        return this.service.closeMemberYear(mbno, yearcode, closedBy, override);
     }
 
+    @RequireMenuAction('FIN_YEAR_CLOSING') // ES-464
     @Post(':yearcode/close-all')
     @ApiOperation({ summary: 'Close every member with RD activity this year in one batch — failures are collected, not fatal to the batch' })
-    async closeAll(@Param('yearcode', ParseIntPipe) yearcode: number, @Body() body: CloseAllBody) {
+    async closeAll(@Param('yearcode', ParseIntPipe) yearcode: number, @Body() body: CloseAllBody, @Req() req: any) {
+        const closedBy = req?.user?.username || 'system'; // ES-464
         const overrides: Record<string, AuthorityOverride> = {};
         for (const [mbno, o] of Object.entries(body.overrides || {})) {
-            overrides[mbno] = { eligible: o.eligible, reason: o.reason, by: body.closedBy };
+            overrides[mbno] = { eligible: o.eligible, reason: o.reason, by: closedBy };
         }
-        const result = await this.service.closeFinancialYear(yearcode, body.closedBy, overrides);
+        const result = await this.service.closeFinancialYear(yearcode, closedBy, overrides);
         return {
             ...result,
             message: `Closed ${result.succeeded.length} member(s); ${result.failed.length} failed.`,

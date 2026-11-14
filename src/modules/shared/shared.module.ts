@@ -1,6 +1,6 @@
 import { Module, Global } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { SequenceGeneratorService } from './services';
+import { SequenceGeneratorService, PasswordHistoryService } from './services';
 import { SequenceMaster } from './entities/sequence-master.entity';
 
 /**
@@ -16,7 +16,7 @@ import { SequenceMaster } from './entities/sequence-master.entity';
     imports: [
         TypeOrmModule.forFeature([SequenceMaster])
     ],
-    providers: [SequenceGeneratorService],
-    exports: [SequenceGeneratorService],
+    providers: [SequenceGeneratorService, PasswordHistoryService],
+    exports: [SequenceGeneratorService, PasswordHistoryService],
 })
 export class SharedModule { }

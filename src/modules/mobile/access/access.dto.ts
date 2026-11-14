@@ -33,10 +33,21 @@ export class ActivateCompleteDto {
   @IsOptional() @ValidateNested() @Type(() => ConsentDto) consent?: ConsentDto;
 }
 
+/** Sign in with the member number OR the registered mobile number (only when that number belongs to exactly one member). */
 export class LoginDto {
-  @IsString() @Matches(MBNO) mbno: string;
+  @IsOptional() @IsString() @Matches(MBNO) mbno?: string;
+  @IsOptional() @IsString() @Matches(/^\d{10}$/, { message: 'mobile must be the 10-digit registered mobile number' }) mobile?: string;
   @IsString() @Matches(/^\d{6}$/, { message: 'mpin must be 6 digits' }) mpin: string;
   @IsString() @Length(8, 100) deviceId: string;
+}
+
+export class ChangeMpinDto {
+  @IsString() @Matches(/^\d{6}$/, { message: 'oldMpin must be 6 digits' }) oldMpin: string;
+  @IsString() @Matches(/^\d{6}$/, { message: 'newMpin must be 6 digits' }) newMpin: string;
+}
+
+export class ActivationStatusQueryDto {
+  @IsString() @Matches(MBNO, { message: 'mbno must be the member number' }) mbno: string;
 }
 
 export class RefreshDto {

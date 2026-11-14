@@ -1,3 +1,4 @@
+import { RequireMenuAction } from '../auth/guards/menu-right.guard';
 import { Controller, Post, Body, UseGuards, Request } from '@nestjs/common';
 import { JournalTransferService } from './services-v2/journal-transfer.service';
 import { CreateJournalVoucherDto } from './dto/journal-transfer.dto';
@@ -8,6 +9,7 @@ import { ApiTags, ApiOperation } from '@nestjs/swagger';
 export class JournalTransferController {
     constructor(private readonly journalService: JournalTransferService) { }
 
+    @RequireMenuAction('JOURNAL_TRANSFER_ENTRY') // ES-464
     @Post('post')
     @ApiOperation({ summary: 'Post a multi-row balanced journal entry' })
     async postJournal(@Body() dto: CreateJournalVoucherDto, @Request() req: any) {

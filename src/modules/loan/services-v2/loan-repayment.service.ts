@@ -1,4 +1,5 @@
 import { penalPrefixForLoanType } from './loan-rate-defaults.util';
+import { computeApClosureInterest } from './loan-closure.util';
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { assertPostingDateOpen } from '../../shared/utils/posting-date';
 import { DataSource, QueryRunner } from 'typeorm';
@@ -137,7 +138,7 @@ function toLocalDateString(date: Date): string {
  * of (say) 31 configured on a loan type doesn't spill into the next month
  * just because the due month only has 28, 29 or 30 days.
  */
-function computeTier(
+export function computeTier(
     principalDue: number,
     isFullyPaid: boolean,
     dueDate: Date,
@@ -1609,40 +1610,8 @@ export class LoanRepaymentService {
         unpaid: InstallmentStatus[],
         rounding: LoanRoundingMode,
         observedPrincipalEmi?: number,
-    ): {
-        nrPrincipal: number; nrInterest: number;
-        futureInstallmentCount: number; averageRemainingPrincipal: number; averageRbInterest: number;
-        apInterest: number; closureInterest: number;
-    } {
-        const monthlyPrincipal = observedPrincipalEmi && observedPrincipalEmi > 0
-            ? observedPrincipalEmi
-            : (noOfInstal > 0 ? loanAmt / noOfInstal : 0);
-        const totalInterestForEMI = instalAmt * noOfInstal - loanAmt;
-        const monthlyInterestForEMI = observedPrincipalEmi && observedPrincipalEmi > 0
-            ? Math.max(0, instalAmt - observedPrincipalEmi)
-            : (noOfInstal > 0 ? totalInterestForEMI / noOfInstal : 0);
-        const monthlyRate = annualRate / 1200;
-
-        const nrPrincipal = round2(unpaid.reduce((sum, i) => sum + i.principalDue, 0));
-        const nrInterest = round2(unpaid.reduce((sum, i) => sum + i.interestDue, 0));
-
-        const futureInstallmentCount = Math.max(0, noOfInstal - k);
-        let averageRemainingPrincipal = 0;
-        let averageRbInterest = 0;
-        let apInterest = 0;
-        if (monthlyInterestForEMI > 0 && futureInstallmentCount > 0 && monthlyPrincipal > 0) {
-            const futurePrincipal = outstandingPrincipal - nrPrincipal;
-            const firstOpening = futurePrincipal;
-            // Use the stable principal EMI as the AP endpoint, not a small
-            // residual final installment distorted by predecessor payroll
-            // adjustments during consolidation.
-            averageRemainingPrincipal = round2((firstOpening + monthlyPrincipal) / 2);
-            averageRbInterest = round2(averageRemainingPrincipal * monthlyRate);
-            apInterest = applyLoanRounding((monthlyInterestForEMI - averageRbInterest) * futureInstallmentCount, rounding);
-        }
-
-        const closureInterest = applyLoanRounding(nrInterest + apInterest, rounding);
-        return { nrPrincipal, nrInterest, futureInstallmentCount, averageRemainingPrincipal, averageRbInterest, apInterest, closureInterest };
+    ): ReturnType<typeof computeApClosureInterest> {
+        return computeApClosureInterest(loanAmt, noOfInstal, instalAmt, annualRate, outstandingPrincipal, k, unpaid, rounding, observedPrincipalEmi);
     }
 
     /**

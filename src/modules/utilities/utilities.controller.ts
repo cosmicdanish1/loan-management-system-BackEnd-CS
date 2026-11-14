@@ -10,6 +10,9 @@ import {
 } from './dto/search-params.dto';
 import { UpdateUserPreferenceDto } from './dto/update-user-preference.dto';
 import { RequireMenuAction } from '../auth/guards/menu-right.guard';
+import { RoleGuard } from '../auth/guards/role.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { UserRole } from '../auth/entities/user.entity';
 
 @ApiTags('Utilities')
 @Controller('utilities')
@@ -163,7 +166,8 @@ export class UtilitiesController {
   }
 
   @Patch('system-settings/:key')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RoleGuard) // ES-298: global settings are administrator-only
+  @Roles(UserRole.ADMIN)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Update global system setting' })
   async updateSystemSetting(@Param('key') key: string, @Body('value') value: string) {
@@ -175,6 +179,7 @@ export class UtilitiesController {
     };
   }
 
+  @RequireMenuAction('MEMBER_BALANCE_TRANSFER', 'MODIFY_MEMBER_BAL') // ES-464
   @Post('balance-transfer')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
@@ -212,6 +217,7 @@ export class UtilitiesController {
     return { success: true, data };
   }
 
+  @RequireMenuAction('SAVING_RECEIPT_PAYMENT') // ES-464
   @Post('saving/transaction')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
@@ -243,6 +249,7 @@ export class UtilitiesController {
     return { success: true, data };
   }
 
+  @RequireMenuAction('FD_INTEREST_VOUCHER_POSTING') // ES-464
   @Post('fd-interest/post')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
@@ -254,6 +261,7 @@ export class UtilitiesController {
     return result;
   }
 
+  @RequireMenuAction('FD_RECEIPT') // ES-464
   @Post('fd-receipt')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
@@ -275,6 +283,7 @@ export class UtilitiesController {
     return { success: true, data };
   }
 
+  @RequireMenuAction('RECEIPT_DIVIDEND_PAYMENT') // ES-464
   @Post('dividend/pay')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
@@ -286,6 +295,7 @@ export class UtilitiesController {
     return result;
   }
 
+  @RequireMenuAction('RECEIPT_PAYMENT') // ES-464
   @Post('receipt')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
@@ -298,6 +308,7 @@ export class UtilitiesController {
     return result;
   }
 
+  @RequireMenuAction('RECEIPT_PAYMENT_VOUCHER_CREATION', 'RECEIPT_PAYMENT') // ES-464
   @Post('receipt-voucher')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
@@ -310,6 +321,7 @@ export class UtilitiesController {
     return result;
   }
 
+  @RequireMenuAction('RECEIPT_PAYMENT_VOUCHER_CREATION', 'VOUCHER_PAYMENT') // ES-464
   @Post('payment-voucher')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
@@ -322,6 +334,7 @@ export class UtilitiesController {
     return result;
   }
 
+  @RequireMenuAction('LOAN_ENTRY', 'LOAN_PAYMENT') // ES-464
   @Post('loan/entry')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
@@ -350,6 +363,7 @@ export class UtilitiesController {
     return { success: true, data };
   }
 
+  @RequireMenuAction('FD_RD_SB_ENTRY') // ES-464
   @Post('fd-rd-sb/entry')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
@@ -361,6 +375,7 @@ export class UtilitiesController {
     return result;
   }
 
+  @RequireMenuAction('HEAD_ADD_MOD') // ES-464
   @Post('head-master')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
@@ -370,6 +385,7 @@ export class UtilitiesController {
     return result;
   }
 
+  @RequireMenuAction('HEAD_ADD_MOD') // ES-464
   @Post('head-master/rebuild-tree')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
@@ -407,6 +423,7 @@ export class UtilitiesController {
     return { success: true, data, message: 'SB account holders retrieved successfully' };
   }
 
+  @RequireMenuAction('HEAD_ADD_MOD') // ES-464
   @Delete('head-master/:code')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
@@ -431,6 +448,7 @@ export class UtilitiesController {
     return await this.utilitiesService.getHeadOpeningBalances(parseInt(yearcode));
   }
 
+  @RequireMenuAction('HEAD_OPEN_BAL') // ES-464
   @Post('head-opening-balance/apply/:yearcode')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
@@ -439,6 +457,7 @@ export class UtilitiesController {
     return await this.utilitiesService.applyYearOpeningBalances(parseInt(yearcode));
   }
 
+  @RequireMenuAction('HEAD_OPEN_BAL') // ES-464
   @Post('head-opening-balance')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
@@ -459,6 +478,7 @@ export class UtilitiesController {
     return { success: true, data };
   }
 
+  @RequireMenuAction('DEPOSIT_LOAN_SLAB') // ES-464
   @Post('deposit-loan-slabs')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
@@ -476,6 +496,7 @@ export class UtilitiesController {
     return { success: true, data };
   }
 
+  @RequireMenuAction('DEMAND_PRINT_ORDER') // ES-464
   @Post('demand-print-order')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
@@ -524,6 +545,7 @@ export class UtilitiesController {
     return { success: true, data };
   }
 
+  @RequireMenuAction('FIN_YEAR_TRANSFER') // ES-464
   @Post('financial-year/transfer-entries')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')

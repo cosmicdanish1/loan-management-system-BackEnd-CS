@@ -3,10 +3,13 @@ import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { WingService } from '../services/wing.service';
 import { CreateWingDto, UpdateWingDto } from '../dto/wing.dto';
 
+import { RequireMenuAction } from '../../auth/guards/menu-right.guard';
 @ApiTags('Admin - Wing Master')
 @Controller('admin/wings')
 export class WingController {
     constructor(private readonly wingService: WingService) { }
+
+    @RequireMenuAction('WING_OFFICE_MASTER') // ES-298
 
     @Post()
     @ApiOperation({ summary: 'Create a new wing' })
@@ -29,12 +32,16 @@ export class WingController {
         return this.wingService.findOne(id);
     }
 
+    @RequireMenuAction('WING_OFFICE_MASTER') // ES-298
+
     @Patch(':id')
     @ApiOperation({ summary: 'Update a wing' })
     @ApiResponse({ status: 200, description: 'The wing has been successfully updated.' })
     update(@Param('id') id: string, @Body() updateDto: UpdateWingDto) {
         return this.wingService.update(id, updateDto);
     }
+
+    @RequireMenuAction('WING_OFFICE_MASTER') // ES-298
 
     @Delete(':id')
     @ApiOperation({ summary: 'Delete a wing' })

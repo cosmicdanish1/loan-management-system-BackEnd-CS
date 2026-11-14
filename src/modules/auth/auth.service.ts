@@ -5,6 +5,8 @@ import {
   ConflictException,
   NotFoundException,
   ServiceUnavailableException,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -25,6 +27,7 @@ import { PasswordUtil, mapUserMasterToUser } from './utils';
 import { JwtPayload } from './strategies/jwt.strategy';
 import { MENUID_TO_ACTION, BYPASS_USER_LEVEL_IDS } from './menu-action-map';
 import { TwoFaService } from './twofa/twofa.service';
+import { PasswordHistoryService } from '../shared/services/password-history.service';
 
 @Injectable()
 export class AuthService {
@@ -46,6 +49,7 @@ export class AuthService {
     private jwtService: JwtService,
     private configService: ConfigService,
     private twofa: TwoFaService,
+    private passwordHistory: PasswordHistoryService,
   ) { }
 
   /**
@@ -172,12 +176,53 @@ export class AuthService {
    * user must pass a second step — a `requires2fa` / `requires2faEnrol`
    * challenge carrying a short-lived token and NO access/refresh token.
    */
+  // ES-296: failed-login lockout per username (in memory: a restart clears it). MAX_FAILS wrong passwords inside
+  // FAIL_WINDOW_MS lock that username for LOCK_MS; a correct login clears the count. The per-IP cap is @Throttle on the route.
+  private readonly loginFails = new Map<string, { count: number; first: number; lockedUntil: number }>();
+  private static readonly MAX_FAILS = 5;
+  private static readonly FAIL_WINDOW_MS = 15 * 60_000;
+  private static readonly LOCK_MS = 15 * 60_000;
+
+  private loginLockKey(username: string): string {
+    return String(username || '').trim().toLowerCase();
+  }
+
+  assertNotLocked(username: string): void {
+    const rec = this.loginFails.get(this.loginLockKey(username));
+    if (rec && rec.lockedUntil > Date.now()) {
+      const mins = Math.ceil((rec.lockedUntil - Date.now()) / 60_000);
+      throw new HttpException(
+        { statusCode: 429, message: `Too many failed sign-in attempts. Try again in ${mins} minute(s).` },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+  }
+
+  noteLoginFailure(username: string): void {
+    const key = this.loginLockKey(username);
+    const now = Date.now();
+    let rec = this.loginFails.get(key);
+    if (!rec || now - rec.first > AuthService.FAIL_WINDOW_MS) rec = { count: 0, first: now, lockedUntil: 0 };
+    rec.count += 1;
+    if (rec.count >= AuthService.MAX_FAILS) {
+      rec.lockedUntil = now + AuthService.LOCK_MS;
+      this.logger.warn(`Sign-in locked for 15 minutes after ${rec.count} failed attempts (user "${key}")`);
+    }
+    this.loginFails.set(key, rec);
+    if (this.loginFails.size > 5000) {
+      for (const [k, v] of this.loginFails) if (now - v.first > AuthService.FAIL_WINDOW_MS && v.lockedUntil < now) this.loginFails.delete(k);
+    }
+  }
+
   async login(loginDto: LoginDto & { deviceToken?: string }): Promise<AuthResponseDto | Record<string, any>> {
+    this.assertNotLocked(loginDto.username);
     const user = await this.validateUser(loginDto.username, loginDto.password);
 
     if (!user) {
+      this.noteLoginFailure(loginDto.username);
       throw new UnauthorizedException('Invalid credentials');
     }
+    this.loginFails.delete(this.loginLockKey(loginDto.username));
 
     // Re-evaluate with the device token (the passport local strategy only sees
     // username/password) — a trusted device skips the code.
@@ -372,11 +417,21 @@ export class AuthService {
   /** Ends a whole login session: its access token and every refresh token of it stop working. */
   private async revokeSession(sid: string | undefined, userId: number, exp?: number): Promise<void> {
     if (!sid) return;
-    const keepUntil = exp ? new Date(exp * 1000) : new Date(Date.now() + this.configService.get<number>('JWT_REFRESH_EXPIRES_IN', 604800) * 1000);
+    const keepUntil = exp ? new Date(exp * 1000) : new Date(Date.now() + this.refreshTtlSeconds() * 1000);
     await this.userMasterRepository.query(
       `INSERT INTO revoked_tokens (token_hash, user_id, expires_at) VALUES ($1, $2, $3) ON CONFLICT (token_hash) DO NOTHING`,
       [this.hashToken(`sid:${sid}`), userId, keepUntil],
     );
+  }
+
+  /** Lifetime of a refresh token in seconds, from JWT_REFRESH_EXPIRES_IN ("7d", "12h", "30m", "45s" or plain seconds); 7 days if unreadable. */
+  private refreshTtlSeconds(): number {
+    const raw = String(this.configService.get('JWT_REFRESH_EXPIRES_IN', '7d')).trim();
+    const m = /^(\d+)\s*([smhd]?)$/i.exec(raw);
+    if (!m) return 7 * 86400;
+    const n = Number(m[1]);
+    const unit = (m[2] || 's').toLowerCase();
+    return n * (unit === 'd' ? 86400 : unit === 'h' ? 3600 : unit === 'm' ? 60 : 1);
   }
 
   private hashToken(token: string): string {
@@ -436,7 +491,9 @@ export class AuthService {
         [this.hashToken(rawToken), userId, expiresAt],
       );
       // the refresh token of the same login must die with it (it is not sent to /logout, so revoke by session id)
-      await this.revokeSession(decoded?.sid, userId, Math.floor(Date.now() / 1000) + this.configService.get<number>('JWT_REFRESH_EXPIRES_IN', 604800));
+      // ES-297: JWT_REFRESH_EXPIRES_IN is a duration text like "7d", not a number of seconds: adding it to a number gave a
+      // broken timestamp, the insert failed and logout answered 400 "Database Error" with the session still alive.
+      await this.revokeSession(decoded?.sid, userId, Math.floor(Date.now() / 1000) + this.refreshTtlSeconds());
     }
 
     return { message: 'Logout successful' };
@@ -617,12 +674,16 @@ export class AuthService {
       throw new UnauthorizedException('Current password is incorrect');
     }
 
+    // ES-207: not the current password and not one of the last 5
+    await this.passwordHistory.assertNotReused(userMaster.userid, newPassword);
+
     // Update password (will be hashed automatically by entity)
     userMaster.spassword = newPassword;
     // ES-297: every token issued before this moment stops working (other PCs, a stolen session). Truncated to the
     // second because token "iat" has second precision, so the fresh pair issued below is still accepted.
     userMaster.forceLogoutAt = new Date(Math.floor(Date.now() / 1000) * 1000);
     await this.userMasterRepository.save(userMaster);
+    await this.passwordHistory.recordHash(userMaster.userid, userMaster.spassword);
 
     // the person changing the password keeps working on this PC: hand them a new session
     const fresh = await this.generateTokens(mapUserMasterToUser(userMaster));

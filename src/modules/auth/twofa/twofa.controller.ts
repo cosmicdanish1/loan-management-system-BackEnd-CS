@@ -39,6 +39,12 @@ class PasswordDto {
 class DisableDto extends PasswordDto {
   @IsString() @MaxLength(40) code: string;
 }
+class LoanConfirmDto {
+  @IsString() @MaxLength(40) code: string;
+}
+class PrefsDto {
+  @IsBoolean() alwaysAsk: boolean;
+}
 class GuardsDto {
   @IsObject() guards: Record<string, Partial<GuardConfig>>;
   @IsOptional() @IsString() @MaxLength(200) password?: string;
@@ -163,6 +169,60 @@ export class TwoFaController {
   @ApiBearerAuth()
   enrollConfirm(@CurrentUser() user: User, @Body() dto: ConfirmDto) {
     return this.twofa.confirmEnroll(user.id, dto.code);
+  }
+
+  /** ES-205: "Always ask me for the code" switch. */
+  @Put('prefs')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  async setPrefs(@CurrentUser() user: User, @Body() dto: PrefsDto) {
+    await this.twofa.setAlwaysAsk(user.id, dto.alwaysAsk);
+    return { alwaysAsk: dto.alwaysAsk };
+  }
+
+  /** ES-205: "Forget my remembered computers". */
+  @Post('devices/forget')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  async forgetDevices(@CurrentUser() user: User) {
+    return { forgotten: await this.twofa.forgetDevices(user.id) };
+  }
+
+  // ---- ES-179: loan-approval authenticator (approvers only; separate from the login authenticator)
+  @Post('loan/enroll/begin')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  loanEnrollBegin(@CurrentUser() user: User, @Body() dto: PasswordDto) {
+    return this.twofa.beginLoanEnroll(user.id, dto.password);
+  }
+
+  @Post('loan/enroll/confirm')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  loanEnrollConfirm(@CurrentUser() user: User, @Body() dto: LoanConfirmDto) {
+    return this.twofa.confirmLoanEnroll(user.id, dto.code);
+  }
+
+  @Post('loan/disable')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  async loanDisable(@CurrentUser() user: User, @Body() dto: DisableDto) {
+    await this.twofa.disableLoan(user.id, dto.password, dto.code);
+    return { message: 'Loan-approval authenticator turned off' };
+  }
+
+  @Post('admin/reset-loan/:userid')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(AuthGuard('jwt'), TwoFaManageGuard)
+  @ApiBearerAuth()
+  async adminResetLoan(@CurrentUser() user: User, @Param('userid', ParseIntPipe) userid: number) {
+    await this.twofa.assertCanManageTarget(isAdminUser(user), userid);
+    await this.twofa.adminResetLoan(userid, user.username);
+    return { message: 'Loan-approval authenticator reset. The approver must set it up again.' };
   }
 
   @Post('disable')

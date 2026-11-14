@@ -39,7 +39,7 @@ function world(init: { settings?: Record<string, string>; user?: any; recovery?:
   const users: any = { query, findOne: jest.fn() };
   const jwt = new JwtService({});
   const config: any = { get: (k: string) => ({ JWT_SECRET: 'test-secret', TOTP_ENC_KEY: 'enc-key' } as any)[k] };
-  const svc: any = new TwoFaService(users, jwt, config);
+  const svc: any = new TwoFaService(users, jwt, config, { assertNotReused: async () => undefined, recordHash: async () => undefined, recordCurrent: async () => undefined } as any);
   jest.spyOn((svc as any).logger, 'warn').mockImplementation(() => undefined);
   return { svc: svc as TwoFaService, any: svc, user, settings, recovery, audits, writes, query };
 }
@@ -49,7 +49,7 @@ const codeAt = (secret: string, step = currentStep()) => hotp(secret, step);
 describe('twofa settings', () => {
   it('defaults, an old "roles" policy counts as optional, junk numbers fall back to the defaults', async () => {
     const d = await world().svc.getSettings();
-    expect(d).toMatchObject({ policy: 'optional', graceDays: 7, rememberDays: 0, recoveryCount: 10, maxAttempts: 5, lockoutMinutes: 15, loginCode: true, forgotAuthenticator: true, approverCanApproveOwn: false });
+    expect(d).toMatchObject({ policy: 'optional', graceDays: 7, rememberDays: 30, recoveryCount: 10, maxAttempts: 5, lockoutMinutes: 15, loginCode: true, forgotAuthenticator: true, approverCanApproveOwn: false });
     const w = world({ settings: { 'twofa.policy': 'roles', 'twofa.grace_days': 'abc', 'twofa.max_attempts': '9', 'twofa.required_levels': '1,,x,3' } });
     expect(await w.svc.getSettings()).toMatchObject({ policy: 'optional', graceDays: 7, maxAttempts: 9, requiredLevelIds: [1, 3] });
   });

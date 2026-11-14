@@ -1,10 +1,11 @@
-import { HttpException, HttpStatus, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, HttpException, HttpStatus, Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { MobileAuditService } from '../audit/mobile-audit.service';
 import { MOBILE_DS } from '../mobile.constants';
 import { ClientCtx, SessionTokens } from './access.types';
+import { MemberDirectoryService } from './member-directory.service';
 import { sha256 } from './mobile-crypto';
 import { SessionService } from './session.service';
 
@@ -25,9 +26,16 @@ export class MemberAuthService {
     @InjectDataSource(MOBILE_DS) private readonly ds: DataSource,
     private readonly sessions: SessionService,
     private readonly audit: MobileAuditService,
+    private readonly directory: MemberDirectoryService,
   ) {}
 
-  async login(input: { mbno: string; mpin: string; deviceId: string }, ctx: ClientCtx): Promise<SessionTokens & { mbno: string }> {
+  async login(input: { mbno?: string; mobile?: string; mpin: string; deviceId: string }, ctx: ClientCtx): Promise<SessionTokens & { mbno: string }> {
+    if (!input.mbno && !input.mobile) {
+      throw new BadRequestException({ statusCode: 400, code: 'MBNO_OR_MOBILE_REQUIRED', message: 'Enter your member number or registered mobile number' });
+    }
+    // A mobile number only works when it belongs to exactly one member; otherwise it behaves like an unknown member (same error).
+    const resolved = input.mbno ?? (await this.directory.findMbnoByPhone(input.mobile as string)) ?? '0';
+    input = { ...input, mbno: resolved };
     const deviceHash = sha256(input.deviceId);
     const rows: any[] = await this.ds.query(
       `SELECT a.mbno::text AS mbno, a.status, a.mpin_hash, a.failed_attempts,

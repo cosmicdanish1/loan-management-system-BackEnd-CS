@@ -46,6 +46,19 @@ export class MemberDirectoryService {
     };
   }
 
+  /** The member number for a registered mobile number, but ONLY when exactly one active member has that number. */
+  async findMbnoByPhone(phone10: string): Promise<string | null> {
+    if (!/^\d{10}$/.test(phone10) || /^(\d)\1+$/.test(phone10)) return null;
+    const rows: Array<{ mbno: string }> = await this.ds.query(
+      `SELECT mbno::text AS mbno FROM member_master
+        WHERE right(regexp_replace(COALESCE(phoneno, ''), '\\D', '', 'g'), 10) = $1
+          AND upper(trim(COALESCE(isactive, 'Y'))) <> 'N'
+        LIMIT 2`,
+      [phone10],
+    );
+    return rows.length === 1 ? rows[0].mbno : null;
+  }
+
   /** Is the registered phone usable as proof of identity? Also returns how many members share it. */
   async phoneQuality(phone10: string | null): Promise<{ status: PhoneStatus; sharedCount: number }> {
     if (!phone10) return { status: 'MISSING', sharedCount: 0 };

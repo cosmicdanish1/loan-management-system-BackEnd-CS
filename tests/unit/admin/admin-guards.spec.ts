@@ -23,7 +23,7 @@ function mkUsers(adminCount: number) {
   const levelRepo: any = { createQueryBuilder: jest.fn(() => qb), find: jest.fn().mockResolvedValue([]), create: jest.fn((x) => x), save: jest.fn() };
   const loginRepo: any = { find: jest.fn().mockResolvedValue([]), save: jest.fn() };
   const actRepo: any = { create: jest.fn((x) => x), save: jest.fn(async (x) => x) };
-  return { svc: new UserManagementService(actRepo, um, levelRepo, loginRepo, {} as any), um };
+  return { svc: new UserManagementService(actRepo, um, levelRepo, loginRepo, {} as any, { assertNotReused: async () => undefined, recordHash: async () => undefined, recordCurrent: async () => undefined } as any), um };
 }
 
 describe('admin/UserManagementService last administrator through update (ES-400)', () => {

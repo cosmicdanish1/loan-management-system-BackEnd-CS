@@ -75,8 +75,8 @@ export class BackupService {
   }
 
   /** Verifies a backup by its file name (used by the verify endpoint; the name is checked like every other). */
-  async verifyBackupByName(filename: string): Promise<boolean> {
-    return this.verifyBackupIntegrity(this.resolveBackupFile(filename));
+  async verifyBackupByName(filename: string, deep = false): Promise<boolean> {
+    return this.verifyBackupIntegrity(this.resolveBackupFile(filename), deep);
   }
 
   async createDatabaseBackup(backupName?: string): Promise<BackupResult> {
@@ -137,8 +137,8 @@ export class BackupService {
         throw new NotFoundException('Backup file not found');
       }
 
-      // Verify backup integrity
-      const isValid = await this.verifyBackupIntegrity(backupPath);
+      // Verify backup integrity: a restore replaces the database, so it uses the full proof (checksum), not the quick check
+      const isValid = await this.verifyBackupIntegrity(backupPath, true);
       if (!isValid) {
         throw new BadRequestException('Backup file is corrupted or invalid');
       }
@@ -196,6 +196,9 @@ export class BackupService {
       return result;
     } catch (error) {
       this.logger.error('Database restore failed:', error);
+      // ES-376: a refused file name (400), a missing file (404) or a damaged backup (400) are answers for the caller, not
+      // "201 created" with success:false hidden inside; only a failure while restoring is reported as a result.
+      if (error instanceof HttpException) throw error;
       return {
         success: false,
         message: `Restore failed: ${error.message}`,
@@ -268,33 +271,109 @@ export class BackupService {
     }
   }
 
-  async verifyBackupIntegrity(backupPath: string): Promise<boolean> {
+  /**
+   * ES-355 / ES-376: integrity check that never reads a whole large file into memory.
+   *  - with a .meta checksum: the file is streamed through SHA-256 and compared (the real proof);
+   *  - plain .sql without one: the first and last 64 KB are read; a pg_dump file starts with its header and ends with
+   *    "PostgreSQL database dump complete", so a cut-off dump is refused (before, a 20 MB cut was accepted and a dump
+   *    above ~512 MB failed with "Invalid string length" and was reported corrupt);
+   *  - encrypted .sql.safe (AES-256-CBC, IV in the first 16 bytes): the size must fit whole cipher blocks, the head is
+   *    decrypted to check the key and the dump header, and the tail is decrypted (CBC allows decrypting from any block)
+   *    to check the padding and the end marker. That takes milliseconds. `deep` decrypts the whole file as well (about
+   *    as long as a restore's decrypt step) to prove every block.
+   */
+  async verifyBackupIntegrity(backupPath: string, deep = false): Promise<boolean> {
     try {
-      // Check if file exists and is readable
       await fs.promises.access(backupPath, fs.constants.R_OK);
-
-      // Check if file is not empty
       const stats = await fs.promises.stat(backupPath);
-      if (stats.size === 0) {
-        return false;
+      if (stats.size === 0) return false;
+
+      const filename = path.basename(backupPath);
+      if (filename.endsWith('.safe')) {
+        if (!(await this.verifyEncryptedBackup(backupPath, stats.size, deep))) return false;
+        // backups made from now on carry a SHA-256 of the encrypted file in a .meta file: when there is one, any damaged
+        // block anywhere in the file is caught (older .safe files without one only get the structural check above)
+        const safeMeta = await this.loadBackupMetadata(filename);
+        if (safeMeta?.size !== undefined && safeMeta?.size !== null && Number(safeMeta.size) !== stats.size) return false;
+        if (safeMeta?.checksum && deep) return (await this.calculateFileChecksum(backupPath)) === safeMeta.checksum;
+        return true;
       }
 
-      // Try to load metadata and verify checksum
-      const filename = path.basename(backupPath);
       const metadata = await this.loadBackupMetadata(filename);
-
-      if (metadata?.checksum) {
+      if (metadata?.checksum && deep) {
+        // full proof: stream the file through SHA-256 (reads the whole file: about 25 s for 2 GB)
         const currentChecksum = await this.calculateFileChecksum(backupPath);
         return currentChecksum === metadata.checksum;
       }
+      // quick check (default): the size must equal the size recorded at backup time, and the file must still start and
+      // end like a finished pg_dump (a cut-off or half-copied file fails here in milliseconds)
+      if (metadata?.size !== undefined && metadata?.size !== null && Number(metadata.size) !== stats.size) return false;
 
-      // If no metadata, just check if file is readable SQL
-      const content = await fs.promises.readFile(backupPath, 'utf8');
-      return content.includes('PostgreSQL database dump') || content.includes('CREATE TABLE');
+      const head =(await this.readRange(backupPath, 0, Math.min(65536, stats.size))).toString('utf8');
+      if (!/PostgreSQL database dump/.test(head) && !/CREATE TABLE/.test(head)) return false;
+      const tailStart = Math.max(0, stats.size - 65536);
+      const tail = (await this.readRange(backupPath, tailStart, stats.size - tailStart)).toString('utf8');
+      return /PostgreSQL database dump complete/.test(tail);
     } catch (error) {
       this.logger.error('Backup integrity check failed:', error);
       return false;
     }
+  }
+
+  private async readRange(file: string, start: number, length: number): Promise<Buffer> {
+    const fh = await fs.promises.open(file, 'r');
+    try {
+      const buf = Buffer.alloc(length);
+      const { bytesRead } = await fh.read(buf, 0, length, start);
+      return buf.subarray(0, bytesRead);
+    } finally {
+      await fh.close();
+    }
+  }
+
+  private backupKey(): Buffer {
+    return crypto.createHash('sha256').update(process.env.BACKUP_ENCRYPTION_KEY || 'default_secret_key').digest();
+  }
+
+  private async verifyEncryptedBackup(file: string, size: number, deep: boolean): Promise<boolean> {
+    // 16 bytes IV + whole 16-byte cipher blocks, at least one block
+    if (size < 32 || (size - 16) % 16 !== 0) return false;
+    const key = this.backupKey();
+    const iv = await this.readRange(file, 0, 16);
+
+    // head: decrypt the first blocks (no padding in the middle of a stream) and look for the dump header
+    const headLen = Math.min(65536, size - 16);
+    const headCipher = await this.readRange(file, 16, headLen - (headLen % 16));
+    const dHead = crypto.createDecipheriv('aes-256-cbc', key, iv);
+    dHead.setAutoPadding(false);
+    const headPlain = Buffer.concat([dHead.update(headCipher), dHead.final()]).toString('utf8');
+    if (!/PostgreSQL database dump/.test(headPlain) && !/CREATE TABLE/.test(headPlain)) return false;
+
+    // tail: CBC decrypts block i from block i-1, so the last blocks can be decrypted on their own
+    const tailBytes = Math.min(65536, size - 16); // a multiple of 16 (the size was checked above)
+    const tailStart = size - tailBytes;
+    const prevBlock = await this.readRange(file, tailStart - 16, 16); // the block before (the IV when the tail starts at 16)
+    const tailCipher = await this.readRange(file, tailStart, tailBytes);
+    const dTail = crypto.createDecipheriv('aes-256-cbc', key, prevBlock);
+    let tailPlain: string;
+    try {
+      tailPlain = Buffer.concat([dTail.update(tailCipher), dTail.final()]).toString('utf8'); // final() checks the padding
+    } catch {
+      return false; // bad padding: truncated, damaged or wrong key
+    }
+    if (!/PostgreSQL database dump complete/.test(tailPlain)) return false;
+
+    if (!deep) return true;
+    // deep: every block through the cipher (the final padding check proves the stream is whole)
+    return await new Promise<boolean>((resolve) => {
+      const dAll = crypto.createDecipheriv('aes-256-cbc', key, iv);
+      const input = fs.createReadStream(file, { start: 16 });
+      dAll.on('data', () => undefined);
+      dAll.on('end', () => resolve(true));
+      dAll.on('error', () => resolve(false));
+      input.on('error', () => resolve(false));
+      input.pipe(dAll);
+    });
   }
 
   // Automated backup (runs daily at 2 AM)
@@ -305,8 +384,15 @@ export class BackupService {
       const result = await this.createDatabaseBackup('auto');
       this.logger.log(`Automatic backup completed: ${result.filename}`);
 
-      // Clean up old backups (keep last 30 days)
-      await this.cleanupOldBackups(30);
+      // ES-304: automatic backups older than BACKUP_RETENTION_DAYS (default 30) are removed after each run;
+      // manual and pre-reset dumps are never touched. Log the folder size so growth is visible.
+      const keepDays = Math.max(7, Number(process.env.BACKUP_RETENTION_DAYS) || 30);
+      await this.cleanupOldBackups(keepDays);
+      try {
+        const all = await this.listBackups();
+        const gb = all.reduce((t, b: any) => t + (Number(b.size) || 0), 0) / 1024 ** 3;
+        this.logger.log(`Backups folder: ${all.length} files, ${gb.toFixed(1)} GB (automatic backups kept ${keepDays} days)`);
+      } catch { /* size report is informational */ }
     } catch (error) {
       this.logger.error('Automatic backup failed:', error);
     }

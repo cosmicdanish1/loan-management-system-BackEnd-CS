@@ -1,6 +1,7 @@
 import { Controller, Post, Body, Logger, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { Request } from 'express';
+import { Throttle } from '@nestjs/throttler';
 import { Type } from 'class-transformer';
 import { IsArray, IsOptional, IsString, ValidateNested } from 'class-validator';
 import { ClientLogsService } from './client-logs.service';
@@ -45,6 +46,7 @@ export class ClientLogsController {
 
   // Public on purpose: the desktop app ships logs before login (and when login itself fails).
   @Public()
+  @Throttle({ default: { limit: 120, ttl: 60_000 } }) // ES-296: unauthenticated sink, cap per IP
   @ApiOperation({ summary: 'Ingest a batch of client-side (desktop app) log entries' })
   @Post()
   async receiveClientLogs(

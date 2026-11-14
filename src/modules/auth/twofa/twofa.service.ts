@@ -16,6 +16,7 @@ import * as QRCode from 'qrcode';
 import { UserMaster } from '../entities';
 import { mapUserMasterToUser } from '../utils';
 import { generateSecret, otpauthUrl, verifyTotp } from './totp.util';
+import { PasswordHistoryService } from '../../shared/services/password-history.service';
 
 export type TwoFaPolicy = 'off' | 'optional' | 'roles' | 'all';
 
@@ -44,7 +45,7 @@ const DEFAULTS: TwoFaSettings = {
   policy: 'optional',
   requiredLevelIds: [],
   graceDays: 7,
-  rememberDays: 0,
+  rememberDays: 30, // ES-205: ask once, then remember this computer for 30 days (administrator can change it, 0 = never)
   recoveryCount: 10,
   maxAttempts: 5,
   lockoutMinutes: 15,
@@ -81,6 +82,7 @@ export const GUARD_ACTIONS: Record<string, { label: string; hint: string }> = {
   pass_transactions: { label: 'Pass Transactions (all vouchers)', hint: 'Final posting of any voucher' },
   reverse_transactions: { label: 'Reverse Transactions', hint: 'Reversing a posted voucher' },
   mobile_issue_code: { label: 'Mobile App: issue activation code / reset MPIN', hint: 'Giving a member the code that activates the Fibe Mobile app, or resetting the member MPIN' },
+  mobile_change_features: { label: 'Mobile App: features, versions and maintenance mode', hint: 'Switching app features on or off, setting the lowest allowed app version, or turning on maintenance mode for members' },
   mobile_block_member: { label: 'Mobile App: block, unblock or sign out a member', hint: 'Blocking or unblocking mobile access of a member, or signing out every phone' },
 };
 
@@ -96,6 +98,7 @@ export class TwoFaService implements OnModuleInit {
     @InjectRepository(UserMaster) private readonly users: Repository<UserMaster>,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly passwordHistory: PasswordHistoryService,
   ) {}
 
   // ---------------------------------------------------------------- schema
@@ -104,6 +107,20 @@ export class TwoFaService implements OnModuleInit {
     const q = (s: string) => this.users.query(s);
     await q(`ALTER TABLE usermaster ADD COLUMN IF NOT EXISTS totp_secret_enc text`);
     await q(`ALTER TABLE usermaster ADD COLUMN IF NOT EXISTS totp_enabled boolean NOT NULL DEFAULT false`);
+    await q(`ALTER TABLE usermaster ADD COLUMN IF NOT EXISTS totp_always_ask boolean NOT NULL DEFAULT false`); // ES-205
+    // ES-179: separate loan-approval authenticator (own secret, own recovery codes) - the personal login code never approves loan actions
+    await q(`ALTER TABLE usermaster ADD COLUMN IF NOT EXISTS loan_totp_secret_enc text`);
+    await q(`ALTER TABLE usermaster ADD COLUMN IF NOT EXISTS loan_totp_enabled boolean NOT NULL DEFAULT false`);
+    await q(`ALTER TABLE usermaster ADD COLUMN IF NOT EXISTS loan_totp_last_step bigint`);
+    await q(`ALTER TABLE usermaster ADD COLUMN IF NOT EXISTS loan_totp_enrolled_at timestamp`);
+    await q(`CREATE TABLE IF NOT EXISTS loan_recovery_codes (
+      id serial PRIMARY KEY,
+      user_id integer NOT NULL,
+      code_hash varchar(80) NOT NULL,
+      used_at timestamp,
+      created_at timestamp NOT NULL DEFAULT now()
+    )`);
+    await q(`CREATE INDEX IF NOT EXISTS idx_loan_recovery_codes_user ON loan_recovery_codes (user_id)`);
     await q(`ALTER TABLE usermaster ADD COLUMN IF NOT EXISTS totp_last_step bigint`);
     await q(`ALTER TABLE usermaster ADD COLUMN IF NOT EXISTS totp_enrolled_at timestamp`);
     await q(`ALTER TABLE usermaster ADD COLUMN IF NOT EXISTS totp_failed_count integer NOT NULL DEFAULT 0`);
@@ -218,32 +235,40 @@ export class TwoFaService implements OnModuleInit {
       }
       return v;
     };
+    // ES-260 / ES-435: check EVERY given value first, collect the writes, and only then write them. A request with no
+    // setting at all is refused (it used to answer 200 and change nothing), and one bad value no longer leaves the
+    // values before it half-saved.
+    const ops: Array<[string, string]> = [];
     if (patch.policy !== undefined) {
       if (!['off', 'optional', 'all'].includes(patch.policy)) {
         throw new BadRequestException('Invalid policy');
       }
-      await this.setKey('policy', patch.policy);
+      ops.push(['policy', patch.policy]);
     }
-    if (patch.loginCode !== undefined) await this.setKey('login_code', patch.loginCode ? '1' : '0');
+    if (patch.loginCode !== undefined) ops.push(['login_code', patch.loginCode ? '1' : '0']);
     if (patch.requiredLevelIds !== undefined) {
       const ids = (patch.requiredLevelIds || []).map((n) => clamp(n, 0, 32767, 'Role id'));
-      await this.setKey('required_levels', ids.join(','));
+      ops.push(['required_levels', ids.join(',')]);
     }
-    if (patch.graceDays !== undefined) await this.setKey('grace_days', String(clamp(patch.graceDays, 0, 365, 'Grace period')));
-    if (patch.rememberDays !== undefined) await this.setKey('remember_days', String(clamp(patch.rememberDays, 0, 365, 'Remember-device days')));
-    if (patch.recoveryCount !== undefined) await this.setKey('recovery_count', String(clamp(patch.recoveryCount, 4, 20, 'Recovery codes')));
-    if (patch.maxAttempts !== undefined) await this.setKey('max_attempts', String(clamp(patch.maxAttempts, 3, 20, 'Max failed attempts')));
-    if (patch.lockoutMinutes !== undefined) await this.setKey('lockout_minutes', String(clamp(patch.lockoutMinutes, 1, 1440, 'Lockout minutes')));
-    if (patch.approverCanApproveOwn !== undefined) await this.setKey('approver_self', patch.approverCanApproveOwn ? '1' : '0');
-    if (patch.forgotAuthenticator !== undefined) await this.setKey('forgot_authenticator', patch.forgotAuthenticator ? '1' : '0');
-    if (patch.monthlyCheckDays !== undefined) await this.setKey('monthly_check_days', String(clamp(patch.monthlyCheckDays, 0, 365, 'Monthly check days')));
+    if (patch.graceDays !== undefined) ops.push(['grace_days', String(clamp(patch.graceDays, 0, 365, 'Grace period'))]);
+    if (patch.rememberDays !== undefined) ops.push(['remember_days', String(clamp(patch.rememberDays, 0, 365, 'Remember-device days'))]);
+    if (patch.recoveryCount !== undefined) ops.push(['recovery_count', String(clamp(patch.recoveryCount, 4, 20, 'Recovery codes'))]);
+    if (patch.maxAttempts !== undefined) ops.push(['max_attempts', String(clamp(patch.maxAttempts, 3, 20, 'Max failed attempts'))]);
+    if (patch.lockoutMinutes !== undefined) ops.push(['lockout_minutes', String(clamp(patch.lockoutMinutes, 1, 1440, 'Lockout minutes'))]);
+    if (patch.approverCanApproveOwn !== undefined) ops.push(['approver_self', patch.approverCanApproveOwn ? '1' : '0']);
+    if (patch.forgotAuthenticator !== undefined) ops.push(['forgot_authenticator', patch.forgotAuthenticator ? '1' : '0']);
+    if (patch.monthlyCheckDays !== undefined) ops.push(['monthly_check_days', String(clamp(patch.monthlyCheckDays, 0, 365, 'Monthly check days'))]);
     if (patch.issuer !== undefined) {
       const issuer = String(patch.issuer).trim();
       if (!issuer || issuer.length > 40 || /[:]/.test(issuer)) {
         throw new BadRequestException('Issuer must be 1-40 characters and must not contain ":"');
       }
-      await this.setKey('issuer', issuer);
+      ops.push(['issuer', issuer]);
     }
+    if (ops.length === 0) {
+      throw new BadRequestException('No setting was given. Send at least one of: policy, loginCode, requiredLevelIds, graceDays, rememberDays, recoveryCount, maxAttempts, lockoutMinutes, approverCanApproveOwn, forgotAuthenticator, monthlyCheckDays, issuer.');
+    }
+    for (const [key, value] of ops) await this.setKey(key, value);
     const after = await this.getSettings();
     // The grace period counts from the moment 2FA becomes mandatory for someone.
     const mandatory = (s: TwoFaSettings) => s.policy === 'all' || (s.policy === 'roles' && s.requiredLevelIds.length > 0);
@@ -290,7 +315,7 @@ export class TwoFaService implements OnModuleInit {
   private async row(userId: number) {
     const r = await this.q<any>(
       `SELECT userid, susername, userlevelid, totp_secret_enc, totp_enabled, totp_last_step,
-              totp_enrolled_at, totp_failed_count, totp_locked_until, totp_verified_at, totp_required
+              totp_enrolled_at, totp_failed_count, totp_locked_until, totp_verified_at, totp_required, totp_always_ask
          FROM usermaster WHERE userid = $1`,
       [userId],
     );
@@ -309,7 +334,8 @@ export class TwoFaService implements OnModuleInit {
     if (!s.loginCode) return { mode: 'none', graceDaysLeft: null, required, enrolled, trusted: false };
 
     if (enrolled) {
-      let trusted = !!deviceToken && (await this.isTrusted(userId, deviceToken));
+      // ES-205: a user who chose "Always ask me for the code" is never excused by a remembered computer.
+      let trusted = !u.totp_always_ask && !!deviceToken && (await this.isTrusted(userId, deviceToken));
       // ES-161: a remembered device does not excuse the user from proving they still hold the authenticator.
       if (trusted && s.monthlyCheckDays > 0) {
         const last = u.totp_verified_at || u.totp_enrolled_at;
@@ -344,6 +370,8 @@ export class TwoFaService implements OnModuleInit {
       graceDaysLeft: g.graceDaysLeft,
       recoveryCodesRemaining: remaining,
       rememberDays: s.rememberDays,
+      alwaysAsk: !!u.totp_always_ask,
+      loan: await this.loanStatus(userId),
       policy: s.policy,
     };
   }
@@ -516,11 +544,14 @@ export class TwoFaService implements OnModuleInit {
     if (typeof newPassword !== 'string' || newPassword.length < 8 || newPassword.length > 128 || !/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(newPassword)) {
       throw new BadRequestException('Password must be at least 8 characters with an uppercase letter, a lowercase letter and a number');
     }
+    await this.passwordHistory.assertNotReused(userId, newPassword); // ES-207
     // Raw UPDATE with an explicit bcrypt hash: repository.save() would re-run the entity hooks on legacy passwords.
+    const newHash = await bcrypt.hash(newPassword, 10);
     await this.users.query(
       `UPDATE usermaster SET spassword = $2, totp_failed_count = 0, totp_locked_until = NULL WHERE userid = $1`,
-      [userId, await bcrypt.hash(newPassword, 10)],
+      [userId, newHash],
     );
+    await this.passwordHistory.recordHash(userId, newHash);
     await this.audit(userId, 'anonymous', 'password_reset', 'via authenticator');
   }
 
@@ -548,7 +579,7 @@ export class TwoFaService implements OnModuleInit {
     return { secret, otpauthUrl: url, qrDataUrl: await QRCode.toDataURL(url, { margin: 1, width: 240 }) };
   }
 
-  private async makeRecoveryCodes(userId: number): Promise<string[]> {
+  private async makeRecoveryCodes(userId: number, table: 'user_recovery_codes' | 'loan_recovery_codes' = 'user_recovery_codes'): Promise<string[]> {
     const s = await this.getSettings();
     const codes: string[] = [];
     for (let i = 0; i < s.recoveryCount; i++) {
@@ -556,9 +587,9 @@ export class TwoFaService implements OnModuleInit {
       for (const b of crypto.randomBytes(8)) c += RECOVERY_ALPHABET[b % RECOVERY_ALPHABET.length];
       codes.push(`${c.slice(0, 4)}-${c.slice(4)}`);
     }
-    await this.users.query(`DELETE FROM user_recovery_codes WHERE user_id=$1`, [userId]);
+    await this.users.query(`DELETE FROM ${table} WHERE user_id=$1`, [userId]);
     for (const c of codes) {
-      await this.users.query(`INSERT INTO user_recovery_codes (user_id, code_hash) VALUES ($1,$2)`, [userId, await bcrypt.hash(c.replace('-', ''), 10)]);
+      await this.users.query(`INSERT INTO ${table} (user_id, code_hash) VALUES ($1,$2)`, [userId, await bcrypt.hash(c.replace('-', ''), 10)]);
     }
     return codes;
   }
@@ -643,6 +674,80 @@ export class TwoFaService implements OnModuleInit {
     return rows.map((r) => ({ id: Number(r.id), at: r.at, event: r.event, actor: r.actor, user: r.username, detail: r.detail }));
   }
 
+  // ------------------------------------------------ loan-approval authenticator (ES-179)
+
+  /** An approver is an administrator holding the Approver (OTP) right; only they can set this up. */
+  private async isApproverUser(userId: number): Promise<boolean> {
+    const r = await this.q<any>(
+      `SELECT 1 FROM usermaster u JOIN userlevelmaster l ON l.userlevelid = u.userlevelid
+        WHERE u.userid = $1 AND u.enable_disable = 'E' AND UPPER(l.userlevel) IN ('ADMINISTRATOR', 'SYSTEM')
+          AND (',' || COALESCE(u."permissions", '') || ',') LIKE '%,approve_actions,%'`, [userId]);
+    return r.length > 0;
+  }
+
+  async loanStatus(userId: number) {
+    const r = await this.q<any>(`SELECT loan_totp_enabled FROM usermaster WHERE userid = $1`, [userId]);
+    const enrolled = !!r[0]?.loan_totp_enabled;
+    const remaining = enrolled
+      ? Number((await this.q(`SELECT count(*)::int AS n FROM loan_recovery_codes WHERE user_id=$1 AND used_at IS NULL`, [userId]))[0].n)
+      : 0;
+    return { isApprover: await this.isApproverUser(userId), enrolled, recoveryCodesRemaining: remaining };
+  }
+
+  async beginLoanEnroll(userId: number, password: string) {
+    await this.checkPassword(userId, password);
+    if (!(await this.isApproverUser(userId))) throw new ForbiddenException('Only an administrator with the Approver (OTP) right can set up the loan-approval authenticator');
+    const u = await this.row(userId);
+    if (!u) throw new UnauthorizedException('User not found');
+    const cur = await this.q<any>(`SELECT loan_totp_enabled FROM usermaster WHERE userid = $1`, [userId]);
+    if (cur[0]?.loan_totp_enabled) throw new BadRequestException('The loan-approval authenticator is already set up. Turn it off first to set up a new device.');
+    const s = await this.getSettings();
+    const secret = generateSecret();
+    await this.users.query(`UPDATE usermaster SET loan_totp_secret_enc=$2, loan_totp_enabled=false WHERE userid=$1`, [userId, this.encrypt(secret)]);
+    // different label from the login entry so the two cannot be confused in the phone app
+    const url = otpauthUrl(secret, u.susername + ' (loan approvals)', s.issuer + ' Approvals');
+    return { secret, otpauthUrl: url, qrDataUrl: await QRCode.toDataURL(url, { margin: 1, width: 240 }) };
+  }
+
+  async confirmLoanEnroll(userId: number, code: string): Promise<{ recoveryCodes: string[] }> {
+    const r = await this.q<any>(`SELECT susername, loan_totp_secret_enc, loan_totp_enabled FROM usermaster WHERE userid = $1`, [userId]);
+    if (!r[0]?.loan_totp_secret_enc || r[0].loan_totp_enabled) throw new BadRequestException('Start set-up first');
+    const step = verifyTotp(this.decrypt(r[0].loan_totp_secret_enc), code);
+    if (step === null) {
+      await this.audit(userId, 'system', 'loan_enrol_bad_code');
+      throw new UnauthorizedException('That code is not right. Check the time on your phone and try again.');
+    }
+    await this.users.query(`UPDATE usermaster SET loan_totp_enabled=true, loan_totp_enrolled_at=now(), loan_totp_last_step=$2 WHERE userid=$1`, [userId, step]);
+    const recoveryCodes = await this.makeRecoveryCodes(userId, 'loan_recovery_codes');
+    await this.audit(userId, r[0].susername, 'loan_enrolled');
+    return { recoveryCodes };
+  }
+
+  /** The approver turns their own loan authenticator off: password + a current loan code. */
+  async disableLoan(userId: number, password: string, code: string): Promise<void> {
+    await this.checkPassword(userId, password);
+    const r = await this.q<any>(`SELECT loan_totp_secret_enc, loan_totp_enabled FROM usermaster WHERE userid = $1`, [userId]);
+    if (!r[0]?.loan_totp_enabled) throw new BadRequestException('The loan-approval authenticator is not set up');
+    if (verifyTotp(this.decrypt(r[0].loan_totp_secret_enc), String(code || '')) === null) {
+      throw new UnauthorizedException('That code is not right');
+    }
+    await this.wipeLoan(userId);
+    await this.audit(userId, 'self', 'loan_disabled');
+  }
+
+  private async wipeLoan(userId: number): Promise<void> {
+    await this.users.query(`UPDATE usermaster SET loan_totp_secret_enc=NULL, loan_totp_enabled=false, loan_totp_last_step=NULL, loan_totp_enrolled_at=NULL WHERE userid=$1`, [userId]);
+    await this.users.query(`DELETE FROM loan_recovery_codes WHERE user_id=$1`, [userId]);
+  }
+
+  /** Administrator resets someone's loan authenticator: their code stops working at once. */
+  async adminResetLoan(targetUserId: number, actor: string): Promise<void> {
+    const u = await this.row(targetUserId);
+    if (!u) throw new BadRequestException('User not found');
+    await this.wipeLoan(targetUserId);
+    await this.audit(targetUserId, actor, 'loan_admin_reset', `by ${actor}`);
+  }
+
   async adminReset(targetUserId: number, actor: string): Promise<void> {
     const u = await this.row(targetUserId);
     if (!u) throw new BadRequestException('User not found');
@@ -692,9 +797,9 @@ export class TwoFaService implements OnModuleInit {
   /** Users who currently count as approvers: enabled, hold the right, and have an authenticator. */
   private async activeApprovers(): Promise<Array<{ id: number; username: string; secretEnc: string }>> {
     const rows = await this.q<any>(
-      `SELECT u.userid, u.susername, u.totp_secret_enc FROM usermaster u
+      `SELECT u.userid, u.susername, u.loan_totp_secret_enc AS totp_secret_enc FROM usermaster u
          JOIN userlevelmaster l ON l.userlevelid = u.userlevelid
-        WHERE u.enable_disable = 'E' AND u.totp_enabled = true AND u.totp_secret_enc IS NOT NULL
+        WHERE u.enable_disable = 'E' AND u.loan_totp_enabled = true AND u.loan_totp_secret_enc IS NOT NULL
           AND UPPER(l.userlevel) IN ('ADMINISTRATOR', 'SYSTEM')
           AND (',' || COALESCE(u."permissions", '') || ',') LIKE '%,approve_actions,%'`,
     );
@@ -720,7 +825,7 @@ export class TwoFaService implements OnModuleInit {
   /** Every user with whether they are an approver and whether their authenticator is set up. */
   async listApprovers() {
     const rows = await this.q<any>(
-      `SELECT u.userid, u.susername, u.enable_disable, u.totp_enabled, l.userlevel AS level,
+      `SELECT u.userid, u.susername, u.enable_disable, u.loan_totp_enabled AS totp_enabled, l.userlevel AS level,
               ((',' || COALESCE(u."permissions", '') || ',') LIKE '%,approve_actions,%') AS approver
          FROM usermaster u LEFT JOIN userlevelmaster l ON l.userlevelid = u.userlevelid
         ORDER BY u.susername`,
@@ -792,8 +897,8 @@ export class TwoFaService implements OnModuleInit {
       const m = eligible[0];
       // Conditional update = atomic one-use guard across concurrent requests.
       const claimed = await this.q(
-        `UPDATE usermaster SET totp_last_step = $2, totp_failed_count = 0
-          WHERE userid = $1 AND (totp_last_step IS NULL OR totp_last_step < $2) RETURNING userid`,
+        `UPDATE usermaster SET loan_totp_last_step = $2, totp_failed_count = 0
+          WHERE userid = $1 AND (loan_totp_last_step IS NULL OR loan_totp_last_step < $2) RETURNING userid`,
         [m.a.id, m.step],
       );
       return claimed.length ? { result: 'ok', approver: { id: m.a.id, username: m.a.username } } : { result: 'replay' };
@@ -804,10 +909,10 @@ export class TwoFaService implements OnModuleInit {
       if (norm.length >= 8) {
         for (const a of approvers) {
           if (!s.approverCanApproveOwn && a.id === performerId) continue;
-          const rows = await this.q<any>(`SELECT id, code_hash FROM user_recovery_codes WHERE user_id = $1 AND used_at IS NULL`, [a.id]);
+          const rows = await this.q<any>(`SELECT id, code_hash FROM loan_recovery_codes WHERE user_id = $1 AND used_at IS NULL`, [a.id]);
           for (const r of rows) {
             if (await bcrypt.compare(norm, r.code_hash)) {
-              const used = await this.q(`UPDATE user_recovery_codes SET used_at = now() WHERE id = $1 AND used_at IS NULL RETURNING id`, [r.id]);
+              const used = await this.q(`UPDATE loan_recovery_codes SET used_at = now() WHERE id = $1 AND used_at IS NULL RETURNING id`, [r.id]);
               if (used.length) return { result: 'ok', approver: { id: a.id, username: a.username } };
             }
           }
@@ -949,9 +1054,25 @@ export class TwoFaService implements OnModuleInit {
     return r.length > 0;
   }
 
+  /** ES-205: "Forget my remembered computers" - the next sign-in on every computer asks for the code again. */
+  async forgetDevices(userId: number): Promise<number> {
+    const r = await this.q<any>(`DELETE FROM trusted_devices WHERE user_id=$1 RETURNING id`, [userId]);
+    await this.audit(userId, 'self', 'devices_forgotten', `${r.length} computer(s)`);
+    return r.length;
+  }
+
+  /** ES-205: per-user switch "Always ask me for the code"; turning it on also forgets remembered computers. */
+  async setAlwaysAsk(userId: number, alwaysAsk: boolean): Promise<void> {
+    await this.users.query(`UPDATE usermaster SET totp_always_ask = $2 WHERE userid = $1`, [userId, !!alwaysAsk]);
+    if (alwaysAsk) await this.users.query(`DELETE FROM trusted_devices WHERE user_id=$1`, [userId]);
+    await this.audit(userId, 'self', alwaysAsk ? 'always_ask_on' : 'always_ask_off');
+  }
+
   async trustDevice(userId: number): Promise<string | null> {
     const s = await this.getSettings();
     if (s.rememberDays <= 0) return null;
+    const me = await this.row(userId);
+    if (me?.totp_always_ask) return null;
     const token = crypto.randomBytes(32).toString('hex');
     await this.users.query(`DELETE FROM trusted_devices WHERE expires_at < now()`);
     await this.users.query(

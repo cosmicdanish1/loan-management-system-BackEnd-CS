@@ -1,3 +1,4 @@
+import { RequireMenuAction } from '../auth/guards/menu-right.guard';
 import { Body, Controller, Get, Param, ParseIntPipe, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -43,6 +44,7 @@ export class GroupInsuranceController {
     };
   }
 
+  @RequireMenuAction('GROUP_INSURANCE') // ES-464
   @Post('post')
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Post the yearly group insurance: one Journal voucher, RD debited for every charged member' })

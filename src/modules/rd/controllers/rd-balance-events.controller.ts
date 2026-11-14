@@ -1,3 +1,4 @@
+import { RequireMenuAction } from '../../auth/guards/menu-right.guard';
 import { Controller, Get, Post, Body, Param, UseGuards, ParseIntPipe } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
@@ -32,6 +33,7 @@ export class RdBalanceEventsController {
         return this.service.getTimeline(mbno, yearcode);
     }
 
+    @RequireMenuAction('RD_AC_OPENING', 'PASS_RD_AC') // ES-464
     @Post(':mbno/:yearcode/withdraw')
     @ApiOperation({ summary: "Withdraw from a member's RD balance, enforcing the configured minimum" })
     async withdraw(

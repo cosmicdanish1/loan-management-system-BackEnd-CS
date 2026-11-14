@@ -1,9 +1,9 @@
 {
  "suite": "25-roles",
- "ranAt": "2026-11-03T09:51:35.876Z",
- "seconds": 6.776,
+ "ranAt": "2026-11-13T18:06:36.067Z",
+ "seconds": 7.151,
  "total": 7,
- "failed": 1,
+ "failed": 0,
  "results": [
   {
    "id": "RL-00",
@@ -14,8 +14,8 @@
   {
    "id": "RL-01",
    "title": "Administrator-only routes answer 403 for every non-administrator role",
-   "ok": false,
-   "detail": "22 open: manager:license-list=200 manager:backup-list=200 branch_manager:license-list=200 branch_manager:backup-list=200 officer:license-list=200 officer:backup-list=200 passing_officer:license-list=200 passing_officer:backup-list=200 clerk:license-list=200 clerk:backup-list=200 auditor:license-list=200 auditor:backup-list=200 cashier:license-list=200 cashier:backup-list=200 accountant:license-lis"
+   "ok": true,
+   "detail": "0 open: "
   },
   {
    "id": "RL-02",

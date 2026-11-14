@@ -1,3 +1,4 @@
+import { RequireMenuAction } from '../auth/guards/menu-right.guard';
 import { Controller, Get, Post, Body, Param, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { DividendPaymentService } from './services-v2/dividend-payment.service';
@@ -13,6 +14,7 @@ export class DividendPaymentController {
         return this.dividendPaymentService.getPendingDividends(memberNo);
     }
 
+    @RequireMenuAction('RECEIPT_DIVIDEND_PAYMENT') // ES-464
     @Post('pay')
     @ApiOperation({ summary: 'Process dividend payment' })
     async processDividendPayment(@Body() dto: any) {

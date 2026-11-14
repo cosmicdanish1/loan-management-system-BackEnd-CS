@@ -1,3 +1,4 @@
+import { RequireMenuAction } from '../../auth/guards/menu-right.guard';
 import { Body, Controller, Get, Param, Post, UseGuards, ParseIntPipe } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
@@ -25,6 +26,7 @@ export class RdRepaymentController {
         return this.service.getPendingInstallments(mbno, yearcode);
     }
 
+    @RequireMenuAction('RD_AC_OPENING', 'PASS_RD_AC') // ES-464
     @Post(':mbno/:yearcode')
     @ApiOperation({ summary: "Record a member's RD payment for one specific month at the counter — amount used exactly as entered" })
     async recordPayment(

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
@@ -228,11 +228,57 @@ export class NotificationService {
 
     // ── Manual queue ─────────────────────────────────────────
 
+    /** ES-360: the member must exist; used by every manual / alert queue call. */
+    private async memberContact(memberNo: string): Promise<{ name: string; phone: string; email: string }> {
+        const rows = await this.dataSource.query(
+            `SELECT TRIM(COALESCE(f_name,'') || ' ' || COALESCE(l_name,'')) AS name, phoneno AS phone, email
+               FROM member_master WHERE CAST(mbno AS text) = $1 LIMIT 1`,
+            [String(memberNo)],
+        );
+        if (!rows.length) throw new NotFoundException(`Member ${memberNo} not found.`);
+        return { name: rows[0].name || '', phone: String(rows[0].phone ?? '').trim(), email: String(rows[0].email ?? '').trim() };
+    }
+
+    /**
+     * ES-360: a recipient has to be something the channel can deliver to: a phone number (10-15 digits, optional +,
+     * spaces, dashes) for SMS / WhatsApp, an e-mail address for e-mail. Returns the cleaned value.
+     */
+    private cleanRecipient(channel: NotificationChannel, raw: string): string {
+        const value = String(raw ?? '').trim();
+        if (channel === NotificationChannel.EMAIL) {
+            if (value.length > 100 || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value)) {
+                throw new BadRequestException('Recipient must be a valid e-mail address (for example name@example.com).');
+            }
+            return value;
+        }
+        const digits = value.replace(/\D/g, '');
+        if (!/^\+?[0-9\s\-()]+$/.test(value) || digits.length < 10 || digits.length > 15) {
+            throw new BadRequestException('Recipient must be a valid phone number with 10 to 15 digits.');
+        }
+        return value.replace(/[\s\-()]/g, '');
+    }
+
     async sendManualNotification(data: {
         memberNo: string; channel: NotificationChannel;
-        message: string; recipient: string;
+        message: string; recipient?: string;
     }) {
-        return this.queueNotification({ ...data, type: NotificationType.MANUAL });
+        const message = String(data.message ?? '').trim();
+        const limit = data.channel === NotificationChannel.EMAIL ? 5000 : data.channel === NotificationChannel.WHATSAPP ? 4096 : 1000;
+        if (!message) throw new BadRequestException('Message cannot be empty.');
+        if (message.length > limit) throw new BadRequestException(`A ${data.channel} message can have at most ${limit} characters (this one has ${message.length}).`);
+        const contact = await this.memberContact(data.memberNo);
+        // recipient left out: use the member's own number / e-mail on file; none on file: refuse with a clear message
+        let recipient = String(data.recipient ?? '').trim();
+        if (!recipient) {
+            recipient = data.channel === NotificationChannel.EMAIL ? contact.email : contact.phone;
+            if (!recipient) {
+                throw new BadRequestException(`Member ${data.memberNo} has no ${data.channel === NotificationChannel.EMAIL ? 'e-mail address' : 'phone number'} on file. Enter a recipient.`);
+            }
+        }
+        return this.queueNotification({
+            memberNo: data.memberNo, channel: data.channel, message,
+            recipient: this.cleanRecipient(data.channel, recipient), type: NotificationType.MANUAL,
+        });
     }
 
     // ── Transaction alert queue ──────────────────────────────
@@ -243,18 +289,23 @@ export class NotificationService {
         /** Voucher / transaction number: the same event sent twice is then sent once. Without it every call is a new alert. */
         reference?: string;
     }) {
-        const memberInfo = await this.dataSource.query(`
-            SELECT TRIM(COALESCE(f_name,'') || ' ' || COALESCE(l_name,'')) as name, phoneno as phone
-            FROM member_master WHERE CAST(mbno AS text) = $1 LIMIT 1
-        `, [data.memberNo]);
-        const name = memberInfo[0]?.name || 'Member';
-        const phone = data.recipient || memberInfo[0]?.phone || '';
+        // ES-360: a real amount above 0, a known member, and a recipient the channel can deliver to
+        const amount = Number(data.amount);
+        if (!Number.isFinite(amount) || amount <= 0 || amount > 99999999.99) {
+            throw new BadRequestException('Amount must be a number above 0 and at most 9,99,99,999.99.');
+        }
+        const contact = await this.memberContact(data.memberNo);
+        const name = contact.name || 'Member';
+        const channelForAlert = data.channel || NotificationChannel.SMS;
+        let phone = String(data.recipient ?? '').trim() || (channelForAlert === NotificationChannel.EMAIL ? contact.email : contact.phone);
+        if (phone) phone = this.cleanRecipient(channelForAlert, phone);
         // No number, nothing to send an SMS to: do not queue a message that can only fail later (ES-430)
         if (!String(phone).trim()) {
             this.logger.warn(`No phone number for member ${data.memberNo}: transaction alert not queued`);
             return null;
         }
         const message = `Dear ${name}, your ${data.transactionType} of Rs.${data.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })} has been processed. — FIBE Credit Society`;
+        // (amount above was checked, so it is a plain number here)
         const today = new Date().toISOString().slice(0, 10);
 
         return this.queueNotification({
@@ -293,7 +344,10 @@ export class NotificationService {
                     type: NotificationType.EMI_ALERT,
                     message: `Dear ${m.name}, your EMI has a deficit of Rs.${parseFloat(m.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}. Please clear it. — FIBE`,
                     recipient: m.phone,
-                    dedupeKey: this.generateDedupeKey(m.mbno, 'SMS', 'EMI_ALERT', today),
+                    // ES-360: one reminder per member, per month and per deficit amount. The key used the DATE, so the
+                    // same deficit was queued again every day (members would get 3 identical SMS in 3 days). A changed
+                    // deficit amount is a new message.
+                    dedupeKey: this.generateDedupeKey(m.mbno, 'SMS', `EMI_ALERT-${parseFloat(m.amount).toFixed(2)}`, today.slice(0, 7)),
                 });
                 if (result.created) queued++;
             }

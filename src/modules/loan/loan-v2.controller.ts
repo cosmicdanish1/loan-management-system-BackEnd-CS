@@ -85,6 +85,7 @@ export class LoanV2Controller {
         return this.loanApplicationService.getMemberPendingLoans(memberNo);
     }
 
+    @RequireMenuAction('LOAN_APP') // ES-464
     @Post('loan-application')
     @ApiOperation({ summary: 'Save a new loan application' })
     async saveLoanApplication(@Body() loanData: any) {
@@ -125,6 +126,7 @@ export class LoanV2Controller {
         return this.loanSanctionService.getLoanDetailsByCaseNo(caseNo);
     }
 
+    @RequireMenuAction('LOAN_APP', 'LOAN_ENTRY') // ES-464
     @Patch('sanction/:caseNo')
     @ApiOperation({ summary: 'Update loan with sanction details' })
     async updateLoanSanction(
@@ -133,11 +135,12 @@ export class LoanV2Controller {
         @Req() req: any,
     ) {
         // ES-506: the acting user for the audit of a rate exception comes from the login token, not the body
-        return this.loanSanctionService.updateLoanSanction(caseNo, sanctionData, req?.user?.username || sanctionData?.sanctionedBy || 'system');
+        return this.loanSanctionService.updateLoanSanction(caseNo, sanctionData, req?.user?.username || 'system');
     }
 
     // ==================== Surety Operations ⭐ ====================
 
+    @RequireMenuAction('CHANGE_LOAN_SURETY', 'LOAN_APP') // ES-464
     @Patch('surety/:caseNo')
     @ApiOperation({ summary: 'Change loan sureties (guarantors)' })
     @ApiResponse({ status: 200, description: 'Sureties updated successfully' })
@@ -257,10 +260,12 @@ export class LoanV2Controller {
     // no route reaching it at all -- these expose it through the real API surface,
     // matching this controller's existing style.
 
+    @RequireMenuAction('LOAN_REPAYMENT', 'LOAN_PAYMENT') // ES-464
     @Post('repayment')
     @ApiOperation({ summary: 'Record a repayment against a loan, oldest-unpaid installment first' })
     async recordLoanRepayment(
-        @Body() body: { mbno: string; loancaseno: string; paymentAmount: number; receiptNo?: string; narration?: string; username?: string; asOfDate?: string }
+        @Body() body: { mbno: string; loancaseno: string; paymentAmount: number; receiptNo?: string; narration?: string; username?: string; asOfDate?: string },
+        @Req() req: any,
     ) {
         // asOfDate lets non-production testing simulate a future payment date
         // for penal/tier verification. Refused in production so a real client
@@ -270,6 +275,7 @@ export class LoanV2Controller {
         }
         return this.loanRepaymentService.recordLoanRepayment({
             ...body,
+            username: req?.user?.username || 'system', // ES-464: the signed-in user, not a name from the body
             asOfDate: process.env.NODE_ENV === 'production' ? undefined : parseSafeDate(body.asOfDate),
             // ES-451: a receipt number that is already on this loan is a repeat (double click / retry), not a new payment
             rejectDuplicateReceipt: true,
@@ -294,11 +300,12 @@ export class LoanV2Controller {
     @ApiOperation({ summary: 'Save a "checked" confirmation for a Loan Position notice' })
     async acknowledgePositionNotice(
         @Body() body: { mbno: string; loancaseno: string; loantype?: string; code: string; date: string; amount: number; message?: string; username?: string; note?: string },
+        @Req() req: any,
     ) {
         if (!body?.mbno || !body?.loancaseno || !body?.code || !body?.date || !Number.isFinite(Number(body.amount))) {
             throw new BadRequestException('mbno, loancaseno, code, date and amount are required');
         }
-        return this.loanPositionService.acknowledge({ ...body, amount: Number(body.amount) });
+        return this.loanPositionService.acknowledge({ ...body, username: req?.user?.username || 'system', amount: Number(body.amount) }); // ES-464
     }
 
     @Get('due-status/:caseNo')
@@ -378,7 +385,7 @@ export class LoanV2Controller {
             parseSafeDate(body?.closureDate),
             body?.adjustment ?? 0,
             // who actually closed the loan = the signed-in user (the body value is client-supplied)
-            req?.user?.username || body?.postedBy || 'system',
+            req?.user?.username || 'system',
             body?.receiptNo,
             body?.applyRdShare ?? true,
             body?.mbno,

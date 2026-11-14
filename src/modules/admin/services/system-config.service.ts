@@ -244,8 +244,22 @@ export class SystemConfigService {
     }
   }
 
+  /** ES-305: cross-field checks the DTO decorators cannot express (min above max, end date before start date). */
+  private assertRanges(d: { minAmount?: number; maxAmount?: number; minTenure?: number; maxTenure?: number; effectiveFrom?: any; effectiveTo?: any }): void {
+    if (d.minAmount != null && d.maxAmount != null && Number(d.minAmount) > Number(d.maxAmount)) {
+      throw new BadRequestException('Minimum amount cannot be greater than maximum amount');
+    }
+    if (d.minTenure != null && d.maxTenure != null && Number(d.minTenure) > Number(d.maxTenure)) {
+      throw new BadRequestException('Minimum tenure cannot be greater than maximum tenure');
+    }
+    if (d.effectiveFrom && d.effectiveTo && new Date(d.effectiveTo) < new Date(d.effectiveFrom)) {
+      throw new BadRequestException('Effective-to date cannot be before the effective-from date');
+    }
+  }
+
   // Interest Rate Methods
   async createInterestRate(createDto: CreateInterestRateDto): Promise<InterestRateResponseDto> {
+    this.assertRanges(createDto);
     const interestRate = this.interestRateRepository.create({
       ...createDto,
       effectiveFrom: new Date(createDto.effectiveFrom),
@@ -307,6 +321,7 @@ export class SystemConfigService {
       updateData.effectiveTo = new Date(updateDto.effectiveTo);
     }
 
+    this.assertRanges({ ...rate, ...updateData });
     Object.assign(rate, updateData);
     return this.interestRateRepository.save(rate);
   }
@@ -414,6 +429,7 @@ export class SystemConfigService {
   }
 
   async createDepositSlab(createDto: CreateDepositSlabDto): Promise<DepositSlabResponseDto> {
+    this.assertRanges(createDto);
     const depositSlab = this.depositSlabRepository.create({
       ...createDto,
       effectiveFrom: new Date(createDto.effectiveFrom),
@@ -475,6 +491,7 @@ export class SystemConfigService {
       updateData.effectiveTo = new Date(updateDto.effectiveTo);
     }
 
+    this.assertRanges({ ...slab, ...updateData });
     Object.assign(slab, updateData);
     return this.depositSlabRepository.save(slab);
   }

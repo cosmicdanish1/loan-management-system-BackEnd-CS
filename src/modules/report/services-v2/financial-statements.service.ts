@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { Gate, singleFlight } from '../../../common/concurrency/single-flight';
 import { HEAD_BALANCES_SELECT, HEAD_BALANCES_SELECT_AS_ON } from '../../utilities/head-balances.sql';
 
 @Injectable()
@@ -220,17 +221,28 @@ export class FinancialStatementsService {
     /**
      * Get Balance Sheet data
      */
+    // ES-267: the balance sheet scans the whole ledger (about 1.4 s alone). Ten people opening it together took 10 s each
+    // and 30 together used up the database connection pool, so unrelated screens failed too. Now (1) callers asking for
+    // the same sheet at the same moment share ONE query (nothing is kept afterwards, so the data is never stale),
+    // (2) at most 3 different sheets are computed at once, the rest queue, and (3) the ledger is read once per sheet
+    // instead of twice.
+    private static readonly balanceSheetGate = new Gate(3);
+
     async getBalanceSheet(asOnDate?: string, includeZeroClosing = true, includeZeroTransaction = true) {
         // ES-332: a date that is given but is not a real YYYY-MM-DD date was silently ignored (the sheet came back for
         // "today" with a 200). It is now refused.
         const given = asOnDate !== undefined && asOnDate !== null && String(asOnDate).trim() !== '';
         const hasDate = given && /^\d{4}-\d{2}-\d{2}$/.test(String(asOnDate)) && !Number.isNaN(Date.parse(String(asOnDate)));
         if (given && !hasDate) throw new BadRequestException('asOnDate must be a valid date in YYYY-MM-DD format.');
+        const key = `balance-sheet|${hasDate ? asOnDate : 'today'}|${includeZeroClosing}|${includeZeroTransaction}`;
+        return singleFlight(key, () => FinancialStatementsService.balanceSheetGate.run(
+            () => this.computeBalanceSheet(hasDate ? String(asOnDate) : undefined, includeZeroClosing, includeZeroTransaction),
+        ), 1500);
+    }
+
+    private async computeBalanceSheet(asOnDate: string | undefined, includeZeroClosing: boolean, includeZeroTransaction: boolean) {
+        const hasDate = asOnDate !== undefined;
         const base = hasDate ? HEAD_BALANCES_SELECT_AS_ON(1) : HEAD_BALANCES_SELECT;
-        const filters: string[] = [];
-        // "Suppress A/c with Zero Closing Balance" / "Zero Transaction A/c" (no debit and no credit)
-        if (!includeZeroClosing) filters.push('ABS(closingbalance) > 0.004');
-        if (!includeZeroTransaction) filters.push('(debit <> 0 OR credit <> 0)');
         const query = `
             SELECT
                 head_code,
@@ -241,22 +253,27 @@ export class FinancialStatementsService {
                 closingbalance,
                 maincd
             FROM (${base}) live
-            ${filters.length ? 'WHERE ' + filters.join(' AND ') : ''}
             ORDER BY maincd, head_code
         `;
 
-        const result = await this.dataSource.query(query, hasDate ? [asOnDate] : []);
+        const allRows = await this.dataSource.query(query, hasDate ? [asOnDate] : []);
 
         // ES-332: income (I) and expense (E) heads are not listed on a balance sheet, but their net result must be:
         // assets = liabilities + (income - expense) until the year-end transfer moves it to the reserve. Without it the
-        // two sides can never agree. It is summed over ALL heads (not the zero-suppressed list above), so the display
+        // two sides can never agree. It is summed over ALL heads (not the zero-suppressed list below), so the display
         // filters cannot change the result.
-        const netRows = await this.dataSource.query(
-            `SELECT COALESCE(SUM(CASE WHEN maincd = 3 THEN closingbalance WHEN maincd = 4 THEN -closingbalance ELSE 0 END), 0) AS net_result
-               FROM (${base}) live`,
-            hasDate ? [asOnDate] : [],
-        );
-        const netResult = Math.round((parseFloat(netRows?.[0]?.net_result) || 0) * 100) / 100;
+        const netRaw = allRows.reduce((sum: number, r: any) => {
+            const closing = parseFloat(r.closingbalance) || 0;
+            return sum + (r.maincd === 3 ? closing : r.maincd === 4 ? -closing : 0);
+        }, 0);
+        const netResult = Math.round(netRaw * 100) / 100;
+
+        // "Suppress A/c with Zero Closing Balance" / "Zero Transaction A/c" (no debit and no credit)
+        const result = allRows.filter((r: any) => {
+            if (!includeZeroClosing && !(Math.abs(parseFloat(r.closingbalance) || 0) > 0.004)) return false;
+            if (!includeZeroTransaction && !((parseFloat(r.debit) || 0) !== 0 || (parseFloat(r.credit) || 0) !== 0)) return false;
+            return true;
+        });
 
         // Group by main categories
         const liabilities = result.filter((item: any) => item.maincd === 1);

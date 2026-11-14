@@ -13,12 +13,15 @@ export class LocalStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(username: string, password: string): Promise<User> {
+    // ES-296: the password check happens here (before AuthService.login), so the lockout must too
+    this.authService.assertNotLocked(username);
     const user = await this.authService.validateUser(username, password);
-    
+
     if (!user) {
+      this.authService.noteLoginFailure(username);
       throw new UnauthorizedException('Invalid credentials');
     }
-    
+
     return user;
   }
 }

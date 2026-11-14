@@ -16,6 +16,10 @@ import {
   ApiQuery 
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RoleGuard } from '../auth/guards/role.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { UserRole } from '../auth/entities/user.entity';
+import { BadRequestException, Logger, Req } from '@nestjs/common';
 import { UtilityService } from './utility.service';
 import { SearchService } from './services/search.service';
 import { BalanceService } from './services/balance.service';
@@ -51,6 +55,16 @@ import {
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class UtilityController {
+  private readonly dcLogger = new Logger('DataCorrection');
+
+  /** ES-301: bulk data changes need an administrator, ?confirm=true and a written ?reason=; every run is logged. */
+  private confirmDataCorrection(op: string, confirm: string | undefined, reason: string | undefined, req: any): void {
+    if (String(confirm).toLowerCase() !== 'true' || !reason || reason.trim().length < 5) {
+      throw new BadRequestException(`data-correction/${op} changes data in bulk. Review GET /utilities/data-consistency/check first, then repeat the call with ?confirm=true&reason=<why, at least 5 characters>.`);
+    }
+    this.dcLogger.warn(`data-correction/${op} run by ${req?.user?.username || 'unknown'} - reason: ${reason.trim()}`);
+  }
+
   constructor(
     private readonly utilityService: UtilityService,
     private readonly searchService: SearchService,
@@ -176,31 +190,43 @@ export class UtilityController {
   }
 
   // Data Correction Endpoints
+  @UseGuards(RoleGuard)
+  @Roles(UserRole.ADMIN)
   @Post('data-correction/auto-fix')
   @ApiOperation({ summary: 'Auto-fix consistency issues' })
   @ApiResponse({ status: 200, description: 'Auto-fix completed successfully', type: BulkCorrectionResultDto })
-  async autoFixConsistencyIssues(): Promise<BulkCorrectionResultDto> {
+  async autoFixConsistencyIssues(@Query('confirm') confirm?: string, @Query('reason') reason?: string, @Req() req?: any): Promise<BulkCorrectionResultDto> {
+    this.confirmDataCorrection('auto-fix', confirm, reason, req);
     return this.dataCorrectionService.autoFixConsistencyIssues();
   }
 
+  @UseGuards(RoleGuard)
+  @Roles(UserRole.ADMIN)
   @Post('data-correction/orphaned-records')
   @ApiOperation({ summary: 'Fix orphaned records' })
   @ApiResponse({ status: 200, description: 'Orphaned records fixed successfully', type: CorrectionResultDto })
-  async fixOrphanedRecords(@Body() fixes: OrphanedRecordFixDto[]): Promise<CorrectionResultDto> {
+  async fixOrphanedRecords(@Body() fixes: OrphanedRecordFixDto[], @Query('confirm') confirm?: string, @Query('reason') reason?: string, @Req() req?: any): Promise<CorrectionResultDto> {
+    this.confirmDataCorrection('orphaned-records', confirm, reason, req);
     return this.dataCorrectionService.fixOrphanedRecords(fixes);
   }
 
+  @UseGuards(RoleGuard)
+  @Roles(UserRole.ADMIN)
   @Post('data-correction/balance-discrepancies')
   @ApiOperation({ summary: 'Correct balance discrepancies' })
   @ApiResponse({ status: 200, description: 'Balance discrepancies corrected successfully', type: CorrectionResultDto })
-  async correctBalanceDiscrepancies(@Body() corrections: BalanceCorrectionRequestDto[]): Promise<CorrectionResultDto> {
+  async correctBalanceDiscrepancies(@Body() corrections: BalanceCorrectionRequestDto[], @Query('confirm') confirm?: string, @Query('reason') reason?: string, @Req() req?: any): Promise<CorrectionResultDto> {
+    this.confirmDataCorrection('balance-discrepancies', confirm, reason, req);
     return this.dataCorrectionService.correctBalanceDiscrepancies(corrections);
   }
 
+  @UseGuards(RoleGuard)
+  @Roles(UserRole.ADMIN)
   @Post('data-correction/remove-duplicates')
   @ApiOperation({ summary: 'Remove duplicate records' })
   @ApiResponse({ status: 200, description: 'Duplicate records removed successfully', type: CorrectionResultDto })
-  async removeDuplicateRecords(@Body() removeDto: RemoveDuplicatesDto): Promise<CorrectionResultDto> {
+  async removeDuplicateRecords(@Body() removeDto: RemoveDuplicatesDto, @Query('confirm') confirm?: string, @Query('reason') reason?: string, @Req() req?: any): Promise<CorrectionResultDto> {
+    this.confirmDataCorrection('remove-duplicates', confirm, reason, req);
     return this.dataCorrectionService.removeDuplicateRecords(
       removeDto.recordType,
       removeDto.keepStrategy,
@@ -208,17 +234,23 @@ export class UtilityController {
     );
   }
 
+  @UseGuards(RoleGuard)
+  @Roles(UserRole.ADMIN)
   @Post('data-correction/fix-integrity')
   @ApiOperation({ summary: 'Fix data integrity issues' })
   @ApiResponse({ status: 200, description: 'Data integrity issues fixed successfully', type: CorrectionResultDto })
-  async fixDataIntegrityIssues(): Promise<CorrectionResultDto> {
+  async fixDataIntegrityIssues(@Query('confirm') confirm?: string, @Query('reason') reason?: string, @Req() req?: any): Promise<CorrectionResultDto> {
+    this.confirmDataCorrection('fix-integrity', confirm, reason, req);
     return this.dataCorrectionService.fixDataIntegrityIssues();
   }
 
+  @UseGuards(RoleGuard)
+  @Roles(UserRole.ADMIN)
   @Post('data-correction/recalculate-balances')
   @ApiOperation({ summary: 'Recalculate all balances' })
   @ApiResponse({ status: 200, description: 'All balances recalculated successfully', type: CorrectionResultDto })
-  async recalculateAllBalances(): Promise<CorrectionResultDto> {
+  async recalculateAllBalances(@Query('confirm') confirm?: string, @Query('reason') reason?: string, @Req() req?: any): Promise<CorrectionResultDto> {
+    this.confirmDataCorrection('recalculate-balances', confirm, reason, req);
     return this.dataCorrectionService.recalculateAllBalances();
   }
 

@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
+import { AppThrottlerGuard } from './common/guards/app-throttler.guard';
 import { WinstonModule } from 'nest-winston';
 import { createWinstonConfig } from './common/logging/logging.config';
 import * as Joi from 'joi';
@@ -20,6 +22,7 @@ import { DividendModule } from './modules/dividend/dividend.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { UtilityModule } from './modules/utility/utility.module';
 import { UtilitiesModule } from './modules/utilities/utilities.module';
+import { SocietyCalculatorModule } from './modules/society-calculator/society-calculator.module';
 import { SearchModule } from './modules/search/search.module';
 import { BackupModule } from './modules/backup/backup.module';
 import { InterestModule } from './modules/interest/interest.module';
@@ -132,7 +135,7 @@ import { LoggingModule } from './common/logging/logging.module';
       useFactory: (configService: ConfigService) => [
         {
           ttl: configService.get('THROTTLE_TTL', 60) * 1000,
-          limit: configService.get('THROTTLE_LIMIT', 100),
+          limit: configService.get('THROTTLE_LIMIT', 600),
         },
       ],
     }),
@@ -161,6 +164,7 @@ import { LoggingModule } from './common/logging/logging.module';
     AdminModule,
     UtilityModule,
     UtilitiesModule,
+    SocietyCalculatorModule,
     SearchModule,
     BackupModule,
     InterestModule,
@@ -187,6 +191,6 @@ import { LoggingModule } from './common/logging/logging.module';
     NotificationCentreModule, // ES-101: all system notifications in one place
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, { provide: APP_GUARD, useClass: AppThrottlerGuard }], // ES-268: global rate limit
 })
 export class AppModule { }

@@ -126,7 +126,8 @@ describe('mobile MemberAuthService.login', () => {
     const ds: any = { query: jest.fn(async (sql: string, p: any[] = []) => { if (/^SELECT a\.mbno/.test(sql.trim())) return row ? [row] : []; updates.push([sql.replace(/\s+/g, ' ').trim(), p]); return []; }) };
     const sessions: any = { start: jest.fn().mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresIn: 900 }) };
     const audit: any = { log: jest.fn() };
-    return { svc: new MemberAuthService(ds, sessions, audit), ds, updates, sessions, audit };
+    const directory: any = { findMbnoByPhone: jest.fn(async (p: string) => (p === '9876543210' ? '5' : null)) };
+    return { svc: new MemberAuthService(ds, sessions, audit, directory), ds, updates, sessions, audit, directory };
   };
   const status = async (p: Promise<any>) => (await p.catch((e: any) => e)).getStatus?.() ?? (await Promise.resolve(0));
   const resp = async (p: Promise<any>) => (await p.catch((e: any) => e)).getResponse?.();
@@ -139,6 +140,17 @@ describe('mobile MemberAuthService.login', () => {
     for (const row of [null, acct({ device_id: null }), acct({ revoked: true }), acct({ status: 'NOT_ACTIVATED' }), acct({ status: 'DEACTIVATED' }), acct({ status: 'REQUEST_PENDING' })]) {
       const r = await resp(mk(row).svc.login({ mbno: '5', mpin: '1234', deviceId: dev }, {} as any)); expect(r.code).toBe('INVALID_CREDENTIALS');
     }
+  });
+  it('a mobile number signs in only when it belongs to exactly one member; otherwise it looks like an unknown member', async () => {
+    const ok = mk(acct()); const r = await ok.svc.login({ mobile: '9876543210', mpin: '1234', deviceId: dev }, {} as any);
+    expect(r.mbno).toBe('5'); expect(ok.directory.findMbnoByPhone).toHaveBeenCalledWith('9876543210');
+    const t = mk(null); const bad = await resp(t.svc.login({ mobile: '9999999991', mpin: '1234', deviceId: dev }, {} as any));
+    expect(bad.code).toBe('INVALID_CREDENTIALS');
+    expect(t.ds.query.mock.calls[0][1][0]).toBe('0');
+  });
+  it('neither a member number nor a mobile number is a 400 with its own code', async () => {
+    const r = await resp(mk(null).svc.login({ mpin: '1234', deviceId: dev } as any, {} as any));
+    expect(r.code).toBe('MBNO_OR_MOBILE_REQUIRED');
   });
   it('a member number that is not digits is looked up as 0 (never reaches the query as text)', async () => {
     const t = mk(null); await resp(t.svc.login({ mbno: "5' OR '1'='1", mpin: '1', deviceId: dev }, {} as any));

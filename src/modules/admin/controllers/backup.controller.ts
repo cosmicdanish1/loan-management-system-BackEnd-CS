@@ -5,6 +5,7 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
   HttpStatus,
 } from '@nestjs/common';
@@ -108,10 +109,12 @@ export class BackupController {
   })
   async verifyBackup(
     @Param('filename') filename: string,
+    @Query('deep') deep?: string,
   ): Promise<BackupVerificationDto> {
     // the service checks the name and looks in the configured backup folder (the path used to be built here from the raw name)
-    const isValid = await this.backupService.verifyBackupByName(filename);
-    
+    // ES-355: the default check is quick (checksum / start and end of the file); ?deep=true also decrypts a whole .sql.safe file
+    const isValid = await this.backupService.verifyBackupByName(filename, deep === 'true');
+
     return {
       filename,
       isValid,

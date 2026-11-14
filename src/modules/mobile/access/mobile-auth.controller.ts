@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, HttpStatus, Post, Req, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, HttpCode, HttpStatus, Param, ParseIntPipe, Post, Query, Req, UseGuards, UseInterceptors } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { Public } from '../../auth/decorators';
@@ -7,7 +7,8 @@ import { CurrentMember, MemberJwtGuard } from '../auth/member-jwt.guard';
 import { CurrentMemberInfo } from '../auth/member-jwt.strategy';
 import { MobileThrottlerGuard } from '../security/mobile-throttler.guard';
 import { clientCtx } from './access.types';
-import { ActivateCompleteDto, ActivateDto, ActivationRequestDto, LoginDto, LogoutDto, RefreshDto, StepUpDto } from './access.dto';
+import { ActivateCompleteDto, ActivateDto, ActivationRequestDto, ActivationStatusQueryDto, ChangeMpinDto, LoginDto, LogoutDto, RefreshDto, StepUpDto } from './access.dto';
+import { MemberAccountService } from './member-account.service';
 import { ActivationService } from './activation.service';
 import { AppCodeService } from './app-code.service';
 import { MemberAuthService } from './member-auth.service';
@@ -26,6 +27,7 @@ export class MobileAuthController {
     private readonly activation: ActivationService,
     private readonly auth: MemberAuthService,
     private readonly appCode: AppCodeService,
+    private readonly account: MemberAccountService,
   ) {}
 
   @Post('activation-request')
@@ -75,6 +77,47 @@ export class MobileAuthController {
   async logout(@Body() dto: LogoutDto, @CurrentMember() member: CurrentMemberInfo, @Req() req: any) {
     await this.auth.logout(dto, member, clientCtx(req, dto.deviceId));
     return { signedOut: true };
+  }
+
+  @Get('activation-request/status')
+  @Throttle(STRICT)
+  @ApiOperation({ summary: 'Where is my activation request? (only for a request sent from this phone; send X-Device-Id)' })
+  activationRequestStatus(@Query() q: ActivationStatusQueryDto, @Req() req: any) {
+    return this.account.activationRequestStatus(q.mbno, clientCtx(req));
+  }
+
+  @Post('mpin/change')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(MemberJwtGuard)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Change MPIN (needs the current MPIN and an App Code approval for CHANGE_MPIN in X-Step-Up-Approval)' })
+  changeMpin(@Body() dto: ChangeMpinDto, @Headers('x-step-up-approval') approval: string | undefined, @CurrentMember() member: CurrentMemberInfo, @Req() req: any) {
+    return this.account.changeMpin(member, dto, approval, clientCtx(req));
+  }
+
+  @Get('devices')
+  @UseGuards(MemberJwtGuard)
+  @ApiOperation({ summary: 'My trusted phones' })
+  devices(@CurrentMember() member: CurrentMemberInfo) {
+    return this.account.listDevices(member);
+  }
+
+  @Delete('devices/:id')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(MemberJwtGuard)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Remove another phone (App Code approval for ADD_REMOVE_DEVICE in X-Step-Up-Approval)' })
+  removeDevice(@Param('id', ParseIntPipe) id: number, @Headers('x-step-up-approval') approval: string | undefined, @CurrentMember() member: CurrentMemberInfo, @Req() req: any) {
+    return this.account.removeDevice(member, id, approval, clientCtx(req));
+  }
+
+  @Post('deactivate')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(MemberJwtGuard)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Switch off my mobile access (App Code approval for DEACTIVATE_ACCESS in X-Step-Up-Approval)' })
+  deactivate(@Headers('x-step-up-approval') approval: string | undefined, @CurrentMember() member: CurrentMemberInfo, @Req() req: any) {
+    return this.account.deactivate(member, approval, clientCtx(req));
   }
 
   @Post('step-up')

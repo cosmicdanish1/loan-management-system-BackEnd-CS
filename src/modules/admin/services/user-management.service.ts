@@ -25,6 +25,7 @@ import {
 import { UserResponseDto } from '../../auth/dto';
 import { roleFromLegacyLevel } from '../../auth/utils';
 import { AlertBridge } from '../../alerts/alert-bridge';
+import { PasswordHistoryService } from '../../shared/services/password-history.service';
 
 // usermaster is the single source of truth for user management — the separate
 // modern `users` table it used to sync with (best-effort, via try/catch) has
@@ -44,6 +45,7 @@ export class UserManagementService implements OnModuleInit {
     @InjectRepository(LoginTime)
     private loginTimeRepository: Repository<LoginTime>,
     private readonly dataSource: DataSource,
+    private readonly passwordHistory: PasswordHistoryService,
   ) { }
 
   async onModuleInit() {
@@ -240,6 +242,7 @@ export class UserManagementService implements OnModuleInit {
       userMaster.permissions = permissions;
       saved = await queryRunner.manager.save(userMaster);
       await queryRunner.commitTransaction();
+      await this.passwordHistory.recordHash(saved.userid, saved.spassword); // ES-207: the first password counts as used
     } catch (err) {
       await queryRunner.rollbackTransaction();
       throw err;
@@ -347,6 +350,7 @@ export class UserManagementService implements OnModuleInit {
 
     if (updateUserDto.username) userMaster.susername = updateUserDto.username;
     if (updateUserDto.password) {
+      await this.passwordHistory.assertNotReused(userMaster.userid, updateUserDto.password); // ES-207
       userMaster.spassword = updateUserDto.password;
       // a reset ends the person's existing sessions (ES-297): whoever knew the old password must sign in again
       userMaster.forceLogoutAt = UserManagementService.sessionCutoff();
@@ -412,8 +416,10 @@ export class UserManagementService implements OnModuleInit {
       throw new BadRequestException('Current password is incorrect');
     }
 
+    await this.passwordHistory.assertNotReused(userMaster.userid, changePasswordDto.newPassword); // ES-207
     userMaster.spassword = changePasswordDto.newPassword;
     await this.userMasterRepository.save(userMaster);
+    await this.passwordHistory.recordHash(userMaster.userid, userMaster.spassword);
 
     return { message: 'Password changed successfully' };
   }
@@ -447,10 +453,12 @@ export class UserManagementService implements OnModuleInit {
     }
     this.assertCanResetPassword(userMaster, actorId);
 
+    await this.passwordHistory.assertNotReused(userMaster.userid, adminChangePasswordDto.newPassword); // ES-207
     userMaster.spassword = adminChangePasswordDto.newPassword;
     // every token issued before the reset stops working, so a session that used the old password ends now
     userMaster.forceLogoutAt = UserManagementService.sessionCutoff();
     await this.userMasterRepository.save(userMaster);
+    await this.passwordHistory.recordHash(userMaster.userid, userMaster.spassword);
 
     return { message: 'Password changed successfully' };
   }

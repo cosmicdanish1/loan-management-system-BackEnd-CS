@@ -1,3 +1,4 @@
+import { RequireMenuAction } from '../../auth/guards/menu-right.guard';
 import { Controller, Get, Post, Body, Query, ParseIntPipe, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { DividendCalculationService } from '../services/dividend-calculation.service';
@@ -23,6 +24,7 @@ export class DividendCalculationController {
         return this.service.previewDividendForYear(yearcode, Number(dividendRate));
     }
 
+    @RequireMenuAction('RECEIPT_DIVIDEND_PAYMENT', 'DIVIDEND_PAID') // ES-464
     @Post('commit')
     @ApiOperation({ summary: 'Commits the dividend calculation for a financial year into dividend_master — does NOT credit Share Value' })
     async commit(@Body() body: { yearcode: number; dividendRate: number }) {

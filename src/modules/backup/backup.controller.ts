@@ -77,6 +77,7 @@ export class BackupController {
     return this.backupService.createBackup(options);
   }
 
+  @RequireMenuAction('DATABASE_BACKUP') // ES-364: every /backup route needs the Database BackUp right (administrators have it)
   @Post('validate-destination')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Validate backup destination path' })
@@ -103,6 +104,7 @@ export class BackupController {
     return this.backupService.validateDestination(body.destinationPath);
   }
 
+  @RequireMenuAction('DATABASE_BACKUP')
   @Get('list')
   @ApiOperation({ summary: 'Get list of existing backups' })
   @ApiResponse({
@@ -120,6 +122,7 @@ export class BackupController {
     return this.backupService.getBackupList(backupPath);
   }
 
+  @RequireMenuAction('DATABASE_BACKUP')
   @Get('test-connection')
   @ApiOperation({ summary: 'Test database connection' })
   @ApiResponse({
@@ -130,6 +133,7 @@ export class BackupController {
     return this.backupService.testConnection();
   }
 
+  @RequireMenuAction('DATABASE_BACKUP')
   @Get('database-info')
   @ApiOperation({ summary: 'Get database configuration information' })
   @ApiResponse({

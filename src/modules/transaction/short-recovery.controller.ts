@@ -1,3 +1,4 @@
+import { RequireMenuAction } from '../auth/guards/menu-right.guard';
 import { Controller, Get, Post, Body, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { ShortRecoveryService } from './services-v2/short-recovery.service';
@@ -15,6 +16,7 @@ export class ShortRecoveryController {
         return this.shortRecoveryService.findAll(month, year, wing);
     }
 
+    @RequireMenuAction('MODIFY_SHORT_RECOVERY') // ES-464
     @Post('adjust')
     @ApiOperation({ summary: 'Adjust a short recovery' })
     adjust(@Body() body: { demandId: string, reason: string, amount: number }) {

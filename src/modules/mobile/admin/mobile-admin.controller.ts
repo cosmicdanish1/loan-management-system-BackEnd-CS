@@ -1,6 +1,8 @@
 import { BadRequestException, Body, Controller, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { IsOptional, IsString, Length, Matches, MaxLength } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Length, Matches, Max, MaxLength, Min } from 'class-validator';
+import { BlocklistService } from '../security/blocklist.service';
+import { MobileOpsService } from './mobile-ops.service';
 import { CurrentUser } from '../../auth/decorators';
 import { RequireMenuAction } from '../../auth/guards/menu-right.guard';
 import { RequireAuthCode } from '../../auth/twofa/require-auth-code';
@@ -14,6 +16,36 @@ class NoteDto {
 }
 class VerifyCodeDto {
   @IsString() @Matches(/^\d{6}$/, { message: 'code must be 6 digits' }) code: string;
+}
+
+class FlagDto {
+  @IsBoolean() enabled: boolean;
+}
+class VersionDto {
+  @IsString() @Matches(/^\d{1,4}\.\d{1,4}\.\d{1,4}$/, { message: 'latestVersion looks like 1.2.3' }) latestVersion: string;
+  @IsString() @Matches(/^\d{1,4}\.\d{1,4}\.\d{1,4}$/, { message: 'minSupportedVersion looks like 1.2.3' }) minSupportedVersion: string;
+  @IsOptional() @IsString() @MaxLength(300) storeUrl?: string;
+  @IsOptional() @IsString() @MaxLength(300) message?: string;
+}
+class MaintenanceDto {
+  @IsBoolean() enabled: boolean;
+  @IsOptional() @IsString() @MaxLength(300) message?: string;
+}
+class AuditQuery {
+  @IsOptional() @IsString() @MaxLength(18) mbno?: string;
+  @IsOptional() @IsString() @MaxLength(60) event?: string;
+  @IsOptional() @IsString() @MaxLength(20) result?: string;
+  @IsOptional() @IsString() @MaxLength(64) ip?: string;
+  @IsOptional() @IsString() @MaxLength(100) deviceId?: string;
+  @IsOptional() @IsString() @MaxLength(10) from?: string;
+  @IsOptional() @IsString() @MaxLength(10) to?: string;
+  @IsOptional() @IsInt() @Min(1) @Max(200) limit?: number;
+  @IsOptional() @IsInt() @Min(0) offset?: number;
+}
+class BlockTargetDto {
+  @IsIn(['IP', 'DEVICE']) kind: 'IP' | 'DEVICE';
+  @IsString() @Length(3, 100) value: string;
+  @IsString() @Length(3, 300) reason: string;
 }
 
 const MBNO = new RegExp('^\\d{1,18}$');
@@ -30,7 +62,11 @@ const staffName = (u: any): string => String(u?.username ?? u?.id ?? 'staff');
 @RequireMenuAction('MOBILE_CONTROL_CENTER')
 @Controller('admin/mobile')
 export class MobileAdminController {
-  constructor(private readonly svc: MobileAdminService) {}
+  constructor(
+    private readonly svc: MobileAdminService,
+    private readonly ops: MobileOpsService,
+    private readonly blocks: BlocklistService,
+  ) {}
 
   private mbno(v: string): string {
     if (!MBNO.test(v)) throw new BadRequestException('Invalid member number');
@@ -139,5 +175,84 @@ export class MobileAdminController {
   @HttpCode(HttpStatus.OK)
   reject(@Param('id', ParseIntPipe) id: number, @Body() dto: NoteDto, @CurrentUser() user: any) {
     return this.svc.rejectRequest(id, staffName(user), dto.note);
+  }
+
+  // ───────────── features and releases (ES-241) ─────────────
+
+  @Get('features')
+  @ApiOperation({ summary: 'Feature switches, minimum/latest app versions and the maintenance message' })
+  features() {
+    return this.ops.features();
+  }
+
+  @Post('features/flags/:key')
+  @HttpCode(HttpStatus.OK)
+  @RequireAuthCode('mobile_change_features')
+  @ApiOperation({ summary: 'Switch one feature on or off for every member' })
+  setFlag(@Param('key') key: string, @Body() dto: FlagDto, @CurrentUser() user: any) {
+    if (!/^[a-z_]{1,60}$/.test(key)) throw new BadRequestException('Invalid feature name');
+    return this.ops.setFlag(key, dto.enabled, staffName(user));
+  }
+
+  @Post('features/versions/:platform')
+  @HttpCode(HttpStatus.OK)
+  @RequireAuthCode('mobile_change_features')
+  @ApiOperation({ summary: 'Set the latest and the lowest allowed app version (older apps are told to update)' })
+  setVersion(@Param('platform') platform: string, @Body() dto: VersionDto, @CurrentUser() user: any) {
+    return this.ops.setVersion(platform, dto, staffName(user));
+  }
+
+  @Post('features/maintenance')
+  @HttpCode(HttpStatus.OK)
+  @RequireAuthCode('mobile_change_features')
+  @ApiOperation({ summary: 'Turn maintenance mode on or off (the app shows the message instead of data)' })
+  maintenance(@Body() dto: MaintenanceDto, @CurrentUser() user: any) {
+    return this.ops.setMaintenance(dto.enabled, dto.message ?? '', staffName(user));
+  }
+
+  // ───────────── security and audit (ES-243) ─────────────
+
+  @Get('audit')
+  @ApiOperation({ summary: 'Search the member-app audit trail by member, device, IP, event, result and dates' })
+  auditSearch(@Query() q: AuditQuery) {
+    return this.ops.auditSearch(q);
+  }
+
+  @Get('audit/export')
+  @ApiOperation({ summary: 'The same search as CSV text (read-only, at most 5000 rows); the window saves it as a file' })
+  async auditExport(@Query() q: AuditQuery, @CurrentUser() user: any) {
+    const csv = await this.ops.auditCsv(q, staffName(user));
+    return { fileName: `mobile-audit-${new Date().toISOString().slice(0, 10)}.csv`, csv: '﻿' + csv };
+  }
+
+  @Get('monitors')
+  @ApiOperation({ summary: 'Last 24 hours: failed sign-ins, lockouts, top failing IPs and members' })
+  monitors() {
+    return this.ops.monitors();
+  }
+
+  @Get('blocklist')
+  @ApiOperation({ summary: 'Phones and IP addresses currently blocked from the app' })
+  blocklist() {
+    return this.blocks.list();
+  }
+
+  @Post('blocklist')
+  @HttpCode(HttpStatus.OK)
+  @RequireAuthCode('mobile_block_member')
+  @ApiOperation({ summary: 'Block a phone (device reference from the audit trail) or an IP address' })
+  block_(@Body() dto: BlockTargetDto, @CurrentUser() user: any) {
+    // The office PC itself (and the tunnel program on it) arrives as a loopback address: blocking that would lock out every member.
+    if (dto.kind === 'IP' && /^(::ffff:)?127\.|^::1$|^0\.0\.0\.0$/i.test(dto.value.trim())) {
+      throw new BadRequestException('That is this computer itself. Blocking it would block every member.');
+    }
+    return this.blocks.block(dto.kind, dto.value, dto.reason, staffName(user));
+  }
+
+  @Post('blocklist/:id/unblock')
+  @HttpCode(HttpStatus.OK)
+  @RequireAuthCode('mobile_block_member')
+  unblockTarget(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: any) {
+    return this.blocks.unblock(id, staffName(user));
   }
 }
