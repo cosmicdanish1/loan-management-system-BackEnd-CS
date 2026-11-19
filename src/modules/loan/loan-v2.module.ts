@@ -16,6 +16,7 @@ import {
     LoanReagreementService,
     ReagreementDocumentService,
 } from './services-v2';
+import { LoanEarlyClosureHoldService } from './services-v2/early-closure/loan-early-closure-hold.service';
 import { LoanV2Controller } from './loan-v2.controller';
 import { LoanReagreementController } from './loan-reagreement.controller';
 
@@ -49,8 +50,10 @@ import { RdModule } from '../rd/rd.module';
         LoanPositionService,
         LoanReagreementService,
         ReagreementDocumentService,
+        LoanEarlyClosureHoldService,
     ],
     exports: [
+        LoanEarlyClosureHoldService,
         LoanApplicationService,
         LoanSanctionService,
         LoanSuretyService,

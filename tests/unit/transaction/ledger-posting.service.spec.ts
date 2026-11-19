@@ -113,7 +113,7 @@ describe('LedgerPostingService posting', () => {
     });
 
     expect(result).toMatchObject({ success: true, totalPosted: 1000, recordCount: 1 });
-    expect(result.voucherNo).toBe('G00041');
+    expect(result.voucherNo).toBe('G00001');
     expect(dataSource.query).not.toHaveBeenCalled(); // nothing read outside the transaction
 
     const insertParams = qr.query.mock.calls.filter(([sql]: any) => String(sql).startsWith('INSERT INTO ledger'));
@@ -121,7 +121,7 @@ describe('LedgerPostingService posting', () => {
     expect(insertParams.map(([sql]: any) => (String(sql).includes("'DR'") ? 'DR' : 'CR'))).toEqual(['DR', 'CR', 'DR', 'CR', 'DR', 'CR']);
     expect(insertParams.map(([, p]: any) => [p[2], p[4]])).toEqual([['A1001', 700], ['A1003', 700], ['A1001', 200], ['L1028', 200], ['A1001', 100], ['L1001', 100]]);
     expect(insertParams.map(([, p]: any) => p[0])).toEqual([41, 42, 43, 44, 45, 46]);
-    expect(insertParams.every(([, p]: any) => p[5] === 'G00041')).toBe(true);
+    expect(insertParams.every(([, p]: any) => p[5] === 'G00001')).toBe(true);
 
     const update = qr.query.mock.calls.find(([sql]: any) => String(sql).startsWith('UPDATE demand_master'));
     expect(update[0]).toContain("demand_posted = 'Y'");
@@ -189,7 +189,7 @@ describe('LedgerPostingService loan recovery (ES-447)', () => {
     expect(balanceUpdate[1]).toEqual([700, '1001']);
     const [repayment] = calls(qr, /^INSERT INTO loan_repayment_ledger/);
     expect(repayment[0]).toContain("'SYSTEM-BULK', 'DEMAND'");
-    expect(repayment[1]).toEqual([1001, '10', 'RLN', 1, 2026, 900, 700, 200, 'G00041', 'Bulk Demand Recovery Posting']);
+    expect(repayment[1]).toEqual([1001, '10', 'RLN', 1, 2026, 900, 700, 200, 'G00001', 'Bulk Demand Recovery Posting']);
     expect(result.loanRecovery).toEqual({ members: 1, loanCases: 1, principal: 700, interest: 200 });
   });
 
@@ -264,5 +264,34 @@ describe('LedgerPostingService loan recovery (ES-447)', () => {
     await expect(post(service)).rejects.toThrow(/disk full/);
     expect(qr.rollbackTransaction).toHaveBeenCalled();
     expect(qr.commitTransaction).not.toHaveBeenCalled();
+  });
+});
+
+// ES-503: the G voucher number no longer comes from the last 5 digits of trans_no.
+describe('LedgerPostingService voucher number (ES-503)', () => {
+  const run = async (transNo: string, lastG: string) => {
+    const { service, dataSource } = build();
+    const qr = runner({ query: (sql: string) => (/FROM demand_master dm/.test(sql) ? [summaryRow()] : /FROM voucher_master/.test(sql) ? [{ last: lastG }] : []) });
+    qr.query = jest.fn(async (sql: string) => {
+      if (/MAX\(trans_no\)/.test(sql)) return [{ next_no: transNo, next_ledger_id: '91' }];
+      if (/FROM demand_master dm/.test(sql)) return [summaryRow()];
+      if (/FROM voucher_master/.test(sql)) return [{ last: lastG }];
+      return [];
+    });
+    dataSource.createQueryRunner.mockReturnValue(qr);
+    return service.postUpdate({ month: 'JAN', year: '2026', head: 'Loan Interest', totalAmount: 1000, recordCount: 1 });
+  };
+
+  it('two postings whose trans_no end in the same 5 digits get different voucher numbers', async () => {
+    const a = await run('107429', 'G00010');
+    const b = await run('207429', 'G00011');
+    expect(a.voucherNo).toBe('G00011');
+    expect(b.voucherNo).toBe('G00012');
+    expect(a.voucherNo).not.toBe(b.voucherNo);
+  });
+
+  it('the counter does not wrap after G99999', async () => {
+    const r = await run('5', 'G99999');
+    expect(r.voucherNo).toBe('G100000');
   });
 });

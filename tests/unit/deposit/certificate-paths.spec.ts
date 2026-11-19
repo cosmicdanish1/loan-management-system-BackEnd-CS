@@ -8,7 +8,7 @@ describe('deposit/CertificateService file name guard and numbering', () => {
   let dir: string; let svc: any;
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'certs-'));
-    svc = new CertificateService({} as any, {} as any, {} as any, { get: (k: string, d?: any) => (k === 'CERTIFICATES_PATH' ? dir : d) } as any, {} as any);
+    svc = new CertificateService({} as any, {} as any, {} as any, { get: (k: string, d?: any) => (k === 'CERTIFICATES_PATH' ? dir : d) } as any, {} as any, {} as any);
   });
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 

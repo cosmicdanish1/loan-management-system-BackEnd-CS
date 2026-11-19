@@ -15,7 +15,7 @@
  * of that we read the HIGHEST current value across all rows and write the new
  * value back to every row, keeping them in sync.
  */
-export type VoucherType = 'P' | 'R' | 'J' | 'D';
+export type VoucherType = 'P' | 'R' | 'J' | 'D' | 'G'; // G = demand (Updation Ledger) posting, ES-503
 
 interface SqlRunner {
   query(sql: string, params?: any[]): Promise<any>;
@@ -26,6 +26,7 @@ const COLUMN: Record<VoucherType, string> = {
   R: 'r_vchr_no',
   J: 'j_vchr_no',
   D: 'd_vchr_no',
+  G: 'g_vchr_no',
 };
 
 export async function generateVoucherNo(runner: SqlRunner, type: VoucherType): Promise<string> {

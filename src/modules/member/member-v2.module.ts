@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Member } from './entities/member.entity';
 import { MemberMaster } from './entities/member-master.entity';
-import { MemberCrudService, MemberLookupService, MemberBalanceService, SignatureService } from './services-v2';
+import { MemberCrudService, MemberLookupService, MemberBalanceService, SignatureService, MemberCompleteDetailService } from './services-v2';
 import { MemberV2Controller } from './member-v2.controller';
 
 import { AdminModule } from '../admin/admin.module';
@@ -20,6 +20,7 @@ import { RdModule } from '../rd/rd.module';
         MemberLookupService,
         MemberBalanceService,
         SignatureService,
+        MemberCompleteDetailService,
     ],
     exports: [
         MemberCrudService,

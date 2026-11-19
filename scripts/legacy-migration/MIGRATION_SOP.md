@@ -278,3 +278,8 @@ What to check per case:
 5. This takes hours — run it in a terminal you can leave open, not inside a session that might get closed
 6. When done, check `Flags raised` count and read through them (see §3 above for what's normal vs worth reviewing)
 7. Spot-check a sample of members' `loan_master` rows against the CSV export method in §4
+
+### Phase 2 fixes found by live comparison (2026-11-16, member 610030621)
+- **ES-552:** a loan dated before the ledger start (2019-11-01), for example the opening-balance loans dated 2018-10-31, now gets a schedule version that starts at the ledger opening, with the first due month = month of the first recurring principal payment on record (slot delay still from the real origination date). Before this, instalments with no payment records (before Nov 2019) absorbed cash and surplus money and later months that were paid showed as overdue with penalty. Members migrated before this change must be re-run (Phase 2 reset + replay).
+- **ES-553:** an interest-only voucher (closure interest taken at a consolidation) now goes entirely to the loan type that was closed that day; the proportional split between regular and emergency loan is only used when no case closed that day. Members migrated before this change must be re-run.
+- Open: ES-554 (loan Excel balance differs from the ledger-based balance for #2801 of 610030621).

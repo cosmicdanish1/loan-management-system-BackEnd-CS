@@ -85,6 +85,7 @@ const MBNO_FILE = process.env.MBNO_FILE;
 const REPLAY_COMPLETED = process.env.REPLAY_COMPLETED === 'true';
 const MEMBER_LIMIT = process.env.MEMBER_LIMIT ? parseInt(process.env.MEMBER_LIMIT, 10) : undefined;
 const BALANCE_TOLERANCE = 50; // rupees; mismatch beyond this is flagged, not silently accepted
+const LEDGER_START_DATE = '2019-11-01'; // the legacy ledger holds no entries before this date (opening-balance loans are dated 2018-10-31)
 const MIN_CONSOLIDATION_AMOUNT = 50; // rupees; matched journal pairs below this are noise (rounding vouchers), not real consolidations
 const SQLCMD_SERVER = '.\\SQLEXPRESS';
 const SQLCMD_DB = 'EMP_Espat_Society_dan';
@@ -1089,7 +1090,15 @@ async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: s
                 const before = q.filter(c => live(c) && c.legacyCase.paymentDate.slice(0, 10) <= day);
                 return before[before.length - 1];
             };
-            const targets = (['RLN', 'ALN'] as const).map(t => ({ t, cs: pick(t), w: Math.max(0, owedBefore(t, leg.transDate)) })).filter(x => x.cs);
+            // Closure interest taken when a new loan consolidates an old one belongs to the loan type that was CLOSED that day
+            // (610030621: the 2026-07-02 closure interest of an emergency loan was also split onto his regular loan, which then
+            // showed a smaller interest due than the flat EMI interest the old program shows every month). Only when no case of
+            // either type closed that day is the credit shared between the two types by what the ledger owed.
+            const closedTypesThatDay = (['RLN', 'ALN'] as const).filter(t => (byType[t] || []).some(c =>
+                !c.ignoredDuplicate && !c.supersededCarry && c.startPrincipal !== undefined && c.legacyCase.loanAmt > 0
+                && c.closed && c.closedDate?.slice(0, 10) === day));
+            const candidateTypes = closedTypesThatDay.length ? closedTypesThatDay : (['RLN', 'ALN'] as const);
+            const targets = candidateTypes.map(t => ({ t, cs: pick(t), w: Math.max(0, owedBefore(t, leg.transDate)) })).filter(x => x.cs);
             if (targets.length === 0) { flags.push(`Interest-only credit ₹${leg.amt} on ${day} (voucher ${leg.receiptVchrNo}) has no loan case to be recorded on — manual`); continue; }
             let wsum = targets.reduce((a, x) => a + x.w, 0);
             if (wsum <= 0) { targets.forEach(x => { x.w = 1; }); wsum = targets.length; }   // neither loan owed anything that day: share equally between the loans that exist
@@ -1386,15 +1395,32 @@ async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: s
             const transitionPayrollRows = new Set<typeof cs.repaymentsToReplay[number]>();
             const transitionWindows = scheduleBoundaries.map((boundary, index) => {
                 const { event, source } = boundary;
-                const effectiveDate = event.date.slice(0, 10);
+                const rawEffectiveDate = event.date.slice(0, 10);
+                // A loan that began BEFORE the legacy ledger (opening-balance loans are dated 2018-10-31, the old system's start)
+                // has instalments before 2019-11-01 that the data holds no payments for. Starting its schedule at the origination
+                // date invents those instalments, and the cash and surplus payments then pay them oldest-first, which leaves
+                // later months that WERE paid on their own month "overdue" with penalty (610030621 / case 2801). The schedule
+                // therefore starts at the ledger opening, and its first due month is the month of the first recurring principal
+                // payment on record. The slot delay is still taken from the real origination date.
+                const preLedgerOrigination = source === 'ORIGINATION' && rawEffectiveDate < LEDGER_START_DATE;
+                const effectiveDate = preLedgerOrigination ? LEDGER_START_DATE : rawEffectiveDate;
                 const delayMonths = determineLoanSlot(
-                    new Date(`${effectiveDate}T12:00:00`), slotRuleConfig.slot1DelayMonths,
+                    new Date(`${rawEffectiveDate}T12:00:00`), slotRuleConfig.slot1DelayMonths,
                     slotRuleConfig.slot2DelayMonths, slotRuleConfig.slot1StartDay, slotRuleConfig.slot1EndDay,
                 ).delayMonths;
-                const date = new Date(`${effectiveDate}T12:00:00`);
+                const date = new Date(`${rawEffectiveDate}T12:00:00`);
                 const due = firstDueMonthFromDisbursement(date, delayMonths);
-                const firstDueMonth = `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, '0')}-01`;
+                let firstDueMonth = `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, '0')}-01`;
                 const nextEventDate = scheduleBoundaries[index + 1]?.event.date.slice(0, 10);
+                if (preLedgerOrigination) {
+                    const firstOnRecord = selectFirstRecurringPrincipal(
+                        cs.repaymentsToReplay
+                            .filter(r => r.date.slice(0, 10) >= LEDGER_START_DATE && (!nextEventDate || r.date.slice(0, 10) < nextEventDate)
+                                && r.principalAmount > 0)
+                            .map(r => ({ ...r })),
+                    );
+                    if (firstOnRecord) firstDueMonth = `${firstOnRecord.date.slice(0, 7)}-01`;
+                }
                 for (const repayment of cs.repaymentsToReplay) {
                     // BSP payroll during the slot-delay window is still the
                     // predecessor loan's deduction, including at a new
@@ -1404,7 +1430,7 @@ async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: s
                         transitionPayrollRows.add(repayment);
                     }
                 }
-                return { event, source, effectiveDate, firstDueMonth, delayMonths, nextEventDate };
+                return { event, source, effectiveDate, rawEffectiveDate, firstDueMonth, delayMonths, nextEventDate };
             });
             const payrollLagReplayRows = new Set<typeof cs.repaymentsToReplay[number]>(transitionPayrollRows);
             if (payrollLagReplay) payrollLagReplayRows.add(payrollLagReplay);
@@ -1431,7 +1457,7 @@ async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: s
                     delayMonths: number; sourceCaseNo: string | null;
                 }> = [];
                 for (let index = 0; annualRate > 0 && index < transitionWindows.length; index++) {
-                    const { event, source, effectiveDate, firstDueMonth, delayMonths, nextEventDate } = transitionWindows[index];
+                    const { event, source, effectiveDate, rawEffectiveDate, firstDueMonth, delayMonths, nextEventDate } = transitionWindows[index];
                     const priorTopups = receivedConsolidations
                         .filter(c => c.date <= event.date)
                         .reduce((sum, c) => sum + c.amt, 0);
@@ -1478,7 +1504,7 @@ async function processMember(mbno: string, svc: LoanRepaymentService, log: (s: s
                     // (number of instalments and instalment amount stored on the legacy loan row). Only the current (last) agreement, and only
                     // when those terms are sane; always reported as INFO so the source of the schedule is never hidden.
                     let fallback: { monthlyPrincipal: number; monthlyInterest: number; installmentCount: number } | null = null;
-                    if (!firstCurrentPayment && !nextEventDate && effectiveDate > '2018-11-30' && cs.legacyCase.noOfInstal > 0 && cs.legacyCase.instalAmt > 0
+                    if (!firstCurrentPayment && !nextEventDate && rawEffectiveDate > '2018-11-30' && cs.legacyCase.noOfInstal > 0 && cs.legacyCase.instalAmt > 0
                         && !(predP > 0 && Math.abs(cs.legacyCase.loanAmt / cs.legacyCase.noOfInstal - predP) < 1)) {   // a legacy row that still carries the OLD loan's EMI is not usable   // not for opening-balance cases: their instalment count runs from a start date the data does not hold
                         const n = cs.legacyCase.noOfInstal;
                         const mp = round2(openingPrincipal / n);

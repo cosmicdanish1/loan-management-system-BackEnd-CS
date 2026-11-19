@@ -5,7 +5,7 @@ import { CertificateService } from '../../../src/modules/deposit/services/certif
 
 describe('certificate numbers never repeat (ES-411)', () => {
   let dir: string;
-  const mk = (): any => new CertificateService({} as any, {} as any, {} as any, { get: (k: string, d?: any) => (k === 'CERTIFICATES_PATH' ? dir : d) } as any, {} as any);
+  const mk = (): any => new CertificateService({} as any, {} as any, {} as any, { get: (k: string, d?: any) => (k === 'CERTIFICATES_PATH' ? dir : d) } as any, {} as any, {} as any);
   beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'certs-')); });
   afterEach(() => { jest.restoreAllMocks(); fs.rmSync(dir, { recursive: true, force: true }); });
 

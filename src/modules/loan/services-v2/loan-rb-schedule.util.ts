@@ -239,6 +239,9 @@ export function calculateConstantEmi(
     slot1StartDay: number = DEFAULT_SLOT1_START_DAY,
     slot1EndDay: number = DEFAULT_SLOT1_END_DAY,
     carriedInterest: number = 0,
+    /** false = no slot delay interest in the total (re-agreement, ES-550 follow-up decision 2026-11-18). The slot is still
+     *  worked out, because it also decides the first due month. New loans and consolidation leave this at true. */
+    includeDelayInterest: boolean = true,
 ): ConstantEmiResult {
     const { slot, subSlot, interestDelayMonths, firstDueDelayMonths, delayMonths } = determineLoanSlot(
         applicationDate, slot1DelayMonths, slot2DelayMonths, slot1StartDay, slot1EndDay,
@@ -249,7 +252,7 @@ export function calculateConstantEmi(
     // Delay interest is always on the FULL original principal — never the
     // declining balance — because it represents the period before any
     // deduction (and therefore any principal reduction) has started at all.
-    const delayInterest = round2(loanAmt * monthlyRate * interestDelayMonths);
+    const delayInterest = includeDelayInterest ? round2(loanAmt * monthlyRate * interestDelayMonths) : 0;
     // A re-agreement spreads the previous loan's left-over closure interest (AP) over the new
     // installments, exactly like delay interest: it is added to the total before dividing by n.
     // For a new loan carriedInterest is 0, so nothing changes.

@@ -5,3 +5,4 @@ export * from './member-crud.service';
 export * from './member-lookup.service';
 export * from './member-balance.service';
 export * from './signature.service';
+export * from './member-complete-detail.service';

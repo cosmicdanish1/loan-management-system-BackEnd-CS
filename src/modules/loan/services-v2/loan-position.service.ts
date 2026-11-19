@@ -401,8 +401,25 @@ export class LoanPositionService {
             }
         }
 
+        // ES-551: money received above what was due. Shown as one summary notice (all windows, incl. the compact
+        // Early Closure view) plus the list below. Read-only; never changes any figure on this panel.
+        const excessPayments = await this.repayment.getExcessPayments(mbno, loancaseno, loan.loantype);
+        if (excessPayments.length > 0) {
+            const total = r2(excessPayments.reduce((t: number, x) => t + x.excessAmount, 0));
+            const unapplied = r2(excessPayments.reduce((t: number, x) => t + x.unappliedAmount, 0));
+            const latest = excessPayments[0];
+            notices.push({
+                code: 'EXCESS_RECEIVED', severity: 'info', source: 'PAYMENT', date: latest.paymentDate, amount: total,
+                message: `₹${total.toLocaleString('en-IN')} was received above the amount due on ${excessPayments.length} occasion${excessPayments.length === 1 ? '' : 's'} `
+                    + `(latest ${latest.paymentDate}) and was applied toward future installments.`
+                    + (unapplied > 0.01 ? ` ₹${unapplied.toLocaleString('en-IN')} could not be applied because it was more than the loan needed.` : ''),
+                ackable: false, acknowledged: false,
+            });
+        }
+
         return {
             asOf: ymd(asOf),
+            excessPayments,
             loan: {
                 mbno, loancaseno, loantype: loan.loantype, loanAmount, noOfInstalments: n, monthlyPrincipal, monthlyInterest,
                 annualRate: sv ? num(sv.annual_rate) : num(loan.rate), startDate: ymd(startDate), firstDueMonth: ymd(firstDue),

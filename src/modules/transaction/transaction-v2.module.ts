@@ -28,6 +28,7 @@ import { LoanEligibilityService } from '../loan/services-v2/loan-eligibility.ser
 import { LoanRepaymentService } from '../loan/services-v2/loan-repayment.service';
 import { LoanReagreementService } from '../loan/services-v2/reagreement/loan-reagreement.service';
 import { ReagreementDocumentService } from '../loan/services-v2/reagreement/reagreement-document.service';
+import { LoanEarlyClosureHoldService } from '../loan/services-v2/early-closure/loan-early-closure-hold.service';
 import { RdModule } from '../rd/rd.module';
 import { CompulsoryDepositController } from './compulsory-deposit.controller';
 import { JournalTransferController } from './journal-transfer.controller';
@@ -84,6 +85,8 @@ import { MemberBalanceTransferService } from './services-v2/member-balance-trans
         // pattern as LoanRepaymentService above, so this module does not need to import LoanV2Module).
         LoanReagreementService,
         ReagreementDocumentService,
+        // ES-556: early-closure vouchers held in Past Transaction (Pass posts them)
+        LoanEarlyClosureHoldService,
     ],
     exports: [
         VoucherService,

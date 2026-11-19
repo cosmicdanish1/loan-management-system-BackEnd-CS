@@ -147,6 +147,7 @@ export const MENU_ACTION_MAP: MenuActionEntry[] = [
   { action: 'TWOFA_SETTINGS', menuid: 242, title: 'Two-Factor Authentication' },
   { action: 'MOBILE_CONTROL_CENTER', menuid: 243, title: 'Mobile Control Center' },
   { action: 'SOCIETY_CALCULATOR', menuid: 244, title: 'Society Calculator' },
+  { action: 'MEMBER_COMPLETE_DETAIL', menuid: 245, title: 'Member Complete Detail' },
 ];
 
 export const MENUID_TO_ACTION: ReadonlyMap<number, string> = new Map(

@@ -389,6 +389,12 @@ export class VoucherService {
             if (voucherResult[0].sourceModule === 'LOAN_REAGREEMENT') {
                 await this.reagreementService.onVoucherRejected(queryRunner, voucherNo, { actor: 'admin' });
             }
+            // ES-556: a deleted early-closure voucher cancels the closure; the loan simply stays open.
+            if (voucherResult[0].sourceModule === 'LOAN_EARLY_CLOSURE') {
+                await queryRunner.query(
+                    `UPDATE loan_early_closure_holds SET status = 'CANCELLED', cancelled_at = NOW() WHERE voucher_no = $1 AND status = 'PENDING'`,
+                    [voucherNo]);
+            }
 
             // 2. Delete transaction rows linked to this voucher
             const deletedTrans = await queryRunner.query(
@@ -459,13 +465,13 @@ export class VoucherService {
                     memberNo: row.memberId,
                     memberName: [row.f_name, row.m_name, row.l_name].map((n: any) => (n || '').toString().trim()).filter(Boolean).join(' '),
                     amount: parseFloat(row.totalAmount),
-                    vchrType: reagreement ? 'Loan Re-agreement' : (row.voucherType || 'Loan Disbursement'),
+                    vchrType: reagreement ? 'Loan Re-agreement' : (row.sourceModule === 'LOAN_EARLY_CLOSURE' ? 'Loan Early Closure' : (row.voucherType || 'Loan Disbursement')),
                     loanType: reagreement ? reagreement.loantype : loanType,
-                    kind: reagreement ? 'REAGREEMENT' : 'VOUCHER',
+                    kind: reagreement ? 'REAGREEMENT' : (row.sourceModule === 'LOAN_EARLY_CLOSURE' ? 'EARLY_CLOSURE' : 'VOUCHER'),
                     reagreement,
                     status: row.status,
                     narration: row.description,
-                    loanCaseNo: reagreement ? reagreement.newLoanCaseNo : loanCaseNo,
+                    loanCaseNo: reagreement ? reagreement.newLoanCaseNo : (row.sourceModule === 'LOAN_EARLY_CLOSURE' ? ((row.remarks || '').match(/ECASE:([^|]+)/)?.[1] || '') : loanCaseNo),
                     paymentMode: row.bankName || row.chequeNumber ? 'bank' : 'cash',
                     chequeNo: row.chequeNumber,
                     chequeDate: row.chequeDate,

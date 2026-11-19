@@ -284,17 +284,17 @@ export class DepositController {
 
   @Post('members/:memberId/share-certificate')
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.LOAN_OFFICER)
-  @ApiOperation({ summary: 'Generate share certificate for member' })
-  @ApiParam({ name: 'memberId', description: 'Member ID' })
+  @ApiOperation({ summary: 'Generate share certificate for a member (by member number)' })
+  @ApiParam({ name: 'memberId', description: 'Member number (member_master.mbno)' })
   @ApiResponse({
     status: HttpStatus.CREATED,
     description: 'Share certificate generated successfully',
   })
   async generateShareCertificate(
     @Param('memberId', ParseIntPipe) memberId: number,
-    @Body() body: { shareAmount: number },
+    @Body() body: { shareAmount?: number },
   ) {
-    const fileName = await this.certificateService.generateShareCertificate(memberId, body.shareAmount);
+    const fileName = await this.certificateService.generateShareCertificate(memberId, body?.shareAmount);
     return {
       message: 'Share certificate generated successfully',
       fileName,

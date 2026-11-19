@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { generateVoucherNo } from '../../shared/utils/voucher-utils';
 import { assertPostingDateOpen } from '../../shared/utils/posting-date';
 import { lockLedgerIds } from '../../shared/utils/ledger-lock';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -23,8 +24,13 @@ export interface LedgerPostingDto {
 }
 
 @Injectable()
-export class LedgerPostingService {
+export class LedgerPostingService implements OnModuleInit {
     private readonly logger = new Logger(LedgerPostingService.name);
+
+    /** ES-503: the G counter column (idempotent; same statement as database/migrations/add-g-voucher-counter.sql). */
+    async onModuleInit(): Promise<void> {
+        await this.dataSource.query(`ALTER TABLE voucher_master ADD COLUMN IF NOT EXISTS g_vchr_no varchar(20) NOT NULL DEFAULT 'G00000'`);
+    }
 
     constructor(
         @InjectRepository(DemandMaster)
@@ -125,7 +131,10 @@ export class LedgerPostingService {
             let ledgerId = parseInt(transResult[0]?.next_ledger_id || '1');
 
             const transDate = new Date();
-            const voucherNo = `G${String(transNo).padStart(5, '0').slice(-5)}`;
+            // ES-503: the number came from the last 5 digits of trans_no and repeated every 100,000 ledger numbers. It now
+            // comes from its own counter (voucher_master.g_vchr_no, G00001, G00002 ...) that never wraps and skips any G
+            // number already used. Old G vouchers are not renumbered.
+            const voucherNo = await generateVoucherNo(queryRunner, 'G');
 
             // ES-414: post every head of the demand with its own amount. Before, the whole demand total was posted
             // under the one head named in the request while ALL demands were then marked posted, so the other heads

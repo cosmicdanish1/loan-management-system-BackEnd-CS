@@ -22,7 +22,7 @@ import {
 } from '../loan-rb-schedule.util';
 import { AgreementData } from './reagreement-agreement.layout';
 import { ReagreementDocumentService } from './reagreement-document.service';
-import { lockLedgerIds } from '../../../shared/utils/ledger-lock';
+import { lockLedgerIds, lockNextId } from '../../../shared/utils/ledger-lock';
 
 // ------------------------------------------------------------------ constants
 export const OPEN_STATUSES = ['APPLIED', 'SANCTIONED', 'VOUCHERED'] as const;
@@ -182,6 +182,8 @@ export class LoanReagreementService {
     // Small DB helpers
     // ======================================================================
     private async nextId(runner: QueryRunner | DataSource, table: string, col: string): Promise<number> {
+        // ES-495: inside a transaction take the shared id lock before reading MAX (released at COMMIT / ROLLBACK)
+        if ((runner as any).isTransactionActive) await lockNextId(runner, table, col);
         const r = await runner.query(`SELECT COALESCE(MAX(${col}), 0) + 1 AS n FROM ${table}`);
         return parseInt(r[0].n, 10);
     }
@@ -246,6 +248,26 @@ export class LoanReagreementService {
             excludeReagreementId ? [loan.mbno, loan.loantype, String(loan.loancaseno), excludeReagreementId] : [loan.mbno, loan.loantype, String(loan.loancaseno)],
         );
         if (open.length) errors.push({ field: 'loan', code: 'OPEN_REAGREEMENT', message: `Re-agreement ${open[0].reagreement_no} is already open (${open[0].status}) on this loan` });
+
+        // ES-556: a loan whose early closure is waiting in Past Transaction cannot be re-agreed
+        try {
+            const held = await this.dataSource.query(`SELECT to_regclass('public.loan_early_closure_holds') AS t`);
+            if (held[0]?.t) {
+                const pend = await this.dataSource.query(
+                    `SELECT voucher_no FROM loan_early_closure_holds WHERE mbno = $1 AND loancaseno = $2 AND status = 'PENDING' LIMIT 1`,
+                    [String(loan.mbno), String(loan.loancaseno)]);
+                if (pend.length) errors.push({ field: 'loan', code: 'PENDING_EARLY_CLOSURE', message: `An early closure of this loan (voucher ${pend[0].voucher_no}) is waiting in Past Transaction, so it cannot be re-agreed` });
+            }
+        } catch { /* the check must never block the screen */ }
+
+        // ES-556: with one EMI left there is nothing to re-agree; the decision is the closure. Support handles exceptions.
+        const monthlyPrincipal = num(loan.no_of_instal) > 0 ? num(loan.loan_amt) / num(loan.no_of_instal) : 0;
+        if (num(loan.balance) > 0 && monthlyPrincipal > 0 && Math.ceil(num(loan.balance) / monthlyPrincipal - 0.01) <= 1) {
+            errors.push({
+                field: 'loan', code: 'ONE_EMI_LEFT',
+                message: 'This loan has only one EMI left, so it cannot be re-agreed. If the member still wants a re-agreement, please contact support.',
+            });
+        }
         return errors;
     }
 
@@ -384,7 +406,7 @@ export class LoanReagreementService {
         // ---- the new agreement: priced exactly like a new loan (+ carried AP) ----
         const sc = await this.getSlotConfig();
         const calc = calculateConstantEmi(outstanding, rate, n, appDate, sc.slot1DelayMonths, sc.slot2DelayMonths,
-            sc.roundingMode, sc.slot1StartDay, sc.slot1EndDay, ap);
+            sc.roundingMode, sc.slot1StartDay, sc.slot1EndDay, ap, false /* no slot delay interest on a re-agreement (decision 2026-11-18) */);
         const firstDue = firstDueMonthFromDisbursement(today, calc.firstDueDelayMonths);
         const emi = calc.constantEMI;
         const schedule: QuoteScheduleRow[] = calc.rbSchedule.map((r, i) => {

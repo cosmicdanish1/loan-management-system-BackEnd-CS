@@ -129,8 +129,8 @@ async function main() {
     near('principal = 190000', 190000, q.position!.outstandingPrincipal);
     near('NR interest = 2 x 1575', 3150, q.position!.nrInterest);
     near('carried AP = 23400', 23400, q.position!.apInterest);
-    const exp = calculateConstantEmi(190000, 12, 60, new Date(), 1, 2, 'NEAREST', 25, 5, 23400);
-    near('new EMI matches the agreed formula (principal/n + (RB + delay + AP)/n)', exp.constantEMI, q.neu!.monthlyInstallment);
+    const exp = calculateConstantEmi(190000, 12, 60, new Date(), 1, 2, 'NEAREST', 25, 5, 23400, false);
+    near('new EMI matches the agreed formula (principal/n + (RB + AP)/n; no slot delay interest since 2026-11-18)', exp.constantEMI, q.neu!.monthlyInstallment);
     near('schedule has 60 rows, last closing 0', 0, q.schedule[59].closingBalance);
     near('schedule principal sums to 190000', 190000, round2(q.schedule.reduce((s, r) => s + r.principal, 0)), 0.05);
 

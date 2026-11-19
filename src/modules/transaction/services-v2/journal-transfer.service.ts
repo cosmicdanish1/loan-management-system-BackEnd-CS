@@ -2,6 +2,7 @@ import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { CreateJournalVoucherDto } from '../dto/journal-transfer.dto';
 import { generateVoucherNo } from '../../shared/utils/voucher-utils';
+import { lockNextId } from '../../shared/utils/ledger-lock';
 
 @Injectable()
 export class JournalTransferService {
@@ -166,7 +167,7 @@ export class JournalTransferService {
     // MAX()+1 read lets two concurrent transactions silently compute and insert the same id. A
     // transaction-scoped advisory lock serializes callers without needing a new sequence object.
     private async getNextId(queryRunner: any, table: string, col: string): Promise<number> {
-        await queryRunner.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [table]);
+        await lockNextId(queryRunner, table, col); // ES-495: one shared key per table and column
         const res = await queryRunner.query(`SELECT COALESCE(MAX(${col}), 0) + 1 as next_id FROM ${table}`);
         return parseInt(res[0].next_id);
     }

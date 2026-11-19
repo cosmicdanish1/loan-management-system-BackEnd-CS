@@ -125,7 +125,7 @@ export function computeReagreement(b: Body, rules: CalculatorRules): CalcResult 
   const n = reqInt(b, 'installments', 'New number of installments', 1, 600);
   const appDate = reqDate(b, 'applicationDate', 'Application date');
   const mode: LoanRoundingMode = (LOAN_ROUNDING_MODES as string[]).includes(String(b.roundingMode)) ? b.roundingMode : rules.roundingMode;
-  const c = calculateConstantEmi(outstanding, rate, n, appDate, rules.slot.slot1DelayMonths, rules.slot.slot2DelayMonths, mode, rules.slot.startDay, rules.slot.endDay, ap);
+  const c = calculateConstantEmi(outstanding, rate, n, appDate, rules.slot.slot1DelayMonths, rules.slot.slot2DelayMonths, mode, rules.slot.startDay, rules.slot.endDay, ap, false /* re-agreement: no slot delay interest (decision 2026-11-18) */);
   const res = emptyResult();
   res.kpis.push(
     { label: 'New monthly EMI', value: c.constantEMI, kind: 'money', tone: 'info', sub: `${c.monthlyPrincipal} + ${c.monthlyInterestForEMI}` },

@@ -10,6 +10,34 @@ import { RdRulesService } from '../../rd/rd-rules.service';
 import { LoanPaymentFlagService, LoanPaymentFlag } from './loan-payment-flag.service';
 import { LoanRoundingMode, LOAN_ROUNDING_MODES, applyLoanRounding, installmentDueMonth, round2 } from './loan-rb-schedule.util';
 
+/**
+ * ES-556: everything an early closure would post, frozen at quote time. The Past Transaction voucher keeps this and
+ * Pass replays it, so the amount the employee agreed to is the amount that is posted (no recalculation, no penalty).
+ */
+export interface EarlyClosurePlan {
+    mbno: string;
+    loancaseno: string;
+    loantype: string;
+    quotedOn: string;
+    finalClosureAmount: number;
+    postedPrincipal: number;
+    postedInterest: number;
+    postedPenal: number;
+    outstandingPrincipal: number;
+    adjustment: number;
+    adjustPayrollLag: boolean;
+    nextMonth: boolean;
+    nextMonthPrincipal: number;
+    payrollLagRefundDue: number;
+    payrollLagInterestRefundDue: number;
+    /** loan_master.balance expected once the awaited EMI has been received. */
+    expectedLoanBalance: number;
+    rows: Array<{
+        month: number; year: number; amount: number; principal: number; interest: number; penal: number;
+        monthsOverdue: number; narration: string;
+    }>;
+}
+
 export interface RepaymentDto {
     mbno: string;
     loancaseno: string;
@@ -195,6 +223,9 @@ export class LoanRepaymentService {
         private readonly rdBalanceEvents: RdBalanceEventsService,
     ) {}
 
+    /** ES-556: callbacks run after a repayment commits (a held early closure waiting for this EMI registers one). */
+    readonly afterPaymentHooks: Array<(mbno: string, loancaseno: string) => Promise<unknown>> = [];
+
     // Built from the DataSource (not injected) so scripts that construct this service by hand with
     // three arguments keep working.
     private _flagService?: LoanPaymentFlagService;
@@ -324,13 +355,33 @@ export class LoanRepaymentService {
     }
 
     /**
+     * ES-555: Business Rules switch RULE_LOAN_CLOSURE_GRACE_ENABLED. OFF (default, also when never saved): no grace
+     * period in a loan closure. ON: the ES-522 grace-day behaviour.
+     */
+    private async getClosureGraceEnabled(runner: DataSource | QueryRunner): Promise<boolean> {
+        try {
+            const rows = await runner.query(
+                `SELECT value FROM system_configs WHERE key = 'RULE_LOAN_CLOSURE_GRACE_ENABLED' AND "isActive" = true LIMIT 1`,
+            );
+            return ['true', '1', 'yes'].includes(String(rows[0]?.value ?? '').toLowerCase());
+        } catch {
+            return false;
+        }
+    }
+
+    /**
      * ES-522: the unpaid installment due in the closure month, when the closure date is still inside the grace period
      * (day of month <= grace day). Undefined when grace is 0, the month's installment is paid, or grace has passed.
      */
-    private currentMonthInGrace(installments: InstallmentStatus[], asOf: Date, graceDay: number): InstallmentStatus | undefined {
-        if (!(graceDay > 0)) return undefined;
-        const cutoff = Math.min(graceDay, daysInMonth(asOf.getFullYear(), asOf.getMonth()));
-        if (asOf.getDate() > cutoff) return undefined;
+    private currentMonthInGrace(installments: InstallmentStatus[], asOf: Date, graceDay: number, graceEnabled: boolean = true): InstallmentStatus | undefined {
+        // ES-555: with the closure grace period switched OFF (the default) the closure month's unpaid installment is ALWAYS
+        // settled as part of the closure (no penalty, no separate flat interest, averaged with the future ones),
+        // whatever the day of the month. Only the day cut-off below is the old grace-period behaviour.
+        if (graceEnabled) {
+            if (!(graceDay > 0)) return undefined;
+            const cutoff = Math.min(graceDay, daysInMonth(asOf.getFullYear(), asOf.getMonth()));
+            if (asOf.getDate() > cutoff) return undefined;
+        }
         return installments.find(i => i.isDue && !i.isFullyPaid
             && i.dueDate.getFullYear() === asOf.getFullYear() && i.dueDate.getMonth() === asOf.getMonth());
     }
@@ -416,6 +467,14 @@ export class LoanRepaymentService {
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
             [r.mbno, r.loantype, r.loancaseno, round2(r.principal + r.interest), round2(r.principal), round2(r.interest), r.refundedOn, r.voucherNo, r.narration, r.kind, r.recordedBy],
         );
+    }
+
+    /** ES-556: same refund row, written inside the caller's own transaction (Past Transaction replay). */
+    async recordPayrollLagRefundInTx(runner: QueryRunner, args: {
+        mbno: string; loantype: string; loancaseno: string; principal: number; interest: number; refundedOn: Date;
+        voucherNo: string | null; narration: string; recordedBy: string; kind: string;
+    }): Promise<void> {
+        await this.recordPayrollLagRefund(runner, args);
     }
 
     /**
@@ -906,7 +965,66 @@ export class LoanRepaymentService {
      * (see BUG FIX 40 below for why an even split matters, not just a plain
      * principal prepayment).
      */
-    async recordLoanRepayment(dto: RepaymentDto): Promise<{ success: boolean; message: string; flag?: LoanPaymentFlag }> {
+    /**
+     * ES-551: records that a payment brought in more than was due. Runs inside the repayment's transaction but behind a
+     * SAVEPOINT, so if the loan_excess_payment table is missing (migration not applied yet) or the insert fails for any
+     * reason, only this record is lost — the repayment itself is never affected.
+     */
+    private async insertExcessEvent(qr: QueryRunner, e: {
+        mbno: string; loancaseno: string; loantype: string; paymentDate: Date; receiptNo?: string | null; source: string;
+        received: number; dueCleared: number; excess: number; applied: number; unapplied: number;
+        installments: number[]; narration?: string | null; postedBy: string;
+    }): Promise<number | null> {
+        try {
+            await qr.query('SAVEPOINT loan_excess_evt');
+            const r = await qr.query(
+                `INSERT INTO loan_excess_payment
+                    (mbno, loancaseno, loantype, payment_date, receipt_no, payment_source, amount_received, due_cleared,
+                     excess_amount, applied_amount, unapplied_amount, applied_installments, narration, posted_by)
+                 VALUES ($1::numeric, $2::text, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13, $14) RETURNING id`,
+                [e.mbno, e.loancaseno, e.loantype, e.paymentDate, e.receiptNo || null, e.source, e.received, e.dueCleared,
+                    e.excess, e.applied, e.unapplied, JSON.stringify(e.installments), e.narration || null, e.postedBy],
+            );
+            await qr.query('RELEASE SAVEPOINT loan_excess_evt');
+            return Array.isArray(r) && r[0]?.id !== undefined ? Number(r[0].id) : null;
+        } catch (err: any) {
+            try { await qr.query('ROLLBACK TO SAVEPOINT loan_excess_evt'); } catch { /* transaction already unusable; the caller's commit will surface it */ }
+            console.warn(`[loan-excess] could not record the excess-payment event: ${err?.message || err}`);
+            return null;
+        }
+    }
+
+    /** ES-551: excess / advance payments received on one loan, newest first. Returns [] if the table is not there yet. */
+    async getExcessPayments(mbno: string, loancaseno: string, loantype?: string): Promise<Array<{
+        id: number; paymentDate: string; receiptNo: string | null; source: string; amountReceived: number; dueCleared: number;
+        excessAmount: number; appliedAmount: number; unappliedAmount: number; installments: number[]; postedBy: string | null; createdAt: string;
+    }>> {
+        try {
+            const rows = await this.dataSource.query(
+                `SELECT id, to_char(payment_date, 'YYYY-MM-DD') AS payment_date, receipt_no, payment_source, amount_received::float AS amount_received,
+                        due_cleared::float AS due_cleared, excess_amount::float AS excess_amount, applied_amount::float AS applied_amount,
+                        unapplied_amount::float AS unapplied_amount, applied_installments, posted_by, created_at
+                   FROM loan_excess_payment
+                  WHERE mbno = $1::numeric AND loancaseno = $2::text AND ($3::text IS NULL OR loantype = $3)
+                  ORDER BY payment_date DESC, id DESC`,
+                [mbno, loancaseno, loantype || null],
+            );
+            return rows.map((r: any) => ({
+                id: Number(r.id), paymentDate: r.payment_date, receiptNo: r.receipt_no, source: r.payment_source,
+                amountReceived: r.amount_received, dueCleared: r.due_cleared, excessAmount: r.excess_amount,
+                appliedAmount: r.applied_amount, unappliedAmount: r.unapplied_amount,
+                installments: Array.isArray(r.applied_installments) ? r.applied_installments : [],
+                postedBy: r.posted_by, createdAt: r.created_at,
+            }));
+        } catch {
+            return [];
+        }
+    }
+
+    async recordLoanRepayment(dto: RepaymentDto): Promise<{
+        success: boolean; message: string; flag?: LoanPaymentFlag;
+        excess?: { excessAmount: number; appliedAmount: number; unappliedAmount: number; installments: number[] };
+    }> {
         const queryRunner = this.dataSource.createQueryRunner();
         await queryRunner.connect();
         await queryRunner.startTransaction();
@@ -1193,6 +1311,10 @@ export class LoanRepaymentService {
             // EMI's own principal:interest ratio keeps both pools draining in
             // lockstep, so an installment only reads "fully paid" once both
             // its principal AND interest are genuinely collected.
+            // ES-551: whatever is left here is money above everything that was due. Captured before the advance
+            // loop below spends it, so the event can say how much came in extra and how much was actually applied.
+            const excessAfterDue = round2(Math.max(0, remaining));
+            const advanceInstallments: number[] = [];
             if (remaining > 0.004 && totalPrincipalApplied < currentBalance) {
                 const noOfInstal = parseInt(loan.no_of_instal, 10) || 0;
                 const loanAmtNum = parseFloat(loan.loan_amt) || 0;
@@ -1240,6 +1362,7 @@ export class LoanRepaymentService {
                     totalPrincipalApplied += principalPortion;
                     totalInterestApplied += interestPortion;
                     remaining -= (principalPortion + interestPortion);
+                    advanceInstallments.push(nextInstallmentNo);
                     nextInstallmentNo++;
                 }
             }
@@ -1248,6 +1371,21 @@ export class LoanRepaymentService {
                 throw new BadRequestException(
                     `No outstanding dues found for loan ${dto.loancaseno} up to the current month — nothing to apply this payment against.`
                 );
+            }
+
+            // ES-551: record the excess event (never affects the repayment; see insertExcessEvent)
+            let excessInfo: { excessAmount: number; appliedAmount: number; unappliedAmount: number; installments: number[] } | undefined;
+            if (excessAfterDue > 0.004) {
+                const unappliedAmt = round2(Math.max(0, remaining));
+                const appliedAmt = round2(Math.max(0, excessAfterDue - unappliedAmt));
+                excessInfo = { excessAmount: excessAfterDue, appliedAmount: appliedAmt, unappliedAmount: unappliedAmt, installments: advanceInstallments };
+                await this.insertExcessEvent(queryRunner, {
+                    mbno: String(dto.mbno), loancaseno: String(dto.loancaseno), loantype: loan.loantype, paymentDate: asOf,
+                    receiptNo: dto.receiptNo, source: isDemand ? 'DEMAND' : 'CASH',
+                    received: round2(payment), dueCleared: round2(payment - excessAfterDue),
+                    excess: excessAfterDue, applied: appliedAmt, unapplied: unappliedAmt,
+                    installments: advanceInstallments, narration: dto.narration, postedBy: dto.username || 'system',
+                });
             }
 
             const newBalance = Math.max(0, currentBalance - totalPrincipalApplied);
@@ -1293,6 +1431,12 @@ export class LoanRepaymentService {
             const savedFlag = await saveFlag();
             await queryRunner.commitTransaction();
 
+            // ES-556: a payment has landed on this loan; a closure waiting in Past Transaction for it may now be passed.
+            // Runs after the commit and can never fail the payment that triggered it.
+            for (const hook of this.afterPaymentHooks) {
+                try { await hook(String(dto.mbno), String(dto.loancaseno)); } catch { /* the hook logs its own failures */ }
+            }
+
             const totalApplied = Math.round((totalPrincipalApplied + totalInterestApplied + totalPenalApplied) * 100) / 100;
             const installmentNote = installmentsCovered.length > 0
                 ? ` Covered installment(s) #${installmentsCovered.join(', ')}.`
@@ -1303,6 +1447,7 @@ export class LoanRepaymentService {
             return {
                 success: true,
                 ...(savedFlag ? { flag: savedFlag } : {}),
+                ...(excessInfo ? { excess: excessInfo } : {}),
                 message: `Repayment of ₹${totalApplied.toLocaleString('en-IN')} recorded for loan ${dto.loancaseno}.${installmentNote}${penalNote} Remaining balance: ₹${newBalance.toLocaleString('en-IN')}.${unusedNote}`
             };
         } catch (error: any) {
@@ -1647,6 +1792,8 @@ export class LoanRepaymentService {
         applyRdShare: boolean = true,
         mbno?: string,
         adjustPayrollLag: boolean = false,
+        /** ES-556: close on NEXT month's outstanding: the upcoming EMI (cut next month) is treated as already paid. */
+        nextMonth: boolean = false,
     ): Promise<any> {
         // loancaseno is NOT unique across members in this schema (legacy case
         // numbers collide between unrelated members' loans) — without mbno
@@ -1678,7 +1825,7 @@ export class LoanRepaymentService {
             // ES-522: the installment of the closure month is NOT overdue while the closure date is inside its grace
             // period: it is one of the remaining installments (averaged with the future ones) and carries no flat
             // interest of its own. After the grace period it is an ordinary due (NR) installment, as before.
-            const graceInstallment = this.currentMonthInGrace(allDueInstallments, asOf, await this.getEffectiveGraceDay(queryRunner, loan));
+            const graceInstallment = this.currentMonthInGrace(allDueInstallments, asOf, await this.getEffectiveGraceDay(queryRunner, loan), await this.getClosureGraceEnabled(queryRunner));
             const installments = graceInstallment ? allDueInstallments.filter(i => i !== graceInstallment) : allDueInstallments;
             const unpaid = installments.filter(i => !i.isFullyPaid);
             const k = installments.length;
@@ -1717,10 +1864,10 @@ export class LoanRepaymentService {
             const payrollLagInterestRefundDue = adjustPayrollLag
                 ? round2(Math.max(0, payrollLagInterestOffset - payrollLagInterestRefunded))
                 : 0;
-            const outstandingPrincipal = applyLoanRounding(
+            let outstandingPrincipal = applyLoanRounding(
                 loanAmt - totalPrincipalPaid - (adjustPayrollLag ? 0 : payrollLagPrincipalOffset), rounding,
             );
-            const penalInterest = applyLoanRounding(unpaid.reduce((sum, i) => sum + i.penalDue, 0), rounding);
+            let penalInterest = applyLoanRounding(unpaid.reduce((sum, i) => sum + i.penalDue, 0), rounding);
 
             // In separate-interest mode, the remaining principal determines
             // the legacy projection of the remaining principal slots. This
@@ -1737,7 +1884,35 @@ export class LoanRepaymentService {
             // installment is only partly paid — exactly the Slot 1 September
             // case where September is NR and the remaining four installments
             // are future/AP installments.
-            const closureK = monthlyPrincipal > 0 ? k : 0;
+            let closureK = monthlyPrincipal > 0 ? k : 0;
+
+            // ES-556: "close on next month's outstanding". For a regular payer (no NR) the upcoming EMI is cut from
+            // payroll next month, so it is treated as ALREADY PAID: its principal comes off the outstanding principal
+            // that the closure interest is calculated on, and its own interest/penal drop out (they arrive with the EMI).
+            // The member must have no other unpaid due installment (no NR), and no penalty is charged on this quote.
+            let unpaidForAp = unpaid;
+            let nextMonthInfo: null | { installmentNo: number | null; principal: number; wasInGrace: boolean } = null;
+            if (nextMonth) {
+                if (unpaid.length > 1) {
+                    throw new BadRequestException(
+                        `Closing on next month's outstanding is only for members with no NR: ${unpaid.length} installments of loan ${loancaseno} are unpaid and due.`,
+                    );
+                }
+                const nextEmi = graceInstallment ?? unpaid[0] ?? null;
+                const emiPrincipal = nextEmi
+                    ? round2(nextEmi.principalDue)
+                    : round2(Math.min(monthlyPrincipal, Math.max(0, outstandingPrincipal)));
+                if (!(emiPrincipal > 0)) {
+                    throw new BadRequestException(`Loan ${loancaseno} has no EMI principal left to receive next month; use the normal early closure.`);
+                }
+                outstandingPrincipal = applyLoanRounding(Math.max(0, outstandingPrincipal - emiPrincipal), rounding);
+                unpaidForAp = [];
+                penalInterest = 0;
+                // a due installment is already inside k (now simply paid); a grace / not-yet-due one was a "future" one and
+                // must leave the future count too
+                if (!unpaid[0]) closureK = closureK + 1;
+                nextMonthInfo = { installmentNo: nextEmi ? nextEmi.installmentNo : null, principal: emiPrincipal, wasInGrace: !!graceInstallment };
+            }
 
             const observedPrincipalRows = scheduleVersion ? [] : await queryRunner.query(
                 `SELECT principal_amount, COUNT(*)::int AS frequency
@@ -1757,7 +1932,7 @@ export class LoanRepaymentService {
                 nrPrincipal, nrInterest, futureInstallmentCount, averageRemainingPrincipal,
                 averageRbInterest, apInterest, closureInterest,
             } = this.computeApClosureInterest(
-                loanAmt, noOfInstal, instalAmt, annualRate, outstandingPrincipal, closureK, unpaid, rounding,
+                loanAmt, noOfInstal, instalAmt, annualRate, outstandingPrincipal, closureK, unpaidForAp, rounding,
                 loan.loan_payment_model === 'SEPARATE_INTEREST' && Number.isFinite(observedPrincipalEmi)
                     ? observedPrincipalEmi : undefined,
             );
@@ -1809,6 +1984,8 @@ export class LoanRepaymentService {
                     principalDue: graceInstallment.principalDue,
                 } : null,
                 adjustPayrollLag,
+                nextMonth,
+                nextMonthInfo,
                 payrollLagRefunded,
                 payrollLagRefundDue,
                 payrollLagInterestOffset,
@@ -1926,6 +2103,13 @@ export class LoanRepaymentService {
         applyRdShare: boolean = true,
         mbno?: string,
         adjustPayrollLag: boolean = false,
+        /** ES-556: close on next month's outstanding (see calculateEarlyClosure). */
+        nextMonth: boolean = false,
+        /**
+         * ES-556: dry run for the Past Transaction hold. Runs the whole closure inside the transaction, reads back the
+         * rows it wrote and ROLLS EVERYTHING BACK. Nothing is posted; the returned plan is what Pass replays later.
+         */
+        holdPlan: boolean = false,
     ): Promise<{
         success: boolean;
         message: string;
@@ -1933,10 +2117,12 @@ export class LoanRepaymentService {
         fromRd: number;
         fromShare: number;
         payableByMember: number;
+        plan?: EarlyClosurePlan;
     }> {
         const queryRunner = this.dataSource.createQueryRunner();
         await queryRunner.connect();
         await queryRunner.startTransaction();
+        let txFinished = false;
 
         try {
             // See calculateEarlyClosure's matching comment — loancaseno alone
@@ -2002,14 +2188,14 @@ export class LoanRepaymentService {
             const installments = await this.getInstallmentStatus(queryRunner, loancaseno, loan, asOf, true);
             // ES-522: same grace rule as the quote: inside the grace period the closure month's installment is treated
             // like a future installment (principal only; its interest is part of the average-principal interest).
-            const graceInstallment = this.currentMonthInGrace(installments, asOf, await this.getEffectiveGraceDay(queryRunner, loan));
+            const graceInstallment = this.currentMonthInGrace(installments, asOf, await this.getEffectiveGraceDay(queryRunner, loan), await this.getClosureGraceEnabled(queryRunner));
             if (graceInstallment) {
                 graceInstallment.isDue = false;
                 graceInstallment.interestDue = 0;
                 graceInstallment.penalDue = 0;
             }
             const k = installments.filter(i => i.isDue).length;
-            const unpaidDue = installments.filter(i => i.isDue && !i.isFullyPaid);
+            let unpaidDue = installments.filter(i => i.isDue && !i.isFullyPaid);
 
             // Read historical ledger totals BEFORE this closure's own ledger
             // inserts happen below, or they'd double-count against themselves.
@@ -2038,10 +2224,10 @@ export class LoanRepaymentService {
             const payrollLagInterestRefundDue = adjustPayrollLag
                 ? round2(Math.max(0, payrollLagInterestOffset - payrollLagInterestRefunded))
                 : 0;
-            const apPrincipalBasis = applyLoanRounding(
+            let apPrincipalBasis = applyLoanRounding(
                 loanAmt - totalPrincipalPaid - (adjustPayrollLag ? 0 : payrollLagPrincipalOffset), rounding,
             );
-            const outstandingPrincipal = applyLoanRounding(
+            let outstandingPrincipal = applyLoanRounding(
                 loanAmt - totalPrincipalPaid - postingOffset, rounding,
             );
             const monthlyPrincipal = scheduleVersion
@@ -2049,7 +2235,38 @@ export class LoanRepaymentService {
                 : (noOfInstal > 0 ? loanAmt / noOfInstal : 0);
             // Keep execution's NR/future boundary identical to the quote;
             // deriving it from balance alone mishandles a partial current EMI.
-            const closureK = k;
+            let closureK = k;
+
+            // ES-556: same "next month's outstanding" rule as the quote (see calculateEarlyClosure): the upcoming EMI is
+            // treated as already paid, so it is not posted by this closure at all (it arrives through its own payment).
+            let nextMonthPrincipal = 0;
+            if (nextMonth) {
+                if (unpaidDue.length > 1) {
+                    throw new BadRequestException(
+                        `Closing on next month's outstanding is only for members with no NR: ${unpaidDue.length} installments of loan ${loancaseno} are unpaid and due.`,
+                    );
+                }
+                const nextEmi = graceInstallment ?? unpaidDue[0]
+                    ?? [...installments].sort((a, b) => a.installmentNo - b.installmentNo).find(i => !i.isFullyPaid && i.principalDue > 0)
+                    ?? null;
+                nextMonthPrincipal = nextEmi
+                    ? round2(nextEmi.principalDue)
+                    : round2(Math.min(monthlyPrincipal, Math.max(0, outstandingPrincipal)));
+                if (!(nextMonthPrincipal > 0)) {
+                    throw new BadRequestException(`Loan ${loancaseno} has no EMI principal left to receive next month; use the normal early closure.`);
+                }
+                if (nextEmi) {
+                    nextEmi.principalDue = 0;
+                    nextEmi.interestDue = 0;
+                    nextEmi.penalDue = 0;
+                    nextEmi.isFullyPaid = true;
+                }
+                apPrincipalBasis = applyLoanRounding(Math.max(0, apPrincipalBasis - nextMonthPrincipal), rounding);
+                outstandingPrincipal = applyLoanRounding(Math.max(0, outstandingPrincipal - nextMonthPrincipal), rounding);
+                unpaidDue = [];
+                // a due installment is already inside k; a grace / not-yet-due one was counted as future and must leave it
+                if (!nextEmi || !nextEmi.isDue) closureK = closureK + 1;
+            }
 
             // Method B (AP) closure interest — see calculateEarlyClosure /
             // computeApClosureInterest's doc comment for the full formula.
@@ -2192,36 +2409,7 @@ export class LoanRepaymentService {
             // member too (see the matching comment on recordLoanRepayment's
             // balance UPDATE above); a bare zero-out here would wrongly zero
             // a same-numbered sibling case's balance as well.
-            await queryRunner.query(
-                `UPDATE loan_master SET balance = 0 WHERE loancaseno::text = $1 AND mbno = $2 AND loantype = $3`,
-                [loancaseno, loan.mbno, loan.loantype]
-            );
-            // Loan Against RD: release the lock now, BEFORE the RD adjustment
-            // below, so the loan's own lock can't block the RD being used to
-            // settle it.
-            await this.releaseRdLienIfClosed(queryRunner, loancaseno, loan.mbno, loan.loantype, postedBy, 'EARLY CLOSURE');
-
-            // BUG FIX 39 (same defect as pass-transaction.service.ts BUG FIX 37, found separately
-            // here since this service never shared that fix): tested only 'ELN', but ALN is the
-            // loan type every real loan in this system uses. Confirmed live on real test data —
-            // after a ₹2,132 repayment on an ALN loan, member_balances.emergency_loan_balance was
-            // still the full disbursed amount (regularloan was decremented instead, floored at 0
-            // by GREATEST since it started there) while loan_master.balance had correctly dropped.
-            // A member who fully repays an ALN loan would show its full original amount against
-            // their emergency-loan eligibility forever, since nothing ever brings it back down.
-            const isEmergency = (['ELN', 'ALN', 'A', 'E', 'EMR', 'ADD'].includes((loan.loantype || '').toUpperCase())
-                || (loan.loantype || '').toUpperCase().includes('EMERGENCY'));
-            if (isEmergency) {
-                await queryRunner.query(
-                    `UPDATE member_balances SET emergency_loan_balance = GREATEST(0, COALESCE(emergency_loan_balance, 0) - $1) WHERE mbno = $2`,
-                    [outstandingPrincipal, loan.mbno]
-                );
-            } else {
-                await queryRunner.query(
-                    `UPDATE member_balances SET regularloan = GREATEST(0, COALESCE(regularloan, 0) - $1) WHERE mbno = $2`,
-                    [outstandingPrincipal, loan.mbno]
-                );
-            }
+            await this.closeLoanAccountSideEffects(queryRunner, loancaseno, loan, outstandingPrincipal, postedBy);
 
             const penalInterest = applyLoanRounding(rawPenalInterest, rounding);
             // The net outstanding principal and future principal rows already
@@ -2277,40 +2465,9 @@ export class LoanRepaymentService {
             // adjustment rows above already sum to finalClosureAmount
             // regardless of payment source; this only records WHERE that
             // money came from, on the RD/Share side.
-            let fromRd = 0;
-            let fromShare = 0;
-            if (applyRdShare) {
-                const rdShareAdjustment = await this.loanEligibility.getRdShareClosureAdjustment(loan.mbno, finalClosureAmount, loancaseno);
-                fromRd = rdShareAdjustment.fromRd;
-                fromShare = rdShareAdjustment.fromShare;
-
-                if (fromRd > 0 && rdShareAdjustment.yearcode) {
-                    await this.rdBalanceEvents.recordWithdrawal(
-                        loan.mbno, rdShareAdjustment.yearcode, fromRd, asOf, postedBy,
-                        `Applied to loan ${loancaseno} early closure`, queryRunner,
-                    );
-                }
-                if (fromShare > 0) {
-                    const shareUpdateResult = await queryRunner.query(
-                        `UPDATE member_balances SET shares = shares - $1
-                         WHERE mbno = $2 AND shares - $1 >= $3
-                         RETURNING shares`,
-                        [fromShare, loan.mbno, rdShareAdjustment.shareMinBalance],
-                    );
-                    // queryRunner.query() for a non-SELECT returns
-                    // [rows[], rowCount] -- shareUpdateResult[0] is the
-                    // actual RETURNING rows, never shareUpdateResult itself.
-                    const shareRows = shareUpdateResult[0];
-                    if (shareRows.length === 0) {
-                        // Shouldn't happen given the fresh read above, unless
-                        // a concurrent change raced us — fail safe rather
-                        // than silently debit less than computed.
-                        throw new BadRequestException(
-                            `Share Value changed concurrently and no longer supports a ₹${fromShare.toLocaleString('en-IN')} adjustment. Please retry.`,
-                        );
-                    }
-                }
-            }
+            const { fromRd, fromShare } = await this.applyRdShareForClosure(
+                queryRunner, loancaseno, loan, finalClosureAmount, asOf, postedBy, applyRdShare,
+            );
             const payableByMember = Math.round((finalClosureAmount - fromRd - fromShare) * 100) / 100;
 
             if (adjustPayrollLag && (payrollLagRefundDue > 0 || payrollLagInterestRefundDue > 0)) {
@@ -2320,7 +2477,44 @@ export class LoanRepaymentService {
                     recordedBy: postedBy, kind: 'NETTED_AT_CLOSURE',
                 });
             }
+
+            if (holdPlan) {
+                // ES-556: read back exactly what this closure would post, then undo all of it.
+                if (!receiptNo) throw new BadRequestException('A hold plan needs the voucher number as receiptNo.');
+                const planRows = await queryRunner.query(
+                    `SELECT payment_month, payment_year, payment_amount, principal_amount, interest_amount, penal_amount, months_overdue, narration
+                     FROM loan_repayment_ledger
+                     WHERE receipt_no = $1 AND loancaseno::text = $2 AND mbno = $3 AND loantype = $4 ORDER BY id`,
+                    [receiptNo, loancaseno, loan.mbno, loan.loantype],
+                );
+                const rows = planRows.map((r: any) => ({
+                    month: Number(r.payment_month), year: Number(r.payment_year),
+                    amount: parseFloat(r.payment_amount) || 0, principal: parseFloat(r.principal_amount) || 0,
+                    interest: parseFloat(r.interest_amount) || 0, penal: parseFloat(r.penal_amount) || 0,
+                    monthsOverdue: Number(r.months_overdue) || 0, narration: String(r.narration ?? ''),
+                }));
+                const plan: EarlyClosurePlan = {
+                    mbno: String(loan.mbno), loancaseno: String(loancaseno), loantype: String(loan.loantype),
+                    quotedOn: toLocalDateString(asOf),
+                    finalClosureAmount,
+                    postedPrincipal: round2(rows.reduce((s: number, r: any) => s + r.principal, 0)),
+                    postedInterest: round2(rows.reduce((s: number, r: any) => s + r.interest, 0)),
+                    postedPenal: round2(rows.reduce((s: number, r: any) => s + r.penal, 0)),
+                    outstandingPrincipal,
+                    adjustment, adjustPayrollLag, nextMonth, nextMonthPrincipal,
+                    payrollLagRefundDue, payrollLagInterestRefundDue,
+                    expectedLoanBalance: round2(currentBalance - nextMonthPrincipal),
+                    rows,
+                };
+                await queryRunner.rollbackTransaction();
+                txFinished = true;
+                return {
+                    success: true, message: 'Closure planned (nothing posted).',
+                    finalClosureAmount, fromRd, fromShare, payableByMember, plan,
+                };
+            }
             await queryRunner.commitTransaction();
+            txFinished = true;
 
             const sourceNote = (fromRd > 0 || fromShare > 0)
                 ? ` (₹${fromRd.toLocaleString('en-IN')} from RD + ₹${fromShare.toLocaleString('en-IN')} from Share Value applied; ₹${payableByMember.toLocaleString('en-IN')} payable by member)`
@@ -2334,11 +2528,82 @@ export class LoanRepaymentService {
                 payableByMember,
             };
         } catch (error: any) {
-            await queryRunner.rollbackTransaction();
+            if (!txFinished) await queryRunner.rollbackTransaction();
             throw error;
         } finally {
             await queryRunner.release();
         }
+    }
+
+    /**
+     * Zero the loan, release a Loan-Against-RD lock and bring the member's loan balance down by the principal that
+     * is being closed. Shared by the immediate closure and by the Past Transaction replay (ES-556).
+     */
+    async closeLoanAccountSideEffects(
+        queryRunner: QueryRunner, loancaseno: string, loan: { mbno: string; loantype: string }, outstandingPrincipal: number, postedBy: string,
+    ): Promise<void> {
+        await queryRunner.query(
+            `UPDATE loan_master SET balance = 0 WHERE loancaseno::text = $1 AND mbno = $2 AND loantype = $3`,
+            [loancaseno, loan.mbno, loan.loantype],
+        );
+        // Loan Against RD: release the lock now, BEFORE the RD adjustment, so the loan's own lock can't block the RD
+        // being used to settle it.
+        await this.releaseRdLienIfClosed(queryRunner, loancaseno, loan.mbno, loan.loantype, postedBy, 'EARLY CLOSURE');
+
+        // BUG FIX 39: ALN is the loan type every real loan uses; emergency loans move emergency_loan_balance, others regularloan.
+        const isEmergency = (['ELN', 'ALN', 'A', 'E', 'EMR', 'ADD'].includes((loan.loantype || '').toUpperCase())
+            || (loan.loantype || '').toUpperCase().includes('EMERGENCY'));
+        if (isEmergency) {
+            await queryRunner.query(
+                `UPDATE member_balances SET emergency_loan_balance = GREATEST(0, COALESCE(emergency_loan_balance, 0) - $1) WHERE mbno = $2`,
+                [outstandingPrincipal, loan.mbno],
+            );
+        } else {
+            await queryRunner.query(
+                `UPDATE member_balances SET regularloan = GREATEST(0, COALESCE(regularloan, 0) - $1) WHERE mbno = $2`,
+                [outstandingPrincipal, loan.mbno],
+            );
+        }
+    }
+
+    /**
+     * RD / Share adjustment toward a closure, derived from what is available NOW (RD before Share). RD goes through the
+     * real RD service, Share is debited directly. Shared by the immediate closure and the Past Transaction replay.
+     */
+    async applyRdShareForClosure(
+        queryRunner: QueryRunner, loancaseno: string, loan: { mbno: string }, finalClosureAmount: number,
+        asOf: Date, postedBy: string, applyRdShare: boolean,
+    ): Promise<{ fromRd: number; fromShare: number }> {
+        let fromRd = 0;
+        let fromShare = 0;
+        if (applyRdShare) {
+            const rdShareAdjustment = await this.loanEligibility.getRdShareClosureAdjustment(loan.mbno, finalClosureAmount, loancaseno);
+            fromRd = rdShareAdjustment.fromRd;
+            fromShare = rdShareAdjustment.fromShare;
+
+            if (fromRd > 0 && rdShareAdjustment.yearcode) {
+                await this.rdBalanceEvents.recordWithdrawal(
+                    loan.mbno, rdShareAdjustment.yearcode, fromRd, asOf, postedBy,
+                    `Applied to loan ${loancaseno} early closure`, queryRunner,
+                );
+            }
+            if (fromShare > 0) {
+                const shareUpdateResult = await queryRunner.query(
+                    `UPDATE member_balances SET shares = shares - $1
+                     WHERE mbno = $2 AND shares - $1 >= $3
+                     RETURNING shares`,
+                    [fromShare, loan.mbno, rdShareAdjustment.shareMinBalance],
+                );
+                // queryRunner.query() for a non-SELECT returns [rows[], rowCount]
+                const shareRows = shareUpdateResult[0];
+                if (shareRows.length === 0) {
+                    throw new BadRequestException(
+                        `Share Value changed concurrently and no longer supports a ₹${fromShare.toLocaleString('en-IN')} adjustment. Please retry.`,
+                    );
+                }
+            }
+        }
+        return { fromRd, fromShare };
     }
 
     /**

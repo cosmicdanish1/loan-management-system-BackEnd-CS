@@ -1,5 +1,5 @@
 import { RequireMenuAction } from '../../auth/guards/menu-right.guard';
-import { Controller, Get, Post, Body, Param, Query, UseGuards, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, UseGuards, ParseIntPipe, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RdMemberConfigService } from '../services/rd-member-config.service';
@@ -17,8 +17,12 @@ export class RdMemberConfigController {
         @Param('mbno') mbno: string,
         @Param('yearcode', ParseIntPipe) yearcode: number,
         @Body() body: { monthlyRdAmount: number; setBy?: string },
+        @Req() req: any,
     ) {
-        await this.service.setMonthlyAmount(mbno, yearcode, Number(body.monthlyRdAmount), body.setBy || 'system');
+        // ES-509: the audit trail names the signed-in user from the token; a name in the body is ignored (anyone could
+        // type any name there, and the screen sends none, which used to be recorded as "system").
+        const actingUser = req?.user?.susername || req?.user?.username || 'system';
+        await this.service.setMonthlyAmount(mbno, yearcode, Number(body.monthlyRdAmount), actingUser);
         // No manual {success,data} wrapper here -- the global
         // TransformInterceptor (main.ts) already wraps every controller's
         // return value in {success,statusCode,message,data,timestamp}.

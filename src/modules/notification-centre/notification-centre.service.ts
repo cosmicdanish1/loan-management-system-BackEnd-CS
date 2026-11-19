@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { DataSource } from 'typeorm';
 import { RETIREMENT_DATE_RECORDED_SQL } from '../member-status/member-status.service';
+import { detectEarlyClosureNotices } from '../loan/services-v2/early-closure/early-closure-notifications';
 
 /**
  * Notification Centre (ES-101).
@@ -13,7 +14,7 @@ import { RETIREMENT_DATE_RECORDED_SQL } from '../member-status/member-status.ser
  */
 export type NotificationKind =
   | 'MEMBER_READY_INACTIVE' | 'MEMBER_RETIRING_SOON' | 'INSURANCE_DUE'
-  | 'MEMBER_NO_RETIREMENT_DATE' | 'NEGATIVE_RD' | 'MESSAGES_FAILED' | 'MESSAGES_PENDING' | 'DAYEND_PENDING';
+  | 'MEMBER_NO_RETIREMENT_DATE' | 'NEGATIVE_RD' | 'MESSAGES_FAILED' | 'MESSAGES_PENDING' | 'DAYEND_PENDING' | 'LOAN_EXCESS_PAYMENT' | 'EARLY_CLOSURE_PENDING';
 
 interface Desired {
   kind: NotificationKind;
@@ -166,10 +167,42 @@ export class NotificationCentreService {
       });
     }
 
+    // 7. ES-551: loan payments that brought in more than was due (last 30 days). One notification per payment; it
+    // resolves itself after 30 days. Wrapped so a missing table (migration not applied yet) never breaks the other alerts.
+    try {
+      const excess = await this.dataSource.query(`
+        SELECT e.id, e.mbno::text AS mbno, e.loancaseno, e.excess_amount::float AS excess, e.unapplied_amount::float AS unapplied,
+               to_char(e.payment_date, 'YYYY-MM-DD') AS paid_on, e.applied_installments,
+               COALESCE(NULLIF(m.full_name,''), NULLIF(trim(concat_ws(' ', m.f_name, m.m_name, m.l_name)), ''), '') AS name
+          FROM loan_excess_payment e
+          LEFT JOIN member_master m ON m.mbno::numeric = e.mbno
+         WHERE e.created_at > now() - interval '30 days'
+         ORDER BY e.created_at DESC LIMIT 200`);
+      for (const r of excess) {
+        const inst: number[] = Array.isArray(r.applied_installments) ? r.applied_installments : [];
+        out.push({
+          kind: 'LOAN_EXCESS_PAYMENT', severity: r.unapplied > 0.01 ? 'warning' : 'info', dedupe_key: `loan-excess:${r.id}`,
+          title: `${r.name || 'Member'} (${r.mbno}) paid ${inr(r.excess)} more than due on loan ${r.loancaseno}`,
+          body: `Received on ${fmtDate(r.paid_on)}. ${inr(r.excess - r.unapplied)} was applied toward future installment${inst.length === 1 ? '' : 's'}${inst.length ? ` (#${inst.join(', #')})` : ''}.`
+            + (r.unapplied > 0.01 ? ` ${inr(r.unapplied)} was more than the loan needed and was NOT applied — please check.` : ''),
+          mbno: r.mbno, member_name: r.name, action_path: '/transaction/loan-repayment', action_label: 'Open Loan Repayment',
+        });
+      }
+    } catch (e) {
+      this.logger.warn(`Loan excess-payment alerts skipped: ${(e as Error).message}`);
+    }
+
+    // 8. ES-556: early closures waiting in Past Transaction for the awaited EMI
+    try {
+      out.push(...(await detectEarlyClosureNotices(this.dataSource)));
+    } catch (e: any) {
+      this.logger.warn(`Early-closure notices skipped: ${e?.message || e}`);
+    }
+
     return out;
   }
 
-  // ── sync ───────────────────────────────────────────────────────────────────
+  //── sync ───────────────────────────────────────────────────────────────────
   async sync(): Promise<{ open: number; resolved: number }> {
     if (this.syncing) return this.syncing; // a run is already in progress — share its result
     this.syncing = this.doSync().finally(() => { this.syncing = null; });

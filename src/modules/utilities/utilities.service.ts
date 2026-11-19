@@ -9,7 +9,7 @@ import { RD_RULE_DEFAULTS, RD_RULE_KEYS, RD_BOOLEAN_RULE_KEYS } from '../rd/rd-b
 import { HEAD_BALANCES_SELECT } from './head-balances.sql';
 import { generateVoucherNo } from '../shared/utils/voucher-utils';
 import { parseBusinessDate } from '../shared/utils/date-utils';
-import { lockLedgerIds } from '../shared/utils/ledger-lock';
+import { lockLedgerIds, lockNextId } from '../shared/utils/ledger-lock';
 import { DIVIDEND_RATE_KEYS, dividendRateRulesFrom, validateDividendRateRuleSettings } from '../dividend/dividend-rate-rules';
 
 /**
@@ -1189,7 +1189,10 @@ export class UtilitiesService {
     try {
       this.logger.log(`[VoucherPayment] Saving to TRANSACTIONS for member ${data.memberNo} rows=${data.rows.length}`);
 
-      // Get next trans_no for transactions table
+      // Get next trans_no for transactions table (ES-495: under the one shared lock, like every other writer)
+      // lock order matches the voucher service (vouchers first, then transactions) so the two can not deadlock
+      await lockNextId(queryRunner, 'vouchers', 'id');
+      await lockNextId(queryRunner, 'transactions', 'trans_no');
       const maxResult = await queryRunner.query(
         `SELECT COALESCE(MAX(trans_no), 0) + 1 AS next_trans_no FROM transactions`
       );
@@ -1234,7 +1237,7 @@ export class UtilitiesService {
 
       // ES-55: create the voucher HEADER too. Pass Transactions lists and passes only from `vouchers`
       // (status PENDING), so staged rows with no header could never be listed or passed.
-      await queryRunner.query(`SELECT pg_advisory_xact_lock(hashtext('vouchers'))`);
+      await lockNextId(queryRunner, 'vouchers', 'id'); // ES-495: same key as the voucher service
       const nextVoucherId = Number((await queryRunner.query(`SELECT COALESCE(MAX(id), 0) + 1 AS n FROM vouchers`))[0].n);
       await queryRunner.query(
         `INSERT INTO vouchers ("id","voucherNumber","voucherDate","voucherType","totalAmount","description","memberId","payeeName",
@@ -1913,6 +1916,10 @@ export class UtilitiesService {
       'RULE_REAGREEMENT_MIN_INSTALLMENTS_PAID', 'RULE_REAGREEMENT_MIN_OUTSTANDING', 'RULE_REAGREEMENT_MAX_TENURE',
       'RULE_REAGREEMENT_MIN_RATE', 'RULE_REAGREEMENT_MAX_RATE', 'RULE_REAGREEMENT_ALLOW_RATE_INCREASE',
       'RULE_REAGREEMENT_MAX_PER_LOAN', 'RULE_REAGREEMENT_ALLOW_BACKDATE',
+      // ES-556: ON = an early closure waiting in Past Transaction is passed automatically when the awaited EMI is received.
+      'RULE_EARLY_CLOSURE_AUTO_PASS',
+      // ES-555: OFF (default) = no grace period in a loan closure; ON = the closure month's EMI keeps the grace-day behaviour.
+      'RULE_LOAN_CLOSURE_GRACE_ENABLED',
       // One switch controls the tiered penal system for every active loan.
       // Activation date is maintained server-side so existing arrears are
       // never charged penalties for periods before the policy was enabled.
@@ -1963,6 +1970,8 @@ export class UtilitiesService {
       RULE_REAGREEMENT_ALLOW_RATE_INCREASE: true,
       RULE_REAGREEMENT_MAX_PER_LOAN: 0,
       RULE_REAGREEMENT_ALLOW_BACKDATE: false,
+      RULE_EARLY_CLOSURE_AUTO_PASS: false,
+      RULE_LOAN_CLOSURE_GRACE_ENABLED: false,
       RULE_TIERED_LOAN_PENALTY_ENABLED: false,
       RULE_TIERED_LOAN_PENALTY_ACTIVATION_DATE: '',
       ...RD_RULE_DEFAULTS,
@@ -2024,7 +2033,32 @@ export class UtilitiesService {
     }
   }
 
+  /** ES-482: the loan limits that must always be sent. A missing key used to be saved as 0 and wiped the live rules. */
+  private static readonly REQUIRED_LOAN_RULE_KEYS = [
+    'RULE_LOAN_R_MAX_AMT', 'RULE_LOAN_R_RATE', 'RULE_LOAN_R_INSTALLMENTS', 'RULE_PENAL_RATE', 'RULE_LOAN_R_GRACE_DAYS',
+    'RULE_LOAN_ADD_MAX_AMT', 'RULE_LOAN_ADD_RATE', 'RULE_LOAN_ADD_INSTALLMENTS', 'RULE_LOAN_ADD_PENAL_RATE', 'RULE_LOAN_ADD_GRACE_DAYS',
+    'RULE_LOAN_EMG_MAX_AMT', 'RULE_LOAN_EMG_RATE', 'RULE_LOAN_EMG_INSTALLMENTS', 'RULE_LOAN_EMG_PENAL_RATE', 'RULE_LOAN_EMG_GRACE_DAYS',
+  ];
+
+  private assertLoanRulesComplete(data: Record<string, any>): void {
+    const missing: string[] = [];
+    const invalid: string[] = [];
+    for (const k of UtilitiesService.REQUIRED_LOAN_RULE_KEYS) {
+      const v = data?.[k];
+      if (v === undefined || v === null || v === '') { missing.push(k); continue; }
+      const n = Number(v);
+      if (!Number.isFinite(n) || n < 0) invalid.push(k);
+    }
+    if (missing.length || invalid.length) {
+      const parts: string[] = [];
+      if (missing.length) parts.push('missing: ' + missing.join(', '));
+      if (invalid.length) parts.push('must be a number, zero or more: ' + invalid.join(', '));
+      throw new BadRequestException('Business rules were not saved. Loan limits are required (' + parts.join('; ') + ').');
+    }
+  }
+
   async updateBusinessRules(data: Record<string, any>): Promise<{ success: boolean; message: string }> {
+    this.assertLoanRulesComplete(data); // ES-482: a partial or empty body must not overwrite the live rules with zeros
     // ES-476: refuse a dividend rate rule that contradicts itself before anything is saved
     const sentDividendRules = DIVIDEND_RATE_KEYS.some((k) => data[k] !== undefined);
     if (sentDividendRules) validateDividendRateRuleSettings(dividendRateRulesFrom(data));
@@ -2154,6 +2188,8 @@ export class UtilitiesService {
         })),
         { key: 'RULE_REAGREEMENT_ALLOW_RATE_INCREASE', value: data.RULE_REAGREEMENT_ALLOW_RATE_INCREASE === false ? 'false' : 'true', dataType: 'boolean' },
         { key: 'RULE_REAGREEMENT_ALLOW_BACKDATE', value: data.RULE_REAGREEMENT_ALLOW_BACKDATE === true ? 'true' : 'false', dataType: 'boolean' },
+        { key: 'RULE_EARLY_CLOSURE_AUTO_PASS', value: data.RULE_EARLY_CLOSURE_AUTO_PASS === true ? 'true' : 'false', dataType: 'boolean' },
+        { key: 'RULE_LOAN_CLOSURE_GRACE_ENABLED', value: data.RULE_LOAN_CLOSURE_GRACE_ENABLED === true ? 'true' : 'false', dataType: 'boolean' },
         // Auto Day-End switch: the nightly job (day-end.service.ts) runs only when this is ON.
         { key: 'SYS_DAYEND_AUTO_CLOSE', value: data.SYS_DAYEND_AUTO_CLOSE === true ? 'true' : 'false', dataType: 'boolean' },
         // Fund Management — read by the interest run, profit distribution and the dashboard, but this

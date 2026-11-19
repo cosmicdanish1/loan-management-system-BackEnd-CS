@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import * as PDFDocument from 'pdfkit';
 import * as fs from 'fs';
@@ -50,6 +50,7 @@ export class CertificateService {
     private readonly memberRepository: Repository<Member>,
     private readonly configService: ConfigService,
     private readonly templateService: CertificateTemplateService,
+    private readonly dataSource: DataSource,
   ) {
     this.certificatesPath = this.configService.get('CERTIFICATES_PATH', './uploads/certificates');
     this.ensureDirectoryExists(this.certificatesPath);
@@ -128,23 +129,38 @@ export class CertificateService {
     return await this.generatePDFCertificate(certificateData, { ...this.defaultConfig, ...config });
   }
 
-  async generateShareCertificate(memberId: number, shareAmount: number, config?: Partial<CertificateConfig>): Promise<string> {
-    const member = await this.memberRepository.findOne({ where: { id: memberId } });
-
+  /**
+   * ES-369: members live in member_master (the old "members" table is dead), so the member is looked up there by member
+   * number. If no amount is given the member's share balance from fundsmaster is used.
+   */
+  async generateShareCertificate(memberNo: number, shareAmount?: number, config?: Partial<CertificateConfig>): Promise<string> {
+    const rows = await this.dataSource.query(
+      `SELECT m.mbno::text AS mbno,
+              COALESCE(NULLIF(TRIM(m.full_name), ''), NULLIF(TRIM(CONCAT_WS(' ', m.f_name, m.m_name, m.l_name)), ''), m.mbno::text) AS name,
+              m.memb_date AS joined,
+              (SELECT f.shareamt FROM fundsmaster f WHERE f.mbno = m.mbno LIMIT 1) AS share_balance
+         FROM member_master m WHERE m.mbno::text = $1 LIMIT 1`,
+      [String(memberNo)],
+    );
+    const member = rows[0];
     if (!member) {
-      throw new NotFoundException(`Member with ID ${memberId} not found`);
+      throw new NotFoundException(`Member ${memberNo} not found`);
+    }
+    const amount = shareAmount === undefined || shareAmount === null ? Number(member.share_balance || 0) : Number(shareAmount);
+    if (!Number.isFinite(amount) || amount < 0) {
+      throw new BadRequestException('Share amount must be a number, zero or more');
     }
 
     const certificateData: CertificateData = {
       certificateNumber: await this.generateCertificateNumber('SH'),
-      memberName: member.fullName,
-      memberNumber: member.memberNumber,
-      accountNumber: `SH${member.memberNumber}`,
-      principalAmount: shareAmount,
+      memberName: member.name,
+      memberNumber: member.mbno,
+      accountNumber: `SH${member.mbno}`,
+      principalAmount: amount,
       interestRate: 0,
-      depositDate: member.createdAt,
+      depositDate: member.joined ? new Date(member.joined) : new Date(),
       maturityDate: new Date(), // Shares don't have maturity
-      maturityAmount: shareAmount,
+      maturityAmount: amount,
       tenureMonths: 0,
       certificateType: 'SHARE',
     };

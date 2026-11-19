@@ -23,6 +23,7 @@ import {
     LoanPositionService,
     LoanEligibilityService,
 } from './services-v2';
+import { LoanEarlyClosureHoldService } from './services-v2/early-closure/loan-early-closure-hold.service';
 
 /**
  * Loan V2 Controller - Restructured endpoints using separated services.
@@ -44,6 +45,7 @@ export class LoanV2Controller {
         private readonly loanMonthEndService: LoanMonthEndService,
         private readonly loanPositionService: LoanPositionService,
         private readonly loanEligibilityService: LoanEligibilityService,
+        private readonly earlyClosureHold: LoanEarlyClosureHoldService,
     ) { }
 
     // ==================== Application Operations ====================
@@ -296,6 +298,16 @@ export class LoanV2Controller {
         );
     }
 
+    @Get('excess-payments/:mbno/:caseNo')
+    @ApiOperation({ summary: 'Excess (above-EMI / advance) payments received on one loan — ES-551' })
+    async getExcessPayments(
+        @Param('mbno') mbno: string,
+        @Param('caseNo') caseNo: string,
+        @Query('loantype') loantype?: string,
+    ) {
+        return this.loanRepaymentService.getExcessPayments(mbno, caseNo, loantype);
+    }
+
     @Post('position/acknowledge')
     @ApiOperation({ summary: 'Save a "checked" confirmation for a Loan Position notice' })
     async acknowledgePositionNotice(
@@ -333,7 +345,7 @@ export class LoanV2Controller {
     @ApiOperation({ summary: 'Read-only early-closure quote using the true reducing-balance schedule' })
     async calculateEarlyClosure(
         @Param('caseNo') caseNo: string,
-        @Body() body: { closureDate?: string; adjustment?: number; applyRdShare?: boolean; mbno?: string; adjustPayrollLag?: boolean },
+        @Body() body: { closureDate?: string; adjustment?: number; applyRdShare?: boolean; mbno?: string; adjustPayrollLag?: boolean; nextMonth?: boolean },
     ) {
         return this.loanRepaymentService.calculateEarlyClosure(
             caseNo,
@@ -342,7 +354,35 @@ export class LoanV2Controller {
             body?.applyRdShare ?? true,
             body?.mbno,
             body?.adjustPayrollLag === true,
+            body?.nextMonth === true,
         );
+    }
+
+    // ES-556: every money movement goes through Past Transaction. This raises the dedicated early-closure voucher; with
+    // nextMonth ON it waits there until the awaited EMI is received. Posting happens at Pass, not here.
+    @Post('early-closure/hold/:caseNo')
+    @RequireMenuAction('LOAN_EARLY_CLOSURE')
+    @RequireAuthCode('early_closure')
+    @ApiOperation({ summary: 'Raise the early-closure voucher in Past Transaction (ES-556)' })
+    async holdEarlyClosure(
+        @Param('caseNo') caseNo: string,
+        @Body() body: { mbno?: string; closureDate?: string; adjustment?: number; applyRdShare?: boolean; adjustPayrollLag?: boolean; nextMonth?: boolean; paymentMode?: 'CASH' | 'BANK'; bankCode?: string; narration?: string },
+        @Req() req: any,
+    ) {
+        if (!body?.mbno) throw new BadRequestException('mbno is required.');
+        return this.earlyClosureHold.create({
+            mbno: String(body.mbno), loancaseno: caseNo,
+            closureDate: parseSafeDate(body.closureDate), adjustment: body.adjustment ?? 0,
+            applyRdShare: body.applyRdShare ?? true, adjustPayrollLag: body.adjustPayrollLag === true,
+            nextMonth: body.nextMonth === true, paymentMode: body.paymentMode, bankCode: body.bankCode, narration: body.narration,
+        }, req?.user?.username || 'system');
+    }
+
+    @Get('early-closure/pending')
+    @ApiOperation({ summary: 'Early closures waiting in Past Transaction (ES-556)' })
+    async pendingEarlyClosures(@Query('mbno') mbno?: string, @Query('caseNo') caseNo?: string) {
+        if (mbno && caseNo) return { pending: await this.earlyClosureHold.getPendingForLoan(mbno, caseNo) };
+        return { pending: await this.earlyClosureHold.listPending() };
     }
 
     // ES-522: delayed predecessor-payroll principal handed back to the member (tracked separately from the loan).

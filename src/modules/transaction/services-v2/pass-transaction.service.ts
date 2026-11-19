@@ -7,6 +7,7 @@ import { LOAN_INTEREST_METHOD } from '../../loan/services-v2/loan-payment-model'
 import { LoanEligibilityService } from '../../loan/services-v2/loan-eligibility.service';
 import { LoanRepaymentService } from '../../loan/services-v2/loan-repayment.service';
 import { LoanReagreementService } from '../../loan/services-v2/reagreement/loan-reagreement.service';
+import { EARLY_CLOSURE_SOURCE_MODULE, LoanEarlyClosureHoldService } from '../../loan/services-v2/early-closure/loan-early-closure-hold.service';
 import { RdBalanceEventsService } from '../../rd/services/rd-balance-events.service';
 import { RdLienService } from '../../rd/services/rd-lien.service';
 import { RdRulesService } from '../../rd/rd-rules.service';
@@ -32,7 +33,14 @@ export class PassTransactionService {
         private readonly reagreementService?: LoanReagreementService,
         // Same reason: only Loan Against RD (ELN) needs it, and Nest always injects it.
         private readonly rdLienService?: RdLienService,
-    ) { }
+        // ES-556: early-closure vouchers (held in Past Transaction). Optional for the same reason as the re-agreement service.
+        private readonly earlyClosureHold?: LoanEarlyClosureHoldService,
+    ) {
+        if (this.earlyClosureHold) {
+            // auto-pass on the awaited EMI goes through the real Pass so every guard applies
+            LoanEarlyClosureHoldService.passTransactionProvider = () => (voucherNo: string, postedBy: string) => this.passTransaction(voucherNo, postedBy);
+        }
+    }
 
     /** Current financial year per the real yearend table, read within the
      *  caller's own transaction — same April-March convention the RD system
@@ -89,6 +97,7 @@ export class PassTransactionService {
             // must never be mistaken for a disbursement, so it is routed first.
             const isReagreement = header.sourceModule === 'LOAN_REAGREEMENT' || /REAGREEMENT:\d+/.test(header.remarks || '');
             let reagreementSummary: any = null;
+            let earlyClosureSummary: any = null;
             const loanCaseNo = remarksMatch ? remarksMatch[1] : null;
 
             // 3. Fetch breakdown details from transactions table
@@ -154,7 +163,12 @@ export class PassTransactionService {
                 }>;
             } | null = null;
 
-            if (isReagreement) {
+            if (header.sourceModule === EARLY_CLOSURE_SOURCE_MODULE) {
+                // ==================== LOAN EARLY CLOSURE (ES-556) ====================
+                console.log(`[PassTransaction] Processing LOAN EARLY CLOSURE voucher: ${voucherNo}`);
+                if (!this.earlyClosureHold) throw new Error('Early closure service is not available');
+                earlyClosureSummary = await this.earlyClosureHold.passInTransaction(queryRunner, voucherNo, header, details, postedBy);
+            } else if (isReagreement) {
                 // ==================== LOAN RE-AGREEMENT ====================
                 console.log(`[PassTransaction] Processing LOAN RE-AGREEMENT voucher: ${voucherNo}`);
                 reagreementSummary = await this.reagreementService!.passInTransaction(queryRunner, voucherNo, header, details, postedBy);
@@ -1067,6 +1081,7 @@ export class PassTransactionService {
                 message: 'Transaction posted successfully',
                 ...(consolidationSummary ? { consolidation: consolidationSummary } : {}),
                 ...(reagreementSummary ? { reagreement: reagreementSummary } : {}),
+                ...(earlyClosureSummary ? { earlyClosure: earlyClosureSummary } : {}),
             };
 
         } catch (error: any) {
@@ -1098,6 +1113,12 @@ export class PassTransactionService {
                 throw new BadRequestException('Voucher header not found or is not in POSTED status');
             }
             const header = headerResult[0];
+
+            // ES-556: a passed early closure zeroed the loan and used RD/Share; it is not undone by the generic reversal.
+            if (header.sourceModule === EARLY_CLOSURE_SOURCE_MODULE) {
+                throw new BadRequestException(
+                    `Voucher ${voucherNo} is a posted loan early closure and cannot be reversed here. Please contact support to reopen the loan.`);
+            }
 
             // Re-agreement vouchers are undone by the re-agreement service (new case out, old case back).
             if (header.sourceModule === 'LOAN_REAGREEMENT' || /REAGREEMENT:\d+/.test(header.remarks || '')) {

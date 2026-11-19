@@ -19,7 +19,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBody } from '@nestjs/swagger';
-import { MemberCrudService, MemberLookupService, MemberBalanceService, SignatureService } from './services-v2';
+import { MemberCrudService, MemberLookupService, MemberBalanceService, SignatureService, MemberCompleteDetailService } from './services-v2';
 import { signatureUploadConfig, photoUploadConfig, documentUploadConfig } from './config/multer.config';
 import { createReadStream, existsSync } from 'fs';
 import { join, extname } from 'path';
@@ -47,6 +47,7 @@ export class MemberV2Controller {
         private readonly memberLookupService: MemberLookupService,
         private readonly memberBalanceService: MemberBalanceService,
         private readonly signatureService: SignatureService,
+        private readonly completeDetailService: MemberCompleteDetailService,
     ) { }
 
     // ==================== CRUD Operations ====================
@@ -88,6 +89,17 @@ export class MemberV2Controller {
     @ApiOperation({ summary: 'Get member details by member number' })
     async getMemberDetails(@Param('memberNo') memberNo: string) {
         return this.memberLookupService.getMemberDetailsByNumber(memberNo);
+    }
+
+    // ES-550: read-only 360 degree view of one member (personal, service, nominee, balances, share, CD/MD, FRS, loans, RD, FD, SB, dividend, ledger)
+    @Get('complete-detail/:memberNo')
+    @ApiOperation({ summary: 'Get every detail held for one member (read-only)' })
+    async getCompleteDetail(
+        @Param('memberNo') memberNo: string,
+        @Query('fromDate') fromDate?: string,
+        @Query('toDate') toDate?: string,
+    ) {
+        return this.completeDetailService.getCompleteDetail(memberNo, fromDate, toDate);
     }
 
     @Get('find/:memberNo')

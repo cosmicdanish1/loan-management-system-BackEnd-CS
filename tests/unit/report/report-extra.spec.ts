@@ -234,11 +234,14 @@ describe('report extra: financial statements', () => {
     await expect(new FinancialStatementsService(d).getBalanceSheet("2026-09-30'; DROP")).rejects.toThrow(/YYYY-MM-DD/);
     expect(d.calls).toHaveLength(0);
   });
-  it('balance sheet suppress options add SQL filters', async () => {
-    const d = ds([[/FROM \(/, []]]);
-    await new FinancialStatementsService(d).getBalanceSheet(undefined, false, false);
-    expect(d.calls[0].sql).toMatch(/ABS\(closingbalance\)/);
-    expect(d.calls[0].sql).toMatch(/debit <> 0 OR credit <> 0/);
+  it('balance sheet suppress options drop zero accounts from the lists (filtered in code after one head query)', async () => {
+    const d = ds([[/FROM \(/, [
+      { head_code: 'L1001', head_name: 'Share', maincd: 1, opening_balance: '-10', debit: '0', credit: '5', closingbalance: '15' },
+      { head_code: 'L1002', head_name: 'Empty', maincd: 1, opening_balance: '0', debit: '0', credit: '0', closingbalance: '0' },
+    ]]]);
+    const r: any = await new FinancialStatementsService(d).getBalanceSheet(undefined, false, false);
+    expect(d.calls).toHaveLength(1);
+    expect(r.data.liabilities.map((x: any) => x.headCode)).toEqual(['L1001']);
   });
 });
 
