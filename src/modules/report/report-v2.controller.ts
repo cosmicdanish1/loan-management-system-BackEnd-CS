@@ -5,6 +5,7 @@ import {
     Body,
     Query,
     Param,
+    BadRequestException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { RequireMenuAction } from '../auth/guards/menu-right.guard';
@@ -18,8 +19,8 @@ import {
     FinancialStatementsService,
 } from './services-v2';
 import { FinancialSummaryDto } from './dto/financial-summary.dto';
-
 import { fyStartYearOf } from '../dividend/fy-dates';
+
 /**
  * Report V2 Controller - Restructured endpoints using separated services.
  * 
@@ -331,6 +332,24 @@ export class ReportV2Controller {
     @ApiOperation({ summary: 'Get passbook printing data' })
     async getPassBookPrinting(@Query() dto: any) {
         return this.depositReports.getPassBookPrinting(dto);
+    }
+
+    @Post('passbook-reset')
+    @ApiOperation({ summary: 'Reset passbook print tracking for a member' })
+    async resetPassbookPrinting(@Body() body: { memberNo: string; accountType?: string }) {
+        if (!body?.memberNo) {
+            throw new BadRequestException('memberNo is required');
+        }
+        return this.depositReports.resetPassbookPrinting(body.memberNo, body.accountType);
+    }
+
+    @Post('passbook-update-tracking')
+    @ApiOperation({ summary: 'Update passbook tracking after print' })
+    async updatePassbookTracking(@Body() body: { memberNo: string; accountType: string; lastLedgerId: number; lastLineNo: number }) {
+        if (!body?.memberNo || !body?.accountType) {
+            throw new BadRequestException('memberNo and accountType are required');
+        }
+        return this.depositReports.updatePassbookTracking(body.memberNo, body.accountType, body.lastLedgerId, body.lastLineNo);
     }
 
     // ==================== Financial Statements (Trial/BS/PL) ====================

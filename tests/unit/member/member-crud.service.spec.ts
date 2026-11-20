@@ -195,7 +195,7 @@ describe('member/MemberCrudService.saveMemberMaster (legacy member_master form)'
       return [{ mbno: '1' }];
     });
     (svc as any).sequenceGenerator.getNextVoucherNumber = jest.fn().mockResolvedValue('VCH77');
-    await svc.saveMemberMaster(data({ compulsory_deposit: 500, startRd: false }));
+    await svc.saveMemberMaster(data({ compulsory_deposit: 500 }));
     const calls = qr.query.mock.calls;
     const sql = calls.map((c: any[]) => c[0]).join('\n');
     expect(sql).toContain('INSERT INTO vouchers'); expect(sql).toContain('INSERT INTO tblcashbook'); expect(sql).toContain('INSERT INTO transactions');

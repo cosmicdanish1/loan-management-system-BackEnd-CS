@@ -51,7 +51,7 @@ Save (Ctrl+S), Cancel (Ctrl+C), Delete (Ctrl+D), Refresh (Ctrl+R), Print (Ctrl+P
 - Receipt & Payment: Payment Voucher, Voucher Payment, Receipt, Dividend Payment
 - Fixed Deposit: FD Receipt, FD/Interest Voucher Posting, FD Withdrawal/Interest Payment
 - Saving (Receipt/Payment), Journal/Transfer Entry
-- Loan Payment, Loan Repayment, Compulsory Deposit Transaction
+- Loan Payment, NR Repayment (Not Recovered), Compulsory Deposit Transaction
 - Pass Transactions
 - Demand/Recovery: Import Demand List, Generate, Updation/Ledger Posting, Print Members Demand, Change Member Office, Modify Short Recovery
 

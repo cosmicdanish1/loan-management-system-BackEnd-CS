@@ -3,6 +3,7 @@ import {
   Post,
   Body,
   Get,
+  Query,
   UseGuards,
   Request,
   HttpCode,
@@ -132,6 +133,15 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async getCurrentUser(@CurrentUser() user: User): Promise<UserResponseDto> {
     return this.authService.getCurrentUser(user.id);
+  }
+
+  /** My Profile > Recent activity: the signed-in user's OWN latest sign-ins. Always the caller's id, never a parameter. */
+  @Get('me/recent-logins')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Own recent sign-ins (My Profile)' })
+  async myRecentLogins(@CurrentUser() user: User, @Query('limit') limit?: string) {
+    return this.authService.getMyRecentLogins(user.id, Number(limit));
   }
 
   /** Sent by the desktop app about once a minute while a user is signed in; powers "who is online". */

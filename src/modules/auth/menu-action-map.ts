@@ -114,7 +114,7 @@ export const MENU_ACTION_MAP: MenuActionEntry[] = [
   { action: 'SIGNATURE_SCANNING', menuid: 209, title: 'Signature Scanning' },
   { action: 'DESIGNATION_MASTER', menuid: 210, title: 'Designation Master' },
   { action: 'LOAN_ENTRY', menuid: 211, title: 'Loan Entry' },
-  { action: 'LOAN_REPAYMENT', menuid: 212, title: 'Loan Repayment' },
+  { action: 'LOAN_REPAYMENT', menuid: 212, title: 'NR Repayment' },
   { action: 'LOAN_EARLY_CLOSURE', menuid: 213, title: 'Loan Early Closure' },
   { action: 'COMPULSORY_DEPOSIT_TRANSACTION', menuid: 214, title: 'Compulsory Deposit Transaction' },
   { action: 'MEMBER_BALANCE_TRANSFER', menuid: 215, title: 'Member Balance Transfer' },
@@ -158,6 +158,14 @@ export const MENU_ACTION_MAP: MenuActionEntry[] = [
 export const MENUID_TO_ACTION: ReadonlyMap<number, string> = new Map(
   MENU_ACTION_MAP.map((e) => [e.menuid, e.action]),
 );
+
+/** Windows whose display name was changed after their `menumaster` row already existed on installs.
+ * The boot seeder only inserts missing rows, so each rename is applied once by role-management.service.ts:
+ * the row is updated only while it still holds the old text, so a name someone set by hand is never overwritten.
+ * Rights are matched by menuid, so a rename never changes who can open the window. */
+export const RENAMED_MENUS: { menuid: number; from: string; to: string }[] = [
+  { menuid: 212, from: 'Loan Repayment', to: 'NR Repayment' }, // NR = Not Recovered (client request)
+];
 
 /** User levels that always see every menu, regardless of configured rights —
  * mirrors the "master bypass" already used by RoleGuard/PermissionsGuard for

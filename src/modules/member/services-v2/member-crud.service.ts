@@ -570,19 +570,15 @@ export class MemberCrudService {
                     ]);
 
                     const compulsoryDeposit = Number(memberData.compulsory_deposit) || 0;
-                    // startRd defaults to true (checked by default on the
-                    // form) — only skipped when explicitly unchecked.
-                    const startRd = memberData.startRd !== false;
-
+                    // RD always starts with the member (no opt-out): the Compulsory Deposit amount is
+                    // the monthly RD amount from the joining month.
                     if (compulsoryDeposit > 0) {
                         await this.postInitialCompulsoryDeposit(
                             queryRunner, memberNumber, compulsoryDeposit, memberData.username || 'system',
                         );
-                        if (startRd) {
-                            await this.setupInitialRd(
-                                queryRunner, memberNumber, compulsoryDeposit, memberData.username || 'system',
-                            );
-                        }
+                        await this.setupInitialRd(
+                            queryRunner, memberNumber, compulsoryDeposit, memberData.username || 'system',
+                        );
                     }
 
                     // FRS (MD) eligibility: a member who JOINS at age 50 or

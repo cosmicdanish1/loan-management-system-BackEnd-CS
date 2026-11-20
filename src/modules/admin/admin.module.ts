@@ -19,6 +19,7 @@ import { SbAccountController } from './controllers/sb-account.controller';
 import { MemberAdminController } from './controllers/member-admin.controller';
 import { MemberFundsController } from './controllers/member-funds.controller';
 import { FinancialYearController } from './controllers/financial-year.controller';
+import { SaakhScoreController } from './controllers/saakh-score.controller';
 import { UserManagementService } from './services/user-management.service';
 import { SystemConfigService } from './services/system-config.service';
 import { DayEndService } from './services/day-end.service';
@@ -35,6 +36,7 @@ import { SbAccountService } from './services/sb-account.service';
 import { MemberAdminService } from './services/member-admin.service';
 import { MemberFundsService } from './services/member-funds.service';
 import { FinancialYearService } from './services/financial-year.service';
+import { SaakhScoreService } from './services/saakh-score.service';
 import { UserMaster, UserLevelMaster, MenuMaster, UserLevelDefaultRights, LoginTime } from '../auth/entities';
 import { UserActivity } from './entities/user-activity.entity';
 import { SystemConfig } from './entities/system-config.entity';
@@ -99,6 +101,7 @@ import { Member } from '../member/entities/member.entity';
     MemberAdminController,
     MemberFundsController,
     FinancialYearController,
+    SaakhScoreController,
   ],
   providers: [
     AdminService,
@@ -118,6 +121,7 @@ import { Member } from '../member/entities/member.entity';
     MemberAdminService,
     MemberFundsService,
     FinancialYearService,
+    SaakhScoreService,
   ],
   exports: [
     AdminService,

@@ -384,122 +384,153 @@ export class DepositReportsService {
     }
 
     /**
-     * Get passbook mapping/printing data
+     * Get passbook printing data.
+     * Tracking from bank_passbook; transactions from ledger (pivoted by acc_type).
+     *
+     * Deposit columns: SHR→Share, CD→Compulsory Deposit, MD1→FRS-1, MD2→FRS-2
+     * Loan columns:    RLN→Regular Loan, ALN→Emergency Loan
      */
     async getPassBookPrinting(dto: {
         memberNo: string;
-        accountNo?: string;
         accountType?: string;
         fromDate?: string;
         toDate?: string;
-        includeZeroBalance?: boolean;
     }) {
-        const { memberNo, accountNo, accountType, fromDate, toDate, includeZeroBalance } = dto;
+        const mbno = (dto.memberNo || '').trim();
 
-        // 1. Get Member details
+        // 1. Member info
         const memberRes = await this.dataSource.query(`
-      SELECT
-        mbno as "memberNo",
-        REGEXP_REPLACE(TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')), '\\s+', ' ', 'g') as "memberName",
-        m.present_address as "address",
-        m.memb_date as "membershipDate"
-      FROM member_master m
-      WHERE CAST(m.mbno AS text) = $1
-    `, [memberNo]);
+            SELECT CAST(mbno AS text) AS "memberNo",
+              TRIM(COALESCE(f_name,'')||' '||COALESCE(m_name,'')||' '||COALESCE(l_name,'')) AS "memberName",
+              present_address AS "address",
+              memb_date AS "membershipDate",
+              pfno AS "pfNo"
+            FROM member_master WHERE CAST(mbno AS text) = $1
+        `, [mbno]);
+        const memberDetails = memberRes[0] || { memberNo: mbno, memberName: '', address: '', membershipDate: null, pfNo: '' };
 
-        if (memberRes.length === 0) throw new NotFoundException('Member not found');
+        // 2. Print-tracking (bank_passbook.account_number = ledger.mbno)
+        const tracking = await this.dataSource.query(`
+            SELECT TRIM(account_number) AS "accountNumber",
+              accounttype AS "accountType",
+              tr_date AS "trDate",
+              CAST(ledgerid AS bigint) AS "ledgerId",
+              lastlineno AS "lastLineNo",
+              row_id AS "rowId",
+              printedon AS "printedOn"
+            FROM bank_passbook
+            WHERE TRIM(account_number) = $1
+            ORDER BY accounttype
+        `, [mbno]);
 
-        // 2. Get Accounts (FD and RD)
-        let accountsQuery = `
-      SELECT * FROM (
-        SELECT
-          "accountNumber" as "accountNo",
-          'Fixed Deposit' as "accountType",
-          CAST("principalAmount" AS numeric) as "currentBalance",
-          CAST("interestRate" AS numeric) as "interestRate",
-          "depositDate" as "openDate",
-          status
-        FROM fixed_deposits
-        WHERE CAST("memberId" AS text) = $1
-        UNION ALL
-        SELECT
-          "accountNumber" as "accountNo",
-          'Recurring Deposit' as "accountType",
-          CAST("totalDeposited" AS numeric) as "currentBalance",
-          CAST("interestRate" AS numeric) as "interestRate",
-          "startDate" as "openDate",
-          status
-        FROM recurring_deposits
-        WHERE CAST("memberId" AS text) = $1
-      ) accs
-      WHERE 1=1
-    `;
-        const accountParams: any[] = [memberNo];
-        if (accountNo) {
-            accountsQuery += ` AND "accountNo" = $2`;
-            accountParams.push(accountNo);
-        }
+        const depositTracking = tracking.find((t: any) => t.accountType === 'D') || null;
+        const loanTracking    = tracking.find((t: any) => t.accountType === 'L') || null;
 
-        const accounts = await this.dataSource.query(accountsQuery, accountParams);
+        const lastDepositId = Number(depositTracking?.ledgerId ?? 0);
+        const lastLoanId    = Number(loanTracking?.ledgerId ?? 0);
 
-        // 3. Get Transactions from Ledger
-        let ledgerQuery = `
-      SELECT
-        trans_date as "transactionDate",
-        trans_type as "transactionType",
-        CAST(trans_amt AS numeric) as "amount",
-        narration,
-        receipt_vchr_no as "voucherNo",
-        acc_no as "accountNo"
-      FROM ledger
-      WHERE CAST(mbno AS text) = $1
-    `;
-        const ledgerParams: any[] = [memberNo];
-        if (accountNo) {
-            ledgerQuery += ` AND CAST(acc_no AS text) = $${ledgerParams.length + 1}`;
-            ledgerParams.push(accountNo);
-        }
-        if (fromDate && toDate) {
-            ledgerQuery += ` AND trans_date >= $${ledgerParams.length + 1} AND trans_date <= $${ledgerParams.length + 2}`;
-            ledgerParams.push(parseSafeDate(fromDate), parseSafeDate(toDate));
-        }
-        ledgerQuery += ' ORDER BY trans_date ASC, trans_no ASC';
+        // 3. Pivoted deposit transactions
+        // BUG FIX: this filtered on acc_type IN ('SHR','CD','MD','MD1','MD2'),
+        // but live-confirmed every real CD/FRS-1/FRS-2 row in this database has
+        // acc_type='JV' (the generic journal-transfer marker used by Demand
+        // Recovery posting) — none of the semantic acc_type values this query
+        // expects exist anywhere. The deposit half of this report has never
+        // shown a single real transaction. Switched to the head-code mapping
+        // already established and proven correct elsewhere this session
+        // (getMemberColumnarLedger): L1001=Share, L1004=Compulsory Deposit,
+        // L1002=FRS-1, L1045=FRS-2. (The old query's "MD" acc_type had no
+        // identifiable corresponding code and is dropped rather than guessed.)
+        // SHR→Share, CD→Compulsory Deposit (FD cols), MD1→FRS-1, MD2→FRS-2
+        const depositRows = await this.dataSource.query(`
+            SELECT
+              trans_date AS "transDate",
+              receipt_vchr_no AS "vchrNo",
+              COALESCE(SUM(CASE WHEN code='L1001' AND trans_type='DR' THEN trans_amt END), 0) AS "SH_Dr_Amt",
+              COALESCE(SUM(CASE WHEN code='L1001' AND trans_type='CR' THEN trans_amt END), 0) AS "SH_Cr_Amt",
+              COALESCE(MAX(CASE WHEN code='L1001'                      THEN pl_balance  END), 0) AS "SH_Bal_Amt",
+              COALESCE(SUM(CASE WHEN code='L1004' AND trans_type='DR' THEN trans_amt END), 0) AS "FD_Dr_Amt",
+              COALESCE(SUM(CASE WHEN code='L1004' AND trans_type='CR' THEN trans_amt END), 0) AS "FD_Cr_Amt",
+              COALESCE(MAX(CASE WHEN code='L1004'                      THEN pl_balance  END), 0) AS "FD_Bal_Amt",
+              COALESCE(SUM(CASE WHEN code='L1002' AND trans_type='DR'  THEN trans_amt END), 0) AS "FRS_Dr_Amt",
+              COALESCE(SUM(CASE WHEN code='L1002' AND trans_type='CR'  THEN trans_amt END), 0) AS "FRS_Cr_Amt",
+              COALESCE(SUM(CASE WHEN code='L1045' AND trans_type='CR'  THEN trans_amt END), 0) AS "FRS_Cr_Amt1",
+              MAX(ledgerid) AS "maxLedgerId"
+            FROM ledger
+            WHERE CAST(mbno AS text) = $1
+              AND ledgerid > $2
+              AND code IN ('L1001','L1004','L1002','L1045')
+            GROUP BY trans_date, receipt_vchr_no
+            ORDER BY trans_date, MAX(ledgerid)
+        `, [mbno, lastDepositId]);
 
-        const allTransactions = await this.dataSource.query(ledgerQuery, ledgerParams);
-
-        // 4. Map transactions to accounts and calculate running balance
-        const accountsWithDetails = accounts.map(acc => {
-            const accTrans = allTransactions.filter(t => t.accountNo === acc.accountNo || (!t.accountNo && accounts.length === 1));
-
-            let runningBalance = 0;
-            const mappedTrans = accTrans.map(t => {
-                const amt = parseFloat(t.amount) || 0;
-                if (t.transactionType === 'CR') runningBalance += amt;
-                else runningBalance -= amt;
-
-                return {
-                    ...t,
-                    amount: amt,
-                    runningBalance
-                };
-            });
-
-            return {
-                ...acc,
-                currentBalance: parseFloat(acc.currentBalance) || 0,
-                transactions: mappedTrans,
-                transactionCount: mappedTrans.length,
-                totalCredits: mappedTrans.filter(t => t.transactionType === 'CR').reduce((sum, t) => sum + t.amount, 0),
-                totalDebits: mappedTrans.filter(t => t.transactionType === 'DR').reduce((sum, t) => sum + t.amount, 0),
-            };
-        });
+        // 4. Pivoted loan transactions (acc_type: RLN, ALN, ELN)
+        const loanRows = await this.dataSource.query(`
+            SELECT
+              trans_date AS "transDate",
+              receipt_vchr_no AS "vchrNo",
+              COALESCE(SUM(CASE WHEN acc_type='RLN' AND trans_type='DR'         THEN trans_amt END), 0) AS "RLN_Dr_Amt",
+              COALESCE(SUM(CASE WHEN acc_type='RLN' AND trans_type='CR'         THEN trans_amt END), 0) AS "RLN_Cr_Amt",
+              COALESCE(MAX(CASE WHEN acc_type='RLN'                             THEN pl_balance  END), 0) AS "RLN_Bal_Amt",
+              COALESCE(SUM(CASE WHEN acc_type IN ('ALN','ELN') AND trans_type='DR' THEN trans_amt END), 0) AS "ALN_Dr_Amt",
+              COALESCE(SUM(CASE WHEN acc_type IN ('ALN','ELN') AND trans_type='CR' THEN trans_amt END), 0) AS "ALN_Cr_Amt",
+              COALESCE(MAX(CASE WHEN acc_type IN ('ALN','ELN')                  THEN pl_balance  END), 0) AS "ALN_Bal_Amt",
+              MAX(ledgerid) AS "maxLedgerId"
+            FROM ledger
+            WHERE CAST(mbno AS text) = $1
+              AND ledgerid > $2
+              AND acc_type IN ('RLN','ALN','ELN')
+            GROUP BY trans_date, receipt_vchr_no
+            ORDER BY trans_date, MAX(ledgerid)
+        `, [mbno, lastLoanId]);
 
         return {
-            memberDetails: memberRes[0],
-            accounts: accountsWithDetails,
-            totalAccounts: accountsWithDetails.length,
-            totalTransactions: allTransactions.length,
-            generatedAt: new Date().toISOString()
+            memberDetails,
+            depositTracking,
+            loanTracking,
+            allTracking: tracking,
+            depositRows,
+            loanRows,
+            totalDepositRows: depositRows.length,
+            totalLoanRows: loanRows.length,
         };
+    }
+
+    /**
+     * Reset passbook print tracking — set ledgerid=0 so everything re-prints.
+     * Upserts: bank_passbook starts out with no row at all for a member+type
+     * until something is printed, and a plain UPDATE against a nonexistent
+     * row silently touches nothing (confirmed live — see updatePassbookTracking).
+     * tr_date is NOT NULL in the schema, so a reset leaves it untouched on an
+     * existing row (it still reflects the last real print) and only seeds it
+     * with NOW() when the row has to be created.
+     */
+    async resetPassbookPrinting(memberNo: string, accountType?: string) {
+        const mbno = memberNo.trim();
+        const types = accountType ? [accountType] : ['D', 'L'];
+        for (const type of types) {
+            await this.dataSource.query(`
+                INSERT INTO bank_passbook (account_number, accounttype, tr_date, ledgerid, lastlineno)
+                VALUES ($1, $2, NOW(), 0, 0)
+                ON CONFLICT (account_number, accounttype) DO UPDATE
+                SET ledgerid = 0, lastlineno = 0
+            `, [mbno, type]);
+        }
+        return { success: true, message: 'Passbook printing reset successfully' };
+    }
+
+    /**
+     * Update bank_passbook tracking after a successful print.
+     * Upserts for the same reason as resetPassbookPrinting: the table has no
+     * row until the first print, so this must be able to create it.
+     */
+    async updatePassbookTracking(memberNo: string, accountType: string, lastLedgerId: number, lastLineNo: number) {
+        await this.dataSource.query(`
+            INSERT INTO bank_passbook (account_number, accounttype, tr_date, ledgerid, lastlineno, printedon)
+            VALUES ($1, $2, NOW(), $3, $4, NOW())
+            ON CONFLICT (account_number, accounttype) DO UPDATE
+            SET ledgerid = EXCLUDED.ledgerid, lastlineno = EXCLUDED.lastlineno,
+                tr_date = NOW(), printedon = NOW()
+        `, [memberNo.trim(), accountType, lastLedgerId, lastLineNo]);
+        return { success: true };
     }
 }

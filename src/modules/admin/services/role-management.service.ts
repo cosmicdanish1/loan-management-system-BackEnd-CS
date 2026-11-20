@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { UserLevelMaster, MenuMaster, UserLevelDefaultRights } from '../../auth/entities';
 import { UpdateDefaultRightsDto } from '../dto/role-management.dto';
-import { MENU_ACTION_MAP } from '../../auth/menu-action-map';
+import { MENU_ACTION_MAP, RENAMED_MENUS } from '../../auth/menu-action-map';
 
 @Injectable()
 export class RoleManagementService {
@@ -34,6 +34,13 @@ export class RoleManagementService {
                     `INSERT INTO menumaster (menuid, menuname, menudesc, visibleflag)
                      SELECT $1, $2, $3, 'Y' WHERE NOT EXISTS (SELECT 1 FROM menumaster WHERE menuid = $1)`,
                     [m.menuid, m.action, m.title],
+                );
+            }
+            // Renamed windows: update the existing row, but only while it still holds the old text.
+            for (const r of RENAMED_MENUS) {
+                await this.dataSource.query(
+                    `UPDATE menumaster SET menudesc = $3 WHERE menuid = $1 AND menudesc = $2`,
+                    [r.menuid, r.from, r.to],
                 );
             }
         } catch (e) {

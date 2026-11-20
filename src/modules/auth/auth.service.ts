@@ -513,6 +513,22 @@ export class AuthService {
     return this.mapUserToResponseDto(mapUserMasterToUser(userMaster));
   }
 
+  /** The user's own latest sign-ins for My Profile > Recent activity (newest first, at most 20). */
+  async getMyRecentLogins(userId: number, limit = 5) {
+    const take = Math.min(Math.max(Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 5, 1), 20);
+    const rows = await this.loginTimeRepository.find({
+      where: { userid: userId },
+      order: { loginDate: 'DESC' },
+      take,
+    });
+    return rows.map((r) => ({
+      loginDate: r.loginDate,
+      loginTime: r.loginTime,
+      logoutTime: r.logoutTime || null,
+      active: !r.logoutTime,
+    }));
+  }
+
   private async generateTokens(user: User, sid: string = randomUUID()): Promise<{
     accessToken: string;
     refreshToken: string;
