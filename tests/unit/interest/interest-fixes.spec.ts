@@ -3,7 +3,7 @@ import { InterestService } from '../../../src/modules/interest/interest.service'
 
 function mk(calc?: (m: any) => any) {
   const calls: string[] = [];
-  const manager: any = { query: jest.fn(async (sql: string) => { calls.push(sql); if (/UPDATE sbmaster/.test(sql)) return [{ mbno: 1 }]; return /FROM ledger WHERE receipt_vchr_no/.test(sql) ? [{ trans_type: 'DR', total: '100' }, { trans_type: 'CR', total: '100' }] : []; }), save: jest.fn(async (_e: any, x: any) => x), find: jest.fn().mockResolvedValue([]) };
+  const manager: any = { query: jest.fn(async (sql: string) => { calls.push(sql); if (/FROM headmaster WHERE head_name/.test(sql)) return [{ code: 'E1033' }]; /* the savings-interest expense head exists (ES-457) */ if (/UPDATE sbmaster/.test(sql)) return [{ mbno: 1 }]; return /FROM ledger WHERE receipt_vchr_no/.test(sql) ? [{ trans_type: 'DR', total: '100' }, { trans_type: 'CR', total: '100' }] : []; }), save: jest.fn(async (_e: any, x: any) => x), find: jest.fn().mockResolvedValue([]) };
   const qr: any = { connect: jest.fn(), startTransaction: jest.fn(), commitTransaction: jest.fn(), rollbackTransaction: jest.fn(), release: jest.fn(), manager };
   const ds: any = { createQueryRunner: () => qr, query: jest.fn().mockResolvedValue([]) };
   const master: any = { findOne: jest.fn().mockResolvedValue(null) };

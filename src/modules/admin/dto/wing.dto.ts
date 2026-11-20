@@ -1,5 +1,5 @@
 import { IsOptional, IsString, IsNotEmpty, MaxLength, Matches } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, PartialType } from '@nestjs/swagger';
 
 export class CreateWingDto {
     @ApiProperty({ description: 'Wing Code' })
@@ -26,4 +26,6 @@ export class CreateWingDto {
     state?: string;
 }
 
-export class UpdateWingDto extends CreateWingDto { }
+// ES-306: an update sends only what changes; the wing is named by the URL. (It used to extend the create DTO, so a
+// PATCH without wingId was a 400 "wingId must be a string".)
+export class UpdateWingDto extends PartialType(CreateWingDto) { }

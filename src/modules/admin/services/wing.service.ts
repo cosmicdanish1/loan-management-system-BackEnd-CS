@@ -35,7 +35,10 @@ export class WingService {
 
     async update(id: string, updateDto: UpdateWingDto): Promise<Wing> {
         const wing = await this.findOne(id);
-        Object.assign(wing, updateDto);
+        // ES-306: the wing is the one named by the URL. A wingId in the body is not a way to rename its key (save() would
+        // have written a second wing under the new code), so it is left out.
+        const { wingId: _ignoredKey, ...changes } = updateDto;
+        Object.assign(wing, changes);
         return await this.wingRepository.save(wing);
     }
 

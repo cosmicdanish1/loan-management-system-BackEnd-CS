@@ -8,6 +8,7 @@ import { RequirePermissions } from '../auth/decorators/permissions.decorator';
 import { UserRole, UserPermission } from '../auth/entities/user.entity';
 import { AdminService } from './admin.service';
 import { SystemConfigService } from './services/system-config.service';
+import { DepositSlabType } from './entities/deposit-slab.entity';
 import { CreateDepositSlabDto, UpdateDepositSlabDto, DepositSlabResponseDto } from './dto';
 
 @ApiTags('Administration')
@@ -55,7 +56,12 @@ export class AdminController {
     type: [DepositSlabResponseDto],
   })
   async getDepositLoanSlabs(@Query() query: any) {
-    return this.systemConfigService.findAllDepositSlabs(query);
+    // ES-306: the whole query object used to be passed as the slab type, so the filter matched nothing and the list
+    // was always empty. Same filters as GET /admin/config/deposit-slabs.
+    const type = query?.type ? (String(query.type) as DepositSlabType) : undefined;
+    const rawActive = query?.isActive;
+    const isActive = rawActive === undefined || rawActive === '' ? undefined : String(rawActive).toLowerCase() === 'true';
+    return this.systemConfigService.findAllDepositSlabs(type, isActive);
   }
 
   @Get('deposit-loan-slabs/:id')

@@ -106,10 +106,9 @@ describe('PrintVoucherService extra cases', () => {
   });
 
   it('deduplicates journal references by voucher number and date', async () => {
-    const tq = q({ raw: [{ voucher_no: 'J1', voucher_date: '2026-09-02' }, { voucher_no: 'J2', voucher_date: '2026-09-01' }] });
-    const lq = q({ raw: [{ voucher_no: 'J1', voucher_date: '2026-09-02' }, { voucher_no: 'J3', voucher_date: '2026-08-31' }] });
-    const transactions: any = { createQueryBuilder: jest.fn().mockReturnValue(tq) };
-    const ledger: any = { createQueryBuilder: jest.fn().mockReturnValue(lq) };
+    // ES-264: the references now come from plain queries that return the date as text
+    const transactions: any = { query: jest.fn().mockResolvedValue([{ voucher_no: 'J1', voucher_date: '2026-09-02' }, { voucher_no: 'J2', voucher_date: '2026-09-01' }]) };
+    const ledger: any = { query: jest.fn().mockResolvedValue([{ voucher_no: 'J1', voucher_date: '2026-09-02' }, { voucher_no: 'J3', voucher_date: '2026-08-31' }]) };
     const service = new PrintVoucherService(transactions, {} as any, {} as any, ledger);
 
     await expect(service.getAllJournalVoucherReferences()).resolves.toEqual([

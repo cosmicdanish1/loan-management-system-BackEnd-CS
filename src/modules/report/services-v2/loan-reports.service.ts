@@ -479,11 +479,14 @@ export class LoanReportsService {
       FROM loan_master loan
       LEFT JOIN member_master m ON m.mbno = loan.mbno
       LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
-      LEFT JOIN loan_pending lp ON loan.loancaseno = lp.loancaseno
-      LEFT JOIN member_master s1 ON CAST(s1.mbno AS text) = CAST(lp.g1mbno AS text)
-      LEFT JOIN member_master s2 ON CAST(s2.mbno AS text) = CAST(lp.g2mbno AS text)
+      LEFT JOIN loan_pending lp ON loan.loancaseno = lp.loancaseno AND loan.mbno = lp.mbno
+      LEFT JOIN member_master s1 ON s1.mbno = lp.g1mbno
+      LEFT JOIN member_master s2 ON s2.mbno = lp.g2mbno
       WHERE 1=1
     `;
+    // ES-264: the sureties join compared text casts, so no index could be used (4 s for 500 rows, 8-17 s for the report).
+    // The pending row is now the loan's own: case numbers repeat across members (case 1667 belongs to three), and
+    // joining on the case number alone gave 9,564 of 14,614 loans another member's applied amount and sureties.
 
     const params: any[] = [];
     let whereClause = '';
@@ -584,10 +587,10 @@ export class LoanReportsService {
 
     const baseQuery = `
       FROM loan_pending lp
-      LEFT JOIN member_master m ON CAST(m.mbno AS text) = CAST(lp.mbno AS text)
-      LEFT JOIN member_master s1 ON CAST(s1.mbno AS text) = CAST(lp.g1mbno AS text)
-      LEFT JOIN member_master s2 ON CAST(s2.mbno AS text) = CAST(lp.g2mbno AS text)
-      LEFT JOIN loan_master lm ON lp.loancaseno = lm.loancaseno AND CAST(lm.mbno AS text) = CAST(lp.mbno AS text)
+      LEFT JOIN member_master m ON m.mbno = lp.mbno
+      LEFT JOIN member_master s1 ON s1.mbno = lp.g1mbno
+      LEFT JOIN member_master s2 ON s2.mbno = lp.g2mbno
+      LEFT JOIN loan_master lm ON lp.loancaseno = lm.loancaseno AND lm.mbno = lp.mbno
       WHERE 1=1
     `;
 

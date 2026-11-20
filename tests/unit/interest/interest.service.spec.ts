@@ -6,6 +6,7 @@ function mk(o: { overlap?: any[]; members?: any[]; calc?: (m: any) => any; ledge
   const manager: any = {
     query: jest.fn(async (sql: string, p?: any[]) => {
       calls.push([sql, p]);
+      if (/FROM headmaster WHERE head_name/.test(sql)) return [{ code: 'E1033' }]; // the savings-interest expense head exists (ES-457)
       if (/FROM interestmaster/.test(sql)) return o.overlap ?? [];
       if (/UPDATE sbmaster/.test(sql)) return [{ mbno: 1 }]; // the savings balance row exists (ES-366)
       if (/FROM ledger WHERE receipt_vchr_no/.test(sql)) return o.ledgerRows ?? [{ trans_type: 'DR', total: '100' }, { trans_type: 'CR', total: '100' }];

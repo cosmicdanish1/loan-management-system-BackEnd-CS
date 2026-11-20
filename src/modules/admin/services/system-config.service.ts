@@ -84,6 +84,18 @@ export class SystemConfigService {
     return configs.map(config => this.mapConfigToResponseDto(config));
   }
 
+  async findSystemConfigById(id: number): Promise<SystemConfigResponseDto> {
+    const config = await this.systemConfigRepository.findOne({
+      where: { id },
+    });
+
+    if (!config) {
+      throw new NotFoundException('Configuration not found');
+    }
+
+    return this.mapConfigToResponseDto(config);
+  }
+
   async findSystemConfigByKey(key: string): Promise<SystemConfigResponseDto> {
     const config = await this.systemConfigRepository.findOne({
       where: { key },

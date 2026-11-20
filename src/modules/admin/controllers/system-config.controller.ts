@@ -105,6 +105,23 @@ export class SystemConfigController {
     return this.systemConfigService.findSystemConfigByKey(key);
   }
 
+  // ES-306: read one configuration by id (create, update and delete by id already existed; the read did not).
+  @Get('system/:id')
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @RequirePermissions(UserPermission.MANAGE_SYSTEM_CONFIG)
+  @ApiOperation({ summary: 'Get system configuration by ID' })
+  @ApiParam({ name: 'id', type: Number })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Configuration retrieved successfully',
+    type: SystemConfigResponseDto,
+  })
+  async findSystemConfigById(
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<SystemConfigResponseDto> {
+    return this.systemConfigService.findSystemConfigById(id);
+  }
+
   @Put('system/:id')
   @Roles(UserRole.ADMIN)
   @RequirePermissions(UserPermission.MANAGE_SYSTEM_CONFIG)
