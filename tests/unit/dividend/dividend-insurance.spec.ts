@@ -12,17 +12,31 @@ const runnerOf = (route: (sql: string, p?: any[]) => any) => {
 };
 
 describe('dividend/DividendCalculationService', () => {
-  const fyRow = [{ start_date: '2026-04-01', end_date: '2027-03-31' }];
+  const fyRow = [{ yearcode: 3, fy_start: '2026-04-01', fy_end: '2027-03-31' }];
   const mk = (rows: any[] = [], fy: any[] = fyRow) => runnerOf((sql) => (/FROM yearend/.test(sql) ? fy : /FROM share_monthly_balance/.test(sql) ? rows : /INSERT INTO dividend_master/.test(sql) ? [{ mbno: 'x' }] : undefined));
   it('a financial year has 12 months from April to March', async () => {
     const m = await new DividendCalculationService(mk().ds).getFinancialYearMonths(3);
     expect(m).toHaveLength(12); expect(m[0]).toEqual({ month: 4, year: 2026 }); expect(m[11]).toEqual({ month: 3, year: 2027 });
   });
   it('unknown year: 404', async () => { await expect(new DividendCalculationService(mk([], []).ds).getFinancialYearMonths(9)).rejects.toThrow(NotFoundException); });
+  it('ES-600: months come from the calendar-day strings, so year 2 is April 2027 to March 2028 whatever the server timezone', async () => {
+    const m = await new DividendCalculationService(mk([], [{ yearcode: 2, fy_start: '2027-04-01', fy_end: '2028-03-31' }]).ds).getFinancialYearMonths(2);
+    expect(m).toHaveLength(12); expect(m[0]).toEqual({ month: 4, year: 2027 }); expect(m[11]).toEqual({ month: 3, year: 2028 });
+  });
+  it('ES-597: the year pickers get 2026-27 style labels', async () => {
+    const t = runnerOf(() => [{ yearcode: 2, fy_start: '2027-04-01', fy_end: '2028-03-31' }, { yearcode: 1, fy_start: '2026-04-01', fy_end: '2027-03-31' }]);
+    const y = await new DividendCalculationService(t.ds).listFinancialYears();
+    expect(y.map((r) => [r.yearcode, r.label, r.startYear])).toEqual([[2, '2027-28', 2027], [1, '2026-27', 2026]]);
+  });
+  it('ES-597: January to March belongs to the financial year that started the year before; labels roll over the century', () => {
+    const { fyStartYearOf, fyLabelOf } = require('../../../src/modules/dividend/fy-dates');
+    expect(fyStartYearOf(new Date(2027, 1, 15))).toBe(2026); expect(fyStartYearOf(new Date(2026, 3, 1))).toBe(2026); expect(fyStartYearOf(new Date(2026, 2, 31))).toBe(2025);
+    expect(fyLabelOf(2026)).toBe('2026-27'); expect(fyLabelOf(2099)).toBe('2099-00');
+  });
   it('dividend = sum of 12 month-end share balances x rate / 1200', async () => {
     const t = mk([{ mbno: '5', member_name: ' A B ', months_found: 12, total_product: '120000' }]);
     const r = await new DividendCalculationService(t.ds).previewDividendForYear(3, 10);
-    expect(r).toMatchObject({ calculationYear: 2026, monthsExpected: 12 }); expect(r.members[0]).toMatchObject({ mbno: '5', memberName: 'A B', totalProduct: 120000, monthsFound: 12, dividendAmount: 1000 });
+    expect(r).toMatchObject({ calculationYear: 2026, calculationLabel: '2026-27', monthsExpected: 12 }); expect(r.members[0]).toMatchObject({ mbno: '5', memberName: 'A B', totalProduct: 120000, monthsFound: 12, dividendAmount: 1000 });
   });
   it('rounds to paise', async () => {
     const r = await new DividendCalculationService(mk([{ mbno: '5', months_found: 12, total_product: '1000.55' }]).ds).previewDividendForYear(3, 7.5);
@@ -41,7 +55,7 @@ describe('dividend/DividendCalculationService', () => {
   it('commit writes one row per member in one transaction, never overwriting a paid dividend', async () => {
     const t = mk([{ mbno: '5', months_found: 12, total_product: '1200' }, { mbno: '6', months_found: 12, total_product: '2400' }]);
     const r = await new DividendCalculationService(t.ds).commitDividendForYear(3, 10);
-    const ins = t.calls.filter((c) => /INSERT INTO dividend_master/.test(c[0])); expect(r).toEqual({ success: true, calculationYear: 2026, membersCommitted: 2 }); expect(ins).toHaveLength(2);
+    const ins = t.calls.filter((c) => /INSERT INTO dividend_master/.test(c[0])); expect(r).toEqual({ success: true, calculationYear: 2026, calculationLabel: '2026-27', membersCommitted: 2 }); expect(ins).toHaveLength(2);
     expect(ins[0][0]).toContain("dividend_master.is_paid != 'Y'"); expect(t.qr.commitTransaction).toHaveBeenCalledTimes(1);
   });
   it('ES-498: membersCommitted counts only the rows really written (credited / paid rows return nothing)', async () => {
@@ -58,15 +72,16 @@ describe('dividend/DividendCalculationService', () => {
 
 describe('dividend/DividendCreditService', () => {
   const seq: any = { getNextVoucherNumber: jest.fn().mockResolvedValue('VCH001'), getNextVoucherId: jest.fn().mockResolvedValue(8) };
-  const years = (sql: string, p?: any[]) => (/SELECT start_date FROM yearend WHERE yearcode/.test(sql) ? [{ start_date: p![0] === 4 ? '2027-04-01' : '2026-04-01' }] : /FROM yearend WHERE start_date </.test(sql) ? [{ yearcode: 3, start_date: '2026-04-01' }] : undefined);
+  const fy = (code: number, start: string, end: string) => ({ yearcode: code, fy_start: start, fy_end: end });
+  const years = (sql: string, p?: any[]) => (/FROM yearend WHERE yearcode/.test(sql) ? [p![0] === 4 ? fy(4, '2027-04-01', '2028-03-31') : fy(3, '2026-04-01', '2027-03-31')] : /FROM yearend WHERE \(start_date/.test(sql) ? [fy(3, '2026-04-01', '2027-03-31')] : undefined);
   it('previous year of the first year is null; unknown year 404', async () => {
-    const a = runnerOf((sql) => (/SELECT start_date FROM yearend WHERE yearcode/.test(sql) ? [{ start_date: '2026-04-01' }] : [])); expect(await new DividendCreditService(a.ds, seq).getPreviousYearcode(1)).toBeNull();
+    const a = runnerOf((sql) => (/FROM yearend WHERE yearcode/.test(sql) ? [fy(1, '2026-04-01', '2027-03-31')] : [])); expect(await new DividendCreditService(a.ds, seq).getPreviousYearcode(1)).toBeNull();
     await expect(new DividendCreditService(runnerOf(() => []).ds, seq).getPreviousYearcode(9)).rejects.toThrow(NotFoundException);
   });
   it('preview: new share value = current + dividend', async () => {
     const t = runnerOf((sql, p) => years(sql, p) ?? (/FROM dividend_master dm/.test(sql) ? [{ mbno: '5', member_name: 'A', dividend_amount: '250.5', current_share_value: '1000' }] : undefined));
     const r = await new DividendCreditService(t.ds, seq).previewCreditForYear(4);
-    expect(r).toMatchObject({ creditYearcode: 4, previousCalculationYear: 2026 }); expect(r.members[0]).toMatchObject({ dividendAmount: 250.5, newShareValue: 1250.5 });
+    expect(r).toMatchObject({ creditYearcode: 4, creditLabel: '2027-28', previousCalculationYear: 2026, previousCalculationLabel: '2026-27' }); expect(r.members[0]).toMatchObject({ dividendAmount: 250.5, newShareValue: 1250.5 });
   });
   it('credit: nothing to credit gives null and rolls back', async () => {
     const t = runnerOf((sql, p) => years(sql, p)); expect(await new DividendCreditService(t.ds, seq).creditMemberDividend('5', 4, 'u')).toBeNull(); expect(t.qr.rollbackTransaction).toHaveBeenCalled();

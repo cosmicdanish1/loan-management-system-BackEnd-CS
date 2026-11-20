@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { DividendRateRules, assertDividendRateAllowed, dividendRateRulesFrom } from '../dividend-rate-rules';
 import { DataSource } from 'typeorm';
+import { FY_DATE_COLUMNS_SQL, FinancialYearDates, toFinancialYearDates } from '../fy-dates';
 
 export interface FinancialYearMonth {
     month: number;
@@ -42,21 +43,33 @@ export class DividendCalculationService {
      *  yearend row rather than assuming April-March — so this still works
      *  correctly if the financial year boundary is ever configured
      *  differently. */
-    async getFinancialYearMonths(yearcode: number): Promise<FinancialYearMonth[]> {
+    async loadFinancialYear(yearcode: number): Promise<FinancialYearDates> {
         const rows = await this.dataSource.query(
-            `SELECT start_date, end_date FROM yearend WHERE yearcode = $1`,
+            `SELECT yearcode, ${FY_DATE_COLUMNS_SQL} FROM yearend WHERE yearcode = $1`,
             [yearcode],
         );
         if (!rows[0]) throw new NotFoundException(`Financial year ${yearcode} not found.`);
+        return toFinancialYearDates(rows[0]);
+    }
 
-        const start = new Date(rows[0].start_date);
-        const end = new Date(rows[0].end_date);
+    /** Every financial year with its label (2026-27), newest first, for the year pickers on the dividend windows. */
+    async listFinancialYears(): Promise<FinancialYearDates[]> {
+        const rows = await this.dataSource.query(`SELECT yearcode, ${FY_DATE_COLUMNS_SQL} FROM yearend ORDER BY start_date DESC`);
+        return rows.map(toFinancialYearDates);
+    }
+
+    async getFinancialYearMonths(yearcode: number): Promise<FinancialYearMonth[]> {
+        const fy = await this.loadFinancialYear(yearcode);
+        // Plain calendar arithmetic on the YYYY-MM-DD strings, so the server timezone can not move a month (ES-600).
+        let year = Number(fy.fyStart.slice(0, 4));
+        let month = Number(fy.fyStart.slice(5, 7));
+        const endYear = Number(fy.fyEnd.slice(0, 4));
+        const endMonth = Number(fy.fyEnd.slice(5, 7));
         const months: FinancialYearMonth[] = [];
-        const cursor = new Date(start.getFullYear(), start.getMonth(), 1);
-        const endMonth = new Date(end.getFullYear(), end.getMonth(), 1);
-        while (cursor <= endMonth) {
-            months.push({ month: cursor.getMonth() + 1, year: cursor.getFullYear() });
-            cursor.setMonth(cursor.getMonth() + 1);
+        while (year < endYear || (year === endYear && month <= endMonth)) {
+            months.push({ month, year });
+            month += 1;
+            if (month > 12) { month = 1; year += 1; }
         }
         return months;
     }
@@ -83,6 +96,7 @@ export class DividendCalculationService {
     async previewDividendForYear(yearcode: number, dividendRatePercent: number): Promise<{
         yearcode: number;
         calculationYear: number;
+        calculationLabel: string;
         dividendRatePercent: number;
         monthsExpected: number;
         members: MemberDividendPreview[];
@@ -94,9 +108,9 @@ export class DividendCalculationService {
         // ES-476: Fixed / Minimum / Maximum rate from Modify Business Rules (only the ones switched on apply)
         assertDividendRateAllowed(rate, await this.getRateRules());
 
+        const fy = await this.loadFinancialYear(yearcode);
         const months = await this.getFinancialYearMonths(yearcode);
-        const startRow = await this.dataSource.query(`SELECT start_date FROM yearend WHERE yearcode = $1`, [yearcode]);
-        const calculationYear = new Date(startRow[0].start_date).getFullYear();
+        const calculationYear = fy.startYear;
 
         const conditions = months.map((_, i) => `(snapshot_month = $${i * 2 + 1} AND snapshot_year = $${i * 2 + 2})`).join(' OR ');
         const params = months.flatMap((m) => [m.month, m.year]);
@@ -129,7 +143,7 @@ export class DividendCalculationService {
             };
         });
 
-        return { yearcode, calculationYear, dividendRatePercent, monthsExpected: months.length, members };
+        return { yearcode, calculationYear, calculationLabel: fy.label, dividendRatePercent, monthsExpected: months.length, members };
     }
 
     /** Commits the calculation into dividend_master, one row per member, for
@@ -142,7 +156,7 @@ export class DividendCalculationService {
     async commitDividendForYear(
         yearcode: number,
         dividendRatePercent: number,
-    ): Promise<{ success: boolean; calculationYear: number; membersCommitted: number }> {
+    ): Promise<{ success: boolean; calculationYear: number; calculationLabel: string; membersCommitted: number }> {
         const preview = await this.previewDividendForYear(yearcode, dividendRatePercent);
 
         // ES-328: once any member of this year has been credited or paid, the year's rate is settled. Re-running at
@@ -179,7 +193,7 @@ export class DividendCalculationService {
                 if (Array.isArray(res) && res.length > 0) written++;
             }
             await queryRunner.commitTransaction();
-            return { success: true, calculationYear: preview.calculationYear, membersCommitted: written };
+            return { success: true, calculationYear: preview.calculationYear, calculationLabel: preview.calculationLabel, membersCommitted: written };
         } catch (error) {
             await queryRunner.rollbackTransaction();
             throw error;

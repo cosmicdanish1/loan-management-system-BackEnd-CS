@@ -21,7 +21,6 @@ import {
     DemandReportService,
     CompulsoryDepositService,
     JournalTransferService,
-    DividendPaymentService,
 } from './services-v2';
 import { DemandImportService } from './services-v2/demand-import.service';
 import { LoanEligibilityService } from '../loan/services-v2/loan-eligibility.service';
@@ -33,7 +32,6 @@ import { LoanRepaymentHoldService } from '../loan/services-v2/repayment-hold/loa
 import { RdModule } from '../rd/rd.module';
 import { CompulsoryDepositController } from './compulsory-deposit.controller';
 import { JournalTransferController } from './journal-transfer.controller';
-import { DividendPaymentController } from './dividend-payment.controller';
 import { MemberBalanceTransferController } from './member-balance-transfer.controller';
 import { MemberBalanceTransferService } from './services-v2/member-balance-transfer.service';
 
@@ -58,7 +56,6 @@ import { MemberBalanceTransferService } from './services-v2/member-balance-trans
         DemandReportController, // Register
         CompulsoryDepositController,
         JournalTransferController,
-        DividendPaymentController,
         MemberBalanceTransferController, // ES-511
     ],
     providers: [
@@ -71,7 +68,6 @@ import { MemberBalanceTransferService } from './services-v2/member-balance-trans
         DemandReportService, // Register
         CompulsoryDepositService,
         JournalTransferService,
-        DividendPaymentService,
         MemberBalanceTransferService, // ES-511
         LoanEligibilityService,
         // Same duplicated-provider pattern as LoanEligibilityService above —
@@ -100,7 +96,6 @@ import { MemberBalanceTransferService } from './services-v2/member-balance-trans
         DemandReportService,
         CompulsoryDepositService,
         JournalTransferService,
-        DividendPaymentService,
         LoanEligibilityService,
     ]
 })

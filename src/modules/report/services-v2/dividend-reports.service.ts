@@ -60,7 +60,10 @@ export class DividendReportsService {
         d.name as office_name,
         COALESCE(mb.shares, 0) as share_balance,
         COALESCE(div.dividend_amount, COALESCE(mb.shares, 0) * $${dividendRateParamIndex} / 100) as dividend_amount,
-        COALESCE(div.dividend_rate, $${dividendRateParamIndex}) as dividend_rate
+        COALESCE(div.dividend_rate, $${dividendRateParamIndex}) as dividend_rate,
+        (div.id IS NOT NULL) as is_calculated,
+        (div.is_paid = 'Y') as is_paid,
+        (div.credited_at IS NOT NULL) as is_credited
       ${baseQuery} ${whereClause}
       ORDER BY m.mbno
     `;
@@ -94,8 +97,13 @@ export class DividendReportsService {
         designation: r.designation || '',
         shareAmount: parseFloat(r.share_balance) || 0,
         dividendAmount: parseFloat(r.dividend_amount) || 0,
-        dividendRate: parseFloat(r.dividend_rate) || 0
-      }))
+        dividendRate: parseFloat(r.dividend_rate) || 0,
+        // ES-598: a row without a calculated dividend is only an estimate (today's shares x the typed rate / 100);
+        // the official figure is the committed Dividend Calculation (Total Product x rate / 1200).
+        status: r.is_paid ? 'Paid in cash' : r.is_credited ? 'Credited to Share Value' : r.is_calculated ? 'Calculated' : 'Estimate (not calculated)',
+        isEstimate: !r.is_calculated,
+      })),
+      calculatedCount: result.filter((r: any) => r.is_calculated).length,
     };
   }
 
@@ -109,8 +117,8 @@ export class DividendReportsService {
       FROM dividend_master div
       LEFT JOIN member_master m ON m.mbno::text = div.mbno
       LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
-      WHERE div.is_paid = 'Y'
-    `;
+      WHERE (div.is_paid = 'Y' OR div.credited_at IS NOT NULL)
+    `; // ES-597: a dividend credited to Share Value is a payout too, so it is listed with its own mode
 
     const params: any[] = [];
     let whereClause = '';
@@ -122,12 +130,12 @@ export class DividendReportsService {
     }
 
     if (fromDate) {
-      whereClause += ` AND div.payment_date >= $${params.length + 1}`;
+      whereClause += ` AND COALESCE(div.payment_date, div.credited_at) >= $${params.length + 1}`;
       params.push(parseSafeDate(fromDate));
     }
 
     if (toDate) {
-      whereClause += ` AND div.payment_date <= $${params.length + 1}`;
+      whereClause += ` AND COALESCE(div.payment_date, div.credited_at) <= $${params.length + 1}`;
       params.push(parseSafeDate(toDate));
     }
 
@@ -141,17 +149,17 @@ export class DividendReportsService {
     const totalCount = parseInt(totalCountRes[0].count);
 
     let query = `
-      SELECT 
+      SELECT
         m.mbno as member_no,
         TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.l_name, '')) as member_name,
         d.name as office_name,
         div.dividend_amount,
-        div.payment_date,
-        div.payment_mode,
+        COALESCE(div.payment_date, div.credited_at) as payment_date,
+        CASE WHEN div.is_paid = 'Y' THEN div.payment_mode ELSE 'CREDITED TO SHARE VALUE' END as payment_mode,
         div.cheque_no,
         div.voucher_no
       ${baseQuery} ${whereClause}
-      ORDER BY div.payment_date DESC
+      ORDER BY COALESCE(div.payment_date, div.credited_at) DESC
     `;
 
     const queryParams = [...params];

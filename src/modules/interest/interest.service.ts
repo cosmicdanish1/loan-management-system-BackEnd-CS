@@ -955,7 +955,8 @@ export class InterestService implements OnModuleInit {
    *   - the RD/CD interest is worked out and posted by the RD/CD engine (RD/CD Financial Year Closing) for every member, the
    *     legacy way (DR E1026 / CR L1004 per member, dated the year end);
    *   - the group insurance is deducted by the Group Insurance window (one run per year, DR L1004 / CR L1003), not here;
-   *   - the dividend is only DECLARED here as before (dividend_master, paid later by the Dividend Payment screen).
+   *   - the dividend is worked out only by the Dividend Calculation window (ES-599); this window just reports whether it
+   *     has been calculated for the year.
    */
   async processYearlyFundProcess(dto: UpdateSavingInterestDto, isPreview: boolean = false, username: string = 'SYSTEM'): Promise<InterestRunSummaryDto> {
     if (!this.rdClosing) throw new BadRequestException('The RD/CD year-end engine is not available.');
@@ -963,33 +964,26 @@ export class InterestService implements OnModuleInit {
     if (Number.isNaN(toDate.getTime())) throw new BadRequestException('A valid financial year end date is needed.');
     const toYmd = `${toDate.getFullYear()}-${String(toDate.getMonth() + 1).padStart(2, '0')}-${String(toDate.getDate()).padStart(2, '0')}`;
     const fy = await this.dataSource.query(
-      `SELECT yearcode, to_char(end_date, 'YYYY-MM-DD') AS e FROM yearend WHERE $1::date BETWEEN start_date AND end_date LIMIT 1`,
+      `SELECT yearcode, to_char((start_date + interval '12 hours')::date, 'YYYY-MM-DD') AS s FROM yearend WHERE $1::date BETWEEN (start_date + interval '12 hours')::date AND (end_date + interval '12 hours')::date LIMIT 1`,
       [toYmd],
     );
     if (!fy?.[0]) throw new BadRequestException(`No financial year contains ${toYmd}.`);
     const yearcode = Number(fy[0].yearcode);
-    const dividendYear = Number(String(fy[0].e).slice(0, 4));
+    const startYear = Number(String(fy[0].s).slice(0, 4)); // a dividend is stored under the year its financial year starts in
     const calculationDate = new Date().toISOString();
 
-    // 1. the dividend declaration (unchanged behaviour): only when a dividend rate is set in the Business Rules
-    const rules = await this.systemConfigService.getBusinessRules();
-    const dividendPct = Number(rules['RULE_DIVIDEND_PCT'] || 0);
-    if (!isPreview && dividendPct > 0) {
-      const existing = await this.dataSource.query(`SELECT 1 FROM dividend_master WHERE year = $1 LIMIT 1`, [dividendYear]);
-      if (existing.length > 0) throw new Error(`Dividend for year ${dividendYear} has already been declared`);
-      const funds = await this.fundsRepository.find();
-      const active = await this.memberMasterRepository.find({ where: { isactive: 'Y' } });
-      const activeSet = new Set(active.map((m) => String(m.mbno)));
-      for (const f of funds) {
-        if (!activeSet.has(String(f.memberNo))) continue;
-        const shareCapital = Number(f.sharesOpeningBalance || 0);
-        const dividendAmount = Math.round(shareCapital * (dividendPct / 100));
-        if (dividendAmount > 0) {
-          await this.dataSource.query(
-            `INSERT INTO dividend_master (mbno, year, share_amount, dividend_rate, dividend_amount, is_paid) VALUES ($1, $2, $3, $4, $5, 'N')`,
-            [f.memberNo, dividendYear, shareCapital, dividendPct, dividendAmount],
-          );
-        }
+    // 1. the dividend (ES-599): this window no longer declares it. The Dividend Calculation window is the one place
+    // that works it out (Total Product x rate / 1200, stored under the year the financial year STARTS), so there is
+    // one formula and one year convention, and the year-end run can never stop because dividend rows already exist.
+    // It only says whether the year's dividend has been calculated yet.
+    let dividendNote = '';
+    if (!isPreview) {
+      const rules = await this.systemConfigService.getBusinessRules();
+      if (Number(rules['RULE_DIVIDEND_PCT'] || 0) > 0) {
+        const calculated = await this.dataSource.query(`SELECT 1 FROM dividend_master WHERE year = $1 LIMIT 1`, [startYear]);
+        dividendNote = calculated.length > 0
+          ? `Dividend ${startYear}-${String((startYear + 1) % 100).padStart(2, '0')} already calculated`
+          : `Dividend ${startYear}-${String((startYear + 1) % 100).padStart(2, '0')} NOT calculated yet: use Dividend Calculation`;
       }
     }
 
@@ -1055,7 +1049,7 @@ export class InterestService implements OnModuleInit {
       fromDate: dto.fromDate,
       toDate: dto.toDate,
       interestRate: 0,
-      voucherNumber: [voucherNumber, failedNote, insuranceNote].filter(Boolean).join(' - '),
+      voucherNumber: [voucherNumber, failedNote, insuranceNote, dividendNote].filter(Boolean).join(' - '),
       calculationDate,
       memberCalculations,
     };

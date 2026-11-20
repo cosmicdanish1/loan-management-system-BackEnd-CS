@@ -8,7 +8,7 @@ describe('interest/InterestService.processYearlyFundProcess (ES-583)', () => {
     const ds: any = {
       query: jest.fn(async (sql: string, p?: any[]) => {
         calls.push([sql, p]);
-        if (/FROM yearend/.test(sql)) return o.fy ?? [{ yearcode: 3, e: '2027-03-31' }];
+        if (/FROM yearend/.test(sql)) return o.fy ?? [{ yearcode: 3, s: '2026-04-01' }];
         if (/FROM dividend_master/.test(sql)) return o.dividendExists ? [{ x: 1 }] : [];
         if (/FROM member_master/.test(sql)) return [{ m: '5', n: 'Ram' }];
         return [];
@@ -71,11 +71,12 @@ describe('interest/InterestService.processYearlyFundProcess (ES-583)', () => {
   it('a date outside every financial year is refused', async () => {
     await expect(mk({ fy: [] }).svc.processYearlyFundProcess(dto, true)).rejects.toThrow(BadRequestException);
   });
-  it('the dividend is declared (pending) only when a rate is set, once per year', async () => {
-    const none = mk({ pct: 0 }); await none.svc.processYearlyFundProcess(dto, false);
-    expect(none.calls.some((c) => /INSERT INTO dividend_master/.test(c[0]))).toBe(false);
-    const on = mk({ pct: 10 }); await on.svc.processYearlyFundProcess(dto, false);
-    const ins = on.calls.find((c) => /INSERT INTO dividend_master/.test(c[0])); expect(ins![1]).toEqual([5, 2027, 1000, 10, 100]);
-    await expect(mk({ pct: 10, dividendExists: true }).svc.processYearlyFundProcess(dto, false)).rejects.toThrow(/already been declared/);
+  it('ES-599: the year-end run never writes dividend_master and never stops because dividend rows exist; it only says whether the dividend is calculated', async () => {
+    const none = mk({ pct: 0 }); const r0 = await none.svc.processYearlyFundProcess(dto, false);
+    expect(none.calls.some((c) => /INSERT INTO dividend_master/.test(c[0]))).toBe(false); expect(r0.voucherNumber).not.toMatch(/Dividend/);
+    const on = mk({ pct: 10 }); const r1 = await on.svc.processYearlyFundProcess(dto, false);
+    expect(on.calls.some((c) => /INSERT INTO dividend_master/.test(c[0]))).toBe(false); expect(r1.voucherNumber).toMatch(/NOT calculated yet: use Dividend Calculation/);
+    const done = await mk({ pct: 10, dividendExists: true }).svc.processYearlyFundProcess(dto, false);
+    expect(done.voucherNumber).toMatch(/already calculated/);
   });
 });

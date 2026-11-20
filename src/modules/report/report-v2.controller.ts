@@ -19,6 +19,7 @@ import {
 } from './services-v2';
 import { FinancialSummaryDto } from './dto/financial-summary.dto';
 
+import { fyStartYearOf } from '../dividend/fy-dates';
 /**
  * Report V2 Controller - Restructured endpoints using separated services.
  * 
@@ -224,7 +225,8 @@ export class ReportV2Controller {
     @ApiOperation({ summary: 'Get dividend report' })
     async getDividendReport(@Query() dto: { year?: string; financialYear?: string; wingName?: string; officeName?: string; dividendRate?: number; limit?: number; offset?: number; sortBy?: string }) {
         // Frontend sends financialYear like "2024-2025" or year
-        const year = dto.year ? parseInt(dto.year) : (dto.financialYear ? parseInt(dto.financialYear.split('-')[0]) : new Date().getFullYear());
+        // a dividend is stored under the year its financial year STARTS in; Jan-Mar still belongs to the year before (ES-597)
+        const year = dto.year ? parseInt(dto.year) : (dto.financialYear ? parseInt(dto.financialYear.split('-')[0]) : fyStartYearOf());
         const dividendRate = dto.dividendRate ? parseFloat(dto.dividendRate.toString()) : 10;
         return this.dividendReports.getDividendReport({
             year,
@@ -240,7 +242,7 @@ export class ReportV2Controller {
     @ApiOperation({ summary: 'Get dividend paid report' })
     async getDividendPaid(@Query() dto: { wingName?: string; fromDate?: string; toDate?: string; limit?: number; offset?: number }) {
         return this.dividendReports.getDividendPaid({
-            year: new Date().getFullYear(), // Placeholder, logic uses date range
+            year: fyStartYearOf(), // used only when no dates are given; logic otherwise uses the date range
             wingNo: dto.wingName,
             fromDate: dto.fromDate,
             toDate: dto.toDate,
@@ -254,7 +256,7 @@ export class ReportV2Controller {
     async getDividendWarrant(@Query() dto: { wingName?: string; officeName?: string; fromDate?: string; uptoDate?: string; memberNo?: string; sortBy?: string }) {
         return this.dividendReports.getDividendWarrant({
             memberNo: dto.memberNo,
-            year: dto.fromDate ? new Date(dto.fromDate).getFullYear() : new Date().getFullYear(), // Estimating year from date
+            year: fyStartYearOf(dto.fromDate ? new Date(dto.fromDate) : new Date()), // the financial year the From date falls in
             wingNo: dto.wingName,
             officeNo: dto.officeName,
             fromDate: dto.fromDate,

@@ -38,6 +38,22 @@ describe('DividendReportsService', () => {
       expect(report.data[0].dividendAmount).toBe(800);
     });
 
+    it('ES-598: every row says whether it is calculated, credited, paid, or only an estimate', async () => {
+      const row = { member_no: '1', member_name: 'A', office_name: 'O', share_balance: '1000', dividend_amount: '100', dividend_rate: '10' };
+      dataSource.query
+        .mockResolvedValueOnce([{ count: '4' }])
+        .mockResolvedValueOnce([
+          { ...row, is_calculated: false, is_paid: null, is_credited: false },
+          { ...row, is_calculated: true, is_paid: false, is_credited: false },
+          { ...row, is_calculated: true, is_paid: false, is_credited: true },
+          { ...row, is_calculated: true, is_paid: true, is_credited: false },
+        ]);
+      const report: any = await service.getDividendReport({ year: 2026, dividendRate: 10 });
+      expect(report.data.map((d: any) => d.status)).toEqual(['Estimate (not calculated)', 'Calculated', 'Credited to Share Value', 'Paid in cash']);
+      expect(report.data.map((d: any) => d.isEstimate)).toEqual([true, false, false, false]);
+      expect(report.calculatedCount).toBe(3);
+    });
+
     it('rejects unreasonable dividend rates (e.g. > 100% or negative)', async () => {
       dataSource.query
         .mockResolvedValueOnce([{ count: '0' }])

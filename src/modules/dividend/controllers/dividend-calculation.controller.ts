@@ -8,6 +8,12 @@ import { DividendCalculationService } from '../services/dividend-calculation.ser
 export class DividendCalculationController {
     constructor(private readonly service: DividendCalculationService) {}
 
+    @Get('years')
+    @ApiOperation({ summary: 'Financial years with their 2026-27 labels, newest first, for the year pickers on the dividend windows' })
+    async years() {
+        return this.service.listFinancialYears();
+    }
+
     @Get('rules')
     @ApiOperation({ summary: 'Fixed / Minimum / Maximum dividend rate from Modify Business Rules and the proposed starting rate' })
     async rules() {

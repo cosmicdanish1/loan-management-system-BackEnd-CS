@@ -3,6 +3,7 @@ import { lockLedgerIds } from '../../shared/utils/ledger-lock';
 import { DataSource } from 'typeorm';
 import { SequenceGeneratorService } from '../../shared/services/sequence-generator.service';
 import { isDebitNormal } from '../../shared/utils/balance-direction';
+import { FY_DATE_COLUMNS_SQL, toFinancialYearDates } from '../fy-dates';
 
 const SHARE_HEAD_CODE = 'L1001';       // SHARE VALUE
 const DIVIDEND_PAYABLE_HEAD_CODE = 'L1024'; // DIVIDEND PAID
@@ -50,16 +51,18 @@ export class DividendCreditService {
      *  ordering — the mirror image of RD financial-year-closing's own
      *  "next year" lookup. Returns null when there is none (yearcode is the
      *  very first financial year in the system — nothing to credit yet). */
-    async getPreviousYearcode(yearcode: number): Promise<{ yearcode: number; calculationYear: number } | null> {
-        const currentRows = await this.dataSource.query(`SELECT start_date FROM yearend WHERE yearcode = $1`, [yearcode]);
+    async getPreviousYearcode(yearcode: number, runner: { query: (s: string, p?: any[]) => Promise<any> } = this.dataSource): Promise<{ yearcode: number; calculationYear: number; calculationLabel: string } | null> {
+        const currentRows = await runner.query(`SELECT yearcode, ${FY_DATE_COLUMNS_SQL} FROM yearend WHERE yearcode = $1`, [yearcode]);
         if (!currentRows[0]) throw new NotFoundException(`Financial year ${yearcode} not found.`);
 
-        const prevRows = await this.dataSource.query(
-            `SELECT yearcode, start_date FROM yearend WHERE start_date < $1 ORDER BY start_date DESC LIMIT 1`,
-            [currentRows[0].start_date],
+        // dates compared as calendar days (stored boundaries sit hours either side of midnight), so the server timezone can not matter (ES-600)
+        const prevRows = await runner.query(
+            `SELECT yearcode, ${FY_DATE_COLUMNS_SQL} FROM yearend WHERE (start_date + interval '12 hours')::date < $1::date ORDER BY start_date DESC LIMIT 1`,
+            [currentRows[0].fy_start],
         );
         if (!prevRows[0]) return null;
-        return { yearcode: Number(prevRows[0].yearcode), calculationYear: new Date(prevRows[0].start_date).getFullYear() };
+        const prev = toFinancialYearDates(prevRows[0]);
+        return { yearcode: prev.yearcode, calculationYear: prev.startYear, calculationLabel: prev.label };
     }
 
     /** Read-only preview of what crediting `yearcode`'s close would apply —
@@ -67,11 +70,14 @@ export class DividendCreditService {
      *  calculation year that hasn't been credited yet. Writes nothing. */
     async previewCreditForYear(yearcode: number): Promise<{
         creditYearcode: number;
+        creditLabel: string;
         previousCalculationYear: number | null;
+        previousCalculationLabel: string | null;
         members: DividendCreditPreviewRow[];
     }> {
+        const creditLabel = (await this.loadLabel(yearcode));
         const previous = await this.getPreviousYearcode(yearcode);
-        if (!previous) return { creditYearcode: yearcode, previousCalculationYear: null, members: [] };
+        if (!previous) return { creditYearcode: yearcode, creditLabel, previousCalculationYear: null, previousCalculationLabel: null, members: [] };
 
         const rows = await this.dataSource.query(
             `SELECT dm.mbno, CONCAT(m.f_name, ' ', m.l_name) as member_name, dm.dividend_amount,
@@ -97,7 +103,14 @@ export class DividendCreditService {
             };
         });
 
-        return { creditYearcode: yearcode, previousCalculationYear: previous.calculationYear, members };
+        return { creditYearcode: yearcode, creditLabel, previousCalculationYear: previous.calculationYear, previousCalculationLabel: previous.calculationLabel, members };
+    }
+
+    /** "2027-28" for a year code (the financial year whose close does the crediting). */
+    private async loadLabel(yearcode: number): Promise<string> {
+        const rows = await this.dataSource.query(`SELECT yearcode, ${FY_DATE_COLUMNS_SQL} FROM yearend WHERE yearcode = $1`, [yearcode]);
+        if (!rows[0]) throw new NotFoundException(`Financial year ${yearcode} not found.`);
+        return toFinancialYearDates(rows[0]).label;
     }
 
     /** Credits one member's already-calculated prior-year dividend into
@@ -176,8 +189,8 @@ export class DividendCreditService {
                 }
             }
 
-            const creditYearRow = await queryRunner.query(`SELECT start_date FROM yearend WHERE yearcode = $1`, [creditYearcode]);
-            const creditedYear = new Date(creditYearRow[0].start_date).getFullYear();
+            const creditYearRow = await queryRunner.query(`SELECT yearcode, ${FY_DATE_COLUMNS_SQL} FROM yearend WHERE yearcode = $1`, [creditYearcode]);
+            const creditedYear = toFinancialYearDates(creditYearRow[0]).startYear;
             await queryRunner.query(
                 `UPDATE dividend_master SET credited_at = NOW(), credited_year = $1, credited_by = $2 WHERE id = $3`,
                 [creditedYear, creditedBy, rows[0].id],
