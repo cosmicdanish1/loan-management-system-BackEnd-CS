@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { assertPostingDateOpen } from '../../shared/utils/posting-date';
-import { lockLedgerIds } from '../../shared/utils/ledger-lock';
+import { lockLedgerIds, lockNextId } from '../../shared/utils/ledger-lock';
 import { SequenceGeneratorService } from '../../shared/services';
 import { DataSource } from 'typeorm';
 import { PostCDTransactionDto } from '../dto/compulsory-deposit.dto';
@@ -40,11 +40,12 @@ export class CompulsoryDepositService {
     }
 
     /**
-     * Get Income/GL Heads from 'main' table
+     * Get the income heads (headmaster, pflag 'I'; I1000 is the group head). ES-571: this read the `main` table,
+     * which has no rows, so the Compulsory Deposit screen's head list was always empty.
      */
     async getIncomeHeads() {
         try {
-            const query = `SELECT maincode as code, mainname as name FROM main ORDER BY mainname ASC`;
+            const query = `SELECT TRIM(code) AS code, TRIM(head_name) AS name FROM headmaster WHERE pflag = 'I' AND TRIM(code) <> 'I1000' ORDER BY head_name ASC`;
             return await this.dataSource.query(query);
         } catch (error) {
             this.logger.error('Error fetching income heads', error);
@@ -76,6 +77,30 @@ export class CompulsoryDepositService {
                 throw new BadRequestException(`The total ${dto.totalAmount} must equal the sum of the member amounts (${linesTotal}).`);
             }
 
+            // ES-570: nothing was checked beyond the totals, so an unknown income head, a member that does not exist
+            // or the same member twice was posted. All three are refused here, before anything is written.
+            const headCode = String(dto.incomeHeadCode ?? '').trim().toUpperCase();
+            const validHead = await queryRunner.query(
+                `SELECT 1 FROM headmaster WHERE UPPER(TRIM(code)) = $1 LIMIT 1`, [headCode],
+            );
+            if (!headCode || validHead.length === 0) {
+                throw new BadRequestException(`Unknown income head code: ${dto.incomeHeadCode}`);
+            }
+            const postingRows = distributions.filter((d) => Number(d.postAmount) > 0);
+            const memberNos = postingRows.map((d) => Number(d.memberNo));
+            const repeated = memberNos.filter((m, i) => memberNos.indexOf(m) !== i);
+            if (repeated.length > 0) {
+                throw new BadRequestException(`Member ${[...new Set(repeated)].join(', ')} appears more than once in the list.`);
+            }
+            if (memberNos.length > 0) {
+                const found = await queryRunner.query(`SELECT mbno FROM member_master WHERE mbno = ANY($1)`, [memberNos]);
+                const foundSet = new Set(found.map((m: any) => Number(m.mbno)));
+                const missing = memberNos.filter((m) => !foundSet.has(m));
+                if (missing.length > 0) {
+                    throw new BadRequestException(`Unknown member number(s): ${missing.join(', ')}`);
+                }
+            }
+
             // 1. Generate Voucher Number.
             // ES-461: this used MAX(CAST("voucherNumber" AS INTEGER)), which fails on every VCH### number ("invalid input
             // syntax for type integer: VCH061"), so bulk CD posting never worked. The shared generator is used instead,
@@ -99,7 +124,20 @@ export class CompulsoryDepositService {
                     trans_no, trans_type, trans_date, trans_amt, receipt_vchr_no, vchr_type,
                     modeofpay, pass_flag, cashier_flag, code, narration, username, cheq_amt
                 ) VALUES ($1, 'P', NOW(), $2, $3, 'CD', 'J', 'Y', 'Y', $4, $5, $6, 0)
-            `, [nextTransId, dto.totalAmount, voucherNo, dto.incomeHeadCode.substring(0, 5), 'Bulk CD Post (Debit Head)', username]);
+            `, [nextTransId, dto.totalAmount, voucherNo, headCode.substring(0, 5), 'Bulk CD Post (Debit Head)', username]);
+
+            // Ledger ids and numbers for every row of this voucher, taken once under the shared ledger lock (ES-445)
+            await lockNextId(queryRunner, 'ledger', 'ledgerid');
+            let ledgerId = Number((await queryRunner.query(`SELECT COALESCE(MAX(ledgerid), 0) + 1 as next_id FROM ledger`))[0].next_id);
+            let ledgerTransNo = Number((await queryRunner.query(`SELECT COALESCE(MAX(trans_no), 0) + 1 as next_id FROM ledger`))[0].next_id);
+            const insertLedger = async (code: string, direction: 'DR' | 'CR', mbno: number, accType: string, amount: number, plBalance: number, text: string) => {
+                await queryRunner.query(`
+                    INSERT INTO ledger (
+                        trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no,
+                        vchr_type, modeofpay, pl_balance, narration, username, ledgerid
+                    ) VALUES ($1, NOW(), $2, $3, $4, 0, $5, $6, $7, 'CD', 'J', $8, $9, $10, $11)
+                `, [ledgerTransNo++, direction, code, mbno, accType, amount, voucherNo, plBalance, text, username, ledgerId++]);
+            };
 
             // 4. Post CREDIT entries per member and update balances
             let currentTransNo = nextTransId + 1;
@@ -114,22 +152,30 @@ export class CompulsoryDepositService {
                     ) VALUES ($1, 'R', NOW(), $2, $3, $4, 'CD', 'J', 'Y', 'Y', $5, $6, 0)
                 `, [currentTransNo++, dist.memberNo, dist.postAmount, voucherNo, `CD Credit: ${dto.narration}`, username]);
 
-                // b. Update Member Balance
-                await queryRunner.query(`
-                    UPDATE member_balances 
-                    SET compulsory_deposit = COALESCE(compulsory_deposit, 0) + $1 
-                    WHERE mbno = $2
+                // b. Update Member Balance. UPDATE ... RETURNING comes back as [rows, count]; a member with no balance row yet
+                // gets one (before, the update silently matched nothing and the stored balance never grew).
+                const balRaw = await queryRunner.query(`
+                    UPDATE member_balances
+                    SET compulsory_deposit = COALESCE(compulsory_deposit, 0) + $1
+                    WHERE mbno::numeric = $2::numeric
+                    RETURNING compulsory_deposit::float AS balance
                 `, [dist.postAmount, dist.memberNo]);
+                const balRows: any[] = Array.isArray(balRaw?.[0]) ? balRaw[0] : (balRaw || []);
+                let newBalance: number;
+                if (balRows.length === 0) {
+                    await queryRunner.query(`INSERT INTO member_balances (mbno, compulsory_deposit) VALUES ($1, $2)`, [dist.memberNo, dist.postAmount]);
+                    newBalance = round2(Number(dist.postAmount));
+                } else {
+                    newBalance = round2(Number(balRows[0].balance));
+                }
 
-                // c. Post to Ledger for Member Audit
-                const ledgerId = await this.getNextId(queryRunner, 'ledger', 'ledgerid');
-                await queryRunner.query(`
-                    INSERT INTO ledger (
-                        trans_date, trans_type, code, mbno, trans_amt, receipt_vchr_no, 
-                        vchr_type, pl_balance, narration, username, ledgerid
-                    ) VALUES (NOW(), 'R', $8, $1, $2, $3, 'CD', $4, $5, $6, $7)
-                `, [dist.memberNo, dist.postAmount, voucherNo, dist.currentBalance + dist.postAmount, `CD Post: ${dto.narration}`, username, ledgerId, CD_HEAD_CODE]);
+                // c. Post to Ledger for Member Audit (ES-578: credit, account type CD, real balance after the credit)
+                await insertLedger(CD_HEAD_CODE, 'CR', dist.memberNo, 'CD', Number(dist.postAmount), newBalance, `CD Post: ${dto.narration}`);
             }
+
+            // d. ES-578: the matching DEBIT of the income head, so the general ledger balances (before, it was written to
+            // `transactions` only). It is a head-only line, member 0, like the other journal head lines.
+            await insertLedger(headCode, 'DR', 0, 'OTH', round2(headerTotal), 0, 'Bulk CD Post (Debit Head)');
 
             await queryRunner.commitTransaction();
             return { success: true, message: `Successfully posted CD interest. Voucher No: ${voucherNo}`, voucherNo };

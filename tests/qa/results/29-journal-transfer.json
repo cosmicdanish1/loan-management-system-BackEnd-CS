@@ -1,0 +1,231 @@
+{
+ "suite": "29-journal-transfer",
+ "ranAt": "2026-11-19T09:45:16.957Z",
+ "seconds": 7.673,
+ "total": 37,
+ "failed": 0,
+ "results": [
+  {
+   "id": "JT-01",
+   "title": "no rows: refused with 4xx and nothing created",
+   "ok": true,
+   "detail": "400; vouchers 85->85; {\"statusCode\":400,\"timestamp\":\"2026-11-19T09:45:09.888Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\"POST\",\"err"
+  },
+  {
+   "id": "JT-02",
+   "title": "unbalanced: refused with 4xx and nothing created",
+   "ok": true,
+   "detail": "400; vouchers 85->85; {\"statusCode\":400,\"timestamp\":\"2026-11-19T09:45:09.922Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\"POST\",\"err"
+  },
+  {
+   "id": "JT-03",
+   "title": "negative amounts: refused with 4xx and nothing created",
+   "ok": true,
+   "detail": "400; vouchers 85->85; {\"statusCode\":400,\"timestamp\":\"2026-11-19T09:45:09.947Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\"POST\",\"err"
+  },
+  {
+   "id": "JT-04",
+   "title": "row with both debit and credit: refused with 4xx and nothing created",
+   "ok": true,
+   "detail": "400; vouchers 85->85; {\"statusCode\":400,\"timestamp\":\"2026-11-19T09:45:09.968Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\"POST\",\"err"
+  },
+  {
+   "id": "JT-05",
+   "title": "unknown head code: refused with 4xx and nothing created",
+   "ok": true,
+   "detail": "400; vouchers 85->85; {\"statusCode\":400,\"timestamp\":\"2026-11-19T09:45:10.003Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\"POST\",\"err"
+  },
+  {
+   "id": "JT-06",
+   "title": "unknown member: refused with 4xx and nothing created",
+   "ok": true,
+   "detail": "400; vouchers 85->85; {\"statusCode\":400,\"timestamp\":\"2026-11-19T09:45:10.034Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\"POST\",\"err"
+  },
+  {
+   "id": "JT-07",
+   "title": "same head and same member on both sides: refused with 4xx and nothing created",
+   "ok": true,
+   "detail": "400; vouchers 85->85; {\"statusCode\":400,\"timestamp\":\"2026-11-19T09:45:10.055Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\"POST\",\"err"
+  },
+  {
+   "id": "JT-08",
+   "title": "only one posting row: refused with 4xx and nothing created",
+   "ok": true,
+   "detail": "400; vouchers 85->85; {\"statusCode\":400,\"timestamp\":\"2026-11-19T09:45:10.075Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\"POST\",\"err"
+  },
+  {
+   "id": "JT-09",
+   "title": "zero total: refused with 4xx and nothing created",
+   "ok": true,
+   "detail": "400; vouchers 85->85; {\"statusCode\":400,\"timestamp\":\"2026-11-19T09:45:10.097Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\"POST\",\"err"
+  },
+  {
+   "id": "JT-10",
+   "title": "invalid transferType: refused with 4xx and nothing created",
+   "ok": true,
+   "detail": "400; vouchers 85->85; {\"statusCode\":400,\"timestamp\":\"2026-11-19T09:45:10.116Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\"POST\",\"err"
+  },
+  {
+   "id": "JT-11",
+   "title": "amounts that are not numbers (abc): refused with 4xx and nothing created",
+   "ok": true,
+   "detail": "400; vouchers 85->85; {\"statusCode\":400,\"timestamp\":\"2026-11-19T09:45:10.133Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\"POST\",\"err"
+  },
+  {
+   "id": "JT-12",
+   "title": "row without head code: refused with 4xx and nothing created",
+   "ok": true,
+   "detail": "400; vouchers 85->85; {\"statusCode\":400,\"timestamp\":\"2026-11-19T09:45:10.149Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\"POST\",\"err"
+  },
+  {
+   "id": "JT-13",
+   "title": "memberToMember where no row has a member: refused with 4xx and nothing created",
+   "ok": true,
+   "detail": "400; vouchers 85->85; {\"statusCode\":400,\"timestamp\":\"2026-11-19T09:45:10.167Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\"POST\",\"err"
+  },
+  {
+   "id": "JT-14",
+   "title": "debit and credit differ by 0.009 (must not stage an unbalanced entry): refused with 4xx and nothing created",
+   "ok": true,
+   "detail": "400; vouchers 85->85; {\"statusCode\":400,\"timestamp\":\"2026-11-19T09:45:10.185Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\"POST\",\"err"
+  },
+  {
+   "id": "JT-15",
+   "title": "amount with more than 2 decimals (100.005): refused with 4xx and nothing created",
+   "ok": true,
+   "detail": "400; vouchers 85->85; {\"statusCode\":400,\"timestamp\":\"2026-11-19T09:45:10.202Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\"POST\",\"err"
+  },
+  {
+   "id": "JT-16",
+   "title": "narration longer than the 100-char column (clean 4xx, not 500): refused with 4xx and nothing created",
+   "ok": true,
+   "detail": "400; vouchers 85->85; {\"statusCode\":400,\"timestamp\":\"2026-11-19T09:45:10.272Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\"POST\",\"err"
+  },
+  {
+   "id": "JT-17",
+   "title": "cheque number longer than the 10-char column (clean 4xx, not 500): refused with 4xx and nothing created",
+   "ok": true,
+   "detail": "400; vouchers 85->85; {\"statusCode\":400,\"timestamp\":\"2026-11-19T09:45:10.331Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\"POST\",\"err"
+  },
+  {
+   "id": "JT-18",
+   "title": "row narration longer than 100 chars: refused with 4xx and nothing created",
+   "ok": true,
+   "detail": "400; vouchers 85->85; {\"statusCode\":400,\"timestamp\":\"2026-11-19T09:45:10.403Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\"POST\",\"err"
+  },
+  {
+   "id": "JT-19",
+   "title": "absurd amount (1e15): refused with 4xx and nothing created",
+   "ok": true,
+   "detail": "400; vouchers 85->85; {\"statusCode\":400,\"timestamp\":\"2026-11-19T09:45:10.446Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\"POST\",\"err"
+  },
+  {
+   "id": "JT-20",
+   "title": "non-numeric RD/SD reference (refused, not silently dropped to 0): refused with 4xx and nothing created",
+   "ok": true,
+   "detail": "400; vouchers 85->85; {\"statusCode\":400,\"timestamp\":\"2026-11-19T09:45:10.461Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\"POST\",\"err"
+  },
+  {
+   "id": "JT-21",
+   "title": "non-integer member number: refused with 4xx and nothing created",
+   "ok": true,
+   "detail": "400; vouchers 85->85; {\"statusCode\":400,\"timestamp\":\"2026-11-19T09:45:10.485Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\"POST\",\"err"
+  },
+  {
+   "id": "JT-22",
+   "title": "missing narration: refused with 4xx and nothing created",
+   "ok": true,
+   "detail": "400; vouchers 85->85; {\"statusCode\":400,\"timestamp\":\"2026-11-19T09:45:10.504Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\"POST\",\"err"
+  },
+  {
+   "id": "JT-30",
+   "title": "valid head-to-head entry -> 2xx with a J voucher number",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"message\":\"Journal "
+  },
+  {
+   "id": "JT-31",
+   "title": "staged as PENDING, 2 lines pass_flag N, ledger untouched",
+   "ok": true,
+   "detail": "{\"hdr\":{\"status\":\"PENDING\",\"voucherType\":\"JOURNAL\",\"totalAmount\":\"100\"},\"lines\":2,\"ledBefore\":1598372,\"ledAfter\":1598372}"
+  },
+  {
+   "id": "JT-32",
+   "title": "member-to-member entry stores each row's own member",
+   "ok": true,
+   "detail": "[900000002,900000003]"
+  },
+  {
+   "id": "JT-33",
+   "title": "voucher detail returns the 2 staged lines (breakdown)",
+   "ok": true,
+   "detail": "[{\"srNo\":\"1\",\"code\":\"A1000\",\"name\":\"QA JT valid\",\"headName\":\"ASSET\",\"trNo\":\"421\",\"transType\":\"DR\",\"accNo\":\"0\",\"accType\":\"JV\",\"mbno\":\"\",\"rp\":\"P\",\"amount\":100},{\"srNo\":\"2\",\"code\":\"A1001\",\"name\":\"QA JT v"
+  },
+  {
+   "id": "JT-34",
+   "title": "breakdown lines carry the member number so the grid can be refilled",
+   "ok": true,
+   "detail": "srNo,code,name,headName,trNo,transType,accNo,accType,mbno,rp,amount"
+  },
+  {
+   "id": "JT-35",
+   "title": "6 parallel saves -> 6 distinct voucher numbers",
+   "ok": true,
+   "detail": "J34449,J34450,J34451,J34452,J34453,J34454"
+  },
+  {
+   "id": "JT-36",
+   "title": "Pass Transactions posts 2 ledger rows with debit = credit",
+   "ok": true,
+   "detail": "201 rows 2 dr 100 cr 100 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+  },
+  {
+   "id": "JT-37",
+   "title": "Reverse removes the ledger rows and puts the voucher back to PENDING",
+   "ok": true,
+   "detail": "201 net 0 rows 0 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true"
+  },
+  {
+   "id": "JT-38",
+   "title": "loan-head journal: Pass raises regularloan by 100, Reverse restores it",
+   "ok": true,
+   "detail": "before 0 passed 100 reversed 0; pass 201 reverse 201"
+  },
+  {
+   "id": "JT-39",
+   "title": "excess-principal refund (member on loan-head row, Cash in Hand row without member) is accepted",
+   "ok": true,
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"message\":\"Journal "
+  },
+  {
+   "id": "JT-40",
+   "title": "refund: staged loan row is ALN with the member, cash row has none; Pass posts DR A1047 / CR A1001 and moves the emergency-loan balance by 5000; Reverse restores it",
+   "ok": true,
+   "detail": "{\"rl\":[{\"code\":\"A1047\",\"mbno\":\"900000003\",\"acc_type\":\"ALN\",\"trans_type\":\"DR\"},{\"code\":\"A1001\",\"mbno\":null,\"acc_type\":\"JV\",\"trans_type\":\"CR\"}],\"lgr\":[{\"code\":\"A1047\",\"mbno\":\"900000003\",\"trans_type\":\"DR\",\"trans_amt\":\"5000.0000\"},{\"code\":\"A1001\",\"mbno\":\"0\",\"trans_type\":\"CR\",\"trans_amt\":\"5000.0000\"}],\"e0\":0,\"e1\":5000,\"e2\":0,\"pass\":201,\"rev\":201}"
+  },
+  {
+   "id": "JT-41",
+   "title": "settlement posts SHR / ALN / CD ledger rows (mode J) and moves shares -1000, emergency loan -700, CD +300",
+   "ok": true,
+   "detail": "{\"s0\":{\"shares\":6000,\"cd\":0,\"e\":120000,\"ledShare\":-9000,\"ledCd\":0},\"s1\":{\"shares\":5000,\"cd\":300,\"e\":119300,\"ledShare\":-10000,\"ledCd\":300},\"types\":[{\"code\":\"L1001\",\"acc_type\":\"SHR\",\"mbno\":\"900000002\",\"modeofpay\":\"J\"},{\"code\":\"A1047\",\"acc_type\":\"ALN\",\"mbno\":\"900000002\",\"modeofpay\":\"J\"},{\"code\":\"L1004\",\"acc_type\":\"CD\",\"mbno\":\"900000002\",\"modeofpay\":\"J\"}]}"
+  },
+  {
+   "id": "JT-42",
+   "title": "Member Ledger CD and share closing figures include the journal (share -1000, CD +300)",
+   "ok": true,
+   "detail": "{\"s0\":{\"shares\":6000,\"cd\":0,\"e\":120000,\"ledShare\":-9000,\"ledCd\":0},\"s1\":{\"shares\":5000,\"cd\":300,\"e\":119300,\"ledShare\":-10000,\"ledCd\":300}}"
+  },
+  {
+   "id": "JT-43",
+   "title": "Reverse restores member balances and Member Ledger figures exactly",
+   "ok": true,
+   "detail": "{\"s0\":{\"shares\":6000,\"cd\":0,\"e\":120000,\"ledShare\":-9000,\"ledCd\":0},\"s2\":{\"shares\":6000,\"cd\":0,\"e\":120000,\"ledShare\":-9000,\"ledCd\":0}}"
+  },
+  {
+   "id": "JT-44",
+   "title": "head-to-head posts member 0, acc_no 0, mode J (not cash)",
+   "ok": true,
+   "detail": "[{\"mbno\":\"0\",\"acc_no\":\"0\",\"modeofpay\":\"J\",\"vchr_type\":\"JV\"},{\"mbno\":\"0\",\"acc_no\":\"0\",\"modeofpay\":\"J\",\"vchr_type\":\"JV\"}]"
+  }
+ ]
+}

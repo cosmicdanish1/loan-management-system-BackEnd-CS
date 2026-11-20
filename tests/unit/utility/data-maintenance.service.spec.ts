@@ -147,7 +147,7 @@ describe('Data Maintenance Services', () => {
       mockDataSource.query = jest.fn().mockResolvedValue([{ n: '0', dr: '0', cr: '0' }]);
       const result = await dataConsistencyService.runConsistencyChecks();
       expect(result.overallStatus).toBe('HEALTHY');
-      expect(result.totalChecks).toBe(8);
+      expect(result.totalChecks).toBe(9);
     });
   });
 

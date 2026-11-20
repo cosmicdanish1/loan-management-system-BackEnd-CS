@@ -81,6 +81,9 @@ export interface EligibilityStatus {
     loanAmount: number;
     existingOutstanding: number;
     totalExposure: number;
+    /** ES-455: the member's other loans of this type that are sanctioned but not yet paid out. Counted against the
+     *  maximum limit (not against the RD / Share requirement). Only set when the caller asked for it. */
+    sanctionedNotPaid?: number;
 
     /** Loan Against RD (ELN) only — the RD is the security, so the usual
      *  RD%/Share% rules below don't apply; the limit comes from free RD. */
@@ -254,6 +257,10 @@ export class LoanEligibilityService {
         /** Pass the caller's open transaction when RD locks may have been
          *  changed inside it and not yet committed (loan disbursement). */
         queryRunner?: QueryRunner,
+        /** ES-455: count the member's sanctioned-but-not-paid loans of this type against the maximum limit.
+         *  excludeCaseNo is the case being applied for / sanctioned, so it is not counted against itself. Off by
+         *  default: the disbursement path must not count the loan it is paying out. */
+        limitOptions?: { countSanctionedNotPaid?: boolean; excludeCaseNo?: string },
     ): Promise<EligibilityStatus> {
         // ES-406: a negative or non-numeric loan amount would create a negative requirement
         if (typeof loanAmount !== 'number' ? !Number.isFinite(Number(loanAmount)) : !Number.isFinite(loanAmount)) {
@@ -290,7 +297,13 @@ export class LoanEligibilityService {
         const existingOutstanding = await this.getExistingOutstanding(memberNo, loanType);
         const totalExposure =
             limitCalc === 'NEW_ONLY' ? loanAmount : existingOutstanding + loanAmount;
-        const withinMaxLimit = totalExposure <= maxLimit;
+        // ES-455: loans already sanctioned but not yet paid out are as good as lent for the limit
+        const sanctionedNotPaid =
+            limitOptions?.countSanctionedNotPaid && limitCalc !== 'NEW_ONLY'
+                ? await this.getSanctionedNotPaid(memberNo, loanType, limitOptions.excludeCaseNo)
+                : 0;
+        const limitExposure = totalExposure + sanctionedNotPaid;
+        const withinMaxLimit = limitExposure <= maxLimit;
 
         // ── Rules 2 & 3: RD and Share requirements, both on TOTAL EXPOSURE ──
         // (not on the new loan amount alone — a top-up must satisfy the
@@ -327,8 +340,10 @@ export class LoanEligibilityService {
         let message: string;
         if (!withinMaxLimit) {
             message =
-                `Total regular loan exposure ₹${totalExposure.toLocaleString('en-IN')} ` +
-                `(existing ₹${existingOutstanding.toLocaleString('en-IN')} + new ₹${loanAmount.toLocaleString('en-IN')}) ` +
+                `Total regular loan exposure ₹${limitExposure.toLocaleString('en-IN')} ` +
+                `(existing ₹${existingOutstanding.toLocaleString('en-IN')}` +
+                (sanctionedNotPaid > 0 ? ` + sanctioned but not yet paid ₹${sanctionedNotPaid.toLocaleString('en-IN')}` : '') +
+                ` + new ₹${loanAmount.toLocaleString('en-IN')}) ` +
                 `exceeds the maximum limit of ₹${maxLimit.toLocaleString('en-IN')}.`;
         } else if (totalShortfall > 0) {
             const shortfallParts: string[] = [];
@@ -349,6 +364,7 @@ export class LoanEligibilityService {
             loanAmount,
             existingOutstanding,
             totalExposure,
+            ...(limitOptions?.countSanctionedNotPaid ? { sanctionedNotPaid } : {}),
             maxLimit,
             withinMaxLimit,
             rdPct,
@@ -561,12 +577,63 @@ export class LoanEligibilityService {
      * RD/Share shortfall under the default DEDUCT mode is NOT a rejection: it
      * is withheld from the disbursement later (see getDisbursementDeductions).
      */
-    async enforceEligibility(memberNo: string, loanAmount: number, loanType?: string): Promise<void> {
+    async enforceEligibility(memberNo: string, loanAmount: number, loanType?: string, excludeCaseNo?: string): Promise<void> {
         // ES-406: a loan to be approved needs a positive amount
         if (!(Number(loanAmount) > 0)) throw new BadRequestException('Loan amount must be greater than 0.');
-        const eligibility = await this.checkEligibility(memberNo, loanAmount, loanType);
+        // ES-455: the application also counts the member's loans that are sanctioned but not yet paid out
+        const eligibility = await this.checkEligibility(memberNo, loanAmount, loanType, undefined, {
+            countSanctionedNotPaid: true,
+            ...(excludeCaseNo ? { excludeCaseNo } : {}),
+        });
         if (!eligibility.isEligible) {
             throw new BadRequestException(eligibility.message || 'Loan is not eligible.');
+        }
+    }
+
+    /**
+     * ES-455: the member's loans of this type that are sanctioned but not yet paid out (loan_pending, flg_sanctioned
+     * = 'Y', flg_paid not 'Y'), at their sanctioned amount. Applications still waiting for sanction are not counted
+     * (owner decision 2026-11-20). The case being applied for / sanctioned is left out.
+     */
+    private async getSanctionedNotPaid(memberNo: string, loanType?: string, excludeCaseNo?: string): Promise<number> {
+        const type = (loanType || '').toString().trim().toUpperCase();
+        if (!type) return 0;
+        const rows = await this.dataSource.query(
+            `SELECT COALESCE(SUM(COALESCE(NULLIF(sanctioned_amt, 0), applied_amt)), 0)::float8 AS total
+               FROM loan_pending
+              WHERE mbno::text = $1::text
+                AND UPPER(TRIM(loantype)) = $2
+                AND flg_sanctioned = 'Y'
+                AND COALESCE(flg_paid, 'N') <> 'Y'
+                AND ($3::text IS NULL OR loancaseno::text <> $3::text)`,
+            [String(memberNo), type, excludeCaseNo ? String(excludeCaseNo) : null],
+        );
+        return Number(rows[0]?.total || 0);
+    }
+
+    /**
+     * ES-455: used at sanction. The member's balance of this type + the other loans sanctioned but not paid out + this
+     * loan must stay within the maximum limit. Only the limit is checked (not the RD / Share requirement, which is
+     * dealt with at application and disbursement). Does nothing for a loan type the rule is switched off for, for
+     * Loan Against RD (its limit is the member's free RD), or when the limit is set to count the new loan alone.
+     */
+    async assertWithinExposureLimit(memberNo: string, loanAmount: number, loanType: string, caseNo: string): Promise<void> {
+        const type = (loanType || '').toString().trim().toUpperCase();
+        if (type === 'ELN') return;
+        if (!(await this.isEligibilityRuleApplicable(type))) return;
+        const [maxLimit, limitCalc] = await Promise.all([this.getRule('RULE_LOAN_R_MAX_LIMIT'), this.getRule('RULE_LOAN_R_LIMIT_CALC')]);
+        if (limitCalc === 'NEW_ONLY') return;
+        const [existing, sanctionedNotPaid] = await Promise.all([
+            this.getExistingOutstanding(memberNo, type),
+            this.getSanctionedNotPaid(memberNo, type, caseNo),
+        ]);
+        const total = existing + sanctionedNotPaid + Number(loanAmount);
+        if (total > maxLimit) {
+            throw new BadRequestException(
+                `Total loan exposure ₹${total.toLocaleString('en-IN')} (existing ₹${existing.toLocaleString('en-IN')}` +
+                (sanctionedNotPaid > 0 ? ` + sanctioned but not yet paid ₹${sanctionedNotPaid.toLocaleString('en-IN')}` : '') +
+                ` + this loan ₹${Number(loanAmount).toLocaleString('en-IN')}) exceeds the maximum limit of ₹${maxLimit.toLocaleString('en-IN')}.`,
+            );
         }
     }
 

@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, Optional, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { RdRulesService } from '../rd-rules.service';
 import { RdMemberConfigService } from './rd-member-config.service';
@@ -8,6 +8,9 @@ import { RdInterestCalculationService } from './rd-interest-calculation.service'
 import { PatternEvaluation } from '../rd-pattern-engine';
 import { RdInstallmentInterestResult } from '../rd-installment-interest-calculator';
 import { OpeningBalanceInterestResult } from '../rd-opening-balance-interest';
+import { SequenceGeneratorService } from '../../shared/services';
+import { postRdCdInterest } from '../rd-cd-receipt';
+import { toDateOnlyString } from '../rd-date-math';
 
 export interface AuthorityOverride {
     eligible: boolean;
@@ -36,6 +39,8 @@ export interface MemberYearClosingResult {
     nextYearcode: number | null;
     rolledForward: boolean;
     rolloverNote: string | null;
+    /** the journal voucher of the interest posted to the ledger (DR E1026 / CR L1004); null when no interest was earned */
+    interestVoucherNo?: string | null;
 }
 
 export interface MemberYearClosingPreview {
@@ -74,6 +79,7 @@ export class RdFinancialYearClosingService {
         private readonly balanceEvents: RdBalanceEventsService,
         private readonly patternEligibility: RdPatternEligibilityService,
         private readonly interestCalculation: RdInterestCalculationService,
+        @Optional() private readonly sequenceGenerator?: SequenceGeneratorService,
     ) { }
 
     /** Every member with any RD footprint this year — configured an amount,
@@ -82,11 +88,14 @@ export class RdFinancialYearClosingService {
      *  never get a (meaningless) closing record. */
     async listMembersWithActivity(yearcode: number): Promise<string[]> {
         const rows = await this.dataSource.query(
-            `SELECT DISTINCT mbno::text AS mbno FROM (
-                SELECT mbno FROM rd_member_config WHERE yearcode = $1
-                UNION SELECT mbno FROM rd_balance_events WHERE yearcode = $1
-                UNION SELECT mbno FROM rd_installment_ledger WHERE yearcode = $1
-             ) x ORDER BY mbno`,
+            // ES-581: also every member who holds RD/CD money (the interest is worked out from the ledger, so a migrated
+            // member with a balance and no RD rows still belongs here)
+            `SELECT DISTINCT mbno::bigint::text AS mbno FROM (
+                SELECT mbno::numeric AS mbno FROM rd_member_config WHERE yearcode = $1
+                UNION SELECT mbno::numeric FROM rd_balance_events WHERE yearcode = $1
+                UNION SELECT mbno::numeric FROM rd_installment_ledger WHERE yearcode = $1
+                UNION SELECT mbno::numeric FROM member_balances WHERE COALESCE(compulsory_deposit, 0) > 0
+             ) x ORDER BY mbno::bigint::text`,
             [yearcode],
         );
         return rows.map((r: any) => r.mbno);
@@ -99,7 +108,7 @@ export class RdFinancialYearClosingService {
         const [patternEvaluation, totalPreview, currentBalance] = await Promise.all([
             this.patternEligibility.evaluateMember(mbno, yearcode),
             this.interestCalculation.previewTotalInterest(mbno, yearcode, overrideEligible),
-            this.balanceEvents.getCurrentBalance(mbno, yearcode),
+            this.balanceEvents.getTotalCurrentHoldings(mbno, yearcode),
         ]);
         return {
             mbno,
@@ -154,17 +163,14 @@ export class RdFinancialYearClosingService {
         const patternEvaluation = await this.patternEligibility.evaluateMember(mbno, yearcode);
         const finalEligible = override?.eligible ?? patternEvaluation.autoEligibleFullInterest;
 
-        const [installmentResult, openingResult, rate, monthlyRdAmount, openingBalanceRow] = await Promise.all([
+        // ES-581: both interest figures and the opening balance come from the member's RD/CD ledger (see rd-ledger-inputs.ts)
+        const [installmentResult, openingResult, rate, monthlyRdAmount, openingBalance] = await Promise.all([
             this.interestCalculation.calculateInstallmentInterest(mbno, yearcode, finalEligible),
             this.interestCalculation.calculateOpeningBalanceInterest(mbno, yearcode),
             this.rdRules.getRule('RULE_RD_OPENING_BALANCE_RATE'),
             this.memberConfig.getCurrentAmount(mbno, yearcode, fyEndDate),
-            this.dataSource.query(
-                `SELECT amount FROM rd_balance_events WHERE mbno = $1 AND yearcode = $2 AND event_type = 'OPENING' ORDER BY event_date ASC LIMIT 1`,
-                [mbno, yearcode],
-            ),
+            this.interestCalculation.getLedgerOpeningBalance(mbno, yearcode),
         ]);
-        const openingBalance = openingBalanceRow[0] ? Number(openingBalanceRow[0].amount) : 0;
         const totalInterestCredited = Math.round((installmentResult.totalInterest + openingResult.totalInterest) * 100) / 100;
 
         const queryRunner = this.dataSource.createQueryRunner();
@@ -194,31 +200,26 @@ export class RdFinancialYearClosingService {
                 );
             }
 
-            const [closingBalanceRows, paidInstallmentsRows] = await Promise.all([
-                queryRunner.query(
-                    `SELECT resulting_balance FROM rd_balance_events
-                     WHERE mbno = $1 AND yearcode = $2 ORDER BY event_date DESC, id DESC LIMIT 1`,
-                    [mbno, yearcode],
-                ),
-                queryRunner.query(
-                    `SELECT COALESCE(SUM(paid_amount - withdrawn_amount), 0) AS total FROM rd_installment_ledger WHERE mbno = $1 AND yearcode = $2`,
-                    [mbno, yearcode],
-                ),
-            ]);
-            const balanceEventsClosing = closingBalanceRows[0] ? Number(closingBalanceRows[0].resulting_balance) : 0;
-            const remainingInstallmentMoney = Number(paidInstallmentsRows[0]?.total || 0);
-            // The two "pots" (section 3 of the RD explanation) are kept
-            // separate ONLY for interest calculation — the money itself is
-            // one real balance. Without adding this year's actual paid
-            // installments here, a member who only ever paid monthly
-            // installments (no opening balance, no withdrawal, no loan
-            // addition — the single most common real case) would roll
-            // forward ₹0 into next year, silently losing their own savings
-            // from the balance the moment the year closed. paid_amount minus
-            // withdrawn_amount so any installment money already withdrawn
-            // this year (Step 9's withdrawal path) correctly doesn't roll
-            // forward a second time.
-            const closingBalance = Math.round((balanceEventsClosing + remainingInstallmentMoney) * 100) / 100;
+            // Stage 6: the interest worked out above by the RD/CD engine is POSTED the way the legacy did it: one journal at
+            // the year's end, DR E1026 (INTT ON COMPULSORY DEPOSIT) / CR L1004 with the member number, and the member's
+            // RD/CD balance rises by the same amount. Nothing goes to A1002 or any other head.
+            let interestVoucherNo: string | null = null;
+            if (totalInterestCredited > 0) {
+                if (!this.sequenceGenerator) throw new Error('Voucher numbering is not available.');
+                interestVoucherNo = await this.sequenceGenerator.getNextVoucherNumber();
+                await postRdCdInterest(queryRunner, {
+                    mbno, amount: totalInterestCredited, date: toDateOnlyString(fyEndDate), voucherNo: interestVoucherNo,
+                    text: `Int On Compulsory Deposit ${toDateOnlyString(fyEndDate).slice(0, 4)}`, username: closedBy,
+                });
+            }
+
+            // The closing balance is the member's real RD/CD balance (RD and CD are one deposit), interest included.
+            // (It used to be rebuilt from the interest timeline plus instalment rows, which are empty for migrated members.)
+            const closingRows = await queryRunner.query(
+                `SELECT COALESCE(compulsory_deposit, 0)::float AS bal FROM member_balances WHERE mbno::numeric = $1::numeric`,
+                [mbno],
+            );
+            const closingBalance = Math.round(Number(closingRows?.[0]?.bal || 0) * 100) / 100;
 
             await queryRunner.query(
                 `INSERT INTO rd_financial_year_summary (
@@ -317,6 +318,7 @@ export class RdFinancialYearClosingService {
                 nextYearcode,
                 rolledForward,
                 rolloverNote,
+                interestVoucherNo,
             };
         } catch (error) {
             await queryRunner.rollbackTransaction();

@@ -132,7 +132,7 @@ export class LoanApplicationService {
         // A shortfall doesn't block the application by default (it's withheld
         // at disbursement instead) — this only throws for a genuine breach of
         // the max-exposure limit, or an explicit BLOCK shortfall policy.
-        await this.loanEligibilityService.enforceEligibility(loanData.memberNo, amount, mappedLoanType);
+        await this.loanEligibilityService.enforceEligibility(loanData.memberNo, amount, mappedLoanType, loanData.loanCaseNo ? String(loanData.loanCaseNo) : undefined);
 
         // --- 3. Sanitise fields ---
         // purpose is VARCHAR(50); form_number is VARCHAR(10)

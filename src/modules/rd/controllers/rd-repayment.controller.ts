@@ -1,5 +1,5 @@
 import { RequireMenuAction } from '../../auth/guards/menu-right.guard';
-import { Body, Controller, Get, Param, Post, UseGuards, ParseIntPipe } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Req, UseGuards, ParseIntPipe } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RdRepaymentService } from '../services/rd-repayment.service';
@@ -10,7 +10,7 @@ interface RecordRdPaymentBody {
     amount: number;
     paidDate?: string;
     narration?: string;
-    recordedBy: string;
+    recordedBy?: string;
 }
 
 @ApiTags('RD - Counter Repayment')
@@ -26,19 +26,29 @@ export class RdRepaymentController {
         return this.service.getPendingInstallments(mbno, yearcode);
     }
 
+    @Get(':mbno/:yearcode/summary')
+    @ApiOperation({ summary: "RD/CD balance, monthly amount, paid this year, locked amount and latest credits for the repayment screen" })
+    async getSummary(@Param('mbno') mbno: string, @Param('yearcode', ParseIntPipe) yearcode: number) {
+        return this.service.getSummary(mbno, yearcode);
+    }
+
     @RequireMenuAction('RD_AC_OPENING', 'PASS_RD_AC') // ES-464
     @Post(':mbno/:yearcode')
-    @ApiOperation({ summary: "Record a member's RD payment for one specific month at the counter — amount used exactly as entered" })
+    @ApiOperation({ summary: "Record a member's RD/CD payment for one month at the counter — posts a CD voucher, the ledger legs and the cash book" })
     async recordPayment(
         @Param('mbno') mbno: string,
         @Param('yearcode', ParseIntPipe) yearcode: number,
         @Body() body: RecordRdPaymentBody,
+        @Req() req: any,
     ) {
+        // the acting user is the logged-in user, never a name sent in the body (ES-464)
+        const recordedBy = String(req.user?.username || body.recordedBy || '').trim();
+        if (!recordedBy) throw new BadRequestException('The logged-in user could not be identified.');
         const result = await this.service.recordPayment(
             mbno, yearcode, body.installmentMonth, body.installmentYear, Number(body.amount),
             body.paidDate ? new Date(body.paidDate) : new Date(),
-            body.narration, body.recordedBy,
+            body.narration, recordedBy,
         );
-        return { ...result, message: 'RD payment recorded.' };
+        return { ...result, message: `RD/CD payment recorded. Voucher ${result.voucherNo}.` };
     }
 }

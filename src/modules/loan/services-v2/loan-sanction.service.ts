@@ -4,6 +4,7 @@ import { MAX_OVERRIDE_PERCENT, RateDefaults, resolveLoanRateDefaults } from './l
 import { DataSource } from 'typeorm';
 import { parseSafeDate } from '../../shared/utils/date-utils';
 import { LoanReagreementService } from './reagreement/loan-reagreement.service';
+import { LoanEligibilityService } from './loan-eligibility.service';
 import { calculateConstantEmi, DEFAULT_SLOT1_END_DAY, DEFAULT_SLOT1_START_DAY, LoanRoundingMode } from './loan-rb-schedule.util';
 
 /**
@@ -18,6 +19,7 @@ export class LoanSanctionService {
         private readonly dataSource: DataSource,
         private readonly reagreementService: LoanReagreementService,
         @Optional() private readonly systemConfigService?: SystemConfigService,
+        @Optional() private readonly eligibilityService?: LoanEligibilityService,
     ) { }
 
     /** ES-506: the interest / penal rate a loan of this type gets from Business Rules when nobody overrides it. */
@@ -349,7 +351,7 @@ export class LoanSanctionService {
         RETURNING *
       `;
 
-            const result = await this.dataSource.query(updateQuery, [
+            const updateParams = [
                 sanctioned,
                 parseSafeDate(sanctionData.sanctionDate),
                 installments,
@@ -358,7 +360,31 @@ export class LoanSanctionService {
                 rateOverride.penalRate,
                 rateOverride.reason,
                 rateOverride.reason ? String(actor || 'system').slice(0, 100) : null,
-            ]);
+            ];
+
+            let result: any;
+            if (this.eligibilityService) {
+                // ES-455: the exposure limit is checked together with the sanction, under one per-member lock, so two loans
+                // of one member sanctioned at the same moment cannot both pass the limit.
+                const qr = this.dataSource.createQueryRunner();
+                await qr.connect();
+                await qr.startTransaction();
+                try {
+                    await qr.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`loan_exposure_${pending[0].mbno}`]);
+                    await this.eligibilityService.assertWithinExposureLimit(
+                        String(pending[0].mbno), sanctioned, String(pending[0].loantype ?? ''), String(caseNo),
+                    );
+                    result = await qr.query(updateQuery, updateParams);
+                    await qr.commitTransaction();
+                } catch (e) {
+                    await qr.rollbackTransaction();
+                    throw e;
+                } finally {
+                    await qr.release();
+                }
+            } else {
+                result = await this.dataSource.query(updateQuery, updateParams);
+            }
 
             const sanctionedRows = Array.isArray(result[0]) ? result[0] : result; // [rows, count] shape
             if (sanctionedRows.length === 0) {

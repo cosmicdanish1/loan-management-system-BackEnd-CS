@@ -260,6 +260,17 @@ export class LoanReagreementService {
             }
         } catch { /* the check must never block the screen */ }
 
+        // One pending voucher per loan: a repayment waiting in Past Transaction also blocks a re-agreement
+        try {
+            const held = await this.dataSource.query(`SELECT to_regclass('public.loan_repayment_holds') AS t`);
+            if (held[0]?.t) {
+                const pend = await this.dataSource.query(
+                    `SELECT voucher_no FROM loan_repayment_holds WHERE mbno::text = $1 AND loancaseno::text = $2 AND status = 'PENDING' LIMIT 1`,
+                    [String(loan.mbno), String(loan.loancaseno)]);
+                if (pend.length) errors.push({ field: 'loan', code: 'PENDING_REPAYMENT', message: `A loan repayment of this loan (voucher ${pend[0].voucher_no}) is waiting in Past Transaction, so it cannot be re-agreed. Accept or reject it first` });
+            }
+        } catch { /* the check must never block the screen */ }
+
         // ES-556: with one EMI left there is nothing to re-agree; the decision is the closure. Support handles exceptions.
         const monthlyPrincipal = num(loan.no_of_instal) > 0 ? num(loan.loan_amt) / num(loan.no_of_instal) : 0;
         if (num(loan.balance) > 0 && monthlyPrincipal > 0 && Math.ceil(num(loan.balance) / monthlyPrincipal - 0.01) <= 1) {

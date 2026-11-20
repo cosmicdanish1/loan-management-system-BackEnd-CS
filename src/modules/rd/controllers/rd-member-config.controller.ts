@@ -22,7 +22,15 @@ export class RdMemberConfigController {
         // ES-509: the audit trail names the signed-in user from the token; a name in the body is ignored (anyone could
         // type any name there, and the screen sends none, which used to be recorded as "system").
         const actingUser = req?.user?.susername || req?.user?.username || 'system';
-        await this.service.setMonthlyAmount(mbno, yearcode, Number(body.monthlyRdAmount), actingUser);
+        // The FIRST amount a member gets in a year counts from the start of the current month: there is no older amount
+        // to protect, and without this a member set up after the 5th showed nothing due for the current month. Later
+        // changes keep the rule on the screen (each month uses the amount in effect on its due date).
+        let effectiveFrom: Date | undefined;
+        if (!(await this.service.hasAmount(mbno, yearcode))) {
+            const now = new Date();
+            effectiveFrom = new Date(now.getFullYear(), now.getMonth(), 1);
+        }
+        await this.service.setMonthlyAmount(mbno, yearcode, Number(body.monthlyRdAmount), actingUser, effectiveFrom);
         // No manual {success,data} wrapper here -- the global
         // TransformInterceptor (main.ts) already wraps every controller's
         // return value in {success,statusCode,message,data,timestamp}.

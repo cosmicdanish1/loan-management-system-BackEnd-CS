@@ -1,4 +1,3 @@
-import { lockLedgerIds } from '../../shared/utils/ledger-lock';
 import {
     Injectable,
     NotFoundException,
@@ -19,7 +18,7 @@ import { MemberNumberUtil, MemberValidationUtil } from '../utils';
 import { SequenceGeneratorService } from '../../shared/services';
 import { SystemConfigService } from '../../admin/services/system-config.service';
 import { RdMemberConfigService } from '../../rd/services/rd-member-config.service';
-import { isDebitNormal } from '../../shared/utils/balance-direction';
+import { postRdCdReceipt } from '../../rd/rd-cd-receipt';
 import type { FieldProblem } from '../../../common/validation/friendly-validation';
 
 /**
@@ -632,50 +631,20 @@ export class MemberCrudService {
         amount: number,
         username: string,
     ): Promise<void> {
-        const headRows = await queryRunner.query(`SELECT pflag FROM headmaster WHERE code = 'L1004'`);
-        const direction = isDebitNormal(headRows[0]?.pflag) ? 'DR' : 'CR'; // L1004 is credit-normal -> 'CR'
-
-        // voucherNumber is NOT a plain integer column in real data (e.g.
-        // "P25883") -- confirmed live: a naive MAX(CAST(...AS INTEGER))
-        // query (the same pattern compulsory-deposit.service.ts's bulk
-        // interest posting uses) crashes on it. The shared sequence
-        // generator is the safe, already-correct way to get both values.
+        // ES-573: the starting amount is cash received, booked the same way as every other RD/CD receipt: a CD voucher,
+        // both ledger legs (CR RD/CD L1004, DR cash), the transaction rows, a cash-book line carrying the voucher number
+        // and user, and the member's balance. Cash is assumed because the form has no mode-of-payment field.
+        // The voucher number comes from the shared generator (voucherNumber is not a plain integer column).
         const voucherNo = await this.sequenceGenerator.getNextVoucherNumber();
-        const nextVchrId = await this.sequenceGenerator.getNextVoucherId();
-        await queryRunner.query(
-            `INSERT INTO vouchers (id, "voucherNumber", "voucherDate", "voucherType", "totalAmount", description, status, remarks, "createdAt")
-             VALUES ($1, $2, NOW(), 'JOURNAL', $3, $4, 'POSTED', 'NEW_MEMBER_CD', NOW())`,
-            [nextVchrId, voucherNo, amount, 'Initial Compulsory Deposit - New Member'],
-        );
-
-        await lockLedgerIds(queryRunner); // ES-445
-        const nextLedgerId = (await queryRunner.query(`SELECT COALESCE(MAX(ledgerid), 0) + 1 as next_id FROM ledger`))[0].next_id;
-        await queryRunner.query(
-            `INSERT INTO ledger (trans_date, trans_type, code, mbno, trans_amt, receipt_vchr_no, vchr_type, pl_balance, narration, username, ledgerid)
-             VALUES (NOW(), $1, 'L1004', $2, $3, $4, 'CD', $3, $5, $6, $7)`,
-            [direction, mbno, amount, voucherNo, 'Initial Compulsory Deposit - New Member', username, nextLedgerId],
-        );
-
-        // Cash received at member onboarding — no mode-of-payment field
-        // exists on this form yet, so this always posts as cash (rcash),
-        // matching this app's convention elsewhere of defaulting to cash
-        // when no transfer/cheque details are given.
-        await queryRunner.query(
-            `INSERT INTO tblcashbook (headcode, headname, rcash, rtransfer, pcash, ptransfer, trans_date)
-             VALUES ('L1004', 'Compulsory Deposit', $1, 0, 0, 0, NOW())`,
-            [amount],
-        );
-
-        const updated = await queryRunner.query(
-            `UPDATE member_balances SET compulsory_deposit = COALESCE(compulsory_deposit, 0) + $1 WHERE mbno = $2 RETURNING mbno`,
-            [amount, mbno],
-        );
-        if (updated[0].length === 0) {
-            await queryRunner.query(
-                `INSERT INTO member_balances (mbno, compulsory_deposit) VALUES ($1, $2)`,
-                [mbno, amount],
-            );
-        }
+        const d = new Date();
+        const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        await postRdCdReceipt(queryRunner, {
+            mbno, amount, date: today, voucherNo,
+            text: 'Initial RD/CD deposit - new member',
+            description: 'Initial RD/CD deposit - New Member',
+            remarks: 'NEW_MEMBER_CD', username,
+            createBalanceIfMissing: true,
+        });
     }
 
     /** Locks a member's FRS/MD monthly contribution (fundsmaster.mdamt) to

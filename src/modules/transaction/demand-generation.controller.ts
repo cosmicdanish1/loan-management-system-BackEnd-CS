@@ -1,5 +1,5 @@
 import { RequireMenuAction } from '../auth/guards/menu-right.guard';
-import { Controller, Post, Body, UseInterceptors, UploadedFile, BadRequestException, UseGuards } from '@nestjs/common';
+import { Controller, Post, Body, Req, UseInterceptors, UploadedFile, BadRequestException, UseGuards } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiResponse, ApiConsumes } from '@nestjs/swagger';
 import { DemandGenerationService, DemandGenerationDto } from './services-v2/demand-generation.service';
@@ -50,6 +50,8 @@ export class DemandGenerationController {
         const preview = await this.importService.previewFromBuffer(file.buffer, body.branch, monthNum, yearNum);
         return {
             rows: preview.rows,
+            // file-level notices (e.g. the file's month differs from the selected one); the screen shows them as warnings
+            validationErrors: preview.warnings,
             summary: {
                 sheetName: preview.sheetName,
                 availableSheets: preview.availableSheets,
@@ -58,6 +60,10 @@ export class DemandGenerationController {
                 errors: preview.errorCount,
                 flagged: preview.flaggedCount,
                 columns: preview.columnsDetected,
+                matchedBy: preview.matchedBy,
+                fileName: file.originalname,
+                // ES-591: the strictness from Modify Business Rules (STRICT = any problem and nothing is saved)
+                strictness: preview.strictness,
             },
         };
     }
@@ -65,7 +71,7 @@ export class DemandGenerationController {
     @RequireMenuAction('IMPORT_DEMAND_LIST') // ES-464
     @Post('import-process')
     @ApiOperation({ summary: 'Save previously-previewed demand import rows for the selected month/year' })
-    async processImport(@Body() body: { month: string; year: string; branch?: string; data: any[] }) {
+    async processImport(@Req() req: any, @Body() body: { month: string; year: string; branch?: string; fileName?: string; data: any[] }) {
         const monthNum = MONTH_MAP[(body.month || '').toUpperCase()] || 0;
         const yearNum = parseInt(body.year, 10) || 0;
         if (!monthNum || !yearNum) {
@@ -74,13 +80,20 @@ export class DemandGenerationController {
         if (!body.data || body.data.length === 0) {
             return { success: false, message: 'No records to process.' };
         }
-        const result = await this.importService.saveRows(monthNum, yearNum, body.data as any, body.branch);
+        // ES-588: the saving user comes from the token, never from the request body
+        const result = await this.importService.saveRows(monthNum, yearNum, body.data as any, body.branch, {
+            fileName: body.fileName,
+            savedBy: req?.user?.username || 'admin',
+        });
         return {
             success: true,
             recordCount: result.saved,
             skipped: result.skipped,
             flagged: result.flagged,
-            message: `Saved ${result.saved} record(s)${result.skipped > 0 ? `, skipped ${result.skipped} invalid row(s)` : ''}${result.flagged > 0 ? `; ${result.flagged} row(s) need checking (possible old/new EMI mix-up)` : ''}.`,
+            batchId: result.batchId,
+            strictness: result.strictness,
+            skippedDetails: result.skippedDetails.slice(0, 50),
+            message: `Saved ${result.saved} record(s)${result.skipped > 0 ? `, skipped ${result.skipped} row(s)` : ''}${result.flagged > 0 ? `; ${result.flagged} row(s) need checking (possible old/new EMI mix-up)` : ''}.`,
         };
     }
 }

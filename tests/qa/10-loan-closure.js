@@ -55,16 +55,14 @@ const mem = (tag) => ({ prefix: 'MR', f_name: 'QATEST', m_name: '', l_name: tag 
   const ex = await call('POST', `/loans/early-closure/execute/${c}`, { mbno: A, adjustment: -999999999, postedBy: 'QA' });
   const after = await bal();
   s.check('CL-08', 'Execute early closure with a -999,999,999 adjustment (free waiver) is refused', ex.status >= 400 && after === before, `${ex.status}; balance ${before} -> ${after}; ${(ex.text || '').slice(0, 160)}`);
+  // ES-580: the direct execute endpoint is retired - an early closure is posted only through Past Transaction (hold flow),
+  // so a plain execute must be refused and must leave the loan untouched.
   const left = await bal();
   if (left > 0) {
     const ex2 = await call('POST', `/loans/early-closure/execute/${c}`, { mbno: A, postedBy: 'QA' });
     const a2 = await bal();
-    s.check('CL-09', 'Normal early closure executes and zeroes the balance (or reports approval-code gate)', (ex2.status < 300 && a2 === 0) || [401, 403].includes(ex2.status), `${ex2.status}; balance ${left} -> ${a2}; ${(ex2.text || '').slice(0, 160)}`);
-    if (ex2.status < 300) {
-      const ex3 = await call('POST', `/loans/early-closure/execute/${c}`, { mbno: A });
-      const led = await q(`select count(*) c from ledger where narration ilike '%closure%' and mbno::text=$1`, [String(A)]);
-      s.check('CL-10', 'Executing early closure twice is refused', ex3.status >= 400, `${ex3.status} ${(ex3.text || '').slice(0, 120)}; closure ledger rows ${led[0].c}`);
-    }
+    s.check('CL-09', 'Direct early-closure execute is retired (ES-580): refused, balance untouched', ex2.status >= 400 && a2 === left, `${ex2.status}; balance ${left} -> ${a2}; ${(ex2.text || '').slice(0, 160)}`);
+    s.check('CL-10', 'The refusal points to Past Transaction', /Past Transaction/i.test(ex2.text || ''), (ex2.text || '').slice(0, 160));
   }
   await pg.end();
   console.log('QA member', A, 'case', c, 'vouchers', n1, n2);

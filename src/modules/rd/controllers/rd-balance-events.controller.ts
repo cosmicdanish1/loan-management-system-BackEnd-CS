@@ -1,5 +1,5 @@
 import { RequireMenuAction } from '../../auth/guards/menu-right.guard';
-import { Controller, Get, Post, Body, Param, UseGuards, ParseIntPipe } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Post, Body, Param, Req, UseGuards, ParseIntPipe } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RdBalanceEventsService } from '../services/rd-balance-events.service';
@@ -40,18 +40,23 @@ export class RdBalanceEventsController {
         @Param('mbno') mbno: string,
         @Param('yearcode', ParseIntPipe) yearcode: number,
         @Body() body: { amount: number; narration?: string; createdBy?: string; asOfDate?: string },
+        @Req() req: any,
     ) {
-        const result = await this.service.recordWithdrawal(
+        // ES-579: the acting user is the logged-in user, never a name sent in the body (that one used to default to "system")
+        const username = String(req.user?.username || body.createdBy || '').trim();
+        if (!username) throw new BadRequestException('The logged-in user could not be identified.');
+        const result = await this.service.withdrawAndPost(
             mbno, yearcode, Number(body.amount),
             body.asOfDate ? new Date(body.asOfDate) : new Date(),
-            body.createdBy || 'system',
+            username,
             body.narration,
         );
         const parts: string[] = [];
         if (result.fromOpeningPot > 0) parts.push(`₹${result.fromOpeningPot.toLocaleString('en-IN')} from the opening-balance pot`);
         if (result.fromInstallments > 0) parts.push(`₹${result.fromInstallments.toLocaleString('en-IN')} from paid installments`);
+        const split = parts.length ? ` (${parts.join(' + ')})` : '';
         return {
-            message: `Withdrawal recorded (${parts.join(' + ')}). Remaining total holdings: ₹${result.remainingTotalHoldings.toLocaleString('en-IN')}.`,
+            message: `Withdrawal recorded${split}. Voucher ${result.voucherNo}. RD/CD balance now ₹${result.newBalance.toLocaleString('en-IN')}.`,
             ...result,
         };
     }

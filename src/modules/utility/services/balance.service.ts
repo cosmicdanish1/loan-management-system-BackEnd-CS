@@ -46,8 +46,8 @@ export class BalanceService {
     const member = await this.findMember(memberId);
 
     const shareBalance = round2(Number(member.shares) || 0);
-    // compulsory deposit + recurring deposit are what the member holds with the society
-    const totalDepositBalance = round2((Number(member.compulsory_deposit) || 0) + (Number(member.rd_amt) || 0));
+    // RD and CD are one deposit (head L1004): the CD balance is the whole of it. rd_amt is the MONTHLY amount, not a balance.
+    const totalDepositBalance = round2(Number(member.compulsory_deposit) || 0);
 
     const loan = await this.dataSource.query(
       `SELECT COALESCE(SUM(CAST(balance AS numeric)), 0) AS total
@@ -225,10 +225,9 @@ export class BalanceService {
 
     const depositAccounts: AccountBalance[] = [];
     const cd = round2(Number(member.compulsory_deposit) || 0);
-    const rd = round2(Number(member.rd_amt) || 0);
+    // RD and CD are one deposit: one line, the CD balance. rd_amt is the monthly amount, never added to it.
     if (cd > 0) depositAccounts.push({ accountId: 0, accountNumber: 'CD', accountType: 'compulsory-deposit', currentBalance: cd, availableBalance: cd, lastTransactionDate: null as any, status: 'ACTIVE' });
-    if (rd > 0) depositAccounts.push({ accountId: 0, accountNumber: 'RD', accountType: 'recurring-deposit', currentBalance: rd, availableBalance: rd, lastTransactionDate: null as any, status: 'ACTIVE' });
-    const totalDepositBalance = round2(cd + rd);
+    const totalDepositBalance = cd;
 
     return {
       shareBalance,

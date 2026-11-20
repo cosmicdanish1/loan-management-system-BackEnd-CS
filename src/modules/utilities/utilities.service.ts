@@ -1924,6 +1924,8 @@ export class UtilitiesService {
       // Activation date is maintained server-side so existing arrears are
       // never charged penalties for periods before the policy was enabled.
       'RULE_TIERED_LOAN_PENALTY_ENABLED', 'RULE_TIERED_LOAN_PENALTY_ACTIVATION_DATE',
+      // ES-591: how strictly the Import Demand List treats a file with problems (STRICT | STANDARD).
+      'RULE_DEMAND_IMPORT_STRICTNESS',
       // RD system (built from scratch — see rd-business-rules.ts). Defaults
       // here are placeholders pending the society's final policy numbers,
       // not authoritative thresholds.
@@ -1974,6 +1976,8 @@ export class UtilitiesService {
       RULE_LOAN_CLOSURE_GRACE_ENABLED: false,
       RULE_TIERED_LOAN_PENALTY_ENABLED: false,
       RULE_TIERED_LOAN_PENALTY_ACTIVATION_DATE: '',
+      // when the rule has never been saved the import is STRICT (DemandImportService.getStrictness does the same)
+      RULE_DEMAND_IMPORT_STRICTNESS: 'STRICT',
       ...RD_RULE_DEFAULTS,
     };
     for (const row of rows) {
@@ -2192,6 +2196,11 @@ export class UtilitiesService {
         { key: 'RULE_LOAN_CLOSURE_GRACE_ENABLED', value: data.RULE_LOAN_CLOSURE_GRACE_ENABLED === true ? 'true' : 'false', dataType: 'boolean' },
         // Auto Day-End switch: the nightly job (day-end.service.ts) runs only when this is ON.
         { key: 'SYS_DAYEND_AUTO_CLOSE', value: data.SYS_DAYEND_AUTO_CLOSE === true ? 'true' : 'false', dataType: 'boolean' },
+        // ES-591: Import Demand strictness. Written only when the screen sent it (an older client must not reset it);
+        // anything other than STANDARD is stored as STRICT, so a bad value can never loosen the import.
+        ...(data.RULE_DEMAND_IMPORT_STRICTNESS !== undefined
+          ? [{ key: 'RULE_DEMAND_IMPORT_STRICTNESS', value: String(data.RULE_DEMAND_IMPORT_STRICTNESS).trim().toUpperCase() === 'STANDARD' ? 'STANDARD' : 'STRICT', dataType: 'string' as const }]
+          : []),
         // Fund Management — read by the interest run, profit distribution and the dashboard, but this
         // screen never saved them. Written only when the screen actually sent the value, so an older
         // client that omits them can't zero them.

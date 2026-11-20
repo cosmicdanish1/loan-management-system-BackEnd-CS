@@ -3,7 +3,7 @@ import { InterestService } from '../../../src/modules/interest/interest.service'
 
 function mk(calc?: (m: any) => any) {
   const calls: string[] = [];
-  const manager: any = { query: jest.fn(async (sql: string) => { calls.push(sql); return /FROM ledger WHERE receipt_vchr_no/.test(sql) ? [{ trans_type: 'DR', total: '100' }, { trans_type: 'CR', total: '100' }] : []; }), save: jest.fn(async (_e: any, x: any) => x), find: jest.fn().mockResolvedValue([]) };
+  const manager: any = { query: jest.fn(async (sql: string) => { calls.push(sql); if (/UPDATE sbmaster/.test(sql)) return [{ mbno: 1 }]; return /FROM ledger WHERE receipt_vchr_no/.test(sql) ? [{ trans_type: 'DR', total: '100' }, { trans_type: 'CR', total: '100' }] : []; }), save: jest.fn(async (_e: any, x: any) => x), find: jest.fn().mockResolvedValue([]) };
   const qr: any = { connect: jest.fn(), startTransaction: jest.fn(), commitTransaction: jest.fn(), rollbackTransaction: jest.fn(), release: jest.fn(), manager };
   const ds: any = { createQueryRunner: () => qr, query: jest.fn().mockResolvedValue([]) };
   const master: any = { findOne: jest.fn().mockResolvedValue(null) };
@@ -37,7 +37,7 @@ describe('interest run checks (ES-408)', () => {
     expect(t.qr.rollbackTransaction).toHaveBeenCalledTimes(1); expect(t.qr.commitTransaction).not.toHaveBeenCalled(); expect(t.qr.release).toHaveBeenCalledTimes(1);
   });
   it('the lock is per account type and is taken before the overlap check and before anything is written', async () => {
-    for (const type of ['SB', 'RD']) {
+    for (const type of ['SB']) {
       const t = mk(); await t.svc.updateSavingInterest(dto({ accountType: type }));
       const lock = t.calls.findIndex((c) => /pg_advisory_xact_lock/.test(c)); const overlap = t.calls.findIndex((c) => /FROM interestmaster/.test(c));
       expect(lock).toBeGreaterThan(-1); expect(lock).toBeLessThan(overlap);
@@ -51,12 +51,20 @@ describe('interest run checks (ES-408)', () => {
 });
 
 describe('interest credit heads (ES-121)', () => {
-  it('SB credits A001, RD credits L1004, never CASH IN HAND (A1001) or REGULAR LOAN (A1002); an explicit head wins', async () => {
-    for (const [type, head] of [['SB', 'A001'], ['RD', 'L1004']]) {
+  it('SB credits A001, never CASH IN HAND (A1001) or REGULAR LOAN (A1002); RD/CD is refused here (legacy: yearly DR E1026 / CR L1004 in RD/CD Financial Year Closing); an explicit head wins', async () => {
+    for (const [type, head] of [['SB', 'A001']]) {
       const t = mk(); await t.svc.updateSavingInterest(dto({ accountType: type }));
       expect(t.any.createInterestLedgerEntry.mock.calls[0][5]).toBe(head);
       expect(['A1001', 'A1002']).not.toContain(t.any.createInterestLedgerEntry.mock.calls[0][5]);
     }
     const t = mk(); await t.svc.updateSavingInterest(dto({ accountHead: 'X9' })); expect(t.any.createInterestLedgerEntry.mock.calls[0][5]).toBe('X9');
+  });
+  it('RD/CD interest cannot be posted or previewed by the period run, whatever the spelling; nothing is written', async () => {
+    for (const type of ['RD', 'rd', 'CD', 'RD/CD', 'Recurring Deposit']) {
+      const t = mk();
+      await expect(t.svc.updateSavingInterest(dto({ accountType: type }))).rejects.toThrow(/RD\/CD Financial Year Closing/);
+      await expect(t.svc.previewInterestCalculation(dto({ accountType: type }))).rejects.toThrow(/RD\/CD Financial Year Closing/);
+      expect(t.any.createInterestLedgerEntry).not.toHaveBeenCalled();
+    }
   });
 });

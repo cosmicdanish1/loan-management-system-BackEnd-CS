@@ -396,6 +396,13 @@ export class VoucherService {
                     [voucherNo]);
             }
 
+            // ES-558: a deleted loan-repayment voucher cancels the repayment; nothing was posted.
+            if (voucherResult[0].sourceModule === 'LOAN_REPAYMENT') {
+                await queryRunner.query(
+                    `UPDATE loan_repayment_holds SET status = 'CANCELLED', cancelled_at = NOW() WHERE voucher_no = $1 AND status = 'PENDING'`,
+                    [voucherNo]);
+            }
+
             // 2. Delete transaction rows linked to this voucher
             const deletedTrans = await queryRunner.query(
                 `DELETE FROM transactions WHERE receipt_vchr_no = $1`, [voucherNo]
@@ -453,6 +460,12 @@ export class VoucherService {
                 // Fetch details from transactions table
                 const transQuery = `SELECT * FROM transactions WHERE receipt_vchr_no = $1 AND pass_flag = 'N'`;
                 const trans = await this.dataSource.query(transQuery, [row.voucherNumber]);
+                const codes = Array.from(new Set(trans.map((t: any) => String(t.code || '')).filter(Boolean)));
+                const headNames = new Map<string, string>();
+                if (codes.length > 0) {
+                    const heads = await this.dataSource.query(`SELECT code, head_name FROM headmaster WHERE code = ANY($1)`, [codes]);
+                    for (const h of heads) headNames.set(String(h.code), String(h.head_name || ''));
+                }
 
                 let reagreement: any = null;
                 if (row.sourceModule === 'LOAN_REAGREEMENT' && row.sourceId) {
@@ -465,13 +478,13 @@ export class VoucherService {
                     memberNo: row.memberId,
                     memberName: [row.f_name, row.m_name, row.l_name].map((n: any) => (n || '').toString().trim()).filter(Boolean).join(' '),
                     amount: parseFloat(row.totalAmount),
-                    vchrType: reagreement ? 'Loan Re-agreement' : (row.sourceModule === 'LOAN_EARLY_CLOSURE' ? 'Loan Early Closure' : (row.voucherType || 'Loan Disbursement')),
+                    vchrType: reagreement ? 'Loan Re-agreement' : (row.sourceModule === 'LOAN_EARLY_CLOSURE' ? 'Loan Early Closure' : (row.sourceModule === 'LOAN_REPAYMENT' ? 'Loan Repayment' : (row.voucherType || 'Loan Disbursement'))),
                     loanType: reagreement ? reagreement.loantype : loanType,
-                    kind: reagreement ? 'REAGREEMENT' : (row.sourceModule === 'LOAN_EARLY_CLOSURE' ? 'EARLY_CLOSURE' : 'VOUCHER'),
+                    kind: reagreement ? 'REAGREEMENT' : (row.sourceModule === 'LOAN_EARLY_CLOSURE' ? 'EARLY_CLOSURE' : (row.sourceModule === 'LOAN_REPAYMENT' ? 'REPAYMENT' : 'VOUCHER')),
                     reagreement,
                     status: row.status,
                     narration: row.description,
-                    loanCaseNo: reagreement ? reagreement.newLoanCaseNo : (row.sourceModule === 'LOAN_EARLY_CLOSURE' ? ((row.remarks || '').match(/ECASE:([^|]+)/)?.[1] || '') : loanCaseNo),
+                    loanCaseNo: reagreement ? reagreement.newLoanCaseNo : (row.sourceModule === 'LOAN_EARLY_CLOSURE' ? ((row.remarks || '').match(/ECASE:([^|]+)/)?.[1] || '') : (row.sourceModule === 'LOAN_REPAYMENT' ? ((row.remarks || '').match(/RCASE:([^|]+)/)?.[1] || '') : loanCaseNo)),
                     paymentMode: row.bankName || row.chequeNumber ? 'bank' : 'cash',
                     chequeNo: row.chequeNumber,
                     chequeDate: row.chequeDate,
@@ -481,6 +494,15 @@ export class VoucherService {
                         srNo: (idx + 1).toString(),
                         code: t.code || '',
                         name: t.narration || t.particulars,
+                        // ES-512: what the approver needs to see before Pass: head name, transaction no., type, account
+                        headName: headNames.get(String(t.code || '')) || '',
+                        trNo: t.trans_no != null ? String(t.trans_no) : '',
+                        transType: t.trans_type || '',
+                        accNo: t.acc_no != null ? String(t.acc_no) : '',
+                        accType: t.acc_type || '',
+                        // Journal vouchers carry a member per line (the header only has the first one); screens that
+                        // reload a voucher's lines (Journal / Transfer Entry) need it
+                        mbno: t.mbno != null ? String(t.mbno) : '',
                         rp: (reagreement || String(row.voucherType || '').toUpperCase() === 'RECEIPT') ? 'R' : 'P',
                         amount: parseFloat(t.trans_amt)
                     }))

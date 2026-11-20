@@ -1,3 +1,4 @@
+import { assertNoPendingVoucher, lockLoanForPendingVoucher } from './loan-pending-voucher.util';
 import { penalPrefixForLoanType } from './loan-rate-defaults.util';
 import { computeApClosureInterest } from './loan-closure.util';
 import { Injectable, BadRequestException } from '@nestjs/common';
@@ -87,6 +88,31 @@ export interface RepaymentDto {
 
 /** Which of the three penal tiers an installment currently sits in. */
 type PenalTier = 0 | 1 | 2;
+
+/**
+ * Loan Repayment through Past Transaction (ES-558): what one repayment will post, frozen when the voucher is raised.
+ * Dues only: the amount is split penal -> interest -> principal, oldest installment first, and can never be more than
+ * the dues (anything more is an early closure). Pass replays the rows; it does not recalculate the split.
+ */
+export interface RepaymentPlan {
+    mbno: string;
+    loancaseno: string;
+    loantype: string;
+    quotedOn: string;
+    amount: number;
+    principal: number;
+    interest: number;
+    penal: number;
+    /** Everything the loan owed on the quote date (the amount is at most this). */
+    dueTotal: number;
+    /** loan_master.balance when the voucher was raised; Pass refuses if the loan moved. */
+    expectedLoanBalance: number;
+    receiptNo: string | null;
+    rows: Array<{
+        installmentNo: number; month: number; year: number; amount: number;
+        principal: number; interest: number; penal: number; monthsOverdue: number; tier: number; narration: string;
+    }>;
+}
 
 interface InstallmentStatus {
     installmentNo: number;
@@ -245,7 +271,7 @@ export class LoanRepaymentService {
      * written, so a partial payment keeps the lock and the payment that clears
      * the loan releases it. A no-op for every other loan type.
      */
-    private async releaseRdLienIfClosed(
+    async releaseRdLienIfClosed(
         queryRunner: QueryRunner, loancaseno: string, mbno: any, loantype: string, by: string, reason: string,
     ): Promise<void> {
         if ((loantype || '').toUpperCase() !== 'ELN') return;
@@ -1459,6 +1485,113 @@ export class LoanRepaymentService {
     }
 
     /**
+     * ES-558: works out (and posts nothing) how a repayment of `amount` would be applied to the loan's dues right now.
+     * Uses the same installment engine as the old direct repayment and Early Closure (getInstallmentStatus), the same
+     * current-balance rule and the same penal -> interest -> principal, oldest-first split, but is DUES ONLY: no advance
+     * prepayment, and an amount above the dues is refused (that is an early closure).
+     * Pass a runner to read inside the caller's transaction (the voucher is raised / passed there); without one it uses
+     * its own connection. `lock` takes the loan row FOR UPDATE (only valid with a runner that is in a transaction).
+     */
+    async buildRepaymentPlan(
+        runner: QueryRunner | null,
+        a: { mbno: string; loancaseno: string; loantype?: string; amount: number; asOfDate?: Date; receiptNo?: string; narration?: string; lock?: boolean },
+    ): Promise<{ plan: RepaymentPlan; flag: LoanPaymentFlag | null }> {
+        const qr = runner ?? this.dataSource.createQueryRunner();
+        if (!runner) await qr.connect();
+        try {
+            const whereParts = ['loancaseno::text = $1', 'mbno = $2'];
+            const params: any[] = [String(a.loancaseno), String(a.mbno)];
+            if (a.loantype) { params.push(a.loantype); whereParts.push(`loantype = $${params.length}`); }
+            const loanRows = await qr.query(
+                `SELECT mbno, loantype, loan_amt, balance, instal_amt, no_of_instal, penalrate, gracedays, smpenalpct, smpenaldiv,
+                        payment_date, delay_months, loan_payment_model, intt_amount
+                 FROM loan_master WHERE ${whereParts.join(' AND ')} ${a.lock ? 'FOR UPDATE' : ''}`,
+                params,
+            );
+            if (loanRows.length === 0) throw new BadRequestException(`Loan case ${a.loancaseno} not found for member ${a.mbno}`);
+            if (loanRows.length > 1) throw new BadRequestException(`Loan case ${a.loancaseno} exists under more than one loan type for member ${a.mbno}; the loan type is required.`);
+            const loan = loanRows[0];
+            const asOf = a.asOfDate && !isNaN(a.asOfDate.getTime()) ? a.asOfDate : new Date();
+
+            const amount = Number(a.amount);
+            if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('Payment amount must be a number greater than zero');
+            if (amount > 999_999_999.99) throw new BadRequestException('Payment amount is too large');
+
+            const scheduleVersion = await this.getCurrentScheduleVersion(qr, String(a.loancaseno), loan, asOf);
+            const repaymentTotals = await this.getLedgerHistoryTotals(qr, String(a.loancaseno), asOf, loan.mbno, loan.loantype);
+            // same current-balance rule as the direct repayment (see recordLoanRepayment)
+            const currentBalance = scheduleVersion
+                ? Math.max(0, round2(
+                    parseFloat(String(scheduleVersion.opening_principal))
+                    - await this.getVersionPrincipalPaid(qr, String(a.loancaseno), loan.mbno, loan.loantype, asOf, scheduleVersion)
+                    - await this.getPayrollLagPrincipalOffset(qr, String(a.loancaseno), loan, asOf, scheduleVersion),
+                ))
+                : repaymentTotals.totalPayrollLagPrincipal > 0
+                    ? Math.max(0, round2((parseFloat(loan.loan_amt) || 0) - repaymentTotals.totalPrincipalPaid))
+                    : (parseFloat(loan.balance || 0));
+            if (currentBalance <= 0) throw new BadRequestException(`Loan ${a.loancaseno} is already fully repaid`);
+
+            const installments = await this.getInstallmentStatus(qr, String(a.loancaseno), loan, asOf, false, true);
+            const unpaid = installments.filter(i => !i.isFullyPaid);
+            const dueTotal = round2(unpaid.reduce((s, i) => s + i.principalDue + i.interestDue + i.penalDue, 0));
+            if (unpaid.length === 0 || dueTotal <= 0) {
+                throw new BadRequestException(`Nothing is due on loan ${a.loancaseno} right now, so there is nothing to repay. A payment ahead of the schedule is an early closure.`);
+            }
+            if (amount > dueTotal + 0.005) {
+                throw new BadRequestException(
+                    `₹${amount.toLocaleString('en-IN')} is more than the ₹${dueTotal.toLocaleString('en-IN')} due on loan ${a.loancaseno}. Loan Repayment collects dues only; for more, use Early Closure.`);
+            }
+
+            let remaining = round2(amount);
+            let principal = 0, interest = 0, penal = 0;
+            const rows: RepaymentPlan['rows'] = [];
+            for (const inst of unpaid) {
+                if (remaining <= 0) break;
+                const penalPaid = round2(Math.min(remaining, inst.penalDue));
+                remaining = round2(remaining - penalPaid);
+                const interestPaid = round2(Math.min(remaining, inst.interestDue));
+                remaining = round2(remaining - interestPaid);
+                const principalCap = Math.min(inst.principalDue, currentBalance - principal);
+                const principalPaid = round2(Math.min(remaining, Math.max(0, principalCap)));
+                remaining = round2(remaining - principalPaid);
+                if (penalPaid <= 0 && interestPaid <= 0 && principalPaid <= 0) continue;
+                rows.push({
+                    installmentNo: inst.installmentNo,
+                    month: inst.dueDate.getMonth() + 1, year: inst.dueDate.getFullYear(),
+                    amount: round2(principalPaid + interestPaid + penalPaid),
+                    principal: principalPaid, interest: interestPaid, penal: penalPaid,
+                    monthsOverdue: inst.monthsOverdue, tier: inst.tier,
+                    narration: a.narration || `Loan Repayment - Installment #${inst.installmentNo}`,
+                });
+                principal = round2(principal + principalPaid);
+                interest = round2(interest + interestPaid);
+                penal = round2(penal + penalPaid);
+            }
+            if (rows.length === 0) throw new BadRequestException(`The payment could not be applied to any due installment of loan ${a.loancaseno}.`);
+            if (remaining > 0.01) {
+                throw new BadRequestException(`₹${remaining.toLocaleString('en-IN')} of the payment cannot be applied to the dues of loan ${a.loancaseno}. Reduce the amount.`);
+            }
+
+            let flag: LoanPaymentFlag | null = null;
+            try { flag = await this.flagService.checkPayment(qr, loan, String(a.loancaseno), amount, asOf); } catch { /* the flag only informs */ }
+
+            const d = asOf;
+            const quotedOn = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            return {
+                plan: {
+                    mbno: String(loan.mbno), loancaseno: String(a.loancaseno), loantype: String(loan.loantype), quotedOn,
+                    amount: round2(principal + interest + penal), principal, interest, penal, dueTotal,
+                    expectedLoanBalance: round2(parseFloat(loan.balance || 0)),
+                    receiptNo: a.receiptNo ? String(a.receiptNo).trim() || null : null, rows,
+                },
+                flag,
+            };
+        } finally {
+            if (!runner) await qr.release();
+        }
+    }
+
+    /**
      * How closure figures are rounded — RULE_LOAN_ROUNDING_MODE, the same
      * setting that rounds the constant monthly interest when an EMI is sized
      * (see loan-rb-schedule.util.ts). Read straight from system_configs rather
@@ -1949,6 +2082,13 @@ export class LoanRepaymentService {
                 ? await this.loanEligibility.getRdShareClosureAdjustment(loan.mbno, finalClosureAmount, loancaseno)
                 : null;
             const payableByMember = rdShareAdjustment ? rdShareAdjustment.payableByMember : finalClosureAmount;
+            // What the RD / Share adjustment WOULD be, so the window can show the member's RD and Share even while the
+            // option is unticked. Display only: it never changes payableByMember.
+            let rdSharePreview = rdShareAdjustment;
+            if (!rdSharePreview) {
+                try { rdSharePreview = await this.loanEligibility.getRdShareClosureAdjustment(loan.mbno, finalClosureAmount, loancaseno); }
+                catch { rdSharePreview = null; }
+            }
 
             // Full history so an operator never has to re-derive or ask for
             // this separately before deciding — see the Transaction Flow
@@ -2024,6 +2164,7 @@ export class LoanRepaymentService {
                 // finalClosureAmount, exactly as before this feature existed).
                 applyRdShare,
                 rdShareAdjustment,
+                rdSharePreview,
                 payableByMember,
                 // Raw ingredients behind the figures above — exposed purely so
                 // the frontend can show its work (e.g. "Outstanding Principal
@@ -2173,6 +2314,13 @@ export class LoanRepaymentService {
             }
 
             await this.assertLedgerReconciled(queryRunner, loancaseno, loan);
+
+            // one pending voucher per loan: an immediate closure is refused while a repayment / closure hold is waiting
+            // (the dry run that builds a hold is checked by the hold service, under its own lock)
+            if (!holdPlan) {
+                await lockLoanForPendingVoucher(queryRunner, loan.mbno, loancaseno);
+                await assertNoPendingVoucher(queryRunner, loan.mbno, loancaseno, 'close the loan early');
+            }
 
             const scheduleVersion = await this.getCurrentScheduleVersion(queryRunner, loancaseno, loan, asOf);
             const noOfInstal = scheduleVersion ? parseInt(String(scheduleVersion.installment_count), 10) : (parseInt(loan.no_of_instal, 10) || 0);
@@ -2675,7 +2823,13 @@ export class LoanRepaymentService {
                     penalDue: i.penalDue,
                     monthsOverdue: i.monthsOverdue,
                     tier: i.tier,
+                    // ES-559: full contracted EMI of this installment (scheduled principal + interest). What is still
+                    // owed on it is in principalDue / interestDue / penalDue; principalPaid / interestPaid is what is in already.
+                    emiAmount: Math.round((i.monthlyPrincipal + i.monthlyInterest) * 100) / 100,
+                    principalPaid: i.principalPaid,
+                    interestPaid: i.interestPaid,
                 })),
+                totalEmi: Math.round(unpaid.reduce((sum, i) => sum + i.monthlyPrincipal + i.monthlyInterest, 0) * 100) / 100,
                 totalPrincipalDue,
                 totalInterestDue,
                 totalPenalDue,

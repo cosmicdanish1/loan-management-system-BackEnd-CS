@@ -24,6 +24,7 @@ import {
     LoanEligibilityService,
 } from './services-v2';
 import { LoanEarlyClosureHoldService } from './services-v2/early-closure/loan-early-closure-hold.service';
+import { LoanRepaymentHoldService } from './services-v2/repayment-hold/loan-repayment-hold.service';
 
 /**
  * Loan V2 Controller - Restructured endpoints using separated services.
@@ -46,6 +47,7 @@ export class LoanV2Controller {
         private readonly loanPositionService: LoanPositionService,
         private readonly loanEligibilityService: LoanEligibilityService,
         private readonly earlyClosureHold: LoanEarlyClosureHoldService,
+        private readonly repaymentHold: LoanRepaymentHoldService,
     ) { }
 
     // ==================== Application Operations ====================
@@ -60,12 +62,16 @@ export class LoanV2Controller {
         @Param('memberNo') memberNo: string,
         @Query('amount') amount?: string,
         @Query('loanType') loanType?: string,
+        @Query('caseNo') caseNo?: string,
     ) {
         const parsed = Number(amount);
+        // ES-455: the screen shows the same limit the application save enforces, so it counts loans sanctioned but not paid out
         return this.loanEligibilityService.checkEligibility(
             memberNo,
             Number.isFinite(parsed) && parsed > 0 ? parsed : 0,
             loanType,
+            undefined,
+            { countSanctionedNotPaid: true, ...(caseNo ? { excludeCaseNo: caseNo } : {}) },
         );
     }
 
@@ -203,6 +209,12 @@ export class LoanV2Controller {
         return this.loanQueryService.getMemberLoanFromPending(caseNo, memberNo);
     }
 
+    @Get('member/:memberNo/balances')
+    @ApiOperation({ summary: 'Share, regular-loan and emergency-loan balances of a member (Loan Application Financial Summary)' })
+    async getMemberBalancesSummary(@Param('memberNo') memberNo: string) {
+        return this.loanQueryService.getMemberBalancesSummary(memberNo);
+    }
+
     @Get('member/:memberNo/master')
     @ApiOperation({ summary: 'Get all active loans for a member from loan_master' })
     async getMemberLoansFromMaster(@Param('memberNo') memberNo: string) {
@@ -282,6 +294,45 @@ export class LoanV2Controller {
             // ES-451: a receipt number that is already on this loan is a repeat (double click / retry), not a new payment
             rejectDuplicateReceipt: true,
         });
+    }
+
+    // ES-558: the Loan Repayment window raises a voucher in Past Transaction instead of posting at once.
+    // Dues only: the amount can not be more than what is due (that is an early closure). Posting happens at Pass.
+    @Post('repayment/preview')
+    @RequireMenuAction('LOAN_REPAYMENT', 'LOAN_PAYMENT')
+    @ApiOperation({ summary: 'How an amount would be applied to the dues now (nothing saved) (ES-558)' })
+    async previewRepayment(
+        @Body() body: { mbno: string; loancaseno: string; loantype?: string; amount: number; asOfDate?: string },
+    ) {
+        return this.repaymentHold.preview({
+            mbno: String(body?.mbno || ''), loancaseno: String(body?.loancaseno || ''), loantype: body?.loantype,
+            amount: Number(body?.amount),
+            asOfDate: process.env.NODE_ENV === 'production' ? undefined : parseSafeDate(body?.asOfDate),
+        });
+    }
+
+    @Post('repayment/hold')
+    @RequireMenuAction('LOAN_REPAYMENT', 'LOAN_PAYMENT')
+    @ApiOperation({ summary: 'Raise the loan-repayment voucher in Past Transaction (ES-558)' })
+    async holdRepayment(
+        @Body() body: { mbno: string; loancaseno: string; loantype?: string; amount: number; receiptNo?: string; narration?: string; paymentMode?: 'CASH' | 'BANK'; bankCode?: string; asOfDate?: string },
+        @Req() req: any,
+    ) {
+        if (body?.asOfDate && process.env.NODE_ENV === 'production') {
+            throw new BadRequestException('asOfDate is not permitted in production');
+        }
+        return this.repaymentHold.create({
+            mbno: String(body?.mbno || ''), loancaseno: String(body?.loancaseno || ''), loantype: body?.loantype,
+            amount: Number(body?.amount), receiptNo: body?.receiptNo, narration: body?.narration,
+            paymentMode: body?.paymentMode, bankCode: body?.bankCode,
+            asOfDate: process.env.NODE_ENV === 'production' ? undefined : parseSafeDate(body?.asOfDate),
+        }, req?.user?.username || 'system');
+    }
+
+    @Get('repayment/pending/:mbno/:caseNo')
+    @ApiOperation({ summary: 'The repayment waiting in Past Transaction for a loan, if any (ES-558)' })
+    async pendingRepayment(@Param('mbno') mbno: string, @Param('caseNo') caseNo: string) {
+        return { pending: await this.repaymentHold.getPendingForLoan(mbno, caseNo) };
     }
 
     @Get('position/:mbno/:caseNo')
@@ -410,26 +461,16 @@ export class LoanV2Controller {
         });
     }
 
-    // ES-116: asks for the performer's own authenticator code when the Early Loan Closure switch is ON.
+    // ES-580: the immediate closure ("settle now") is retired. It lowered RD/CD and Share and zeroed the loan but posted no
+    // ledger, voucher or cash book. Since ES-556 every closure is raised as a Past Transaction voucher (route above) and
+    // posted at Pass. The method stays in the service because the voucher's planning dry run (holdPlan) uses it.
     @Post('early-closure/execute/:caseNo')
     @RequireMenuAction('LOAN_EARLY_CLOSURE')
     @RequireAuthCode('early_closure')
-    @ApiOperation({ summary: 'Actually settle a loan early -- writes ledger entries and zeroes the balance' })
-    async executeEarlyClosure(
-        @Param('caseNo') caseNo: string,
-        @Body() body: { closureDate?: string; adjustment?: number; postedBy?: string; receiptNo?: string; applyRdShare?: boolean; mbno?: string; adjustPayrollLag?: boolean },
-        @Req() req: any,
-    ) {
-        return this.loanRepaymentService.executeEarlyClosure(
-            caseNo,
-            parseSafeDate(body?.closureDate),
-            body?.adjustment ?? 0,
-            // who actually closed the loan = the signed-in user (the body value is client-supplied)
-            req?.user?.username || 'system',
-            body?.receiptNo,
-            body?.applyRdShare ?? true,
-            body?.mbno,
-            body?.adjustPayrollLag === true,
+    @ApiOperation({ summary: 'Retired (ES-580): use POST early-closure/hold/:caseNo, which raises the closure in Past Transaction' })
+    async executeEarlyClosure() {
+        throw new BadRequestException(
+            'Early closure is no longer settled directly. Raise it from the Loan Early Closure window: it goes to Past Transaction and is posted when it is passed.',
         );
     }
 

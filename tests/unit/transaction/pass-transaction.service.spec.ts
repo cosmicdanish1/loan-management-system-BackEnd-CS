@@ -11,6 +11,7 @@ interface RunnerOptions {
   stagedRows?: any[];
   balances?: Record<string, number>;
   failOn?: string;
+  ledgerRows?: any[];
 }
 
 const build = (opts: RunnerOptions = {}) => {
@@ -25,7 +26,7 @@ const build = (opts: RunnerOptions = {}) => {
       calls.push({ sql, params });
       if (opts.failOn && sql.includes(opts.failOn)) throw new Error('database down');
       if (sql.includes('FROM vouchers WHERE "voucherNumber"')) return opts.header ? [opts.header] : [];
-      if (/SELECT mbno, code, trans_type, trans_amt FROM transactions WHERE receipt_vchr_no/.test(sql)) return opts.stagedRows ?? [];
+      if (/SELECT mbno, code, trans_type, trans_amt(, acc_type)? FROM transactions WHERE receipt_vchr_no/.test(sql)) return opts.stagedRows ?? [];
       if (/FROM transactions WHERE receipt_vchr_no/.test(sql)) return opts.details ?? [];
       if (sql.includes('MAX(ledgerid)')) return [{ max_id: '10' }];
       if (sql.includes('MAX(trans_no)')) return [{ max_no: '20' }];
@@ -38,6 +39,7 @@ const build = (opts: RunnerOptions = {}) => {
       }
       if (sql.includes('SELECT mbno, loantype, loan_amt FROM loan_master')) return opts.loanMasterRows ?? [];
       if (sql.includes('pflag FROM headmaster')) return [{ pflag: 'A' }];
+      if (/FROM ledger\s+WHERE receipt_vchr_no/.test(sql)) return opts.ledgerRows ?? [];
       if (sql.includes('FROM yearend')) return [];
       return [];
     }),
@@ -118,6 +120,58 @@ describe('PassTransactionService journal posting', () => {
     expect(calls.some(({ sql }) => sql.includes('UPDATE member_balances'))).toBe(false);
   });
 
+  it('debits compulsory_deposit and shares when the lines are staged as CD / SHR (loan settled from deposits)', async () => {
+    const { service, calls } = build({
+      header: journalHeader(),
+      details: [
+        { trans_no: 1, trans_type: 'DR', trans_amt: '1000', code: 'L1004', mbno: 1001, acc_type: 'CD' },
+        { trans_no: 2, trans_type: 'DR', trans_amt: '200', code: 'L1001', mbno: 1001, acc_type: 'SHR' },
+      ],
+      balances: { '1001': 5000 },
+    });
+    await service.passTransaction('J1');
+    expect(calls.find(({ sql }) => sql.includes('UPDATE member_balances SET compulsory_deposit'))?.params).toEqual([4000, 1001]);
+    expect(calls.find(({ sql }) => sql.includes('UPDATE member_balances SET shares'))?.params).toEqual([4800, 1001]);
+  });
+
+  it('credits compulsory_deposit (liability goes up on a credit)', async () => {
+    const { service, calls } = build({
+      header: journalHeader(),
+      details: [{ trans_no: 1, trans_type: 'CR', trans_amt: '300', code: 'L1004', mbno: 1001, acc_type: 'CD' }],
+      balances: { '1001': 1000 },
+    });
+    await service.passTransaction('J1');
+    expect(calls.find(({ sql }) => sql.includes('UPDATE member_balances SET compulsory_deposit'))?.params).toEqual([1300, 1001]);
+  });
+
+  it('leaves member_balances alone for a CD head line staged as JV (journals created before CD/SHR typing)', async () => {
+    const { service, calls } = build({
+      header: journalHeader(),
+      details: [{ trans_no: 1, trans_type: 'DR', trans_amt: '10', code: 'L1004', mbno: 1001, acc_type: 'JV' }],
+      balances: { '1001': 200 },
+    });
+    await service.passTransaction('J1');
+    expect(calls.some(({ sql }) => sql.includes('UPDATE member_balances'))).toBe(false);
+  });
+
+  it('posts head-only lines with member 0 and payment mode J, and member lines with their member', async () => {
+    const { service, calls } = build({
+      header: journalHeader({ bankName: 'BOB' }), // a bank/cheque voucher mode must not leak into a journal
+      details: [
+        { trans_no: 1, trans_type: 'DR', trans_amt: '100', code: 'E1006', mbno: null, acc_type: 'JV' },
+        { trans_no: 2, trans_type: 'CR', trans_amt: '100', code: 'A1013', mbno: null, acc_type: 'JV' },
+        { trans_no: 3, trans_type: 'DR', trans_amt: '50', code: 'A1047', mbno: 1001, acc_type: 'ALN' },
+      ],
+      balances: { '1001': 0 },
+    });
+    await service.passTransaction('J1');
+    const ledger = calls.filter(({ sql }) => sql.includes('INSERT INTO ledger'));
+    expect(ledger).toHaveLength(3);
+    // params: [trans_no, date, type, code, mbno, acc_no, acc_type, amt, voucher, mode, narration, user, ledgerid]
+    expect(ledger.map(c => c.params?.[4])).toEqual([0, 0, 1001]);
+    expect(ledger.map(c => c.params?.[9])).toEqual(['J', 'J', 'J']);
+  });
+
   it('rejects a journal line without a head code instead of posting to the phantom head GL000', async () => {
     const { service } = build({
       header: journalHeader(),
@@ -176,6 +230,24 @@ describe('PassTransactionService reversal', () => {
     expect(voucherReset).toBeDefined();
   });
 
+  it('restores compulsory_deposit on reversing a CD-typed journal, but not for an old JV-typed one', async () => {
+    const typed = build({
+      header: { ...journalHeader(), status: 'POSTED' },
+      stagedRows: [{ mbno: 1001, code: 'L1004', trans_type: 'DR', trans_amt: '1000', acc_type: 'CD' }],
+      balances: { '1001': 4000 },
+    });
+    await typed.service.reverseTransaction('J1', 'clerk');
+    expect(typed.calls.find(({ sql }) => sql.includes('UPDATE member_balances SET compulsory_deposit'))?.params).toEqual([5000, 1001]);
+
+    const old = build({
+      header: { ...journalHeader(), status: 'POSTED' },
+      stagedRows: [{ mbno: 1001, code: 'L1004', trans_type: 'DR', trans_amt: '1000', acc_type: 'JV' }],
+      balances: { '1001': 4000 },
+    });
+    await old.service.reverseTransaction('J1', 'clerk');
+    expect(old.calls.some(({ sql }) => sql.includes('UPDATE member_balances'))).toBe(false);
+  });
+
   it('removes the loan, its schedules and the member balance on a disbursement reversal', async () => {
     const { service, calls } = build({
       header: { ...journalHeader(), voucherType: 'PAYMENT', status: 'POSTED', remarks: 'LOAN_CASE:LC1' },
@@ -190,6 +262,48 @@ describe('PassTransactionService reversal', () => {
     expect(calls.find(({ sql }) => sql.includes('UPDATE member_balances SET regularloan = GREATEST'))?.params)
       .toEqual([5000, 1001]);
     expect(calls.find(({ sql }) => sql.includes("UPDATE loan_pending SET flg_paid = 'N'"))).toBeDefined();
+  });
+
+  it('ES-577: reversing a loan disbursement takes the RD/CD it credited (shortfall, cleared negative RD) out of the member balance again', async () => {
+    const { service, calls } = build({
+      header: { ...journalHeader(), voucherType: 'PAYMENT', status: 'POSTED', remarks: 'LOAN_CASE:LC1' },
+      loanMasterRows: [{ mbno: 1001, loantype: 'RLN', loan_amt: '5000' }],
+      ledgerRows: [{ mbno: 1001, trans_amt: '2500' }, { mbno: 1001, trans_amt: '300.5' }],
+    });
+    await service.reverseTransaction('P1');
+    const upd = calls.find(({ sql }) => sql.includes('UPDATE member_balances SET compulsory_deposit') && sql.includes('- $1'));
+    expect(upd?.params).toEqual([2800.5, '1001']);
+    // it is read and applied BEFORE the ledger rows are deleted
+    const iUpd = calls.findIndex(({ sql }) => sql.includes('UPDATE member_balances SET compulsory_deposit'));
+    const iDel = calls.findIndex(({ sql }) => sql.includes('DELETE FROM ledger'));
+    expect(iUpd).toBeGreaterThanOrEqual(0); expect(iUpd).toBeLessThan(iDel);
+  });
+
+  it('ES-577: the RD shortfall withheld from a loan raises the member RD/CD balance (both result shapes; a missing row is created)', async () => {
+    const { service } = build();
+    const credit = (svc: any, q: any) => svc.creditRdShortfallToBalance({ query: q }, 1001, 2500);
+    const typeOrm = jest.fn().mockResolvedValueOnce([[{ mbno: 1001 }], 1]);       // TypeORM shape [rows, count]
+    await credit(service, typeOrm);
+    expect(typeOrm).toHaveBeenCalledTimes(1);
+    expect(typeOrm.mock.calls[0][0]).toContain('compulsory_deposit = COALESCE(compulsory_deposit, 0) + $1');
+    expect(typeOrm.mock.calls[0][1]).toEqual([2500, 1001]);
+    const plain = jest.fn().mockResolvedValueOnce([{ mbno: 1001 }]);              // plain rows
+    await credit(service, plain);
+    expect(plain).toHaveBeenCalledTimes(1);
+    const none = jest.fn().mockResolvedValueOnce([[], 0]).mockResolvedValueOnce([]); // no balance row: created
+    await credit(service, none);
+    expect(none).toHaveBeenCalledTimes(2);
+    expect(none.mock.calls[1][0]).toContain('INSERT INTO member_balances (mbno, compulsory_deposit)');
+    expect(none.mock.calls[1][1]).toEqual([1001, 2500]);
+  });
+
+  it('ES-577: a loan disbursement with no RD/CD credit leaves the RD/CD balance alone on reversal', async () => {
+    const { service, calls } = build({
+      header: { ...journalHeader(), voucherType: 'PAYMENT', status: 'POSTED', remarks: 'LOAN_CASE:LC1' },
+      loanMasterRows: [{ mbno: 1001, loantype: 'RLN', loan_amt: '5000' }],
+    });
+    await service.reverseTransaction('P1');
+    expect(calls.some(({ sql }) => sql.includes('UPDATE member_balances SET compulsory_deposit'))).toBe(false);
   });
 
   it('routes a re-agreement voucher to the re-agreement service', async () => {

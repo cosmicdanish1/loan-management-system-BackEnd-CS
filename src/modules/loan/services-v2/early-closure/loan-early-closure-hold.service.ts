@@ -7,6 +7,7 @@ import { lockLedgerIds, lockNextId } from '../../../shared/utils/ledger-lock';
 import { interestHeadForLoanType } from '../../loan-interest-heads';
 import { EarlyClosurePlan, LoanRepaymentService } from '../loan-repayment.service';
 import { round2 } from '../loan-rb-schedule.util';
+import { assertNoPendingVoucher, lockLoanForPendingVoucher } from '../loan-pending-voucher.util';
 
 /**
  * ES-556: Loan Early Closure held in Past Transaction.
@@ -201,12 +202,9 @@ export class LoanEarlyClosureHoldService {
         try {
             await qr.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`early_closure_hold:${mbno}:${caseNo}`]);
             await lockLedgerIds(qr);
-            const pending = await qr.query(
-                `SELECT voucher_no FROM loan_early_closure_holds WHERE mbno = $1 AND loancaseno = $2 AND loantype = $3 AND status = 'PENDING'`,
-                [mbno, caseNo, loantype]);
-            if (pending.length > 0) {
-                throw new BadRequestException(`Loan ${caseNo} already has a pending early closure (voucher ${pending[0].voucher_no}). Pass or delete it first.`);
-            }
+            // one pending voucher per loan: a pending repayment, closure or re-agreement blocks a new closure
+            await lockLoanForPendingVoucher(qr, mbno, caseNo);
+            await assertNoPendingVoucher(qr, mbno, caseNo, 'start an early closure');
 
             const vid = await this.nextId(qr, 'vouchers', 'id');
             const hold = await qr.query(

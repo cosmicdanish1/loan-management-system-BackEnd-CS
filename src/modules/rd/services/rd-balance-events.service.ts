@@ -1,7 +1,9 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, Optional, BadRequestException, NotFoundException } from '@nestjs/common';
 import { DataSource, QueryRunner } from 'typeorm';
 import { RdRulesService } from '../rd-rules.service';
 import { toDateOnlyString } from '../rd-date-math';
+import { SequenceGeneratorService } from '../../shared/services';
+import { postRdCdPayment } from '../rd-cd-receipt';
 
 export type RdBalanceEventType =
     | 'OPENING'
@@ -40,6 +42,7 @@ export class RdBalanceEventsService {
     constructor(
         private readonly dataSource: DataSource,
         private readonly rdRules: RdRulesService,
+        @Optional() private readonly sequenceGenerator?: SequenceGeneratorService,
     ) { }
 
     /** The opening-balance POT alone (opening figure + withdrawals + loan
@@ -76,15 +79,17 @@ export class RdBalanceEventsService {
      *  Mirrors the same combination financial-year closing uses for its own
      *  closing_balance, so both views of "how much RD does this member
      *  really have" agree with each other. */
-    async getTotalCurrentHoldings(mbno: string, yearcode: number): Promise<number> {
-        const [balancePot, installmentRows] = await Promise.all([
-            this.getCurrentBalance(mbno, yearcode),
-            this.dataSource.query(
-                `SELECT COALESCE(SUM(paid_amount - withdrawn_amount), 0) AS total FROM rd_installment_ledger WHERE mbno = $1 AND yearcode = $2`,
-                [mbno, yearcode],
-            ),
-        ]);
-        return Math.round((balancePot + Number(installmentRows[0]?.total || 0)) * 100) / 100;
+    async getTotalCurrentHoldings(mbno: string, _yearcode?: number, queryRunner?: QueryRunner): Promise<number> {
+        // RD and CD are ONE deposit (the society books both to head L1004; the legacy system never had a separate RD).
+        // The single figure is member_balances.compulsory_deposit, so every screen, report, eligibility check and
+        // withdrawal limit sees the same number. rd_balance_events / rd_installment_ledger stay as the INTEREST
+        // timeline only and no longer decide how much RD a member holds. A negative CD (Group Insurance may leave it
+        // below zero) is cleared separately out of the next loan payout, so it counts as 0 holdings here.
+        const rows = await (queryRunner ?? this.dataSource).query(
+            `SELECT COALESCE(SUM(compulsory_deposit), 0)::float AS total FROM member_balances WHERE mbno::numeric = $1::numeric`,
+            [mbno],
+        );
+        return Math.round(Math.max(0, Number(rows[0]?.total || 0)) * 100) / 100;
     }
 
     async getTimeline(mbno: string, yearcode: number): Promise<RdBalanceEventRow[]> {
@@ -330,16 +335,27 @@ export class RdBalanceEventsService {
                     fromInstallments = Math.round((fromInstallments + take) * 100) / 100;
                     remaining = Math.round((remaining - take) * 100) / 100;
                 }
-                if (remaining > 0) {
-                    // Shouldn't happen given the totalHoldings check above,
-                    // unless a concurrent withdrawal raced us between that
-                    // check and this lock — fail safe rather than silently
-                    // withdraw less than requested.
-                    throw new BadRequestException(
-                        `Could only find ₹${(amount - remaining).toLocaleString('en-IN')} of the requested ₹${amount.toLocaleString('en-IN')} ` +
-                        `across both pots — a concurrent change may have altered the balance. Please retry.`,
-                    );
-                }
+                // Whatever the interest timeline (opening pot + installments) does not cover is plain CD balance
+                // (every migrated member, for example, has no timeline at all): it is taken from the one RD/CD figure below.
+            }
+
+            // The single RD/CD balance goes down by the whole amount, under the lock, and never below zero:
+            // a concurrent withdrawal that already used the money makes this update find no row and the whole
+            // withdrawal fails instead of overdrawing.
+            // ES-579: the minimum balance and the Loan Against RD lock are enforced in this same statement, not only in the
+            // check at the top (that one ran before the lock, so two withdrawals at the same moment could both pass it
+            // and together leave less than the minimum).
+            const cdUpdate = await queryRunner.query(
+                `UPDATE member_balances SET compulsory_deposit = compulsory_deposit - $1
+                  WHERE mbno::numeric = $2::numeric AND compulsory_deposit >= $1 AND compulsory_deposit - $1 >= $3
+                  RETURNING compulsory_deposit`,
+                [amount, mbno, minBalance + lockedNow],
+            );
+            if (!cdUpdate[0] || cdUpdate[0].length === 0) {
+                throw new BadRequestException(
+                    `The member's RD/CD balance changed, so ₹${amount.toLocaleString('en-IN')} can no longer be withdrawn ` +
+                    `(the minimum balance of ₹${minBalance.toLocaleString('en-IN')} and any Loan Against RD lock must stay). Please check the balance and retry.`,
+                );
             }
 
             if (ownsTransaction) await queryRunner.commitTransaction();
@@ -350,6 +366,52 @@ export class RdBalanceEventsService {
             throw error;
         } finally {
             if (ownsTransaction) await queryRunner.release();
+        }
+    }
+
+    /**
+     * ES-579: the RD/CD Withdrawal window. Takes the money out of the member's RD/CD balance (recordWithdrawal) AND books
+     * the cash paid out: a CD payment voucher, DR RD/CD (L1004) + CR cash (A1001) in the ledger, the transaction rows and
+     * a cash-book payment line, all in one transaction. (recordWithdrawal alone is also used by loan early closure,
+     * which posts its own ledger entries, so the posting is NOT inside recordWithdrawal.)
+     */
+    async withdrawAndPost(
+        mbno: string,
+        yearcode: number,
+        amount: number,
+        asOfDate: Date,
+        username: string,
+        narration?: string,
+    ): Promise<RdWithdrawalResult & { voucherNo: string; newBalance: number }> {
+        if (!this.sequenceGenerator) throw new Error('Voucher numbering is not available.');
+        if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('Withdrawal amount must be a number greater than zero.');
+        if (amount > 9_999_999.99) throw new BadRequestException('Withdrawal amount is too large.');
+        if (!(asOfDate instanceof Date) || Number.isNaN(asOfDate.getTime())) throw new BadRequestException('The withdrawal date is not a valid date.');
+        const endOfToday = new Date(); endOfToday.setHours(23, 59, 59, 999);
+        if (asOfDate.getTime() > endOfToday.getTime()) throw new BadRequestException('The withdrawal date cannot be in the future.');
+        const dateStr = toDateOnlyString(asOfDate);
+
+        const voucherNo = await this.sequenceGenerator.getNextVoucherNumber();
+        const qr = this.dataSource.createQueryRunner();
+        await qr.connect();
+        await qr.startTransaction();
+        try {
+            const result = await this.recordWithdrawal(mbno, yearcode, amount, asOfDate, username, narration, qr);
+            const balRows = await qr.query(`SELECT COALESCE(compulsory_deposit, 0)::float AS bal FROM member_balances WHERE mbno::numeric = $1::numeric`, [mbno]);
+            const newBalance = Math.round(Number(balRows[0]?.bal || 0) * 100) / 100;
+            await postRdCdPayment(qr, {
+                mbno, amount, date: dateStr, voucherNo, newBalance,
+                text: 'RD/CD withdrawal',
+                description: `RD/CD withdrawal${narration && narration !== 'Withdrawal' ? ' - ' + narration : ''}`,
+                remarks: 'RD_CD_WITHDRAWAL', username,
+            });
+            await qr.commitTransaction();
+            return { ...result, voucherNo, newBalance };
+        } catch (error) {
+            await qr.rollbackTransaction();
+            throw error;
+        } finally {
+            await qr.release();
         }
     }
 

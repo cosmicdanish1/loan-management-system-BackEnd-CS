@@ -3,9 +3,12 @@ import { RdRepaymentService } from '../../../src/modules/rd/services/rd-repaymen
 import { RdMemberConfigService } from '../../../src/modules/rd/services/rd-member-config.service';
 import { RdBalanceEventsService } from '../../../src/modules/rd/services/rd-balance-events.service';
 
+import { mkQr, seq } from './rd-repay-mocks';
+
 const repay = (config: any[] = []) => {
-  const ds: any = { query: jest.fn(async (sql: string) => (/FROM yearend/.test(sql) ? [{ start_date: '2026-04-01', end_date: '2027-03-31' }] : /FROM rd_member_config/.test(sql) ? config : /FROM member_master/.test(sql) ? [{ mbno: 5 }] : [])) };
-  return { svc: new RdRepaymentService(ds), ds };
+  const qr = mkQr();
+  const ds: any = { qr, createQueryRunner: () => qr, query: jest.fn(async (sql: string) => (/FROM yearend/.test(sql) ? [{ start_date: '2026-04-01', end_date: '2027-03-31' }] : /FROM rd_member_config/.test(sql) ? config : /FROM member_master/.test(sql) ? [{ mbno: 5 }] : [])) };
+  return { svc: new RdRepaymentService(ds, seq), ds };
 };
 const pay = (t: any, a: any, m: any = 4, y: any = 2026) => t.svc.recordPayment('5', 3, m, y, a, new Date(2026, 3, 10), undefined, 'bob');
 
@@ -15,7 +18,7 @@ describe('RD counter payment checks (ES-353)', () => {
     for (const [m, y] of [[3, 2026], [4, 2027], [13, 2026], [0, 2026], [4, 1999], [4.5, 2026], ['x', 2026]]) await expect(pay(repay(), 500, m, y)).rejects.toBeInstanceOf(BadRequestException);
   });
   it('NaN, Infinity, text, 0, negative and absurd amounts are refused before the database is written', async () => {
-    for (const a of [NaN, Infinity, -Infinity, 'abc', 0, -1, 1e12, 10_000_000]) { const t = repay(); await expect(pay(t, a)).rejects.toBeInstanceOf(BadRequestException); expect(t.ds.query.mock.calls.some((c: any[]) => /INSERT INTO rd_installment_ledger/.test(c[0]))).toBe(false); }
+    for (const a of [NaN, Infinity, -Infinity, 'abc', 0, -1, 1e12, 10_000_000]) { const t = repay(); await expect(pay(t, a)).rejects.toBeInstanceOf(BadRequestException); expect(t.ds.qr.query.mock.calls.some((c: any[]) => /INSERT INTO rd_installment_ledger/.test(c[0]))).toBe(false); }
   });
   it('up to 10 times the instalment is fine (paying ahead), above that is refused', async () => {
     await expect(pay(repay([{ monthly_rd_amount: '700' }]), 7000)).resolves.toBeDefined();

@@ -1,6 +1,11 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { toDateOnlyString } from '../rd-date-math';
+import { SequenceGeneratorService } from '../../shared/services';
+import { postRdCdReceipt, RD_CD_HEAD } from '../rd-cd-receipt';
+import { assertPostingDateOpen } from '../../shared/utils/posting-date';
+
+const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
 export interface RdPendingInstallmentRow {
     installmentMonth: number;
@@ -26,7 +31,61 @@ export interface RdPendingInstallmentRow {
  */
 @Injectable()
 export class RdRepaymentService {
-    constructor(private readonly dataSource: DataSource) { }
+    constructor(
+        private readonly dataSource: DataSource,
+        private readonly sequenceGenerator: SequenceGeneratorService,
+    ) { }
+
+    /**
+     * Everything the RD/CD Repayment screen shows about a member apart from the 12 months: the one real balance
+     * (member_balances.compulsory_deposit), the monthly amount, what was paid this year, what is locked by a Loan
+     * Against RD, and the latest credits on the RD/CD head.
+     */
+    async getSummary(mbno: string, yearcode: number) {
+        const bal = await this.dataSource.query(
+            `SELECT compulsory_deposit::float AS balance, rd_amt::float AS rd_amt FROM member_balances WHERE mbno::numeric = $1::numeric LIMIT 1`,
+            [mbno],
+        );
+        if (bal.length === 0) throw new NotFoundException(`Member ${mbno} not found.`);
+        const cfg = await this.dataSource.query(
+            `SELECT monthly_rd_amount::float AS amount, effective_from_date FROM rd_member_config
+              WHERE mbno::text = $1 AND yearcode = $2 AND effective_from_date <= CURRENT_DATE
+              ORDER BY effective_from_date DESC, id DESC LIMIT 1`,
+            [mbno, yearcode],
+        );
+        const paid = await this.dataSource.query(
+            `SELECT COALESCE(SUM(paid_amount), 0)::float AS total,
+                    COUNT(*) FILTER (WHERE paid_amount > 0 AND paid_amount >= expected_amount)::int AS full_months,
+                    COUNT(*) FILTER (WHERE due_date <= CURRENT_DATE)::int AS due_months
+               FROM rd_installment_ledger WHERE mbno::text = $1 AND yearcode = $2`,
+            [mbno, yearcode],
+        );
+        const lien = await this.dataSource.query(
+            `SELECT COALESCE(SUM(lien_amount), 0)::float AS locked FROM rd_lien WHERE mbno::text = $1 AND status = 'ACTIVE'`,
+            [mbno],
+        );
+        const receipts = await this.dataSource.query(
+            `SELECT receipt_vchr_no AS "voucherNo", trans_date AS "date", trans_amt::float AS amount, narration
+               FROM ledger
+              WHERE mbno::numeric = $1::numeric AND TRIM(code) = $2 AND UPPER(TRIM(trans_type)) IN ('CR', 'R')
+              ORDER BY trans_date DESC, ledgerid DESC LIMIT 6`,
+            [mbno, RD_CD_HEAD],
+        );
+        const balance = Math.max(0, Number(bal[0].balance || 0));
+        const locked = Number(lien[0]?.locked || 0);
+        return {
+            mbno,
+            balance: round2(balance),
+            monthlyAmount: cfg[0] ? Number(cfg[0].amount) : null,
+            monthlyAmountFrom: cfg[0]?.effective_from_date ?? null,
+            memberRecordMonthly: Number(bal[0].rd_amt || 0),
+            paidThisYear: round2(Number(paid[0]?.total || 0)),
+            paidMonths: Number(paid[0]?.full_months || 0),
+            lockedByLoan: round2(locked),
+            freeToWithdraw: round2(Math.max(0, balance - locked)),
+            receipts,
+        };
+    }
 
     /** Every calendar month of the financial year, April first, with
      *  whatever payment status it currently has — including months with no
@@ -103,7 +162,7 @@ export class RdRepaymentService {
         paidDate: Date,
         narration: string | undefined,
         recordedBy: string,
-    ): Promise<RdPendingInstallmentRow> {
+    ): Promise<RdPendingInstallmentRow & { voucherNo: string; newBalance: number }> {
         // the screen may send the month and year as text ("4"); they are used as numbers from here on
         installmentMonth = Number(installmentMonth);
         installmentYear = Number(installmentYear);
@@ -159,22 +218,54 @@ export class RdRepaymentService {
 
         const dueDateStr = toDateOnlyString(dueDate);
         const paidDateStr = toDateOnlyString(paidDate);
-        await this.dataSource.query(
-            `INSERT INTO rd_installment_ledger
-                (mbno, yearcode, installment_month, installment_year, due_date, expected_amount, paid_amount, paid_date, is_arrear_clearance, narration)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-             ON CONFLICT (mbno, yearcode, installment_month, installment_year) DO UPDATE SET
-                paid_amount = EXCLUDED.paid_amount,
-                paid_date = EXCLUDED.paid_date,
-                is_arrear_clearance = EXCLUDED.is_arrear_clearance,
-                narration = EXCLUDED.narration`,
-            [mbno, yearcode, installmentMonth, installmentYear, dueDateStr, expectedAmount, amount, paidDateStr, isArrearClearance, fullNarration],
-        );
+        const voucherNo = await this.sequenceGenerator.getNextVoucherNumber();
 
-        return {
-            installmentMonth, installmentYear, dueDate: dueDateStr,
-            expectedAmount, paidAmount: amount, paidDate: paidDateStr,
-            status: amount >= expectedAmount ? 'PAID' : 'PARTIAL',
-        };
+        // ES-508: the counter payment is cash received. The instalment row, the CD voucher, both ledger legs, the cash
+        // book line and the member's RD/CD balance are written together, or not at all.
+        const qr = this.dataSource.createQueryRunner();
+        await qr.connect();
+        await qr.startTransaction();
+        try {
+            await assertPostingDateOpen(qr, paidDate); // ES-458
+            await qr.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`rd_repay_${mbno}`]);
+
+            // a second payment for the month ADDS to the first (before, it replaced it)
+            const saved = await qr.query(
+                `INSERT INTO rd_installment_ledger
+                    (mbno, yearcode, installment_month, installment_year, due_date, expected_amount, paid_amount, paid_date, is_arrear_clearance, receipt_no, narration)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                 ON CONFLICT (mbno, yearcode, installment_month, installment_year) DO UPDATE SET
+                    paid_amount = rd_installment_ledger.paid_amount + EXCLUDED.paid_amount,
+                    paid_date = EXCLUDED.paid_date,
+                    is_arrear_clearance = EXCLUDED.is_arrear_clearance,
+                    receipt_no = EXCLUDED.receipt_no,
+                    narration = EXCLUDED.narration
+                 RETURNING paid_amount, expected_amount`,
+                [mbno, yearcode, installmentMonth, installmentYear, dueDateStr, expectedAmount, amount, paidDateStr, isArrearClearance, voucherNo, fullNarration.slice(0, 250)],
+            );
+            const monthPaid = Number(saved[0].paid_amount);
+            const monthExpected = Number(saved[0].expected_amount);
+
+            // cash received: CD voucher, both ledger legs, cash book and the member's RD/CD balance (shared with Member Master)
+            const { newBalance } = await postRdCdReceipt(qr, {
+                mbno, amount, date: paidDateStr, voucherNo,
+                text: `RD/CD ${installmentMonth}/${installmentYear} instalment`,
+                description: `RD/CD ${installmentMonth}/${installmentYear} - ${narration || 'Collected at counter'}`,
+                remarks: 'RD_CD_COUNTER', username: recordedBy,
+            });
+
+            await qr.commitTransaction();
+            return {
+                installmentMonth, installmentYear, dueDate: dueDateStr,
+                expectedAmount: monthExpected, paidAmount: monthPaid, paidDate: paidDateStr,
+                status: (monthPaid >= monthExpected ? 'PAID' : 'PARTIAL') as 'PAID' | 'PARTIAL',
+                voucherNo, newBalance,
+            };
+        } catch (e) {
+            await qr.rollbackTransaction();
+            throw e;
+        } finally {
+            await qr.release();
+        }
     }
 }

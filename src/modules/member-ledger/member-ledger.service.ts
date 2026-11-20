@@ -162,6 +162,27 @@ export class MemberLedgerService {
     }
   }
 
+  /**
+   * ES-576: the balances a member carried into the ledger, held in fundsmaster (not as ledger rows), by GL head:
+   * L1004 RD/CD (CDOPBAL), L1001 share (SHAREOPBAL), L1002 FRS (MDOPBAL), L1045 FRS 2 (MD1_OPBAL). A member with no
+   * fundsmaster row simply has no opening (all zero).
+   */
+  private async getFundsOpeningBalances(memberNo: string): Promise<Record<string, number>> {
+    const rows = await this.dataSource.query(
+      `SELECT COALESCE(MAX(cdopbal), 0) AS cd, COALESCE(MAX(shareopbal), 0) AS share,
+              COALESCE(MAX(mdopbal), 0) AS md, COALESCE(MAX(md1_opbal), 0) AS md1
+         FROM fundsmaster WHERE mbno::numeric = $1::numeric`,
+      [memberNo],
+    );
+    const r = Array.isArray(rows) ? rows[0] : undefined;
+    return {
+      L1004: round2(Number(r?.cd) || 0),
+      L1001: round2(Number(r?.share) || 0),
+      L1002: round2(Number(r?.md) || 0),
+      L1045: round2(Number(r?.md1) || 0),
+    };
+  }
+
   async getMemberDetailLedgerReport(dto: GetMemberDetailLedgerDto): Promise<MemberDetailLedgerSummaryDto> {
     try {
       // Keep memberNumber as string to match database numeric type
@@ -227,6 +248,12 @@ export class MemberLedgerService {
       const openingByCode: Record<string, number> = Object.fromEntries(
         openingRows.map((r: any) => [r.code, Number(r.opening) || 0]),
       );
+      // ES-576: the balance a member carried into the ledger (fundsmaster opening) is part of every head's opening, as in
+      // the legacy report. Without it RD/CD, share and FRS balances were short by that amount on every row.
+      const fundsOpening = await this.getFundsOpeningBalances(memberNumberStr);
+      for (const [code, amount] of Object.entries(fundsOpening)) {
+        if (amount) openingByCode[code] = round2((openingByCode[code] || 0) + amount);
+      }
 
       // Loan account balances are principal outstanding. The generic ledger
       // contains full EMI credits, so its credit-minus-debit running total is
@@ -358,10 +385,13 @@ export class MemberLedgerService {
         const direction = this.normalizeLedgerDirection(row.trans_type);
         return sum + (direction === 'CR' ? amount : -amount);
       }, 0);
-    const openingShare = balanceFor('SHR', row => String(row.date_key) < start);
-    const openingCd = balanceFor('CD', row => String(row.date_key) < start);
-    const closingShare = balanceFor('SHR');
-    const closingCd = balanceFor('CD');
+    // ES-576: add the opening the member carried into the ledger (fundsmaster) to the share and RD/CD columns
+    const fundsOpening = await this.getFundsOpeningBalances(memberNo);
+    const carried = { share: fundsOpening.L1001 || 0, cd: fundsOpening.L1004 || 0 };
+    const openingShare = round2(carried.share + balanceFor('SHR', row => String(row.date_key) < start));
+    const openingCd = round2(carried.cd + balanceFor('CD', row => String(row.date_key) < start));
+    const closingShare = round2(carried.share + balanceFor('SHR'));
+    const closingCd = round2(carried.cd + balanceFor('CD'));
     const empty = () => ({ dr: 0, cr: 0, bal: null as number | null });
     const runningLoan = { ...openingLoan };
     const rows = dates.map(date => {
@@ -386,8 +416,8 @@ export class MemberLedgerService {
           .reduce((sum: number, r: any) => {
             const direction = this.normalizeLedgerDirection(r.trans_type);
             return sum + (direction === 'CR' ? 1 : -1) * Number(r.trans_amt || 0);
-          }, 0);
-        cells[bucket].bal = before;
+          }, carried[bucket]);
+        cells[bucket].bal = round2(before);
       }
       return { date, ...cells };
     });

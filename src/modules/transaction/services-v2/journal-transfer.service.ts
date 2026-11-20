@@ -4,6 +4,16 @@ import { CreateJournalVoucherDto } from '../dto/journal-transfer.dto';
 import { generateVoucherNo } from '../../shared/utils/voucher-utils';
 import { lockNextId } from '../../shared/utils/ledger-lock';
 
+/** Account type stamped on a journal line, by head code (same tags the legacy / migrated ledger uses). */
+const JOURNAL_ACC_TYPE: Record<string, string> = {
+    A1002: 'RLN', // regular loan
+    A1047: 'ALN', // emergency loan
+    L1004: 'CD',  // compulsory deposit
+    L1001: 'SHR', // share capital
+    L1002: 'MD',  // member deposit
+    L1045: 'MD1', // member deposit 1
+};
+
 @Injectable()
 export class JournalTransferService {
     private readonly logger = new Logger(JournalTransferService.name);
@@ -22,10 +32,23 @@ export class JournalTransferService {
             throw new BadRequestException('Journal entry requires at least two rows');
         }
 
-        const totalDebit = dto.rows.reduce((sum, row) => sum + Number(row.debit || 0), 0);
-        const totalCredit = dto.rows.reduce((sum, row) => sum + Number(row.credit || 0), 0);
+        // Money is whole paise. An amount with a third decimal (100.005) used to be stored as typed, and the old
+        // 0.01 balance tolerance let a debit and credit that differ by up to 0.01 through, so a "balanced" entry
+        // could post an unbalanced ledger. Every amount must be a whole number of paise and the totals must match exactly.
+        const amountFields = dto.rows.flatMap(row => [Number(row.debit || 0), Number(row.credit || 0)]);
+        if (amountFields.some(a => !Number.isFinite(a))) {
+            throw new BadRequestException('Debit and credit must be valid numbers');
+        }
+        if (amountFields.some(a => Math.abs(a * 100 - Math.round(a * 100)) > 1e-6)) {
+            throw new BadRequestException('Debit and credit amounts can have at most 2 decimal places');
+        }
+        const toPaise = (n: number) => Math.round(n * 100);
+        const totalDebitPaise = dto.rows.reduce((sum, row) => sum + toPaise(Number(row.debit || 0)), 0);
+        const totalCreditPaise = dto.rows.reduce((sum, row) => sum + toPaise(Number(row.credit || 0)), 0);
+        const totalDebit = totalDebitPaise / 100;
+        const totalCredit = totalCreditPaise / 100;
 
-        if (Math.abs(totalDebit - totalCredit) > 0.01) {
+        if (totalDebitPaise !== totalCreditPaise) {
             throw new BadRequestException(`Unbalanced Journal Entry: Total Debit (₹${totalDebit}) must equal Total Credit (₹${totalCredit})`);
         }
         if (totalDebit <= 0) {
@@ -41,6 +64,18 @@ export class JournalTransferService {
         }
         if (postingRows.some(row => Number(row.debit || 0) > 0 && Number(row.credit || 0) > 0)) {
             throw new BadRequestException('A row cannot have both a debit and a credit amount');
+        }
+
+        // Member-to-Member is a member-level adjustment, e.g. refunding 5,000 of excess principal: the loan-head row
+        // names the member and the counter row (Cash in Hand) has no member. So at least one row must name a member;
+        // rows without one are plain head rows. (A transfer with no member at all is a Head-to-Head entry.)
+        if (dto.transferType === 'memberToMember' && !postingRows.some(row => row.mbno)) {
+            throw new BadRequestException('A Member-to-Member transfer needs a member number on at least one row');
+        }
+
+        // The RD/SD reference is stored in a numeric account-number column; text used to be silently turned into 0.
+        if (postingRows.some(row => String(row.rdSdSrNo ?? '').trim() !== '' && !/^\d{1,15}$/.test(String(row.rdSdSrNo).trim()))) {
+            throw new BadRequestException('RD / SD Sr No must be a number (digits only)');
         }
 
         const normalizedCodes = postingRows.map(row => (row.code || '').toString().trim().toUpperCase());
@@ -119,10 +154,11 @@ export class JournalTransferService {
                 const amount = debit > 0 ? debit : credit;
                 const type = debit > 0 ? 'DR' : 'CR';
                 const headCode = (row.code || '').toString().trim().toUpperCase();
-                // Loan heads carry their loan account type (RLN / ALN) like every other loan posting, otherwise the
-                // Member Ledger's loan balance and the Loan Position panel would not see this journal. Pass
-                // Transactions copies the staged acc_type onto the ledger row. Other heads keep 'JV'.
-                const rowAccType = headCode === 'A1002' ? 'RLN' : headCode === 'A1047' ? 'ALN' : 'JV';
+                // Member heads carry their account type like every other posting (and like the migrated legacy
+                // journals): loans RLN / ALN, compulsory deposit CD, share capital SHR, MD / MD1 deposits. Otherwise the
+                // Member Ledger's CD / share / loan columns and the Loan Position panel would not see this journal.
+                // Pass Transactions copies the staged acc_type onto the ledger row. Other heads keep 'JV'.
+                const rowAccType = JOURNAL_ACC_TYPE[headCode] ?? 'JV';
 
                 await queryRunner.query(`
                     INSERT INTO transactions (

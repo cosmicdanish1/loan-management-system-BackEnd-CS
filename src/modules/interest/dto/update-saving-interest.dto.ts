@@ -46,6 +46,17 @@ export class UpdateSavingInterestDto {
   accountType?: string;
 
   @ApiProperty({
+    description: 'Yearly Fund Process only: the year\'s group insurance lump sum, deducted from every member\'s RD/CD (DR L1004 / CR L1003). Omit to skip the insurance.',
+    example: 1700000,
+    required: false,
+  })
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(1000000000)
+  insuranceLumpSum?: number;
+
+  @ApiProperty({
     description: 'Voucher number for this interest run',
     example: 'INT2025001',
     required: false,

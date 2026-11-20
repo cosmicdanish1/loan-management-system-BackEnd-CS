@@ -1,7 +1,7 @@
 {
  "suite": "21-low-fixes",
- "ranAt": "2026-11-03T09:49:51.871Z",
- "seconds": 2,
+ "ranAt": "2026-11-19T09:45:33.318Z",
+ "seconds": 3.218,
  "total": 25,
  "failed": 0,
  "results": [
@@ -9,7 +9,7 @@
    "id": "LF-266-1",
    "title": "Create a user",
    "ok": true,
-   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"id\":71,\"usern"
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"id\":72,\"usern"
   },
   {
    "id": "LF-266-2",
@@ -21,7 +21,7 @@
    "id": "LF-266-3",
    "title": "Same username in lower case -> 409 (was accepted)",
    "ok": true,
-   "detail": "409 {\"statusCode\":409,\"timestamp\":\"2026-11-03T09:49:50.269Z\",\"path\":\"/api/v1/admin/users\",\"method\":\"POST"
+   "detail": "409 {\"statusCode\":409,\"timestamp\":\"2026-11-19T09:45:30.757Z\",\"path\":\"/api/v1/admin/users\",\"method\":\"POST"
   },
   {
    "id": "LF-266-4",
@@ -33,7 +33,7 @@
    "id": "LF-266-5",
    "title": "A different name that differs only where the first has '_' is NOT treated as a duplicate (no wildcard matching)",
    "ok": true,
-   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"id\":72,\"usern"
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"id\":73,\"usern"
   },
   {
    "id": "LF-266-6",
@@ -45,7 +45,7 @@
    "id": "LF-266-7",
    "title": "Changing the case of a user's own name is allowed",
    "ok": true,
-   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"id\":71,\"usern"
+   "detail": "200 {\"success\":true,\"statusCode\":200,\"message\":\"Operation completed successfully\",\"data\":{\"id\":72,\"usern"
   },
   {
    "id": "LF-266-8",
@@ -63,7 +63,7 @@
    "id": "LF-324-1",
    "title": "Journal with the same head on debit and credit -> 400 and nothing posted",
    "ok": true,
-   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:50.942Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\"; rows 0 -> 0"
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-19T09:45:31.516Z\",\"path\":\"/api/v1/transactions/journal/post\",\"method\":\"; rows 2 -> 2"
   },
   {
    "id": "LF-324-2",
@@ -87,7 +87,7 @@
    "id": "LF-324-5",
    "title": "Member-to-member journal from a member to the same member on the same head -> 400",
    "ok": true,
-   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:51.249Z\",\"path\":\"/api/v1/transactions/journal/post\","
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-19T09:45:31.959Z\",\"path\":\"/api/v1/transactions/journal/post\","
   },
   {
    "id": "LF-324-6",
@@ -99,49 +99,49 @@
    "id": "LF-354-1",
    "title": "Generate with month 'XYZ' -> 400 (was 500 or accepted)",
    "ok": true,
-   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:51.389Z\",\"path\":\"/api/v1/transactions/demand-generation/genera"
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-19T09:45:32.286Z\",\"path\":\"/api/v1/transactions/demand-generation/genera"
   },
   {
    "id": "LF-354-2",
    "title": "Generate with year 'abcd' -> 400 (was 500 or accepted)",
    "ok": true,
-   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:51.409Z\",\"path\":\"/api/v1/transactions/demand-generation/genera"
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-19T09:45:32.310Z\",\"path\":\"/api/v1/transactions/demand-generation/genera"
   },
   {
    "id": "LF-354-3",
    "title": "Generate with year 1800 -> 400 (was 500 or accepted)",
    "ok": true,
-   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:51.424Z\",\"path\":\"/api/v1/transactions/demand-generation/genera"
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-19T09:45:32.338Z\",\"path\":\"/api/v1/transactions/demand-generation/genera"
   },
   {
    "id": "LF-354-4",
    "title": "Generate with year 99999 -> 400 (was 500 or accepted)",
    "ok": true,
-   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:51.450Z\",\"path\":\"/api/v1/transactions/demand-generation/genera"
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-19T09:45:32.363Z\",\"path\":\"/api/v1/transactions/demand-generation/genera"
   },
   {
    "id": "LF-354-5",
    "title": "Generate with empty month -> 400 (was 500 or accepted)",
    "ok": true,
-   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:51.474Z\",\"path\":\"/api/v1/transactions/demand-generation/genera"
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-19T09:45:32.399Z\",\"path\":\"/api/v1/transactions/demand-generation/genera"
   },
   {
    "id": "LF-354-6",
    "title": "Generate with year in the far future (2099) -> 400 (was 500 or accepted)",
    "ok": true,
-   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-03T09:49:51.495Z\",\"path\":\"/api/v1/transactions/demand-generation/genera"
+   "detail": "400 {\"statusCode\":400,\"timestamp\":\"2026-11-19T09:45:32.426Z\",\"path\":\"/api/v1/transactions/demand-generation/genera"
   },
   {
    "id": "LF-354-7",
    "title": "Refused requests created no demand rows",
    "ok": true,
-   "detail": "329165 -> 329165"
+   "detail": "334112 -> 334112"
   },
   {
    "id": "LF-354-8",
    "title": "Valid request (month 'jan' in lower case, year +5) is accepted: 0 rows because the member does not exist, no error",
    "ok": true,
-   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"message\":\"Demand f; rows 329165 -> 329165"
+   "detail": "201 {\"success\":true,\"statusCode\":201,\"message\":\"Operation completed successfully\",\"data\":{\"success\":true,\"message\":\"Demand f; rows 334112 -> 334112"
   },
   {
    "id": "LF-354-9",

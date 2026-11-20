@@ -1,4 +1,6 @@
-import { Injectable, Logger, BadRequestException, NotFoundException, Inject, forwardRef, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException, Inject, forwardRef, OnModuleInit, Optional } from '@nestjs/common';
+import { RdFinancialYearClosingService } from '../rd/services/rd-financial-year-closing.service';
+import { GroupInsuranceService } from '../group-insurance/group-insurance.service';
 import { lockLedgerIds } from '../shared/utils/ledger-lock';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Between } from 'typeorm';
@@ -15,9 +17,31 @@ import { FundsMaster } from '../admin/entities/funds-master.entity';
 import { validateDoubleEntry } from '../shared/utils/ledger-validation';
 import { generateVoucherNo } from '../shared/utils/voucher-utils';
 
+/**
+ * ES-457: the expense head the interest paid on savings is debited to. The legacy has no savings accounts and so no such
+ * head (checked in the legacy MS SQL head master: only E1026 interest on compulsory deposit and E1027 interest on
+ * security deposit exist), so one is created, found by its name so it survives a re-load of the head master.
+ */
+const SB_INTEREST_EXPENSE_HEAD_NAME = 'INTEREST PAID ON SAVINGS DEPOSIT';
+
 /** Longest period one interest run may cover */
 const MAX_INTEREST_PERIOD_DAYS = 365;
 const MAX_INTEREST_RATE = 50;
+
+/**
+ * RD and CD are one deposit, and the legacy credited its interest once a year, at year end: DR E1026 (INTT ON COMPULSORY
+ * DEPOSIT) / CR L1004 per member. That journal belongs to RD/CD Financial Year Closing, which calculates it with the
+ * RD/CD engine. This generic period run used to credit RD to A1002 (REGULAR LOAN) and later L1004 with a placeholder
+ * expense head; it no longer accepts the RD type at all, so RD/CD interest can only be posted the legacy way.
+ */
+function assertNotRdCd(accountType: string | undefined): void {
+  const t = String(accountType ?? '').trim().toUpperCase();
+  if (t === 'RD' || t === 'CD' || t === 'RD/CD' || t === 'RECURRING DEPOSIT') {
+    throw new BadRequestException(
+      'RD/CD interest is calculated and credited once a year in RD/CD Financial Year Closing, not here. Use that window.',
+    );
+  }
+}
 
 /**
  * The one rule set for an interest run, shared by the validate call and the real run.
@@ -68,6 +92,8 @@ export class InterestService implements OnModuleInit {
     private readonly fundsRepository: Repository<FundsMaster>,
     private readonly systemConfigService: SystemConfigService,
     private readonly dataSource: DataSource,
+    @Optional() private readonly rdClosing?: RdFinancialYearClosingService,
+    @Optional() private readonly groupInsurance?: GroupInsuranceService,
   ) { }
 
   /**
@@ -93,6 +119,7 @@ export class InterestService implements OnModuleInit {
       // real overlap check: any existing run of the same type whose range intersects
       // the requested one blocks it.
       const accountTypeCode = dto.accountType || 'SB';
+      assertNotRdCd(accountTypeCode);
       // Take the lock for this account type BEFORE the overlap check: two runs started at the same moment
       // would otherwise both see "no overlap" and both post the same period (released at commit/rollback).
       await queryRunner.manager.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`interest_run:${accountTypeCode}`]);
@@ -132,6 +159,10 @@ export class InterestService implements OnModuleInit {
 
       const memberCalculations: InterestCalculationResultDto[] = [];
       let totalInterestAmount = 0;
+
+      // ES-457: one expense head for the whole run - the one the caller names, else the savings-interest head
+      const expenseHead = dto.expenseHeadCode
+        || (accountTypeCode === 'SB' ? await this.ensureSavingsInterestExpenseHead(queryRunner.manager) : undefined);
 
       // Calculate interest for each member
       for (const member of eligibleMembers) {
@@ -185,8 +216,9 @@ export class InterestService implements OnModuleInit {
             // ES-121: A1001 is CASH IN HAND and A1002 is REGULAR LOAN, so interest must never be credited to them.
             // SB interest goes to the member savings head A001 (the head SB opening and the Day Book use) and RD
             // interest to L1004 (the head RD instalments are posted under). FD is on hold and keeps its placeholder.
+            // RD/CD is not here any more (ES-121): its interest is a yearly journal in RD/CD Financial Year Closing
+            // (DR E1026 / CR L1004), exactly as the legacy posted it; this run refuses the RD type (assertNotRdCd).
             const GL_CREDIT_HEAD_MAP: Record<string, string> = {
-              'RD': 'L1004',
               'SB': 'A001',
               'FD': 'A1003',
             };
@@ -200,7 +232,8 @@ export class InterestService implements OnModuleInit {
               queryRunner.manager,
               glHead,
               accountTypeCode,
-              dto.expenseHeadCode,
+              expenseHead,
+              toDate,
             );
 
             // BUG FIX 53: FD interest read fdmaster.intpaid to avoid double-counting
@@ -643,6 +676,8 @@ export class InterestService implements OnModuleInit {
     accountHead: string,
     accountType: string = 'SB',
     expenseHeadCode?: string,
+    /** ES-457: the period's last day - the legacy dates its interest journals at the period end, not at the run time */
+    postingDate: Date = new Date(),
   ) {
     const transactionNumber = await this.generateTransactionNumber(manager);
     // BUG FIX 53: ledgerid is required (see entity fix) — generate it the same way
@@ -656,7 +691,7 @@ export class InterestService implements OnModuleInit {
     await manager.save(Ledger, {
       transactionNumber,
       ledgerId,
-      transactionDate: new Date(),
+      transactionDate: postingDate,
       transactionType: 'CR',
       code: accountHead,
       memberNumber: member.mbno,
@@ -689,12 +724,15 @@ export class InterestService implements OnModuleInit {
     await manager.save(Ledger, {
       transactionNumber: debitTransNo,
       ledgerId: debitLedgerId,
-      transactionDate: new Date(),
+      transactionDate: postingDate,
       transactionType: 'DR',
       code: intExpenseCode,
-      memberNumber: member.mbno,
-      accountNumber: calculation.accountNumber,
-      accountType,
+      // ES-457: a head-only leg, as the legacy interest journals (E1026: member 0, type OTH) and this app's other
+      // postings (income and cash legs) have it. Tagged with the member's number and type SB it was counted in the
+      // member's savings balance, so the credited interest was netted away again by every later period and report.
+      memberNumber: 0,
+      accountNumber: 0,
+      accountType: 'OTH',
       transactionAmount: calculation.interestAmount,
       receiptVoucherNumber: voucherNumber,
       voucherType: 'IN',
@@ -703,6 +741,31 @@ export class InterestService implements OnModuleInit {
       narration: `Interest expense - ${narration}`,
       username: 'SYSTEM',
     });
+  }
+
+  /**
+   * ES-457: the code of the head the interest on savings is debited to, created in the head master when it is not
+   * there yet (expense head under E1000, next free E code). Found by name, so a re-load of the head master from the
+   * legacy cannot leave the posting pointing at a code that now means something else. Runs inside the posting
+   * transaction under its own advisory lock, so two runs cannot both create it.
+   */
+  private async ensureSavingsInterestExpenseHead(manager: any): Promise<string> {
+    const found = await manager.query(`SELECT code FROM headmaster WHERE head_name = $1 LIMIT 1`, [SB_INTEREST_EXPENSE_HEAD_NAME]);
+    if (found.length > 0) return String(found[0].code);
+    await manager.query(`SELECT pg_advisory_xact_lock(hashtext('headmaster_new_code'))`);
+    const again = await manager.query(`SELECT code FROM headmaster WHERE head_name = $1 LIMIT 1`, [SB_INTEREST_EXPENSE_HEAD_NAME]);
+    if (again.length > 0) return String(again[0].code);
+    const next = await manager.query(
+      `SELECT COALESCE(MAX(SUBSTRING(code FROM 2)::int), 1000) + 1 AS n FROM headmaster WHERE pflag = 'E' AND code ~ '^E[0-9]+$'`,
+    );
+    const code = `E${next[0].n}`;
+    await manager.query(
+      `INSERT INTO headmaster (code, parent_code, hposition, head_name, interest, headtype, op_bal, pflag)
+       VALUES ($1, 'E1000', '', $2, 'N', 'OTH', 0, 'E')`,
+      [code, SB_INTEREST_EXPENSE_HEAD_NAME],
+    );
+    this.logger.log(`Created expense head ${code} ${SB_INTEREST_EXPENSE_HEAD_NAME}`);
+    return code;
   }
 
   // BUG FIX 53: replaces both generateVoucherNumber() and generateTransactionNumber()
@@ -790,6 +853,7 @@ export class InterestService implements OnModuleInit {
     }
 
     const accountTypeCode = dto.accountType || 'SB';
+    assertNotRdCd(accountTypeCode);
     const allMembers = await this.getEligibleMembers();
     let eligibleMembers = dto.memberNo
       ? allMembers.filter(m => m.mbno === dto.memberNo)
@@ -884,243 +948,116 @@ export class InterestService implements OnModuleInit {
   }
 
   /**
-   * Process Yearly Fund Interest, Dividend, and Insurance
+   * Yearly Fund Process (year end). The legacy posted, once a year per member: DR E1026 / CR L1004 (interest on compulsory
+   * deposit), DR L1024 / CR L1004 (dividend) and DR L1004 / CR L1003 (group insurance). This window used to credit CASH IN
+   * HAND (A1001) with an interest worked out from the monthly-deposit fields and to post the insurance to a placeholder head
+   * (L4001); both are gone (ES-583). Now:
+   *   - the RD/CD interest is worked out and posted by the RD/CD engine (RD/CD Financial Year Closing) for every member, the
+   *     legacy way (DR E1026 / CR L1004 per member, dated the year end);
+   *   - the group insurance is deducted by the Group Insurance window (one run per year, DR L1004 / CR L1003), not here;
+   *   - the dividend is only DECLARED here as before (dividend_master, paid later by the Dividend Payment screen).
    */
-  async processYearlyFundProcess(dto: UpdateSavingInterestDto, isPreview: boolean = false): Promise<InterestRunSummaryDto> {
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    if (!isPreview) await queryRunner.startTransaction();
+  async processYearlyFundProcess(dto: UpdateSavingInterestDto, isPreview: boolean = false, username: string = 'SYSTEM'): Promise<InterestRunSummaryDto> {
+    if (!this.rdClosing) throw new BadRequestException('The RD/CD year-end engine is not available.');
+    const toDate = new Date(dto.toDate);
+    if (Number.isNaN(toDate.getTime())) throw new BadRequestException('A valid financial year end date is needed.');
+    const toYmd = `${toDate.getFullYear()}-${String(toDate.getMonth() + 1).padStart(2, '0')}-${String(toDate.getDate()).padStart(2, '0')}`;
+    const fy = await this.dataSource.query(
+      `SELECT yearcode, to_char(end_date, 'YYYY-MM-DD') AS e FROM yearend WHERE $1::date BETWEEN start_date AND end_date LIMIT 1`,
+      [toYmd],
+    );
+    if (!fy?.[0]) throw new BadRequestException(`No financial year contains ${toYmd}.`);
+    const yearcode = Number(fy[0].yearcode);
+    const dividendYear = Number(String(fy[0].e).slice(0, 4));
+    const calculationDate = new Date().toISOString();
 
-    try {
-      this.logger.log(`Starting Yearly Fund Process (Preview: ${isPreview})`);
-
-      // 1. Fetch Business Rules
-      const rules = await this.systemConfigService.getBusinessRules();
-      const fundIntRate = Number(rules['RULE_FUND_INT_RATE'] || 0);
-      const dividendPct = Number(rules['RULE_DIVIDEND_PCT'] || 0);
-      const insuranceAmt = Number(rules['RULE_GRP_INSURANCE_AMT'] || 0);
-      const dividendYear = new Date(dto.toDate).getFullYear();
-
-      // ES-448: the yearly process may only run once per year. It used to be guarded only when a dividend rate was set,
-      // so with a rate of 0 the same request posted every member's interest and insurance again (and two requests at the
-      // same moment both passed the check). The year's lock is taken first and the ledger is checked under it: the
-      // postings of a run carry the year in their narration, which is what the check looks for.
-      if (!isPreview) {
-        await queryRunner.manager.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`yearly_fund_run:${dividendYear}`]);
-        const alreadyRun = await queryRunner.manager.query(
-          `SELECT receipt_vchr_no FROM ledger WHERE narration = ANY($1) LIMIT 1`,
-          [[`Yearly Fund Interest ${dividendYear}`, `Annual Group Insurance Deduction ${dividendYear}`]],
-        );
-        if (alreadyRun.length > 0) {
-          throw new BadRequestException(
-            `The yearly fund process for ${dividendYear} has already been run (voucher ${alreadyRun[0].receipt_vchr_no}). It can only be run once per year.`,
-          );
-        }
-      }
-
-      if (!isPreview && dividendPct > 0) {
-        const existingDividends = await queryRunner.manager.query(
-          `SELECT 1 FROM dividend_master WHERE year = $1 LIMIT 1`,
-          [dividendYear],
-        );
-        if (existingDividends.length > 0) {
-          throw new Error(`Dividend for year ${dividendYear} has already been declared`);
-        }
-      }
-
-      let interestChart = [];
-      try {
-        const charStr = rules['RULE_CD_INTEREST_CHART'];
-        interestChart = typeof charStr === 'string' ? JSON.parse(charStr) : (charStr || []);
-      } catch (e) {
-        this.logger.warn('Failed to parse interest chart', e);
-      }
-
-      // 2. Fetch Eligible Members with their Funds Data
-      const members = await this.memberMasterRepository.find({
-        where: { isactive: 'Y' },
-        order: { mbno: 'ASC' }
-      });
-
-      const memberCalculations: InterestCalculationResultDto[] = [];
-      let totalProcessAmount = 0;
-      const processDate = new Date();
-      const voucherNumber = dto.voucherNumber || (isPreview ? 'PREVIEW' : await generateVoucherNo(queryRunner.manager, 'J'));
-
-      // 3. Iterate and Calculate
-      for (const member of members) {
-        // Fetch Funds Master for this member
-        const funds = await this.fundsRepository.findOne({ where: { memberNo: Number(member.mbno) } });
-
-        if (!funds) continue; // Skip if no funds record found
-
-        // A. Interest on Opening Balance
-        // We use monthlyContributionOpeningBalance as the base, assuming it was carried forward
-        const openingBalance = Number(funds.monthlyContributionOpeningBalance || 0);
-        const interestOnBalance = Math.round(openingBalance * (fundIntRate / 100));
-
-        // B. Interest on Monthly Contribution
-        const monthlyContrib = Number(funds.monthlyContributionInstallment || 0);
-        let interestOnContrib = 0;
-
-        // Find slab in chart
-        // Chart format: [{ monthlyContribution: 200, yearlyInterest: 91.20 }]
-        // We look for exact match or closest lower slab? Reqs say "look up this amount". assuming exact or logic.
-        // Usually it's exact match for standard slabs.
-        const slab = interestChart.find((s: any) => Number(s.monthlyContribution) === monthlyContrib);
-        if (slab) {
-          interestOnContrib = Number(slab.yearlyInterest);
-        } else {
-          // Fallback logic? Or 0? Let's assume 0 if not found for now.
-          // Or maybe proportional? existing logic suggests chart lookup.
-          interestOnContrib = 0;
-        }
-
-        // C. Dividend Calculation
-        // Use sharesOpeningBalance (assuming it represents the capital held for the year)
-        const shareCapital = Number(funds.sharesOpeningBalance || 0);
+    // 1. the dividend declaration (unchanged behaviour): only when a dividend rate is set in the Business Rules
+    const rules = await this.systemConfigService.getBusinessRules();
+    const dividendPct = Number(rules['RULE_DIVIDEND_PCT'] || 0);
+    if (!isPreview && dividendPct > 0) {
+      const existing = await this.dataSource.query(`SELECT 1 FROM dividend_master WHERE year = $1 LIMIT 1`, [dividendYear]);
+      if (existing.length > 0) throw new Error(`Dividend for year ${dividendYear} has already been declared`);
+      const funds = await this.fundsRepository.find();
+      const active = await this.memberMasterRepository.find({ where: { isactive: 'Y' } });
+      const activeSet = new Set(active.map((m) => String(m.mbno)));
+      for (const f of funds) {
+        if (!activeSet.has(String(f.memberNo))) continue;
+        const shareCapital = Number(f.sharesOpeningBalance || 0);
         const dividendAmount = Math.round(shareCapital * (dividendPct / 100));
-
-        // D. Deductions (Group Insurance)
-        const deductionInsurance = insuranceAmt;
-
-        // E. Total Calculation
-        // Dividend is declared (recorded pending in dividend_master) here but not credited to the
-        // member's ledger balance until actually disbursed via the Dividend Payment screen — so it
-        // is shown in totalCredit for informational purposes but excluded from the ledger adjustment.
-        const totalCredit = interestOnBalance + interestOnContrib + dividendAmount;
-        const totalDebit = deductionInsurance; // + Loan Deductions if any
-        const netAdjustment = totalCredit - totalDebit;
-        const ledgerAdjustment = interestOnBalance + interestOnContrib - deductionInsurance;
-
-        const closingBalance = openingBalance + ledgerAdjustment;
-
-        // 4. Create Records if Not Preview
-        if (!isPreview && ledgerAdjustment !== 0) {
-          // A. Create Transaction Record (Maybe one consolidated journal or separate?)
-          // Usually we post individual components to Ledger
-
-          // 1. Interest Posting (Credit)
-          if (interestOnBalance + interestOnContrib > 0) {
-            await this.createInterestLedgerEntry(
-              member,
-              {
-                accountNumber: member.mbno,
-                interestAmount: interestOnBalance + interestOnContrib,
-                closingBalance: 0, // Ledger logic handles balance update 
-                // ... other fields mocked for helper
-                memberNumber: member.mbno, memberName: member.fullName, openingBalance, totalDebit: 0, totalCredit: 0, averageBalance: 0, days: 365
-              },
-              voucherNumber,
-              `Yearly Fund Interest ${dividendYear}`,
-              queryRunner.manager,
-              'A1001' // Savings Head
-            );
-          }
-
-          // 3. Insurance Deduction (Debit)
-          if (deductionInsurance > 0) {
-            // Determine transaction number
-            const transNo = await this.generateTransactionNumber(queryRunner.manager);
-            // BUG FIX 53: ledgerid required (see entity fix).
-            const insuranceLedgerId = await this.getNextId(queryRunner.manager, 'ledger', 'ledgerid');
-            await queryRunner.manager.save(Ledger, {
-              transactionNumber: transNo,
-              ledgerId: insuranceLedgerId,
-              transactionDate: processDate,
-              transactionType: 'DR',
-              code: 'L4001', // Liability/Expense Head for Insurance? Placeholder.
-              memberNumber: member.mbno,
-              accountNumber: member.mbno,
-              accountType: 'SB', // Deduct from Savings/Fund
-              transactionAmount: deductionInsurance,
-              receiptVoucherNumber: voucherNumber,
-              voucherType: 'JV',
-              modeOfPayment: 'T',
-              balance: 0, // Recalculated by trigger usually
-              narration: `Annual Group Insurance Deduction ${dividendYear}`,
-              username: 'SYSTEM',
-            });
-            // ES-448: the deduction was a lone DR leg (unbalanced voucher). The balancing CR goes to the same
-            // Member Group Accidental Insurance head the Group Insurance module credits (L1003).
-            const insuranceCrTransNo = await this.generateTransactionNumber(queryRunner.manager);
-            const insuranceCrLedgerId = await this.getNextId(queryRunner.manager, 'ledger', 'ledgerid');
-            await queryRunner.manager.save(Ledger, {
-              transactionNumber: insuranceCrTransNo,
-              ledgerId: insuranceCrLedgerId,
-              transactionDate: processDate,
-              transactionType: 'CR',
-              code: 'L1003',
-              memberNumber: member.mbno,
-              accountNumber: member.mbno,
-              accountType: 'SB',
-              transactionAmount: deductionInsurance,
-              receiptVoucherNumber: voucherNumber,
-              voucherType: 'JV',
-              modeOfPayment: 'T',
-              balance: 0,
-              narration: `Annual Group Insurance Deduction ${dividendYear}`,
-              username: 'SYSTEM',
-            });
-          }
-
-          // Update FundsMaster balances if needed?
-          // Usually ledger is the source of truth, but FundsMaster has `mdopbal`.
-          // We might need to update `mdopbal` for NEXT year? 
-          // Or `mdbal` (current balance).
-          // Let's assume Ledger is primary.
-        }
-
-        // Declare dividend as a pending liability (dividend_master) rather than crediting it
-        // straight to the ledger — actual disbursement (DR L1024 / CR cash-or-bank) happens
-        // separately via the Dividend Payment screen when the member is paid.
-        if (!isPreview && dividendAmount > 0) {
-          await queryRunner.manager.query(
-            `INSERT INTO dividend_master (mbno, year, share_amount, dividend_rate, dividend_amount, is_paid)
-             VALUES ($1, $2, $3, $4, $5, 'N')`,
-            [member.mbno, dividendYear, shareCapital, dividendPct, dividendAmount],
+        if (dividendAmount > 0) {
+          await this.dataSource.query(
+            `INSERT INTO dividend_master (mbno, year, share_amount, dividend_rate, dividend_amount, is_paid) VALUES ($1, $2, $3, $4, $5, 'N')`,
+            [f.memberNo, dividendYear, shareCapital, dividendPct, dividendAmount],
           );
         }
-
-        // Add to result list
-        memberCalculations.push({
-          memberNumber: member.mbno,
-          memberName: member.fullName,
-          accountNumber: member.mbno,
-          openingBalance,
-          totalDebit,
-          totalCredit,
-          averageBalance: 0,
-          interestAmount: netAdjustment, // Net effect
-          closingBalance,
-          days: 365
-        });
-
-        totalProcessAmount += netAdjustment;
       }
-
-      if (!isPreview) await queryRunner.commitTransaction();
-
-      return {
-        totalMembers: memberCalculations.length,
-        totalInterestAmount: totalProcessAmount,
-        fromDate: dto.fromDate,
-        toDate: dto.toDate,
-        interestRate: 0, // composite
-        voucherNumber,
-        calculationDate: processDate.toISOString(),
-        memberCalculations
-      };
-
-    } catch (error) {
-      if (!isPreview) await queryRunner.rollbackTransaction();
-      this.logger.error('Yearly Fund Process Failed', error);
-      throw error;
-    } finally {
-      // BUG FIX: when isPreview=true, queryRunner.connect() was always called but release() was
-      // gated on !isPreview — every preview request permanently leaked a DB connection from the
-      // pool. Always release regardless of preview mode.
-      await queryRunner.release();
     }
+
+    // 2. the RD/CD interest, by the RD/CD engine
+    let nameRows: any[] = [];
+    try { nameRows = await this.dataSource.query(`SELECT mbno::bigint::text AS m, COALESCE(full_name, '') AS n FROM member_master`); } catch { nameRows = []; }
+    const names = new Map<string, string>(nameRows.map((r: any) => [r.m, r.n]));
+    const memberCalculations: InterestCalculationResultDto[] = [];
+    let total = 0;
+    let voucherNumber = isPreview ? 'PREVIEW' : 'PER MEMBER';
+    let failedNote = '';
+    let insuranceNote = '';
+    if (isPreview) {
+      for (let offset = 0; ; offset += 200) {
+        const page = await this.rdClosing.previewFinancialYearClosing(yearcode, 200, offset);
+        for (const p of page.members) {
+          const interest = Number(p.totalInterestIfClosedNow || 0);
+          memberCalculations.push({
+            memberNumber: p.mbno, memberName: names.get(p.mbno) ?? '', accountNumber: p.mbno, openingBalance: Number(p.currentBalance || 0),
+            totalDebit: 0, totalCredit: interest, averageBalance: 0, interestAmount: interest, closingBalance: Number(p.currentBalance || 0) + interest, days: 365,
+          });
+          total += interest;
+        }
+        if (offset + 200 >= page.total) break;
+      }
+    } else {
+      const res = await this.rdClosing.closeFinancialYear(yearcode, username);
+      for (const r of res.succeeded) {
+        const interest = Number(r.totalInterestCredited || 0);
+        memberCalculations.push({
+          memberNumber: r.mbno, memberName: names.get(r.mbno) ?? '', accountNumber: r.mbno, openingBalance: Number(r.openingBalance || 0),
+          totalDebit: 0, totalCredit: interest, averageBalance: 0, interestAmount: interest, closingBalance: Number(r.closingBalance || 0), days: 365,
+        });
+        total += interest;
+      }
+      if (res.failed.length > 0) {
+        failedNote = `${res.failed.length} member(s) could not be closed (already closed or an error): ${res.failed.slice(0, 5).map((f) => `${f.mbno}: ${f.error}`).join('; ')}`;
+        this.logger.warn(`Yearly Fund Process: ${failedNote}`);
+      }
+    }
+
+    // 3. the group insurance (optional): the Group Insurance run of the year (DR L1004 / CR L1003 per member), after the interest
+    const lumpSum = Number(dto.insuranceLumpSum || 0);
+    if (lumpSum > 0) {
+      if (!this.groupInsurance) throw new BadRequestException('Group insurance is not available.');
+      try {
+        if (isPreview) {
+          const gi = await this.groupInsurance.preview({ yearcode, lumpSum, limit: 1 });
+          insuranceNote = `Group insurance: ${gi.summary.membersCharged} members, ${gi.summary.totalToCollect} to collect${gi.alreadyPosted ? ' (ALREADY POSTED for this year)' : ''}`;
+        } else {
+          const gi = await this.groupInsurance.post({ yearcode, lumpSum }, username);
+          insuranceNote = `Group insurance posted: ${gi.membersCharged} members, ${gi.totalCharged}, voucher ${gi.voucherNo}`;
+        }
+      } catch (e: any) {
+        insuranceNote = `Group insurance NOT posted: ${e?.message || e}`;
+        this.logger.warn(`Yearly Fund Process: ${insuranceNote}`);
+      }
+    }
+
+    return {
+      totalMembers: memberCalculations.length,
+      totalInterestAmount: Math.round(total * 100) / 100,
+      fromDate: dto.fromDate,
+      toDate: dto.toDate,
+      interestRate: 0,
+      voucherNumber: [voucherNumber, failedNote, insuranceNote].filter(Boolean).join(' - '),
+      calculationDate,
+      memberCalculations,
+    };
   }
 }

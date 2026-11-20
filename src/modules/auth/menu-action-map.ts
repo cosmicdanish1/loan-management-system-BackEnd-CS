@@ -148,6 +148,11 @@ export const MENU_ACTION_MAP: MenuActionEntry[] = [
   { action: 'MOBILE_CONTROL_CENTER', menuid: 243, title: 'Mobile Control Center' },
   { action: 'SOCIETY_CALCULATOR', menuid: 244, title: 'Society Calculator' },
   { action: 'MEMBER_COMPLETE_DETAIL', menuid: 245, title: 'Member Complete Detail' },
+  // RD/CD windows (stage 1-6 rebuild): rows are seeded on boot so rights can be granted / taken away per user level
+  { action: 'RD_MEMBER_SETUP', menuid: 246, title: 'RD/CD Member Setup' },
+  { action: 'RD_WITHDRAWAL', menuid: 247, title: 'RD/CD Withdrawal' },
+  { action: 'RD_REPAYMENT', menuid: 248, title: 'RD/CD Repayment' },
+  { action: 'RD_FY_CLOSING', menuid: 249, title: 'RD/CD Financial Year Closing' },
 ];
 
 export const MENUID_TO_ACTION: ReadonlyMap<number, string> = new Map(

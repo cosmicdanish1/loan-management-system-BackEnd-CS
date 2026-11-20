@@ -61,7 +61,7 @@ const mem = (tag) => ({ prefix: 'MR', f_name: 'QATEST', m_name: '', l_name: tag 
   }
   const okj = await call('POST', '/transactions/journal/post', jr([{ code: 'L1004', debit: 100, credit: 0, narration: 'QA' }, { code: 'L1001', debit: 0, credit: 100, narration: 'QA' }]));
   s.check('JJ-10', 'Balanced head-to-head journal 100/100 succeeds', okj.status < 300, `${okj.status} ${(okj.text || '').slice(0, 140)}`);
-  const m2m = await call('POST', '/transactions/journal/post', jr([{ mbno: A, debit: 50, credit: 0 }, { mbno: B, debit: 0, credit: 50 }], { transferType: 'memberToMember' }));
+  const m2m = await call('POST', '/transactions/journal/post', jr([{ mbno: A, code: 'L1004', debit: 50, credit: 0 }, { mbno: B, code: 'L1004', debit: 0, credit: 50 }], { transferType: 'memberToMember' }));
   s.check('JJ-11', 'Member-to-member journal between two QA members succeeds', m2m.status < 300, `${m2m.status} ${(m2m.text || '').slice(0, 140)}`);
   const par = await Promise.all(Array.from({ length: 5 }, () => call('POST', '/transactions/journal/post', jr([{ code: 'L1004', debit: 10, credit: 0 }, { code: 'L1001', debit: 0, credit: 10 }]))));
   s.check('JJ-12', '5 parallel journals: no 5xx', par.every(r => r.status < 500), `${par.map(r => r.status)}`);

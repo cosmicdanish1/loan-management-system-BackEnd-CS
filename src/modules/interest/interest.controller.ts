@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   UseGuards,
+  Req,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -85,8 +86,9 @@ export class InterestController {
   })
   async processYearlyFund(
     @Body() dto: UpdateSavingInterestDto,
+    @Req() req: any,
   ): Promise<InterestRunSummaryDto> {
-    return this.interestService.processYearlyFundProcess(dto, false);
+    return this.interestService.processYearlyFundProcess(dto, false, req?.user?.username || 'SYSTEM');
   }
 
   @Post('validate-parameters')

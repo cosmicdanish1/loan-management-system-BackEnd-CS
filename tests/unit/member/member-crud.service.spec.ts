@@ -186,12 +186,25 @@ describe('member/MemberCrudService.saveMemberMaster (legacy member_master form)'
     expect(qr.query.mock.calls.some((c: any[]) => /fundsmaster/.test(c[0]))).toBe(false);
   });
   it('initial compulsory deposit posts voucher, ledger, cashbook and balance in the same transaction', async () => {
-    const { svc, qr } = mk(); qr.query.mockResolvedValue([{ mbno: '1', ledgerid: 5, next_id: 5, pflag: 'C' }]);
-    (svc as any).sequenceGenerator.getNextVoucherNumber = jest.fn().mockResolvedValue(77);
-    (svc as any).sequenceGenerator.getNextVoucherId = jest.fn().mockResolvedValue(8);
+    const { svc, qr } = mk();
+    qr.query.mockImplementation(async (sql: string, p: any[] = []) => {
+      if (/getworkingdate|FROM yearend/.test(sql)) return []; // the day and year are open
+      if (/UPDATE member_balances/.test(sql)) return [[{ balance: 500 }], 1]; // TypeORM shape: [rows, count]
+      if (/MAX\(/.test(sql)) return [{ n: 1 }];
+      if (/FROM headmaster/.test(sql)) return [{ pflag: String(p[0]) === 'A1001' ? 'A' : 'L' }];
+      return [{ mbno: '1' }];
+    });
+    (svc as any).sequenceGenerator.getNextVoucherNumber = jest.fn().mockResolvedValue('VCH77');
     await svc.saveMemberMaster(data({ compulsory_deposit: 500, startRd: false }));
-    const sql = qr.query.mock.calls.map((c: any[]) => c[0]).join('\n');
-    expect(sql).toContain('INSERT INTO vouchers'); expect(sql).toContain('INSERT INTO ledger'); expect(sql).toContain('INSERT INTO tblcashbook');
+    const calls = qr.query.mock.calls;
+    const sql = calls.map((c: any[]) => c[0]).join('\n');
+    expect(sql).toContain('INSERT INTO vouchers'); expect(sql).toContain('INSERT INTO tblcashbook'); expect(sql).toContain('INSERT INTO transactions');
+    // ES-573: both ledger legs (CR RD/CD L1004, DR cash A1001), type CD only
+    const ledger = calls.filter((c: any[]) => /INSERT INTO ledger/.test(c[0]));
+    expect(ledger.map((c: any[]) => [c[1][3], c[1][2]])).toEqual([['L1004', 'CR'], ['A1001', 'DR']]);
+    expect(ledger.every((c: any[]) => c[1][8] === 'CD')).toBe(true);
+    const cash = calls.find((c: any[]) => /INSERT INTO tblcashbook/.test(c[0]));
+    expect(cash[1]).toContain('VCH77'); // the cash-book line carries the voucher number
     expect(qr.commitTransaction).toHaveBeenCalled();
   });
 });

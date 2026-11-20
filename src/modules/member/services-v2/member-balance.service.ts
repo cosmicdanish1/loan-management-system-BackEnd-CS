@@ -118,21 +118,13 @@ export class MemberBalanceService {
             if (compulsoryDeposit > 0) {
                 balanceItems.push({
                     code: 'CD',
-                    headName: 'Compulsory Deposit',
+                    headName: 'Compulsory Deposit (RD)',
                     balance: compulsoryDeposit,
                     type: 'asset'
                 });
             }
 
-            const rdAmount = parseFloat(member.rd_amount) || 0;
-            if (rdAmount > 0) {
-                balanceItems.push({
-                    code: 'RD',
-                    headName: 'Recurring Deposit',
-                    balance: rdAmount,
-                    type: 'asset'
-                });
-            }
+            // RD and CD are one deposit (head L1004), shown once above. rd_amt is the monthly amount, not a balance.
 
             const frsBalance = parseFloat(member.frs_balance) || 0;
             if (frsBalance > 0) {
@@ -242,7 +234,7 @@ export class MemberBalanceService {
             const data = result[0];
             const shares = parseFloat(data.shares) || 0;
             const compulsoryDeposit = parseFloat(data.compulsory_deposit) || 0;
-            const assets = round2(shares + compulsoryDeposit + (parseFloat(data.rd_amount) || 0) + (parseFloat(data.frs_balance) || 0));
+            const assets = round2(shares + compulsoryDeposit + (parseFloat(data.frs_balance) || 0));
 
             const masterByType = await this.loanMasterByType(memberNo);
             const loans = round2(

@@ -242,6 +242,31 @@ export class LoanQueryService {
     }
 
     /**
+     * ES-504: the three figures the Loan Application "Financial Summary" shows for a member — share balance, regular
+     * loan balance and emergency loan balance. Same member_balances columns the eligibility check and the Loan
+     * Position panel read, so the screen agrees with what the system uses to approve a loan. A member with no
+     * member_balances row has nothing yet: zeros, not an error.
+     */
+    async getMemberBalancesSummary(memberNo: string) {
+        const mbno = Number(memberNo);
+        if (!Number.isFinite(mbno)) throw new BadRequestException('Member number must be a number.');
+        const rows = await this.dataSource.query(
+            `SELECT COALESCE(shares, 0)::float8 AS share_balance,
+                    COALESCE(regularloan, 0)::float8 AS regular_loan_bal,
+                    COALESCE(emergency_loan_balance, 0)::float8 AS emergency_loan_bal
+               FROM member_balances WHERE mbno = $1::numeric LIMIT 1`,
+            [mbno],
+        );
+        const r = rows[0];
+        return {
+            memberNo: String(memberNo),
+            shareBalance: r ? Number(r.share_balance) : 0,
+            regularLoanBal: r ? Number(r.regular_loan_bal) : 0,
+            emergencyLoanBal: r ? Number(r.emergency_loan_bal) : 0,
+        };
+    }
+
+    /**
      * Get all pending loans for a member from loan_pending
      */
     async getMemberLoansFromPending(memberNo: string) {

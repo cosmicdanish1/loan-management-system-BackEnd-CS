@@ -7,6 +7,7 @@ function mk(o: { overlap?: any[]; members?: any[]; calc?: (m: any) => any; ledge
     query: jest.fn(async (sql: string, p?: any[]) => {
       calls.push([sql, p]);
       if (/FROM interestmaster/.test(sql)) return o.overlap ?? [];
+      if (/UPDATE sbmaster/.test(sql)) return [{ mbno: 1 }]; // the savings balance row exists (ES-366)
       if (/FROM ledger WHERE receipt_vchr_no/.test(sql)) return o.ledgerRows ?? [{ trans_type: 'DR', total: '100' }, { trans_type: 'CR', total: '100' }];
       return [];
     }),
@@ -61,10 +62,10 @@ describe('interest/InterestService.updateSavingInterest', () => {
     const t = mk({ calc: (m) => { if (m.mbno === '2') throw new Error('bad data'); return { memberNumber: m.mbno, accountNumber: m.mbno, openingBalance: 1, totalDebit: 0, totalCredit: 0, averageBalance: 1, interestAmount: 5, closingBalance: 6 }; } });
     await expect(t.svc.updateSavingInterest(dto())).rejects.toThrow(/bad data/);
   });
-  it('uses the account-type GL heads: SB A001, RD L1004, FD A1003 (on hold) unless a head is given', async () => {
+  it('uses the account-type GL heads: SB A001, FD A1003 (on hold) unless a head is given; RD is refused (its interest is the yearly RD/CD journal)', async () => {
     const t = mk(); await t.svc.updateSavingInterest(dto());
     expect(t.anySvc.createInterestLedgerEntry.mock.calls[0][5]).toBe('A001');
-    const r = mk(); await r.svc.updateSavingInterest(dto({ accountType: 'RD' })); expect(r.anySvc.createInterestLedgerEntry.mock.calls[0][5]).toBe('L1004');
+    const r = mk(); await expect(r.svc.updateSavingInterest(dto({ accountType: 'RD' }))).rejects.toThrow(/RD\/CD Financial Year Closing/); expect(r.anySvc.createInterestLedgerEntry).not.toHaveBeenCalled();
     const g = mk(); await g.svc.updateSavingInterest(dto({ accountHead: 'X9' })); expect(g.anySvc.createInterestLedgerEntry.mock.calls[0][5]).toBe('X9');
   });
   it('interest on Saving and RD accounts is not credited to the cash-in-hand / regular-loan heads (A1001 is CASH IN HAND, A1002 is REGULAR LOAN)', async () => {

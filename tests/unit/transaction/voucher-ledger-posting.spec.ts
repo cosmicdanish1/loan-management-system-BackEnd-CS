@@ -132,9 +132,9 @@ describe('transaction/LedgerPostingService (demand posting)', () => {
   });
   it('posts a balanced DR/CR pair per demand head and marks the demands posted, in one transaction', async () => {
     const t = mk([row()]); const r = await t.svc.postUpdate({ month: 'MAR', year: '2026', head: 'Loan Principal', totalAmount: 1000, recordCount: 1 } as any);
-    const led = t.calls.filter((c) => /INSERT INTO ledger/.test(c[0])); expect(r).toMatchObject({ success: true, totalPosted: 1000 }); expect(led).toHaveLength(6); // principal, interest, savings (ES-414)
+    const led = t.calls.filter((c) => /INSERT INTO ledger/.test(c[0])); expect(r).toMatchObject({ success: true, totalPosted: 1000 }); expect(led).toHaveLength(4); // loan principal and interest as lumps (ES-414); the savings part is credited per member (own test in ledger-posting.service.spec.ts)
     for (let i = 0; i < led.length; i += 2) { expect(led[i][0]).toContain("'DR'"); expect(led[i + 1][0]).toContain("'CR'"); expect(led[i][1][4]).toBe(led[i + 1][1][4]); }
-    expect(led.filter((_, i) => i % 2 === 0).map((c) => c[1][4])).toEqual([600, 300, 100]);
+    expect(led.filter((_, i) => i % 2 === 0).map((c) => c[1][4])).toEqual([600, 300]);
     expect(t.calls.some((c) => /UPDATE demand_master SET demand_posted = 'Y'/.test(c[0]))).toBe(true); expect(t.qr.commitTransaction).toHaveBeenCalledTimes(1);
   });
   it('two simultaneous postings of the same month cannot both be posted (lock before the check)', async () => {

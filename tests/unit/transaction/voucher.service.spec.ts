@@ -183,6 +183,9 @@ describe('VoucherService pending list', () => {
       voucherNo: 'P00001', memberName: 'Asha Patil', amount: 500,
       vchrType: 'PAYMENT', loanType: 'RLN', loanCaseNo: 'LC1', paymentMode: 'cash',
     });
-    expect(voucher.breakdown).toEqual([{ srNo: '1', code: 'A1002', name: 'principal', rp: 'P', amount: 500 }]);
+    expect(voucher.breakdown).toEqual([{
+      srNo: '1', code: 'A1002', name: 'principal', rp: 'P', amount: 500,
+      headName: '', trNo: '', transType: '', accNo: '', accType: '', mbno: '', // ES-512 detail fields + per-line member
+    }]);
   });
 });

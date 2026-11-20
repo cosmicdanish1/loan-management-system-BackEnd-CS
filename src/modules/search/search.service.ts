@@ -10,6 +10,12 @@ export interface SearchResult {
   details: string;
   date?: string;
   relevance?: number;
+  /** ES-502: the Find grid's own columns, as fields instead of text packed into 'details' */
+  memberNo?: string;
+  wing?: string;
+  division?: string;
+  accountNo?: string;
+  srNo?: string;
 }
 
 const DEFAULT_LIMIT = 50;
@@ -248,9 +254,13 @@ export class SearchService {
           m.basic_pay,
           m.memb_date,
           d.name as office_name,
+          w.wingname as wing_name,
+          (SELECT string_agg(sb.acc_no::text, ', ' ORDER BY sb.acc_no) FROM sbmaster sb WHERE sb.mbno::text = m.mbno::text) AS sb_acc_nos,
+          (SELECT mb.srno FROM member_balances mb WHERE mb.mbno = m.mbno LIMIT 1) AS sr_no,
           m.isactive
         FROM member_master m
         LEFT JOIN division_master d ON m.officeno = d.officeno
+        LEFT JOIN wing_master w ON w.wingno = m.wingno
         WHERE (
           LOWER(m.f_name || ' ' || COALESCE(m.m_name, '') || ' ' || m.l_name) LIKE $1
           OR m.mbno::text LIKE $1
@@ -275,6 +285,12 @@ export class SearchService {
         title: joinName(member.f_name, member.m_name, member.l_name),
         subtitle: `Member No: ${member.mbno}`,
         details: `${member.office_name || 'Unknown Office'} - Basic Pay: ₹${member.basic_pay || 0}`,
+        memberNo: String(member.mbno),
+        wing: member.wing_name || undefined,
+        division: member.office_name || undefined,
+        accountNo: member.sb_acc_nos || undefined,
+        srNo: member.sr_no !== null && member.sr_no !== undefined && Number(member.sr_no) !== 0
+          ? String(Math.trunc(Number(member.sr_no))) : undefined,
         date: member.memb_date ? new Date(member.memb_date).toLocaleDateString('en-GB') : undefined,
         relevance: this.calculateRelevance(searchTerm, member.f_name + ' ' + member.l_name + ' ' + member.mbno)
       }));
@@ -295,12 +311,12 @@ export class SearchService {
       // Search SB accounts
       try {
         const sbRows = await this.dataSource.query(`
-          SELECT sb.accno, sb.mbno, sb.balance, m.f_name, m.l_name
+          SELECT sb.acc_no AS accno, sb.mbno, sb.balance, m.f_name, m.l_name
           FROM sbmaster sb
-          LEFT JOIN member_master m ON sb.mbno = m.mbno
-          WHERE sb.accno::text LIKE $1 OR sb.mbno::text LIKE $1
+          LEFT JOIN member_master m ON sb.mbno::text = m.mbno::text
+          WHERE sb.acc_no::text LIKE $1 OR sb.mbno::text LIKE $1
              OR LOWER(COALESCE(m.f_name,'') || ' ' || COALESCE(m.l_name,'')) LIKE $1
-          ORDER BY sb.accno DESC LIMIT $2
+          ORDER BY sb.acc_no DESC LIMIT $2
         `, [searchTerm, limit]);
 
         sbRows.forEach((row: any) => {
@@ -311,6 +327,8 @@ export class SearchService {
             title: `SB Account - ${row.accno}`,
             subtitle: `Balance: ₹${parseFloat(row.balance || 0).toLocaleString()}`,
             details: name || `Member ${row.mbno}`,
+            memberNo: String(row.mbno),
+            accountNo: String(row.accno),
             relevance: this.calculateRelevance(searchTerm, row.accno + ' ' + name),
           });
         });
@@ -335,6 +353,8 @@ export class SearchService {
             title: `FD Account - ${row.fdno}`,
             subtitle: `Amount: ₹${parseFloat(row.fdamt || 0).toLocaleString()}`,
             details: `${name} | Maturity: ${row.matdate ? new Date(row.matdate).toLocaleDateString('en-GB') : 'N/A'}`,
+            memberNo: String(row.mbno),
+            accountNo: String(row.fdno),
             relevance: this.calculateRelevance(searchTerm, row.fdno + ' ' + name),
           });
         });
@@ -431,6 +451,8 @@ export class SearchService {
         subtitle: `Amount: ₹${parseFloat(loan.loan_amt || 0).toLocaleString()} | Balance: ₹${parseFloat(loan.balance || 0).toLocaleString()}`,
         details: `${loan.f_name || ''} ${loan.l_name || ''}`.trim() + ` - ${loan.loantype || 'Unknown'} - ${loan.purpose || 'No purpose'}`,
         date: loan.payment_date ? new Date(loan.payment_date).toLocaleDateString('en-GB') : undefined,
+        memberNo: String(loan.mbno),
+        accountNo: String(loan.loancaseno),
         relevance: this.calculateRelevance(searchTerm, loan.loancaseno + ' ' + loan.purpose)
       }));
 

@@ -23,10 +23,10 @@ describe('member/MemberBalanceService.getMemberBalance', () => {
     const { svc, ds } = mk([base()]); await svc.getMemberBalance("5' OR '1'='1");
     expect(ds.query.mock.calls[0][0]).not.toContain("OR '1'='1"); expect(ds.query.mock.calls[0][1]).toEqual(["5' OR '1'='1"]);
   });
-  it('lists share, CD, RD and FRS as assets and ignores zero balances', async () => {
+  it('lists share, CD (which is also the RD) and FRS as assets; the monthly rd amount is not a balance; zero balances are ignored', async () => {
     const r = await mk([base({ rd_amount: '500', frs_balance: '100' })]).svc.getMemberBalance('5');
-    expect(r.balanceItems.map((i) => i.code)).toEqual(['SH', 'CD', 'RD', 'FRS']);
-    expect(r.summary).toEqual({ totalAssets: 3600, totalLiabilities: 0, netBalance: 3600 });
+    expect(r.balanceItems.map((i) => i.code)).toEqual(['SH', 'CD', 'FRS']);
+    expect(r.summary).toEqual({ totalAssets: 3100, totalLiabilities: 0, netBalance: 3100 });
   });
   it('loans are liabilities (negative items) and reduce the net balance', async () => {
     const r = await mk([base({ regular_loan_balance: '1500', emergency_loan_balance: '500' })]).svc.getMemberBalance('5');

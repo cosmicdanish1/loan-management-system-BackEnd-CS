@@ -8,6 +8,7 @@ import { LoanEligibilityService } from '../../loan/services-v2/loan-eligibility.
 import { LoanRepaymentService } from '../../loan/services-v2/loan-repayment.service';
 import { LoanReagreementService } from '../../loan/services-v2/reagreement/loan-reagreement.service';
 import { EARLY_CLOSURE_SOURCE_MODULE, LoanEarlyClosureHoldService } from '../../loan/services-v2/early-closure/loan-early-closure-hold.service';
+import { LOAN_REPAYMENT_SOURCE_MODULE, LoanRepaymentHoldService } from '../../loan/services-v2/repayment-hold/loan-repayment-hold.service';
 import { RdBalanceEventsService } from '../../rd/services/rd-balance-events.service';
 import { RdLienService } from '../../rd/services/rd-lien.service';
 import { RdRulesService } from '../../rd/rd-rules.service';
@@ -35,6 +36,8 @@ export class PassTransactionService {
         private readonly rdLienService?: RdLienService,
         // ES-556: early-closure vouchers (held in Past Transaction). Optional for the same reason as the re-agreement service.
         private readonly earlyClosureHold?: LoanEarlyClosureHoldService,
+        // ES-558: loan-repayment vouchers (held in Past Transaction). Optional for the same reason.
+        private readonly repaymentHold?: LoanRepaymentHoldService,
     ) {
         if (this.earlyClosureHold) {
             // auto-pass on the awaited EMI goes through the real Pass so every guard applies
@@ -69,6 +72,23 @@ export class PassTransactionService {
     /**
      * Pass Transaction - Final Posting
      */
+    /**
+     * ES-577: raises the member's one RD/CD balance (member_balances.compulsory_deposit) by the RD shortfall withheld from
+     * a loan, on the disbursement's own transaction. UPDATE ... RETURNING comes back as [rows, count] through TypeORM, so
+     * both shapes are accepted; the INSERT is only a safeguard for a member with no balance row.
+     */
+    private async creditRdShortfallToBalance(queryRunner: { query: (sql: string, params?: any[]) => Promise<any> }, mbno: any, amount: number): Promise<void> {
+        const raw = await queryRunner.query(
+            `UPDATE member_balances SET compulsory_deposit = COALESCE(compulsory_deposit, 0) + $1
+              WHERE mbno::numeric = $2::numeric RETURNING mbno`,
+            [amount, mbno],
+        );
+        const updated: any[] = Array.isArray(raw?.[0]) ? raw[0] : (raw || []);
+        if (updated.length === 0) {
+            await queryRunner.query(`INSERT INTO member_balances (mbno, compulsory_deposit) VALUES ($1, $2)`, [mbno, amount]);
+        }
+    }
+
     async passTransaction(voucherNo: string, postedBy: string = 'admin') {
         const queryRunner = this.dataSource.createQueryRunner();
 
@@ -98,6 +118,7 @@ export class PassTransactionService {
             const isReagreement = header.sourceModule === 'LOAN_REAGREEMENT' || /REAGREEMENT:\d+/.test(header.remarks || '');
             let reagreementSummary: any = null;
             let earlyClosureSummary: any = null;
+            let repaymentSummary: any = null;
             const loanCaseNo = remarksMatch ? remarksMatch[1] : null;
 
             // 3. Fetch breakdown details from transactions table
@@ -168,6 +189,11 @@ export class PassTransactionService {
                 console.log(`[PassTransaction] Processing LOAN EARLY CLOSURE voucher: ${voucherNo}`);
                 if (!this.earlyClosureHold) throw new Error('Early closure service is not available');
                 earlyClosureSummary = await this.earlyClosureHold.passInTransaction(queryRunner, voucherNo, header, details, postedBy);
+            } else if (header.sourceModule === LOAN_REPAYMENT_SOURCE_MODULE) {
+                // ==================== LOAN REPAYMENT (ES-558) ====================
+                console.log(`[PassTransaction] Processing LOAN REPAYMENT voucher: ${voucherNo}`);
+                if (!this.repaymentHold) throw new Error('Loan repayment service is not available');
+                repaymentSummary = await this.repaymentHold.passInTransaction(queryRunner, voucherNo, header, details, postedBy);
             } else if (isReagreement) {
                 // ==================== LOAN RE-AGREEMENT ====================
                 console.log(`[PassTransaction] Processing LOAN RE-AGREEMENT voucher: ${voucherNo}`);
@@ -876,6 +902,12 @@ export class PassTransactionService {
                         } else {
                             console.warn(`[PassTransaction] No current financial year found — RD balance event for loan ${loan.loancaseno}'s shortfall was NOT recorded`);
                         }
+
+                        // ES-577: the shortfall is real RD/CD money now, so it also raises the member's one RD/CD balance
+                        // (member_balances.compulsory_deposit, the figure eligibility, the lien and withdrawals read).
+                        // The timeline event above is for interest only. The member_balances row exists at this point
+                        // (created above with the loan balance); the INSERT is only a safeguard.
+                        await this.creditRdShortfallToBalance(queryRunner, loan.mbno, deduction.amount);
                     }
 
                     // BUG FIX: the RD branch above kept the member's RD
@@ -977,6 +1009,8 @@ export class PassTransactionService {
                         const drcr = (detail.trans_type === 'CR' || detail.trans_type === 'R') ? 'CR' : 'DR';
                         const lineMbno = detail.mbno || null;
 
+                        // Member-less (head-only) lines use member 0, the ledger convention, and a journal is a
+                        // non-cash transfer so its payment mode is 'J' (the voucher's cash/transfer mode does not apply).
                         await queryRunner.query(`
                             INSERT INTO ledger (
                                 trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type,
@@ -984,15 +1018,15 @@ export class PassTransactionService {
                                 narration, username, ledgerid
                             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'JV', $10, 0, $11, $12, $13)
                         `, [
-                            nextTransNo++, new Date(), drcr, headCode, lineMbno,
+                            nextTransNo++, new Date(), drcr, headCode, lineMbno ?? 0,
                             detail.acc_no || 0, detail.acc_type || 'JV',
-                            amt, voucherNo, mode,
+                            amt, voucherNo, 'J',
                             detail.narration || header.description, postedBy, nextLedgerId++
                         ]);
 
                         if (lineMbno) {
                             const balCol = this.getBalanceColumn(headCode);
-                            if (balCol) {
+                            if (balCol && this.movesMemberBalance(headCode, detail.acc_type)) {
                                 const balRes = await queryRunner.query(
                                     // ES-454: FOR UPDATE, so two journals touching the same member balance run one after the
                                     // other (before, both read the same balance and the second write overwrote the first)
@@ -1082,6 +1116,7 @@ export class PassTransactionService {
                 ...(consolidationSummary ? { consolidation: consolidationSummary } : {}),
                 ...(reagreementSummary ? { reagreement: reagreementSummary } : {}),
                 ...(earlyClosureSummary ? { earlyClosure: earlyClosureSummary } : {}),
+                ...(repaymentSummary ? { repayment: repaymentSummary } : {}),
             };
 
         } catch (error: any) {
@@ -1120,6 +1155,12 @@ export class PassTransactionService {
                     `Voucher ${voucherNo} is a posted loan early closure and cannot be reversed here. Please contact support to reopen the loan.`);
             }
 
+            // ES-558: reversing a passed repayment (loan balance, ledger rows, cash book) is not defined yet.
+            if (header.sourceModule === LOAN_REPAYMENT_SOURCE_MODULE) {
+                throw new BadRequestException(
+                    `Voucher ${voucherNo} is a posted loan repayment and cannot be reversed here yet. Please contact support.`);
+            }
+
             // Re-agreement vouchers are undone by the re-agreement service (new case out, old case back).
             if (header.sourceModule === 'LOAN_REAGREEMENT' || /REAGREEMENT:\d+/.test(header.remarks || '')) {
                 const undone = await this.reagreementService!.reverseInTransaction(queryRunner, voucherNo, reversedBy);
@@ -1138,6 +1179,28 @@ export class PassTransactionService {
             // runs only when it exists, and everything else takes the generic undo.
             const remarksMatch = (header.remarks || '').match(/LOAN_CASE:([^|]+)/);
             const loanCaseNo = remarksMatch ? remarksMatch[1] : null;
+
+            // ES-577: the RD/CD money a loan disbursement credited to the member (the RD shortfall and any cleared negative
+            // RD, both ledger L1004 / CD credits) went into the member's RD/CD balance, so reversing the disbursement
+            // takes it out again. Read BEFORE the ledger rows are deleted below.
+            if (loanCaseNo) {
+                const rdCredits = await queryRunner.query(
+                    `SELECT mbno, trans_amt FROM ledger
+                      WHERE receipt_vchr_no = $1 AND TRIM(code) = 'L1004' AND acc_type = 'CD' AND UPPER(TRIM(trans_type)) IN ('CR', 'R')`,
+                    [voucherNo],
+                );
+                const byMember = new Map<string, number>();
+                for (const row of rdCredits || []) {
+                    byMember.set(String(row.mbno), round2((byMember.get(String(row.mbno)) || 0) + (parseFloat(row.trans_amt) || 0)));
+                }
+                for (const [mbnoKey, amount] of byMember) {
+                    if (!(amount > 0)) continue;
+                    await queryRunner.query(
+                        `UPDATE member_balances SET compulsory_deposit = COALESCE(compulsory_deposit, 0) - $1 WHERE mbno::numeric = $2::numeric`,
+                        [amount, mbnoKey],
+                    );
+                }
+            }
 
             // 3. Remove from Ledger
             await queryRunner.query(`DELETE FROM ledger WHERE "receipt_vchr_no" = $1`, [voucherNo]);
@@ -1189,7 +1252,7 @@ export class PassTransactionService {
                 // replaying the same head→column mapping (getBalanceColumn) and inverting the DR/CR delta,
                 // and drop any Cash Book lines this voucher wrote.
                 const staged = await queryRunner.query(
-                    `SELECT mbno, code, trans_type, trans_amt FROM transactions WHERE receipt_vchr_no = $1`,
+                    `SELECT mbno, code, trans_type, trans_amt, acc_type FROM transactions WHERE receipt_vchr_no = $1`,
                     [voucherNo]
                 );
                 const isJournalReversal = String(header.voucherType || '').toUpperCase() === 'JOURNAL';
@@ -1198,6 +1261,9 @@ export class PassTransactionService {
                     if (!isJournalReversal || !detail.mbno) continue;
                     const balCol = this.getBalanceColumn(detail.code);
                     if (!balCol) continue;
+                    // Same rule as posting: a CD / share line only moved the balance if it was staged with its CD / SHR type
+                    // (journals posted before that existed were tagged JV and never moved it, so reversing must not either).
+                    if (!this.movesMemberBalance(detail.code, detail.acc_type)) continue;
                     const drcr = (detail.trans_type === 'CR' || detail.trans_type === 'R') ? 'CR' : 'DR';
                     const amt = parseFloat(detail.trans_amt) || 0;
                     const balRes = await queryRunner.query(
@@ -1247,7 +1313,20 @@ export class PassTransactionService {
         const map: Record<string, { col: string; type: 'LIABILITY' | 'ASSET' }> = {
             'A1047': { col: 'emergency_loan_balance', type: 'ASSET' },
             'A1002': { col: 'regularloan', type: 'ASSET' },
+            'L1004': { col: 'compulsory_deposit', type: 'LIABILITY' }, // settling a loan from CD debits it
+            'L1001': { col: 'shares', type: 'LIABILITY' },            // ... and from share capital
         };
         return map[String(headCode || '').trim().toUpperCase()] || null;
+    }
+
+    /**
+     * Whether a posted journal line moves the member's balance column. The loan heads always did. CD / share lines
+     * only do when staged with their own account type (CD / SHR); older journals tagged 'JV' never moved it.
+     */
+    private movesMemberBalance(headCode: string, accType?: string | null): boolean {
+        const code = String(headCode || '').trim().toUpperCase();
+        if (code === 'L1004') return String(accType || '').toUpperCase() === 'CD';
+        if (code === 'L1001') return String(accType || '').toUpperCase() === 'SHR';
+        return true;
     }
 }

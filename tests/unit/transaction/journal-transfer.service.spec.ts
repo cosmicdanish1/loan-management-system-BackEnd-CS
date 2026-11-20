@@ -46,10 +46,60 @@ describe('JournalTransferService validation', () => {
     ], /both a debit and a credit/],
     ['missing head code', [{ code: '', debit: 10, credit: 0 }, { code: 'L1001', debit: 0, credit: 10 }], /head code/],
     ['same account', [{ code: 'A1001', mbno: 1001, debit: 10, credit: 0 }, { code: 'A1001', mbno: 1001, debit: 0, credit: 10 }], /same account/],
+    // exact paise: a 0.009 gap used to pass the 0.01 tolerance and stage an unbalanced entry
+    ['a debit/credit gap under one paisa-tolerance (0.009)', [{ code: 'A1001', debit: 100, credit: 0 }, { code: 'L1001', debit: 0, credit: 99.991 }], /2 decimal places/],
+    ['a one-paisa gap (0.01)', [{ code: 'A1001', debit: 100, credit: 0 }, { code: 'L1001', debit: 0, credit: 99.99 }], /Unbalanced/],
+    ['more than 2 decimals (100.005)', [{ code: 'A1001', debit: 100.005, credit: 0 }, { code: 'L1001', debit: 0, credit: 100.005 }], /2 decimal places/],
+    ['a text RD/SD reference', [{ code: 'A1001', debit: 10, credit: 0, rdSdSrNo: 'RD-ABC' }, { code: 'L1001', debit: 0, credit: 10 }], /RD \/ SD Sr No/],
   ])('rejects %s without opening a transaction', async (_label, rows, message) => {
     const { service, dataSource } = build();
     await expect(service.postJournalEntry(dto(rows as any[]))).rejects.toThrow(message as RegExp);
     expect(dataSource.createQueryRunner).not.toHaveBeenCalled();
+  });
+});
+
+describe('JournalTransferService member-to-member', () => {
+  it('rejects a member-to-member transfer where no row has a member', async () => {
+    const { service, dataSource } = build();
+    await expect(service.postJournalEntry(dto(
+      [{ code: 'A1001', debit: 10, credit: 0 }, { code: 'L1001', debit: 0, credit: 10 }],
+      { transferType: 'memberToMember' },
+    ))).rejects.toThrow(/member number/);
+    expect(dataSource.createQueryRunner).not.toHaveBeenCalled();
+  });
+
+  it('accepts the excess-principal refund: member on the loan-head row, Cash in Hand row without a member', async () => {
+    const { service } = build({ heads: ['A1047', 'A1001'] });
+    const res = await service.postJournalEntry(dto(
+      [{ mbno: 1001, code: 'A1047', debit: 5000, credit: 0 }, { code: 'A1001', debit: 0, credit: 5000 }],
+      { transferType: 'memberToMember' },
+    ));
+    expect(res.success).toBe(true);
+  });
+
+  it('accepts exact two-decimal amounts that sum with float noise (0.1 + 0.2 = 0.3)', async () => {
+    const { service } = build();
+    const res = await service.postJournalEntry(dto([
+      { code: 'A1001', debit: 0.1, credit: 0 }, { code: 'A1001', debit: 0.2, credit: 0 }, { code: 'L1001', debit: 0, credit: 0.3 },
+    ]));
+    expect(res.success).toBe(true);
+  });
+});
+
+describe('JournalTransferService account types', () => {
+  it('stages each member head with its own account type (loan RLN/ALN, CD, SHR, MD, MD1) and others as JV', async () => {
+    const { service, calls } = build({ heads: ['L1004', 'L1001', 'A1002', 'L1002', 'L1045', 'A1001'] });
+    await service.postJournalEntry(dto([
+      { mbno: 1001, code: 'L1004', debit: 10, credit: 0 },
+      { mbno: 1001, code: 'L1001', debit: 20, credit: 0 },
+      { mbno: 1001, code: 'L1002', debit: 5, credit: 0 },
+      { mbno: 1001, code: 'L1045', debit: 5, credit: 0 },
+      { mbno: 1001, code: 'A1002', debit: 0, credit: 30 },
+      { code: 'A1001', debit: 0, credit: 10 },
+    ], { transferType: 'memberToMember' }));
+    const staged = calls.filter(({ sql }) => sql.includes('INSERT INTO transactions'));
+    // params: [trans_no, type, mbno, acc_no, acc_type, amt, voucher, ...]
+    expect(staged.map(c => c.params?.[4])).toEqual(['CD', 'SHR', 'MD', 'MD1', 'RLN', 'JV']);
   });
 });
 

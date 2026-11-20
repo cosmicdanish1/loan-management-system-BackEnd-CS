@@ -14,14 +14,14 @@ const dsFor = (answers: Array<[RegExp, any[]]>) => ({
 const MEMBER = { mbno: '610026924', name: 'HEMOO YADAV', shares: '51700', compulsory_deposit: '100000', rd_amt: '75131' };
 
 describe('BalanceService (live tables)', () => {
-  it('adds shares and deposits and subtracts open loans for a real member', async () => {
+  it('adds shares and the CD/RD deposit (rd_amt is only the monthly amount) and subtracts open loans for a real member', async () => {
     const ds = dsFor([
       [/FROM member_master m/, [MEMBER]],
       [/FROM loan_master/, [{ total: '1473255' }]],
       [/MAX\(trans_date\)/, [{ last_date: new Date('2026-08-11') }]],
     ]);
     const r = await new BalanceService(ds).getMemberBalance({ memberId: 610026924 });
-    expect(r).toMatchObject({ memberNumber: '610026924', shareBalance: 51700, totalDepositBalance: 175131, totalLoanBalance: 1473255, netBalance: -1246424 });
+    expect(r).toMatchObject({ memberNumber: '610026924', shareBalance: 51700, totalDepositBalance: 100000, totalLoanBalance: 1473255, netBalance: -1321555 });
   });
 
   it('a member that does not exist is a 404, not a 500', async () => {
@@ -60,7 +60,7 @@ describe('DataConsistencyService (live tables)', () => {
   it('is HEALTHY only when every check finds nothing', async () => {
     const r = await new DataConsistencyService(dsFor([[/count\(\*\) AS n/, [{ n: '0' }]], [/SUM\(CASE/, [{ dr: '10', cr: '10' }]]])).runConsistencyChecks();
     expect(r.overallStatus).toBe('HEALTHY');
-    expect(r.passedChecks).toBe(8);
+    expect(r.passedChecks).toBe(9);
   });
 
   it('reports a real problem instead of PASS (a ledger row with a zero or negative amount)', async () => {

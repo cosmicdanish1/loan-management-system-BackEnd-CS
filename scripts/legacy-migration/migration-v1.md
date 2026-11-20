@@ -3706,3 +3706,32 @@ Q79 is decided (yes to all ten items); with it `member_master` is **FINAL** (ins
 
 ### 44.7 Correction (2026-11-14): Phase 2 must run BEFORE the closed days and closed years are loaded
 Found in the test re-migration (PHASE2_ISSUES.md, P2-004): the replay posts through the app's own repayment service, which refuses any posting on a day with `dayend_flag` = `Y` (ES-458) or inside a closed financial year. In the run sheet of 44.2, `getworkingdate` (step 3) is loaded before Phase 2 (step 14), so with the legacy 2,357 closed days almost every replayed repayment would be refused. **Change of order:** load `getworkingdate` (and keep `closed_at` empty on `yearend`) **after** Phase 2 and its reconciliation, as a last load step before the verification suite; or lift the guard for the replay. Also: Phase 2 replays only members with regular- or emergency-loan entries in the ledger; loans that exist only in `loan_master` keep their copied values.
+
+
+---
+
+## 47. RD and CD are one thing: the "RD from CD" step (decided 2026-11-19)
+
+**Finding (read-only, MS SQL and Postgres).** The legacy system has no separate RD: `HEADMASTER` has no RD head (only `L1004` COMPULSORY DEPOSIT), `demand_master.RD_Amount` is 0 in all 334,033 rows (2019 to 2026), and the RD tables (`FDRD_BALANCE`, `FDRDLIENMASTER`, `fdmaster`) are empty. `member_balances.RD_Amt` equals the member's monthly CD amount (`fundsmaster.cdamt`) for 5,996 of 6,174 members, so it is a monthly amount, not a balance (Q39).
+
+**Why RD shows 0 in the new app.** The app also treats RD and CD as one thing (loan RD withholding is credited to `L1004`, default of `RULE_LOAN_R_RD_HEAD_CODE`; `member_balances.compulsory_deposit` is "the RD balance every report and CD transaction uses"). But loan eligibility, the lien and RD interest read a second store, `rd_balance_events` (+ `rd_installment_ledger`, `rd_member_config`), and nothing was ever written there for a migrated member. So every migrated member looks short of RD and the app withholds the whole requirement from the next loan payout.
+
+**Decision (owner, 2026-11-19): move CD into RD.** New step, Postgres only, run after Table 5 `member_balances` is final (any time after Phase 1): `scripts/legacy-migration/migrate-rd-from-cd.js`.
+- One `OPENING` event per member in `rd_balance_events` for the current financial year, amount and resulting balance = `member_balances.compulsory_deposit` (negative balances kept: Group Insurance may leave RD negative). Dated the day the step runs (`--as-of=` to change), so the RD interest calculator counts months only from then.
+- `rd_member_config.monthly_rd_amount` = `fundsmaster.cdamt` where above 0, effective from the financial-year start.
+- Writes nothing to the ledger, `member_balances` or any other table; CD itself is unchanged.
+- Re-run safe: replaces only its own rows (`created_by` / `set_by` = `legacy-migration`); a member who already has other RD events this year (test data) is skipped. In a transaction with an after-check that every written opening equals the CD balance.
+- Read-only by default; `--execute` writes. Test run 2026-11-19 (read-only): 6,524 members with a CD balance (5 negative, total 35,42,10,008), 96 members skipped for existing test events.
+
+**Open (for the owner):** (1) RD interest: the RD module will compute interest on these openings from the step date; confirm the society wants that for CD. (2) Long-term fix so the two stores cannot drift: make the app read RD from `member_balances.compulsory_deposit` (application change, not part of the migration).
+
+### 47.1 Correction and result (2026-11-19): the CD/RD balance is DERIVED, never copied
+Checked both databases: `member_balances.compulsory_deposit` in Postgres was the legacy 2019 snapshot (equal to the snapshot for all 7,265 members compared) and equalled `fundsmaster.cdopbal` plus the net `L1004` ledger for only about 900 members. The ledger (`L1004`) and `fundsmaster.cdopbal` themselves migrated correctly. The section 19 rule (derive, do not copy) had never been implemented in the scripts.
+- **New step** `scripts/legacy-migration/derive-cd-balance.js` (last step of the run, after Phase 2): `compulsory_deposit` = `fundsmaster.cdopbal` + net `L1004` (CR minus DR); creates the missing `member_balances` rows (680 in the first read-only count) in the same minimal shape the app inserts; touches no other column; checks every member against an independent query and rolls back on any difference.
+- **fundsmaster:** only legacy rows missing in Postgres are copied (never overwritten), so Modify Balance edits are not touched.
+- **App:** `getTotalCurrentHoldings` and `recordWithdrawal` use this one figure (ES-563); the Member Balance screens no longer add `rd_amt` (the monthly amount) on top of it; new data-consistency check "RD / CD Balance Check" lists members whose stored balance differs from opening balance plus ledger.
+- **Still open (not a migration question):** the new app's monthly payroll demand posting does not credit members' RD/CD (it posts one lump to head L1001 with member 0), so the stored balance would fall behind again after go-live. Needs an owner decision on the posting.
+- `migrate-rd-from-cd.js` (RD interest timeline openings) is not part of the run.
+
+### 47.2 Update (2026-11-19): shares and FRS are derived in the same step
+`derive-cd-balance.js` now derives all three balances decided in section 19 (Q37, Q38): CD/RD = `cdopbal` + net `L1004`; shares = `shareopbal` + net `L1001`; FRS = (`mdopbal` + net `L1002`) + (`md1_opbal` + net `L1045`). Read-only totals on the test database: CD/RD 24.61 crore, shares 4.24 crore, FRS 5.43 crore (they tie to section 19). Loan columns are never touched. Full list of what was changed for RD/CD: `RD_CD_FIX_CONTEXT.md` in this folder.

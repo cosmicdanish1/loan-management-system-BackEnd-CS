@@ -8,6 +8,8 @@ import { FundsMaster } from '../admin/entities/funds-master.entity';
 import { Ledger } from './entities/ledger.entity';
 import { MemberMaster } from '../member/entities/member-master.entity';
 import { AdminModule } from '../admin/admin.module';
+import { RdModule } from '../rd/rd.module';
+import { GroupInsuranceModule } from '../group-insurance/group-insurance.module';
 
 @Module({
   imports: [

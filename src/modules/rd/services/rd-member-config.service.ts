@@ -78,6 +78,15 @@ export class RdMemberConfigService {
         );
     }
 
+    /** True when the member already has any monthly amount for this financial year. */
+    async hasAmount(mbno: string, yearcode: number): Promise<boolean> {
+        const rows = await this.dataSource.query(
+            `SELECT 1 FROM rd_member_config WHERE mbno = $1 AND yearcode = $2 LIMIT 1`,
+            [mbno, yearcode],
+        );
+        return rows.length > 0;
+    }
+
     /** The amount actually in effect for a member+year as of a given date
      *  (defaults to today) — the figure Demand Generation should use when
      *  building that month's rd_amount, and what the installment ledger's

@@ -58,6 +58,7 @@ export class DataConsistencyService {
     const checks: ConsistencyCheckResult[] = [];
     checks.push(await this.checkOrphanedRecords());
     checks.push(await this.checkBalanceConsistency());
+    checks.push(await this.checkRdCdBalanceDrift());
     checks.push(await this.checkDuplicateRecords());
     checks.push(await this.checkDataIntegrity());
     checks.push(await this.checkBusinessRuleViolations());
@@ -160,6 +161,29 @@ export class DataConsistencyService {
       this.logger.error(`Balance consistency check failed: ${error.message}`);
       return { checkName: 'Balance Consistency Check', status: 'FAIL', message: 'This check could not be run. See the server log.', affectedRecords: 0, fixAvailable: false };
     }
+  }
+
+  /**
+   * RD and CD are one deposit (head L1004). The stored balance member_balances.compulsory_deposit must equal the member's
+   * opening balance (fundsmaster.cdopbal) plus the net L1004 ledger (credits minus debits). A difference means a posting
+   * reached the ledger without reaching the stored balance (or the other way round), or the balance was never derived.
+   */
+  async checkRdCdBalanceDrift(): Promise<ConsistencyCheckResult> {
+    const base = `
+      FROM member_balances b
+      LEFT JOIN fundsmaster f ON f.mbno::numeric = b.mbno::numeric
+      LEFT JOIN (SELECT mbno::numeric AS mbno,
+                        SUM(CASE WHEN trans_type = 'CR' THEN trans_amt WHEN trans_type = 'DR' THEN -trans_amt ELSE 0 END) AS net
+                   FROM ledger WHERE code = 'L1004' GROUP BY mbno::numeric) l ON l.mbno = b.mbno::numeric
+      WHERE ROUND(COALESCE(b.compulsory_deposit, 0)::numeric, 2) <> ROUND(COALESCE(f.cdopbal, 0)::numeric + COALESCE(l.net, 0)::numeric, 2)`;
+    return this.runCheck('RD / CD Balance Check', 'WARNING', [
+      {
+        label: 'members whose RD/CD balance is not opening balance plus the L1004 ledger',
+        countSql: `SELECT count(*) AS n ${base}`,
+        sampleSql: `SELECT b.mbno::text AS member_no, b.compulsory_deposit AS stored_balance,
+                           ROUND(COALESCE(f.cdopbal, 0)::numeric + COALESCE(l.net, 0)::numeric, 2) AS opening_plus_ledger ${base} ORDER BY b.mbno LIMIT ${SAMPLE}`,
+      },
+    ], 'Every member\'s RD/CD balance equals the opening balance plus the L1004 ledger');
   }
 
   async checkDuplicateRecords(): Promise<ConsistencyCheckResult> {

@@ -112,6 +112,24 @@ describe('admin/MemberFundsService', () => {
     const { svc } = mk(undefined, undefined);
     await expect(svc.updateBalances(987654321, { sharesInstallment: 5 } as any)).rejects.toThrow(NotFoundException);
   });
+  it('opening balances of an existing funds row cannot be changed (history from the legacy)', async () => {
+    const { svc, r } = mk({ dob: '1990-01-01' }, { memberNo: 5, compulsoryDepositOpeningBalance: 1000, sharesOpeningBalance: 50 });
+    await expect(svc.updateBalances(5, { compulsoryDepositOpeningBalance: 2000 } as any)).rejects.toThrow(/Opening balances cannot be changed/);
+    expect(r.save).not.toHaveBeenCalled();
+    // the same value sent back is fine
+    await expect(svc.updateBalances(5, { compulsoryDepositOpeningBalance: 1000, sharesInstallment: 9 } as any)).resolves.toBeDefined();
+  });
+  it('a changed RD/CD installment is also written to RD/CD Member Setup (new history row from the 1st of the month)', async () => {
+    const { svc, r } = mk({ dob: '1990-01-01' }, { memberNo: 5, compulsoryDepositInstallment: 200 });
+    r.manager.query = jest.fn(async (sql: string) => (/FROM yearend/.test(sql) ? [{ yearcode: 3 }] : /FROM rd_member_config/.test(sql) ? [{ amount: 200 }] : [{ dob: '1990-01-01' }]));
+    await svc.updateBalances(5, { compulsoryDepositInstallment: 500 } as any);
+    const ins = r.manager.query.mock.calls.find((c: any[]) => /INSERT INTO rd_member_config/.test(c[0]));
+    expect(ins[1]).toEqual(['5', 3, 500]); expect(ins[0]).toMatch(/MODIFY MEMBER BALANCE/);
+    // unchanged amount: nothing is written
+    r.manager.query.mockClear(); (r.findOne as jest.Mock).mockResolvedValue({ memberNo: 5, compulsoryDepositInstallment: 500 });
+    await svc.updateBalances(5, { compulsoryDepositInstallment: 500 } as any);
+    expect(r.manager.query.mock.calls.some((c: any[]) => /INSERT INTO rd_member_config/.test(c[0]))).toBe(false);
+  });
   it('updating existing funds merges into the row', async () => {
     const { svc } = mk({ dob: '1990-01-01' }, { memberNo: 5, sharesInstallment: 1 });
     expect(await svc.updateBalances(5, { sharesInstallment: 9 } as any)).toMatchObject({ sharesInstallment: 9 });

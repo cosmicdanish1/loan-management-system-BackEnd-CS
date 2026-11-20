@@ -5,6 +5,7 @@ import { RdRepaymentService } from '../../../src/modules/rd/services/rd-repaymen
 import { RdInterestCalculationService } from '../../../src/modules/rd/services/rd-interest-calculation.service';
 import { RdRulesService } from '../../../src/modules/rd/rd-rules.service';
 import { RD_RULE_DEFAULTS } from '../../../src/modules/rd/rd-business-rules';
+import { mkQr, seq } from './rd-repay-mocks';
 
 describe('rd/RdRulesService', () => {
   const mk = (rows: any[] | Error) => new RdRulesService({ query: jest.fn(async () => { if (rows instanceof Error) throw rows; return rows; }) } as any);
@@ -110,7 +111,9 @@ describe('rd/RdLienService', () => {
 describe('rd/RdRepaymentService', () => {
   const fy = { start_date: '2026-04-01', end_date: '2027-03-31' };
   function mk(o: { fy?: any[]; existing?: any[]; config?: any[]; closed?: any[]; member?: any[] } = {}) {
+    const qr = mkQr();
     const ds: any = {
+      qr, createQueryRunner: () => qr,
       query: jest.fn(async (sql: string) => {
         if (/FROM yearend/.test(sql)) return o.fy ?? [fy];
         if (/FROM rd_installment_ledger/.test(sql)) return o.existing ?? [];
@@ -120,7 +123,7 @@ describe('rd/RdRepaymentService', () => {
         return [];
       }),
     };
-    return { svc: new RdRepaymentService(ds), ds };
+    return { svc: new RdRepaymentService(ds, seq), ds };
   }
   it('pending: unknown year 404; 12 months from April, due on the 5th', async () => {
     await expect(mk({ fy: [] }).svc.getPendingInstallments('5', 3)).rejects.toThrow(NotFoundException);
@@ -154,38 +157,82 @@ describe('rd/RdRepaymentService', () => {
     const t = mk({ config: [{ monthly_rd_amount: '700' }] }); const r = await pay(t, 700);
     expect(r).toMatchObject({ dueDate: '2026-04-05', expectedAmount: 700, paidAmount: 700, status: 'PAID' });
   });
+  it('ES-508: posts one CD voucher with both ledger legs, the cash book line and the balance, in one transaction', async () => {
+    const t = mk({ config: [{ monthly_rd_amount: '700' }] }); const r: any = await pay(t, 700);
+    const sqls: string[] = t.ds.qr.query.mock.calls.map((c: any[]) => c[0]);
+    const count = (re: RegExp) => sqls.filter((s) => re.test(s)).length;
+    expect(count(/INSERT INTO vouchers/)).toBe(1);
+    expect(count(/INSERT INTO ledger/)).toBe(2);
+    expect(count(/INSERT INTO transactions/)).toBe(2);
+    expect(count(/INSERT INTO tblcashbook/)).toBe(1);
+    expect(count(/UPDATE member_balances/)).toBe(1);
+    expect(t.ds.qr.commitTransaction).toHaveBeenCalledTimes(1);
+    expect(r).toMatchObject({ voucherNo: 'VCH900', newBalance: 1000 });
+    const ledgerCalls = t.ds.qr.query.mock.calls.filter((c: any[]) => /INSERT INTO ledger/.test(c[0]));
+    expect(ledgerCalls.map((c: any[]) => [c[1][3], c[1][2]])).toEqual([['L1004', 'CR'], ['A1001', 'DR']]);
+    expect(ledgerCalls.every((c: any[]) => c[1][8] === 'CD')).toBe(true); // only the CD voucher type
+  });
+  it('ES-508: a second payment for the month adds to the first; a failed posting rolls everything back', async () => {
+    const t = mk({ config: [{ monthly_rd_amount: '700' }] }); await pay(t, 300);
+    expect(t.ds.qr.query.mock.calls.find((c: any[]) => /INSERT INTO rd_installment_ledger/.test(c[0]))[0]).toMatch(/paid_amount = rd_installment_ledger\.paid_amount \+ EXCLUDED\.paid_amount/);
+    const bad = mk({ config: [{ monthly_rd_amount: '700' }] });
+    bad.ds.qr.query.mockImplementation(async (sql: string) => { if (/UPDATE member_balances/.test(sql)) return [[], 0]; if (/INSERT INTO rd_installment_ledger/.test(sql)) return [{ paid_amount: '1', expected_amount: '1' }]; return []; });
+    await expect(pay(bad, 700)).rejects.toThrow(/no balance record/);
+    expect(bad.ds.qr.rollbackTransaction).toHaveBeenCalled(); expect(bad.ds.qr.commitTransaction).not.toHaveBeenCalled();
+  });
   it('a smaller payment is PARTIAL', async () => { expect((await pay(mk({ config: [{ monthly_rd_amount: '700' }] }), 300)).status).toBe('PARTIAL'); });
   it('a payment in a later month is flagged as arrear clearance, same month is not', async () => {
     const late = mk(); await pay(late, 500, 4, 2026, new Date(2026, 5, 3));
-    expect(late.ds.query.mock.calls.find((c: any[]) => /INSERT INTO rd_installment_ledger/.test(c[0]))[1][8]).toBe(true);
+    expect(late.ds.qr.query.mock.calls.find((c: any[]) => /INSERT INTO rd_installment_ledger/.test(c[0]))[1][8]).toBe(true);
     const ok = mk(); await pay(ok, 500, 4, 2026, new Date(2026, 3, 20));
-    expect(ok.ds.query.mock.calls.find((c: any[]) => /INSERT INTO rd_installment_ledger/.test(c[0]))[1][8]).toBe(false);
+    expect(ok.ds.qr.query.mock.calls.find((c: any[]) => /INSERT INTO rd_installment_ledger/.test(c[0]))[1][8]).toBe(false);
   });
 });
 
-describe('rd/RdInterestCalculationService', () => {
-  const mk = (o: { fy?: any[]; paid?: any[]; events?: any[]; auto?: boolean; rate?: number } = {}) => {
-    const ds: any = { query: jest.fn(async (sql: string) => (/FROM yearend/.test(sql) ? o.fy ?? [{ end_date: '2027-03-31' }] : /FROM rd_installment_ledger/.test(sql) ? o.paid ?? [] : /FROM rd_balance_events/.test(sql) ? o.events ?? [] : [])) };
+describe('rd/RdInterestCalculationService (ES-581: inputs come from the ledger)', () => {
+  // paid: deposits [{ d: 'YYYY-MM-DD', amt }], withdrawals likewise, opening = balance on the year's first day
+  const mk = (o: { fy?: any[]; paid?: any[]; withdrawals?: any[]; opening?: number; auto?: boolean; rate?: number } = {}) => {
+    const ds: any = {
+      query: jest.fn(async (sql: string) => {
+        if (/FROM yearend/.test(sql)) return o.fy ?? [{ s: '2026-04-01', e: '2027-03-31', end_date: '2027-03-31' }];
+        if (/AS opening/.test(sql)) return [{ opening: o.opening ?? 0 }];
+        if (/FROM ledger l/.test(sql)) return [...(o.paid ?? []).map((x: any) => ({ d: x.d, amt: x.amt, t: 'CR' })), ...(o.withdrawals ?? []).map((x: any) => ({ d: x.d, amt: x.amt, t: 'DR' }))];
+        return [];
+      }),
+    };
     const rules: any = { getRule: jest.fn().mockResolvedValue(o.rate ?? 12) };
     const pat: any = { evaluateMember: jest.fn().mockResolvedValue({ autoEligibleFullInterest: o.auto ?? true }) };
     return { svc: new RdInterestCalculationService(ds, rules, pat), pat };
   };
   it('unknown financial year: 404', async () => { await expect(mk({ fy: [] }).svc.getFinancialYearEndDate(3)).rejects.toThrow(NotFoundException); });
-  it('only fully paid installments earn interest, using the pattern eligibility', async () => {
-    const t = mk({ paid: [{ due_date: '2026-04-01', paid_date: '2026-06-10', paid_amount: '1000' }] });
-    expect((await t.svc.calculateInstallmentInterest('5', 3)).totalInterest).toBe(120);
-    expect((await mk({ paid: [{ due_date: '2026-04-01', paid_date: '2026-06-10', paid_amount: '1000' }], auto: false }).svc.calculateInstallmentInterest('5', 3)).totalInterest).toBe(100);
+  it('a deposit earns from the month it was actually received: April = 12 months ... March = 1 (rate 12%)', async () => {
+    expect((await mk({ paid: [{ d: '2026-04-10', amt: 1000 }] }).svc.calculateInstallmentInterest('5', 3)).totalInterest).toBe(120);
+    expect((await mk({ paid: [{ d: '2027-03-10', amt: 1200 }] }).svc.calculateInstallmentInterest('5', 3)).totalInterest).toBe(12);
   });
-  it('an explicit override beats the automatic pattern result', async () => {
-    const t = mk({ paid: [{ due_date: '2026-04-01', paid_date: '2026-06-10', paid_amount: '1000' }], auto: false });
-    expect((await t.svc.calculateInstallmentInterest('5', 3, true)).totalInterest).toBe(120);
+  it('pattern eligibility no longer changes the amount (who earns is an owner decision, ES-582)', async () => {
+    const paid = [{ d: '2026-04-10', amt: 1000 }];
+    expect((await mk({ paid, auto: false }).svc.calculateInstallmentInterest('5', 3)).totalInterest).toBe(120);
+    expect((await mk({ paid, auto: false }).svc.calculateInstallmentInterest('5', 3, true)).totalInterest).toBe(120);
   });
-  it('opening balance interest comes from the balance events', async () => {
-    const t = mk({ events: [{ event_date: '2026-04-01', event_type: 'OPENING', resulting_balance: '10000' }] });
-    expect((await t.svc.calculateOpeningBalanceInterest('5', 3)).totalInterest).toBe(1200);
+  it('opening balance interest = ledger opening x rate; a withdrawal lowers the base from its month; never negative', async () => {
+    const dep = [{ d: '2026-04-10', amt: 100 }];
+    expect((await mk({ opening: 10000, paid: dep }).svc.calculateOpeningBalanceInterest('5', 3)).totalInterest).toBe(1200);
+    // ES-582: a member who did not deposit this year earns nothing (legacy rule)
+    expect((await mk({ opening: 10000 }).svc.calculateOpeningBalanceInterest('5', 3)).totalInterest).toBe(0);
+    // ...but any movement counts: the legacy also paid members whose only RD/CD rows were monthly debits
+    expect((await mk({ opening: 10000, withdrawals: [{ d: '2026-04-15', amt: 25 }] }).svc.calculateOpeningBalanceInterest('5', 3)).totalInterest).toBeGreaterThan(1000);
+    const w = (await mk({ opening: 10000, paid: dep, withdrawals: [{ d: '2026-10-05', amt: 4000 }] }).svc.calculateOpeningBalanceInterest('5', 3)).totalInterest;
+    expect(w).toBeLessThan(1200); expect(w).toBeGreaterThan(0);
+    expect((await mk({ opening: 0, paid: dep, withdrawals: [{ d: '2026-10-05', amt: 4000 }] }).svc.calculateOpeningBalanceInterest('5', 3)).totalInterest).toBe(0);
+  });
+  it('the year bounds and the ledger opening are read for the member', async () => {
+    const t = mk({ opening: 777 });
+    expect(await t.svc.getLedgerOpeningBalance('5', 3)).toBe(777);
+    expect(await t.svc.getFinancialYearBounds(3)).toEqual({ start: '2026-04-01', end: '2027-03-31' });
+    await expect(mk({ fy: [] }).svc.getFinancialYearBounds(3)).rejects.toThrow(NotFoundException);
   });
   it('preview = installment interest + opening balance interest, rounded to paise', async () => {
-    const t = mk({ paid: [{ due_date: '2026-04-01', paid_date: '2026-04-05', paid_amount: '333' }], events: [{ event_date: '2026-04-01', event_type: 'OPENING', resulting_balance: '1001' }] });
+    const t = mk({ paid: [{ d: '2026-04-05', amt: 333 }], opening: 1001 });
     const r = await t.svc.previewTotalInterest('5', 3); expect(r.totalInterest).toBe(Math.round((r.installmentInterest.totalInterest + r.openingBalanceInterest.totalInterest) * 100) / 100); expect(r.fullInterestEligible).toBe(true);
   });
 });

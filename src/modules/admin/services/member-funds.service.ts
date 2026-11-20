@@ -99,6 +99,29 @@ export class MemberFundsService {
 
         let funds = await this.fundsRepository.findOne({ where: { memberNo } });
 
+        // Opening balances are history carried in from the legacy (the RD/CD year-end interest and the ledger opening are
+        // worked out from them). They cannot be changed once the member has a funds row; a brand-new row may set them.
+        if (funds) {
+            const openingFields: Array<keyof UpdateMemberFundsDto> = [
+                'sharesOpeningBalance', 'monthlyContributionOpeningBalance', 'compulsoryDepositOpeningBalance', 'rlnOpBal', 'elnOpBal',
+            ];
+            const changed = openingFields.filter(
+                (k) => updateDto[k] !== undefined && Math.abs(Number(updateDto[k]) - Number((funds as any)[k] ?? 0)) > 0.004,
+            );
+            if (changed.length > 0) {
+                throw new BadRequestException(
+                    `Opening balances cannot be changed here (${changed.join(', ')}). They are the balances carried in from the previous system.`,
+                );
+            }
+            for (const k of openingFields) delete (updateDto as any)[k];
+        }
+
+        // The RD/CD monthly amount lives in RD/CD Member Setup too (it is what the RD/CD windows and the demand use), so a
+        // changed CD installment is written there as well, effective from the 1st of this month, as a new history row.
+        const newCdAmount = updateDto.compulsoryDepositInstallment;
+        const cdChanged = newCdAmount !== undefined && Number(newCdAmount) > 0
+            && Math.abs(Number(newCdAmount) - Number((funds as any)?.compulsoryDepositInstallment ?? 0)) > 0.004;
+
         if (!funds) {
             // A row may only be created for a real member (ES-300): otherwise any member number makes an orphan row
             const real = await this.fundsRepository.manager.query(`SELECT 1 FROM member_master WHERE mbno = $1`, [memberNo]);
@@ -113,6 +136,25 @@ export class MemberFundsService {
 
         const saved = await this.fundsRepository.save(funds);
         this.logger.log(`[MemberFunds] Saved fundsmaster for mbno=${memberNo}`);
+
+        if (cdChanged) {
+            const manager = this.fundsRepository.manager;
+            const yr = await manager.query(`SELECT yearcode FROM yearend WHERE start_date <= CURRENT_DATE AND end_date >= CURRENT_DATE LIMIT 1`);
+            if (yr?.[0]?.yearcode != null) {
+                const latest = await manager.query(
+                    `SELECT monthly_rd_amount::float AS amount FROM rd_member_config WHERE mbno::numeric = $1::numeric AND yearcode = $2
+                      ORDER BY effective_from_date DESC, id DESC LIMIT 1`,
+                    [memberNo, yr[0].yearcode],
+                );
+                if (!(Math.abs(Number(latest?.[0]?.amount ?? -1) - Number(newCdAmount)) < 0.004)) {
+                    await manager.query(
+                        `INSERT INTO rd_member_config (mbno, yearcode, monthly_rd_amount, effective_from_date, set_by)
+                         VALUES ($1, $2, $3, date_trunc('month', CURRENT_DATE)::date, 'MODIFY MEMBER BALANCE')`,
+                        [String(memberNo), yr[0].yearcode, newCdAmount],
+                    );
+                }
+            }
+        }
         return saved;
     }
 }
