@@ -284,7 +284,35 @@ export class LoanRepaymentService {
         }
     }
 
-    private async getLoanPenaltyPolicy(runner: DataSource | QueryRunner, loantype?: string): Promise<LoanPenaltyPolicy> {
+    /**
+     * A penal rate set for THIS loan by the sanctioning officer (loan_master.penal_override, with a reason recorded at
+     * sanction). NULL / missing column = no exception, Business Rules apply. loan_master.penalrate is deliberately not
+     * used for this: it is a snapshot and holds 0.00 on most migrated loans.
+     */
+    private penalOverrideColumnReady = false;
+
+    private async getLoanPenalOverride(runner: DataSource | QueryRunner, loancaseno?: string): Promise<number | null> {
+        if (!loancaseno) return null;
+        try {
+            // Checked first (not caught afterwards): a failed query would abort an open transaction.
+            if (!this.penalOverrideColumnReady) {
+                const col = await runner.query(
+                    `SELECT 1 FROM information_schema.columns WHERE table_name = 'loan_master' AND column_name = 'penal_override' LIMIT 1`);
+                if (col.length === 0) return null;      // migration pending: Business Rules apply
+                this.penalOverrideColumnReady = true;
+            }
+            const rows = await runner.query(`SELECT penal_override FROM loan_master WHERE loancaseno::text = $1 LIMIT 1`, [String(loancaseno)]);
+            const v = rows[0]?.penal_override;
+            if (v === null || v === undefined) return null;
+            const n = Number(v);
+            return Number.isFinite(n) && n >= 0 ? n : null;
+        } catch {
+            return null;   // column not created yet (migration pending): Business Rules apply
+        }
+    }
+
+    private async getLoanPenaltyPolicy(runner: DataSource | QueryRunner, loantype?: string, loancaseno?: string): Promise<LoanPenaltyPolicy> {
+        const penalOverride = await this.getLoanPenalOverride(runner, loancaseno);
         const configRows = await runner.query(
             `SELECT key, value FROM system_configs
              WHERE key = ANY($1) AND "isActive" = true`,
@@ -311,7 +339,7 @@ export class LoanRepaymentService {
         const parsedRate = Number.isFinite(typeRate) && row[typeColumn as string] !== null ? typeRate : regularRate;
         return {
             enabled,
-            annualRate: Number.isFinite(parsedRate) && parsedRate > 0 ? parsedRate : 0,
+            annualRate: penalOverride !== null ? penalOverride : (Number.isFinite(parsedRate) && parsedRate > 0 ? parsedRate : 0),
             activationDate: activationDate && !Number.isNaN(activationDate.getTime()) ? activationDate : null,
         };
     }
@@ -621,7 +649,7 @@ export class LoanRepaymentService {
         const loanAmt = scheduleVersion ? parseFloat(String(scheduleVersion.opening_principal)) : (parseFloat(loan.loan_amt) || 0);
         const noOfInstal = scheduleVersion ? parseInt(String(scheduleVersion.installment_count), 10) : (parseInt(loan.no_of_instal, 10) || 0);
         const instalAmt = scheduleVersion ? parseFloat(String(scheduleVersion.monthly_installment)) : (parseFloat(loan.instal_amt) || 0);
-        const penaltyPolicy = await this.getLoanPenaltyPolicy(queryRunner, loan.loantype);
+        const penaltyPolicy = await this.getLoanPenaltyPolicy(queryRunner, loan.loantype, loancaseno);
         const penalRateAnnual = penaltyPolicy.annualRate;
         const graceDayOfMonth = await this.getEffectiveGraceDay(queryRunner, loan);
         const sameMonthPenalPct = parseFloat(loan.smpenalpct) || 0;
@@ -1953,7 +1981,7 @@ export class LoanRepaymentService {
         try {
             await this.assertLedgerReconciled(queryRunner, loancaseno, loan);
             const scheduleVersion = await this.getCurrentScheduleVersion(queryRunner, loancaseno, loan, asOf);
-            const penaltyPolicy = await this.getLoanPenaltyPolicy(queryRunner, loan.loantype);
+            const penaltyPolicy = await this.getLoanPenaltyPolicy(queryRunner, loan.loantype, loancaseno);
             const allDueInstallments = await this.getInstallmentStatus(queryRunner, loancaseno, loan, asOf);
             // ES-522: the installment of the closure month is NOT overdue while the closure date is inside its grace
             // period: it is one of the remaining installments (averaged with the future ones) and carries no flat

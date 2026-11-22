@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { isRealDate } from './ledger-types';
 import { DataSource } from 'typeorm';
 import { parseSafeDate } from '../../shared/utils/date-utils';
@@ -11,7 +11,7 @@ import { LoanRepaymentService } from '../../loan/services-v2/loan-repayment.serv
  * Extracted from report.service.ts for single responsibility
  */
 @Injectable()
-export class LoanReportsService {
+export class LoanReportsService implements OnModuleInit, OnModuleDestroy {
   // The overdue test runs the loan due/penalty engine for every candidate loan, so one computed list is
   // reused for a short while (the screen asks for a page, then for everything, in quick succession).
   // Several lists (by minimum balance / loan type) are kept. A list younger than FRESH is served as is; an older one is
@@ -26,6 +26,42 @@ export class LoanReportsService {
     private readonly dataSource: DataSource,
     private readonly repayment: LoanRepaymentService,
   ) { }
+
+  // ES-616: the first call of the day (or after a restart) used to run the whole 15-40 s calculation while the Dashboard
+  // waited, and the Dashboard gave up after 30 s. The default list (no minimum balance, all loan types) is now calculated
+  // in the background shortly after start and again every few minutes, so it is always ready.
+  private warmTimer?: NodeJS.Timeout;
+  private warmInterval?: NodeJS.Timeout;
+  private readonly warmLogger = new Logger('DefaulterWarmUp');
+
+  onModuleInit() {
+    this.warmTimer = setTimeout(() => void this.warmDefaulters(), 20_000);
+    this.warmInterval = setInterval(() => void this.warmDefaulters(), 4 * 60_000);
+    this.warmTimer.unref?.();
+    this.warmInterval.unref?.();
+  }
+
+  onModuleDestroy() {
+    if (this.warmTimer) clearTimeout(this.warmTimer);
+    if (this.warmInterval) clearInterval(this.warmInterval);
+  }
+
+  /** Recalculates the default defaulter list unless a run is already going; never throws. */
+  private async warmDefaulters(): Promise<void> {
+    try {
+      const key = `0||${new Date().toDateString()}`;
+      let run = this.defaulterRuns.get(key);
+      if (!run) {
+        run = this.runDefaulters(key, 0, undefined).finally(() => this.defaulterRuns.delete(key));
+        this.defaulterRuns.set(key, run);
+      }
+      const started = Date.now();
+      await run;
+      this.warmLogger.log(`Defaulter list ready (${Date.now() - started} ms)`);
+    } catch (err: any) {
+      this.warmLogger.warn(`Defaulter warm-up failed: ${err?.message}`);
+    }
+  }
 
   /**
    * Defaulter list (ES-184).

@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException, HttpException } from '@nestjs/common';
 import { parseSafeDate, parseBusinessDate } from '../../shared/utils/date-utils';
+import { resolvePostingDate, postingDateAsDate } from '../../shared/utils/posting-date';
 import { DataSource } from 'typeorm';
 import { SequenceGeneratorService } from '../../shared/services';
 import { SystemConfigService } from '../../admin/services/system-config.service';
@@ -113,8 +114,10 @@ export class LoanApplicationService {
         if (isSurety(surety1Text) && surety1Text === surety2Text) {
             throw new BadRequestException('The same member cannot be both sureties.');
         }
-        // ES-317: an application date that is sent must be a real date (parseSafeDate refuses garbage with 400)
-        const appDate = loanData.applDate ? parseBusinessDate(loanData.applDate, 'Application date') : new Date();
+        // The application is dated by the client's Date setting for this window (Day End > Date settings): the Day-End
+        // WORKING date by default (as in the legacy system), or the real date of the day. A date sent by the screen is
+        // ignored. It is stored at midnight, like the legacy APP_DATE.
+        const appDate = postingDateAsDate((await resolvePostingDate(this.dataSource, 'LOAN_APP')).date);
         // ES-317: the borrower, both sureties and the loan type must exist
         const memberCheck = await this.dataSource.query(`SELECT 1 FROM member_master WHERE mbno::text = $1 LIMIT 1`, [borrowerText]);
         if (memberCheck.length === 0) throw new BadRequestException(`Member ${borrowerText || '(none)'} was not found.`);
@@ -179,7 +182,7 @@ export class LoanApplicationService {
                     UPDATE loan_pending SET
                         loantype    = $1,
                         applied_amt = $2,
-                        app_date    = $3,
+                        app_date    = COALESCE(app_date, $3),
                         no_of_instal = $4,
                         purpose     = $5,
                         form_number = $6,

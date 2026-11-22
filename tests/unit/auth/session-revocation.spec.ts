@@ -23,7 +23,7 @@ function world() {
     decode: jest.fn((t: string) => tokens.get(t) ?? null),
   };
   const config: any = { get: jest.fn((k: string, d?: any) => ({ JWT_SECRET: 's', JWT_REFRESH_SECRET: 'r' } as any)[k] ?? d) };
-  const loginRepo: any = { findOne: jest.fn(async () => null), save: jest.fn(), create: jest.fn((x) => x) };
+  const loginRepo: any = { findOne: jest.fn(async () => null), find: jest.fn(async () => []), save: jest.fn(), create: jest.fn((x) => x) };
   const svc = new AuthService(repo, {} as any, loginRepo, {} as any, {} as any, {} as any, jwt, config, {} as any, { assertNotReused: async () => undefined, recordHash: async () => undefined, recordCurrent: async () => undefined } as any);
   const strategy = new JwtStrategy(repo, { get: () => 's' } as any);
   const isAccessValid = async (token: string) => {

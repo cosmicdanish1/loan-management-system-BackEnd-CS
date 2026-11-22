@@ -92,6 +92,6 @@ describe('sanction against the Business Rules card limits (ES-318)', () => {
   it('an empty card (0) or a card that cannot be read does not block a sanction; an unknown loan type has no card', async () => {
     await expect(mk({ max_amt: 0, max_inst: 0 }).svc.updateLoanSanction('7', sd())).resolves.toBeDefined();
     await expect(mk(new Error('no column')).svc.updateLoanSanction('7', sd())).resolves.toBeDefined();
-    const t = mk({ max_amt: 1 }, 'ZZZ'); await t.svc.updateLoanSanction('7', sd()); expect(t.ds.query.mock.calls.some((c: any[]) => /FROM busrules/.test(c[0]))).toBe(false);
+    const t = mk({ max_amt: 1 }, 'ZZZ'); await t.svc.updateLoanSanction('7', sd()); expect(t.ds.query.mock.calls.some((c: any[]) => /AS max_amt/.test(c[0]) && /FROM busrules/.test(c[0]))).toBe(false);
   });
 });

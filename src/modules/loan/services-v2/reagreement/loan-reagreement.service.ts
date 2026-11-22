@@ -8,6 +8,7 @@ import { RdLienService } from '../../../rd/services/rd-lien.service';
 import { RdBalanceEventsService } from '../../../rd/services/rd-balance-events.service';
 import { RdRulesService } from '../../../rd/rd-rules.service';
 import { LOAN_INTEREST_METHOD } from '../loan-payment-model';
+import { MAX_OVERRIDE_PERCENT, resolveLoanRateDefaults } from '../loan-rate-defaults.util';
 import { interestHeadForLoanType } from '../../loan-interest-heads';
 import {
     calculateConstantEmi,
@@ -603,11 +604,31 @@ export class LoanReagreementService {
     // ======================================================================
     // Sanction  (called from LoanSanctionService.updateLoanSanction for re-agreement cases)
     // ======================================================================
-    async sanction(caseNo: string, data: { noOfInstallments: number; rate: number; sanctionDate?: any; sanctionedAmount?: any }, ctx: ReagreementContext) {
+    async sanction(caseNo: string, data: { noOfInstallments: number; rate: number; sanctionDate?: any; sanctionedAmount?: any; penalRate?: any; rateOverrideReason?: any }, ctx: ReagreementContext) {
         const ra = await this.getRowByNewCase(this.dataSource, caseNo);
         if (!ra) throw new NotFoundException(`Re-agreement for case ${caseNo} not found`);
         if (!['APPLIED', 'SANCTIONED'].includes(ra.status)) {
             throw new BadRequestException(`Re-agreement ${ra.reagreement_no} is ${ra.status}; it can no longer be sanctioned`);
+        }
+
+        // Penalty: Business Rules by default; the officer may set another rate for this one loan (a reason is required).
+        // Only a rate that differs from Business Rules is kept as an exception; the same value clears any exception.
+        // Not sent (older client) = leave as it is.
+        let penalOverride: { set: boolean; rate: number | null; reason: string | null } = { set: false, rate: null, reason: null };
+        if (data.penalRate !== undefined && data.penalRate !== null && data.penalRate !== '') {
+            const penalIn = Number(data.penalRate);
+            if (!Number.isFinite(penalIn) || penalIn < 0 || penalIn > MAX_OVERRIDE_PERCENT) {
+                throw new BadRequestException(`Penalty rate must be a number from 0 up to ${MAX_OVERRIDE_PERCENT}.`);
+            }
+            const defaults = await resolveLoanRateDefaults(this.dataSource, String(ra.loantype));
+            if (Math.abs(penalIn - defaults.penalRate) > 0.0001) {
+                const reason = String(data.rateOverrideReason ?? '').trim();
+                if (!reason) throw new BadRequestException('Give a reason when the penalty rate differs from Business Rules for this customer.');
+                if (reason.length > 200) throw new BadRequestException('The reason for the penalty change can be at most 200 characters.');
+                penalOverride = { set: true, rate: penalIn, reason };
+            } else {
+                penalOverride = { set: true, rate: null, reason: null };
+            }
         }
         const quote = await this.buildQuote({
             mbno: String(ra.mbno), loancaseno: String(ra.old_loancaseno), loantype: ra.loantype,
@@ -642,9 +663,16 @@ export class LoanReagreementService {
                 `UPDATE loan_pending SET sanctioned_amt = $2, applied_amt = $2, sanctioned_date = $3::date, no_of_instal = $4, rate = $5, flg_sanctioned = 'Y'
                  WHERE loancaseno::text = $1 AND application_kind = 'REAGREEMENT'`,
                 [String(caseNo), pos.outstandingPrincipal, sanctionDate, neu.installments, neu.rate]);
+            if (penalOverride.set) {
+                await qr.query(
+                    `UPDATE loan_pending SET penalrate = $2, rate_override_reason = $3, rate_override_by = $4
+                     WHERE loancaseno::text = $1 AND application_kind = 'REAGREEMENT'`,
+                    [String(caseNo), penalOverride.rate, penalOverride.reason, penalOverride.reason ? String(ctx.actor || 'system').slice(0, 100) : null]);
+            }
             await this.writeLog(qr, ra.id, ra.status === 'SANCTIONED' ? 'SANCTION_CHANGED' : 'SANCTIONED', ra.status, 'SANCTIONED', ctx, {
                 before: { tenure: ra.new_installment_count, rate: num(ra.new_rate), emi: num(ra.new_monthly_installment) },
-                after: { tenure: neu.installments, rate: neu.rate, emi: neu.monthlyInstallment },
+                after: { tenure: neu.installments, rate: neu.rate, emi: neu.monthlyInstallment,
+                    ...(penalOverride.set ? { penalRate: penalOverride.rate ?? 'Business Rules', penalReason: penalOverride.reason } : {}) },
             });
             await qr.commitTransaction();
         } catch (e) {
@@ -826,6 +854,15 @@ export class LoanReagreementService {
             [mbno, ra.loantype, newCase, todayStr, neu.firstDueMonth, pos.outstandingPrincipal, neu.monthlyPrincipal, neu.installments,
                 neu.monthlyInstallment, neu.rate, neu.delayMonths, oldCase, ra.id, neu.carriedInterest]);
         await persistRbSchedule(qr, newCase, mbno, ra.loantype, calc.rbSchedule);
+
+        // a penal rate the sanctioning officer set for this re-agreement (with a reason) becomes this loan's own exception;
+        // otherwise Business Rules keep applying (the copied penalrate above is only a snapshot)
+        const lpOverride = await qr.query(
+            `SELECT penalrate, rate_override_reason FROM loan_pending WHERE loancaseno::text = $1 AND application_kind = 'REAGREEMENT' LIMIT 1`,
+            [String(newCase)]);
+        if (lpOverride[0] && lpOverride[0].penalrate !== null && String(lpOverride[0].rate_override_reason ?? '').trim() !== '') {
+            await qr.query(`UPDATE loan_master SET penal_override = $1 WHERE loancaseno::text = $2`, [num(lpOverride[0].penalrate), String(newCase)]);
+        }
 
         // old EMI may still be deducted from salary for the delay months -> reuse the payroll-lag mechanism
         const watchUntil = new Date(today);

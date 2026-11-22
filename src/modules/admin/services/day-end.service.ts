@@ -8,6 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Cron } from '@nestjs/schedule';
+import { systemDateText } from '../../shared/utils/posting-date';
 import {
   DayEndProcess,
   DayEndStatus,
@@ -200,7 +201,7 @@ export class DayEndService {
   async getCurrentDayEndSummary(): Promise<any> {
     try {
       const workingDateResult = await this.dataSource.query(`
-        SELECT working_date, payment_voucher, receipt_voucher, journal_voucher, dayend_flag
+        SELECT working_date, working_date::date::text AS d, payment_voucher, receipt_voucher, journal_voucher, dayend_flag
         FROM getworkingdate
         WHERE dayend_flag = 'N'
         ORDER BY working_date DESC
@@ -208,7 +209,7 @@ export class DayEndService {
       `);
 
       const lastCompletedResult = await this.dataSource.query(`
-        SELECT working_date, payment_voucher, receipt_voucher, journal_voucher
+        SELECT working_date, working_date::date::text AS d, payment_voucher, receipt_voucher, journal_voucher
         FROM getworkingdate
         WHERE dayend_flag = 'Y'
         ORDER BY working_date DESC
@@ -229,7 +230,8 @@ export class DayEndService {
       const closingBalance = openingBalance + totalCredit - totalDebit;
 
       return {
-        date: workingDate.toISOString().split('T')[0],
+        // ES-625: read as text. toISOString() on a local-midnight Date printed the day BEFORE the open day.
+        date: currentRow?.d ?? systemDateText(),
         openingBalance: Number(openingBalance.toFixed(2)),
         totalCredit: Number(totalCredit.toFixed(2)),
         totalDebit: Number(totalDebit.toFixed(2)),

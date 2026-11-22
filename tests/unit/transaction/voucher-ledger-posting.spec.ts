@@ -109,13 +109,14 @@ describe('transaction/LedgerPostingService (demand posting)', () => {
     const [m] = await mk([row()]).svc.getSummary({ month: 'MAR', year: '2026', branch: '' });
     expect(m.heads.map((h: any) => [h.code, h.demandSend])).toEqual([['PRINCIPAL', 600], ['INTEREST', 300], ['SAVINGS', 100]]); expect(m).toMatchObject({ totalSend: 1000, totalReceived: 1000, totalShort: 0 });
   });
-  it('a short recovery is spread over the heads in proportion', async () => {
-    const [m] = await mk([row({ balance_for_month: '100' })]).svc.getSummary({ month: 'MAR', year: '2026', branch: '' }); expect(m.totalShort).toBeCloseTo(100, 6); expect(m.heads[0].shortRecovery).toBeCloseTo(60, 6);
+  // ES-624: balance_for_month is the unpaid amount of the month (total until the month is posted), not a short recovery
+  it('the unpaid balance of a month waiting to be posted is not read as a short recovery', async () => {
+    const [m] = await mk([row({ balance_for_month: '100' })]).svc.getSummary({ month: 'MAR', year: '2026', branch: '' }); expect(m.totalShort).toBe(0); expect(m.heads[0].shortRecovery).toBe(0); expect(m.totalReceived).toBe(m.totalSend);
   });
   it('a demand without a split is treated as principal', async () => {
     const [m] = await mk([row({ principal: 0, interest: 0, savings: 0 })]).svc.getSummary({ month: 'MAR', year: '2026', branch: '' }); expect(m.heads).toHaveLength(1); expect(m.heads[0]).toMatchObject({ code: 'PRINCIPAL', demandSend: 1000 });
   });
-  it('a short recovery above the demand cannot make the received amount negative', async () => {
+  it('an unpaid balance above the demand cannot make the received amount negative', async () => {
     const [m] = await mk([row({ balance_for_month: '5000' })]).svc.getSummary({ month: 'MAR', year: '2026', branch: '' }); expect(m.totalReceived).toBeGreaterThanOrEqual(0);
   });
   it('only unposted demands of the month are read and the branch is a bound parameter', async () => {

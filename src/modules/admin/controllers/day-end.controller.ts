@@ -10,6 +10,7 @@ import {
   ParseIntPipe,
   DefaultValuePipe,
   HttpStatus,
+  Put,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -27,6 +28,7 @@ import { RequirePermissions } from '../../auth/decorators/permissions.decorator'
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { UserRole, UserPermission } from '../../auth/entities/user.entity';
 import { DayEndService } from '../services/day-end.service';
+import { DatePolicyService } from '../services/date-policy.service';
 import {
   InitiateDayEndDto,
   DayEndProcessResponseDto,
@@ -45,7 +47,7 @@ import { RequireMenuAction } from '../../auth/guards/menu-right.guard';
 @UseGuards(JwtAuthGuard, RoleGuard, PermissionsGuard)
 @Controller('admin/day-end')
 export class DayEndController {
-  constructor(private readonly dayEndService: DayEndService) { }
+  constructor(private readonly dayEndService: DayEndService, private readonly datePolicy: DatePolicyService) { }
 
   @RequireMenuAction('DAY_END')
   @Post('initiate')
@@ -99,6 +101,56 @@ export class DayEndController {
   @ApiOperation({ summary: 'Reset a mis-set initial working date (only before any day-end has completed)' })
   async resetWorkingDate() {
     return this.dayEndService.resetWorkingDate();
+  }
+
+  // ---- Date settings: per window, the Day-End working date (default) or the real date of the day ----
+  @RequireMenuAction('DAY_END')
+  @Get('date-policy')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Date settings: every configurable window with its mode (WORKING or SYSTEM)' })
+  async getDatePolicy() {
+    return { windows: await this.datePolicy.list() };
+  }
+
+  @RequireMenuAction('DAY_END')
+  @Put('date-policy')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Save date settings (a list of { windowKey, mode }); every change is logged' })
+  async saveDatePolicy(@Body('changes') changes: any, @CurrentUser() user: any) {
+    return this.datePolicy.save(changes, user?.username || 'admin', 'screen');
+  }
+
+  @RequireMenuAction('DAY_END')
+  @Get('date-policy/export')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Export the date settings as a file' })
+  async exportDatePolicy() {
+    return this.datePolicy.exportFile();
+  }
+
+  @RequireMenuAction('DAY_END')
+  @Post('date-policy/import/preview')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Check an exported date-settings file and say what it would change (writes nothing)' })
+  async previewDatePolicyImport(@Body('file') file: any) {
+    return this.datePolicy.previewImport(file);
+  }
+
+  @RequireMenuAction('DAY_END')
+  @Post('date-policy/import')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Apply an exported date-settings file' })
+  async importDatePolicy(@Body('file') file: any, @CurrentUser() user: any) {
+    const preview = await this.datePolicy.previewImport(file);
+    return this.datePolicy.save(preview.changes, user?.username || 'admin', 'import');
+  }
+
+  @RequireMenuAction('DAY_END')
+  @Get('date-policy/history')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Who changed which window, and when' })
+  async datePolicyHistory() {
+    return { history: await this.datePolicy.history() };
   }
 
   @Get('processes')

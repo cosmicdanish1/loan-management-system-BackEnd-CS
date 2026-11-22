@@ -153,6 +153,8 @@ export const MENU_ACTION_MAP: MenuActionEntry[] = [
   { action: 'RD_WITHDRAWAL', menuid: 247, title: 'RD/CD Withdrawal' },
   { action: 'RD_REPAYMENT', menuid: 248, title: 'RD/CD Repayment' },
   { action: 'RD_FY_CLOSING', menuid: 249, title: 'RD/CD Financial Year Closing' },
+  // Bulk CD charge (debits members' Compulsory Deposit, credits a head); the counterpart of RD/CD Transaction
+  { action: 'COMPULSORY_DEPOSIT_LEGACY', menuid: 250, title: 'RD/CD Transaction Legacy' },
 ];
 
 export const MENUID_TO_ACTION: ReadonlyMap<number, string> = new Map(

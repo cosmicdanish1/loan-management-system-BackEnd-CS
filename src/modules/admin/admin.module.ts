@@ -23,6 +23,7 @@ import { SaakhScoreController } from './controllers/saakh-score.controller';
 import { UserManagementService } from './services/user-management.service';
 import { SystemConfigService } from './services/system-config.service';
 import { DayEndService } from './services/day-end.service';
+import { DatePolicyService } from './services/date-policy.service';
 import { BackupService } from './services/backup.service';
 import { CertificateTemplateService } from './services/certificate-template.service';
 import { PassbookTemplateService } from './services/passbook-template.service';
@@ -108,6 +109,7 @@ import { Member } from '../member/entities/member.entity';
     UserManagementService,
     SystemConfigService,
     DayEndService,
+    DatePolicyService,
     BackupService,
     CertificateTemplateService,
     PassbookTemplateService,
@@ -128,6 +130,7 @@ import { Member } from '../member/entities/member.entity';
     UserManagementService,
     SystemConfigService,
     DayEndService,
+    DatePolicyService,
     BackupService,
     CertificateTemplateService,
     PassbookTemplateService,

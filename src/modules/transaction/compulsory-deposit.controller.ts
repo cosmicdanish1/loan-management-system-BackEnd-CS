@@ -21,6 +21,20 @@ export class CompulsoryDepositController {
         return this.cdService.getIncomeHeads();
     }
 
+    @Get('charge-heads')
+    @ApiOperation({ summary: 'Heads a CD charge can be credited to' })
+    async getChargeHeads() {
+        return this.cdService.getChargeHeads();
+    }
+
+    @RequireMenuAction('COMPULSORY_DEPOSIT_LEGACY')
+    @Post('charge')
+    @ApiOperation({ summary: "Bulk CD charge: debit each member's Compulsory Deposit, credit the head (RD/CD Transaction Legacy)" })
+    async postCharge(@Body() dto: PostCDTransactionDto, @Request() req: any) {
+        const username = req.user?.username || 'admin';
+        return this.cdService.postCDInterestAction(dto, username, 'charge');
+    }
+
     @RequireMenuAction('COMPULSORY_DEPOSIT_TRANSACTION') // ES-464
     @Post('post')
     @ApiOperation({ summary: 'Execute bulk CD interest/incentive posting' })

@@ -38,20 +38,22 @@ describe('LedgerPostingService summary', () => {
     expect(dataSource.query).not.toHaveBeenCalled();
   });
 
-  it('splits each member demand into send, received and short recovery', async () => {
-    const { service } = build();
+  // ES-624: balance_for_month is the UNPAID amount (the importer / generator set it to the total, posting clears it), not
+  // a short recovery. A month waiting to be posted has balance = total, and the amounts posted are what payroll recovered.
+  it('ES-624: the payroll amount of a month waiting to be posted is entirely received, even though balance_for_month still holds the unpaid total', async () => {
+    const { service } = build([summaryRow({ balance_for_month: '1000' })]);
     const [member] = await service.getSummary({ month: 'JAN', year: '2026', branch: '' });
 
     expect(member.memberNo).toBe('1001');
     expect(member.memberName).toBe('Asha Patil');
     expect(member.heads).toEqual([
-      { code: 'PRINCIPAL', headName: 'Loan Principal', balance: 420, demandSend: 700, demandReceived: 280, shortRecovery: 420 },
-      { code: 'INTEREST', headName: 'Loan Interest', balance: 120, demandSend: 200, demandReceived: 80, shortRecovery: 120 },
-      { code: 'SAVINGS', headName: 'Savings Contribution', balance: 60, demandSend: 100, demandReceived: 40, shortRecovery: 60 },
+      { code: 'PRINCIPAL', headName: 'Loan Principal', balance: 0, demandSend: 700, demandReceived: 700, shortRecovery: 0 },
+      { code: 'INTEREST', headName: 'Loan Interest', balance: 0, demandSend: 200, demandReceived: 200, shortRecovery: 0 },
+      { code: 'SAVINGS', headName: 'Savings Contribution', balance: 0, demandSend: 100, demandReceived: 100, shortRecovery: 0 },
     ]);
     expect(member.totalSend).toBe(1000);
-    expect(member.totalReceived).toBe(400);
-    expect(member.totalShort).toBe(600);
+    expect(member.totalReceived).toBe(1000); // the window posts only when send = received, so this month can be posted
+    expect(member.totalShort).toBe(0);
   });
 
   it('falls back to the total demand as principal when the component columns are empty', async () => {
@@ -126,6 +128,8 @@ describe('LedgerPostingService posting', () => {
 
     const update = qr.query.mock.calls.find(([sql]: any) => String(sql).startsWith('UPDATE demand_master'));
     expect(update[0]).toContain("demand_posted = 'Y'");
+    // ES-624: the posted month is no longer unpaid
+    expect(update[0]).toContain('balance_for_month = 0');
     expect(qr.commitTransaction).toHaveBeenCalled();
   });
 

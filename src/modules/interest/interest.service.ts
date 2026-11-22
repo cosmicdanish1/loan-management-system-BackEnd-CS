@@ -16,6 +16,7 @@ import { SystemConfigService } from '../admin/services/system-config.service';
 import { FundsMaster } from '../admin/entities/funds-master.entity';
 import { validateDoubleEntry } from '../shared/utils/ledger-validation';
 import { generateVoucherNo } from '../shared/utils/voucher-utils';
+import { assertSbEnabled } from '../shared/utils/sb-feature';
 
 /**
  * ES-457: the expense head the interest paid on savings is debited to. The legacy has no savings accounts and so no such
@@ -34,6 +35,10 @@ const MAX_INTEREST_RATE = 50;
  * RD/CD engine. This generic period run used to credit RD to A1002 (REGULAR LOAN) and later L1004 with a placeholder
  * expense head; it no longer accepts the RD type at all, so RD/CD interest can only be posted the legacy way.
  */
+function assertSbTypeEnabled(accountType: string | undefined): void {
+  if (String(accountType ?? 'SB').trim().toUpperCase() === 'SB') assertSbEnabled();
+}
+
 function assertNotRdCd(accountType: string | undefined): void {
   const t = String(accountType ?? '').trim().toUpperCase();
   if (t === 'RD' || t === 'CD' || t === 'RD/CD' || t === 'RECURRING DEPOSIT') {
@@ -120,6 +125,7 @@ export class InterestService implements OnModuleInit {
       // the requested one blocks it.
       const accountTypeCode = dto.accountType || 'SB';
       assertNotRdCd(accountTypeCode);
+      assertSbTypeEnabled(accountTypeCode);
       // Take the lock for this account type BEFORE the overlap check: two runs started at the same moment
       // would otherwise both see "no overlap" and both post the same period (released at commit/rollback).
       await queryRunner.manager.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`interest_run:${accountTypeCode}`]);
@@ -854,6 +860,7 @@ export class InterestService implements OnModuleInit {
 
     const accountTypeCode = dto.accountType || 'SB';
     assertNotRdCd(accountTypeCode);
+    assertSbTypeEnabled(accountTypeCode);
     const allMembers = await this.getEligibleMembers();
     let eligibleMembers = dto.memberNo
       ? allMembers.filter(m => m.mbno === dto.memberNo)

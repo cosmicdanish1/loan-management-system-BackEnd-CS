@@ -6,6 +6,17 @@ import { TrackFeatureUsageDto } from '../dto/track-feature-usage.dto';
 import { TrackErrorDto, ResolveErrorDto } from '../dto/track-error.dto';
 import { UpdateAnalyticsConfigDto, AnalyticsSettingsDto } from '../dto/analytics-config.dto';
 import { UserAnalyticsQueryDto, BulkUserAnalyticsDto } from '../dto/user-analytics.dto';
+import { RoleGuard } from '../../auth/guards/role.guard';
+import { Roles } from '../../auth/decorators/roles.decorator';
+import { UserRole } from '../../auth/entities/user.entity';
+
+// Tracking posts (session / page / feature / error) come from every signed-in user's app, so any role may send them,
+// and every app reads /analytics/config to know whether tracking is on. Reading other people's analytics and changing
+// the analytics settings are administrator work: the methods below carry ADMIN_ONLY.
+const ADMIN_ONLY = [UseGuards(RoleGuard), Roles(UserRole.ADMIN)];
+const adminOnly = (): MethodDecorator => (target, key, descriptor) => {
+  for (const d of ADMIN_ONLY) (d as MethodDecorator)(target, key, descriptor);
+};
 
 @Controller('analytics')
 export class AnalyticsTrackingController {
@@ -131,6 +142,7 @@ export class AnalyticsTrackingController {
     return this.trackError(dto);
   }
 
+  @adminOnly()
   @Post('error/resolve')
   async resolveError(@Body() dto: ResolveErrorDto) {
     try {
@@ -167,6 +179,7 @@ export class AnalyticsTrackingController {
     }
   }
 
+  @adminOnly()
   @Put('config')
   async updateAnalyticsConfig(@Body() dto: UpdateAnalyticsConfigDto) {
     try {
@@ -184,6 +197,7 @@ export class AnalyticsTrackingController {
     }
   }
 
+  @adminOnly()
   @Put('settings')
   async updateAnalyticsSettings(@Body() settings: AnalyticsSettingsDto, @Request() req: any) {
     try {
@@ -203,6 +217,7 @@ export class AnalyticsTrackingController {
   }
 
   // Status endpoint
+  @adminOnly()
   @Get('status')
   async getAnalyticsStatus() {
     try {
@@ -232,6 +247,7 @@ export class AnalyticsTrackingController {
   }
 
   // User-specific analytics endpoints
+  @adminOnly()
   @Get('user')
   async getUserAnalytics(@Query() query: UserAnalyticsQueryDto) {
     try {
@@ -250,6 +266,7 @@ export class AnalyticsTrackingController {
     }
   }
 
+  @adminOnly()
   @Get('users')
   async getAllUsersAnalytics(@Query() query: BulkUserAnalyticsDto) {
     try {
@@ -270,6 +287,7 @@ export class AnalyticsTrackingController {
   }
 
   // Export user analytics data
+  @adminOnly()
   @Get('user/export')
   async exportUserAnalytics(@Query() query: UserAnalyticsQueryDto) {
     try {

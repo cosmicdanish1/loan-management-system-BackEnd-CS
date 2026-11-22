@@ -67,7 +67,6 @@ export class LedgerPostingService implements OnModuleInit {
         );
         return rows.map((r: any) => {
             const total = Number(r.totaldemand) || 0;
-            const balance = Math.max(0, Number(r.balance_for_month) || 0);
             let principal = Number(r.principal) || 0;
             let interest = Number(r.interest) || 0;
             let savings = Number(r.savings) || 0;
@@ -78,8 +77,12 @@ export class LedgerPostingService implements OnModuleInit {
                 ['SAVINGS', 'Savings Contribution', savings],
             ].filter(([, , amount]) => Number(amount) > 0).map(([code, headName, amount]) => {
                 const send = Number(amount);
-                const shortRecovery = total > 0 ? Math.min(send, balance * send / total) : 0;
-                return { code, headName, balance: shortRecovery, demandSend: send, demandReceived: send - shortRecovery, shortRecovery };
+                // ES-624: demand_master.balance_for_month is the UNPAID amount of the month. The importer and the generator
+                // set it to the total and this posting clears it, so while a month is waiting to be posted it is always
+                // the whole demand. It is not a short recovery: the amounts being posted are what the payroll recovered,
+                // so Demand Received = Demand Send and nothing is short (this used to read the unpaid amount as the
+                // shortfall, showed Received 0 for a freshly imported month and the window refused to post it).
+                return { code, headName, balance: 0, demandSend: send, demandReceived: send, shortRecovery: 0 };
             });
             return {
                 memberNo: String(r.mbno),
@@ -184,7 +187,8 @@ export class LedgerPostingService implements OnModuleInit {
             const recovery = await this.applyDemandRecoveryToLoans(queryRunner, monthNum, yearNum, dto.branch, voucherNo);
 
             await queryRunner.query(
-                `UPDATE demand_master SET demand_posted = 'Y', passflag = 'Y', dmnd_post_date = NOW()
+                // ES-624: the month's demand has been recovered and posted, so nothing of it is unpaid any more
+                `UPDATE demand_master SET demand_posted = 'Y', passflag = 'Y', dmnd_post_date = NOW(), balance_for_month = 0
                  WHERE demand_for_month = $1 AND demand_for_year = $2
                    AND COALESCE(demand_posted,'N') <> 'Y'
                    ${dto.branch ? 'AND officeno::text = $3' : ''}`,

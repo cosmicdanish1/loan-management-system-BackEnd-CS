@@ -13,6 +13,7 @@ import { RequireMenuAction } from '../auth/guards/menu-right.guard';
 import { RoleGuard } from '../auth/guards/role.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../auth/entities/user.entity';
+import { SbEnabledGuard } from '../shared/utils/sb-feature';
 
 @ApiTags('Utilities')
 @Controller('utilities')
@@ -43,6 +44,7 @@ export class UtilitiesController {
   }
 
   @Get('search/sb-accounts')
+  @UseGuards(SbEnabledGuard)
   @ApiOperation({ summary: 'Search for savings bank accounts by member number' })
   async searchSBAccounts(
     @Query() query: SearchSBAccountsDto
@@ -219,7 +221,7 @@ export class UtilitiesController {
 
   @RequireMenuAction('SAVING_RECEIPT_PAYMENT') // ES-464
   @Post('saving/transaction')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(SbEnabledGuard, JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Save SB transaction to ledger (acc_type=SB)' })
   async saveSavingTransaction(@Body() body: any, @Req() req: any) {
@@ -230,7 +232,7 @@ export class UtilitiesController {
   }
 
   @Get('saving/account/:accountNo')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(SbEnabledGuard, JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Get saving account details and transaction history' })
   async getSavingAccountDetails(@Param('accountNo') accountNo: string) {
@@ -299,7 +301,7 @@ export class UtilitiesController {
   @Post('receipt')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ summary: 'Save receipt: CR rows (vchr_type=R) + DR bank (vchr_type=P), same R_VCHR_NO' })
+  @ApiOperation({ summary: 'Stage a receipt (pending pass): CR rows + DR cash/bank; it reaches the ledger when passed in Pass Transactions' })
   async saveReceipt(@Body() body: any, @Req() req: any) {
     const username = req.user?.susername || req.user?.username || 'system';
     this.logger.log(`[Receipt] POST member=${body.memberNo} rows=${body.rows?.length} by ${username}`);
@@ -325,13 +327,58 @@ export class UtilitiesController {
   @Post('payment-voucher')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ summary: 'Save payment voucher to ledger (vchr_type=P, acc_type=BANK)' })
+  @ApiOperation({ summary: 'Stage a payment voucher (pending pass); it reaches the ledger when passed in Pass Transactions' })
   async savePaymentVoucher(@Body() body: any, @Req() req: any) {
     const username = req.user?.susername || req.user?.username || 'system';
     this.logger.log(`[PaymentVoucher] POST member=${body.memberNo} rows=${body.rows?.length} by ${username}`);
     await this.utilitiesService.assertVoucherInput(body);
     const result = await this.utilitiesService.savePaymentVoucher(body, username);
     return result;
+  }
+
+  @Get('posting-date')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: "The date a window puts on its entries now (its Date setting: Day-End working date, or the real date)" })
+  async getPostingDate(@Query('window') windowKey: string) {
+    return this.utilitiesService.getPostingDate(windowKey);
+  }
+
+  @Get('working-date')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'The Day-End working date (the day vouchers are dated on); null when Day-End was never set up' })
+  async getWorkingDate() {
+    return this.utilitiesService.getWorkingDate();
+  }
+
+  @RequireMenuAction('VOUCHER_PAYMENT') // ES-612
+  @Get('payment-vouchers/unsigned')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Voucher Payment drop-down: payment vouchers waiting to be completed in Voucher Payment' })
+  async listUnsignedPaymentVouchers() {
+    return this.utilitiesService.listUnsignedPaymentVouchers();
+  }
+
+  @RequireMenuAction('VOUCHER_PAYMENT') // ES-612
+  @Get('payment-voucher/:voucherNo')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'One unsigned payment voucher: member, heads and amounts' })
+  async getPaymentVoucherForSign(@Param('voucherNo') voucherNo: string) {
+    return this.utilitiesService.getPaymentVoucherForSign(voucherNo);
+  }
+
+  @RequireMenuAction('VOUCHER_PAYMENT') // ES-612
+  @Post('payment-voucher/save')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Voucher Payment Save: choose cash / bank, adds the balancing line; the voucher can then be passed in Pass Transactions' })
+  async signPaymentVoucher(@Body() body: any, @Req() req: any) {
+    const username = req.user?.susername || req.user?.username || 'system';
+    this.logger.log(`[PaymentVoucher] SAVE ${body?.voucherNo} mode=${body?.modeOfPay} by ${username}`);
+    return this.utilitiesService.signPaymentVoucher(body, username);
   }
 
   @RequireMenuAction('LOAN_ENTRY', 'LOAN_PAYMENT') // ES-464
@@ -415,7 +462,7 @@ export class UtilitiesController {
   }
 
   @Get('sb-accounts/holders')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(SbEnabledGuard, JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'List members who have an SB account (for Premature Information dropdown)' })
   async listSbAccountHolders() {

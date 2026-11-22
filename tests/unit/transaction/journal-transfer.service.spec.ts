@@ -1,11 +1,12 @@
 import { BadRequestException } from '@nestjs/common';
 import { JournalTransferService } from '../../../src/modules/transaction/services-v2/journal-transfer.service';
+import { systemDateText } from '../../../src/modules/shared/utils/posting-date';
 
 const dto = (rows: any[], over: Partial<Record<string, any>> = {}): any => ({
   transferType: 'headToHead', narration: 'test', rows, ...over,
 });
 
-const build = (opts: { heads?: string[]; members?: number[]; fail?: string } = {}) => {
+const build = (opts: { heads?: string[]; members?: number[]; fail?: string; working?: string | null; closedYear?: boolean; policy?: 'WORKING' | 'SYSTEM' } = {}) => {
   const calls: Array<{ sql: string; params?: any[] }> = [];
   const qr: any = {
     connect: jest.fn().mockResolvedValue(undefined),
@@ -15,6 +16,11 @@ const build = (opts: { heads?: string[]; members?: number[]; fail?: string } = {
     release: jest.fn().mockResolvedValue(undefined),
     query: jest.fn(async (sql: string, params?: any[]) => {
       calls.push({ sql, params });
+      if (/to_regclass/.test(sql)) return opts.policy ? [{ t: 'window_date_policy' }] : [{ t: null }];
+      if (/FROM window_date_policy WHERE window_key/.test(sql)) return opts.policy ? [{ mode: opts.policy }] : [];
+      if (/FROM getworkingdate WHERE dayend_flag = 'N'/.test(sql)) return opts.working ? [{ d: opts.working }] : [];
+      if (/FROM getworkingdate WHERE working_date/.test(sql)) return [];
+      if (/FROM yearend/.test(sql)) return opts.closedYear ? [{ yearcode: '2026-27' }] : [];
       if (/j_vchr_no/.test(sql)) return [{ last: 'J00004' }];
       if (/^SELECT 1 WHERE EXISTS/.test(sql.trim())) return [];
       if (/pg_advisory_xact_lock/.test(sql)) return [];
@@ -131,8 +137,9 @@ describe('JournalTransferService posting', () => {
 
     expect(result).toEqual({
       success: true,
-      message: 'Journal voucher J00005 created. Go to Pass Transactions to post.',
+      message: `Journal voucher J00005 created for system date ${systemDateText()}. Go to Pass Transactions to post.`,
       voucherNo: 'J00005',
+      voucherDate: systemDateText(), // no open working date in this test: the real date of the day is used
     });
 
     const header = calls.find(({ sql }) => sql.includes('INSERT INTO vouchers'));
@@ -160,5 +167,60 @@ describe('JournalTransferService posting', () => {
     ]));
     const staged = calls.filter(({ sql }) => sql.includes('INSERT INTO transactions'));
     expect(staged[0].params).toContain('RLN');
+  });
+});
+
+describe('JournalTransferService working date', () => {
+  const rows = [{ code: 'A1001', debit: 43, credit: 0 }, { code: 'L1001', debit: 0, credit: 43 }];
+
+  it('dates the voucher and every staged row on the working date, not on the computer clock', async () => {
+    const { service, calls } = build({ working: '2026-11-14' });
+    const res: any = await service.postJournalEntry(dto(rows), 'clerk');
+    expect(res.voucherDate).toBe('2026-11-14');
+    expect(res.message).toMatch(/working date 2026-11-14/);
+    const header = calls.find(({ sql }) => sql.includes('INSERT INTO vouchers'));
+    expect(header?.sql).toContain('COALESCE($7::timestamp, NOW())');
+    expect(header?.params?.[6]).toBe('2026-11-14');
+    const staged = calls.filter(({ sql }) => sql.includes('INSERT INTO transactions'));
+    expect(staged).toHaveLength(2);
+    for (const c of staged) {
+      expect(c.sql).toContain('COALESCE($12::timestamp, NOW())');
+      expect(c.params?.[11]).toBe('2026-11-14');
+    }
+  });
+
+  it('falls back to the real date of the day (India time) when Day-End has no open working date', async () => {
+    const { service, calls } = build({ working: null });
+    const res: any = await service.postJournalEntry(dto(rows), 'clerk');
+    expect(res.voucherDate).toBe(systemDateText());
+    expect(calls.find(({ sql }) => sql.includes('INSERT INTO vouchers'))?.params?.[6]).toBe(systemDateText());
+  });
+
+  it('refuses a working date that lies in a closed financial year and writes nothing', async () => {
+    const { service, calls, qr } = build({ working: '2026-11-14', closedYear: true });
+    await expect(service.postJournalEntry(dto(rows), 'clerk')).rejects.toThrow(/closed/);
+    expect(calls.some(({ sql }) => /INSERT INTO/.test(sql))).toBe(false);
+    expect(qr.rollbackTransaction).toHaveBeenCalled();
+  });
+});
+
+describe('JournalTransferService date setting (Day End > Date settings)', () => {
+  const rows = [{ code: 'A1001', debit: 43, credit: 0 }, { code: 'L1001', debit: 0, credit: 43 }];
+
+  it('a window set to SYSTEM date is dated on the real date of the day, not the working date', async () => {
+    const { service, calls } = build({ working: '2026-08-25', policy: 'SYSTEM' });
+    const res: any = await service.postJournalEntry(dto(rows), 'clerk');
+    expect(res.voucherDate).toBe(systemDateText());
+    expect(res.message).toMatch(/system date/);
+    for (const c of calls.filter(({ sql }) => sql.includes('INSERT INTO transactions'))) expect(c.params?.[11]).toBe(systemDateText());
+  });
+
+  it('a window set to WORKING (or with no setting) is dated on the working date', async () => {
+    for (const policy of [undefined, 'WORKING' as const]) {
+      const { service } = build({ working: '2026-08-25', policy });
+      const res: any = await service.postJournalEntry(dto(rows), 'clerk');
+      expect(res.voucherDate).toBe('2026-08-25');
+      expect(res.message).toMatch(/working date/);
+    }
   });
 });

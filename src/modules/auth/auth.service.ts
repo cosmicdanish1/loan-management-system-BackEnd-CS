@@ -104,13 +104,9 @@ export class AuthService {
       const superAdminPassword = this.configService.get('SUPER_ADMIN_PASSWORD');
       const isPasswordValid = await userMaster.validatePassword(password, superAdminPassword);
       if (isPasswordValid) {
-        // With 2FA in play the session is recorded only after the second step
-        // passes (see login / completeTwoFaLogin) — a password alone must not
-        // look like a completed login.
-        const gate = await this.twofa.gate(userMaster.userid);
-        if (gate.mode === 'none') {
-          await this.recordLoginSession(userMaster);
-        }
+        // ES-618: this only CHECKS the password. The login route runs it twice (the passport strategy, then login()),
+        // and a password alone is not a completed login (a second step may follow), so the sign-in is recorded in
+        // exactly one place: login() / completeTwoFaLogin(), when the login really completes.
 
         // Map to the User shape used app-wide by guards/strategies
         const user = mapUserMasterToUser(userMaster);
@@ -234,16 +230,13 @@ export class AuthService {
     if (gate.mode === 'enrol') {
       return { requires2faEnrol: true, challengeToken: this.twofa.signChallenge(user.id, 'enrol'), username: user.username };
     }
-    if (gate.trusted) {
-      // validateUser skipped the session bookkeeping because it could not see the device token.
-      const um = await this.userMasterRepository.findOne({ where: { userid: user.id }, relations: ['userLevel'] });
-      if (um) await this.recordLoginSession(um);
-    }
+    // The login is complete here (no second step pending, or a trusted device): one sign-in row, written once.
+    const um = await this.userMasterRepository.findOne({ where: { userid: user.id }, relations: ['userLevel'] });
+    if (um) await this.recordLoginSession(um);
 
     const tokens = await this.generateTokens(user);
 
-    // Note: Last login time is already tracked in logintime table by validateUser
-    // No need to update the old users table
+    // Last login time is tracked in the logintime table by recordLoginSession (above)
 
     return {
       ...tokens,
@@ -459,15 +452,19 @@ export class AuthService {
     // for UserMaster (new auth system) users.
 
     // 1. Find and close the open logintime session (logoutTime = '' means active)
-    const activeSession = await this.loginTimeRepository.findOne({
+    // ES-618: every open row of this user is closed, not only the newest (rows left open by an earlier crash or
+    // double record would otherwise show "Session still open" for ever).
+    const openSessions = await this.loginTimeRepository.find({
       where: { userid: userId, logoutTime: '' },
       order: { loginDate: 'DESC' },
     });
 
-    if (activeSession) {
-      const now = new Date();
-      activeSession.logoutTime = now.toTimeString().split(' ')[0].substring(0, 8); // HH:MM:SS
-      await this.loginTimeRepository.save(activeSession);
+    if (openSessions.length > 0) {
+      const logoutAt = new Date().toTimeString().split(' ')[0].substring(0, 8); // HH:MM:SS
+      for (const session of openSessions) {
+        session.logoutTime = logoutAt;
+        await this.loginTimeRepository.save(session);
+      }
     }
 
     // 2. Reset loginStatus in usermaster so the user no longer appears "logged in"
@@ -518,7 +515,7 @@ export class AuthService {
     const take = Math.min(Math.max(Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 5, 1), 20);
     const rows = await this.loginTimeRepository.find({
       where: { userid: userId },
-      order: { loginDate: 'DESC' },
+      order: { loginDate: 'DESC', loginTime: 'DESC' },
       take,
     });
     return rows.map((r) => ({

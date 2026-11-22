@@ -440,6 +440,7 @@ export class VoucherService {
                 FROM vouchers v
                 LEFT JOIN member_master m ON v."memberId" = m.mbno
                 WHERE v.status = 'PENDING'
+                  AND COALESCE(v.remarks, '') NOT LIKE '%|SIGN:PENDING%'  -- ES-612: unsigned payment vouchers wait in Voucher Payment
                 ORDER BY v."createdAt" DESC
             `;
 

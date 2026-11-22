@@ -30,8 +30,11 @@ export class MemberLookupService {
             // Now uses parameterized placeholders; search pattern built in JS then passed as a safe param.
             const params: any[] = [actualLimit, actualOffset];
             let searchClause = '';
-            if (search) {
-                params.push(`%${search}%`);
+            // ES-622: repeated spaces are collapsed (the name is matched with its spaces collapsed too), and % _  typed by
+            // the user are escaped so they mean themselves and are not LIKE wildcards that match everybody.
+            const term = String(search ?? '').replace(/\s+/g, ' ').trim();
+            if (term) {
+                params.push(`%${term.replace(/[\\%_]/g, '\\$&')}%`);
                 searchClause = `AND (REGEXP_REPLACE(TRIM(COALESCE(m.f_name, '') || ' ' || COALESCE(m.m_name, '') || ' ' || COALESCE(m.l_name, '')), '\\s+', ' ', 'g') ILIKE $3 OR m.mbno::text ILIKE $3)`;
             }
 

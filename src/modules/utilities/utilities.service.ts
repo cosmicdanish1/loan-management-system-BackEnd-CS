@@ -1,5 +1,5 @@
 import { Injectable, Logger, BadRequestException, ConflictException, HttpException, NotFoundException } from '@nestjs/common';
-import { assertPostingDateOpen } from '../shared/utils/posting-date';
+import { assertPostingDateOpen, getWorkingDateText, resolvePostingDate, postingDateAsDate } from '../shared/utils/posting-date';
 import { DataSource, Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { UserPreference } from './entities/user-preference.entity';
@@ -23,8 +23,21 @@ function clampDayOfMonth(value: any, fallback: number): number {
   return n;
 }
 
+/** Account type stamped on a staged receipt / payment line, by head code (the tags the legacy and migrated ledger use). */
+const ACC_TYPE_BY_HEAD: Record<string, string> = { A1002: 'RLN', A1047: 'ALN', L1004: 'CD', L1001: 'SHR', L1002: 'MD', L1045: 'MD1' };
+
 @Injectable()
 export class UtilitiesService {
+  /** Month name (JAN..DEC) or number (1..12) -> 1..12, or 0 when it is not a month. */
+  static monthNumber(m: any): number {
+    const names = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+    const s = String(m ?? '').trim().toUpperCase();
+    const i = names.indexOf(s.slice(0, 3));
+    if (i >= 0) return i + 1;
+    const n = Number(s);
+    return Number.isInteger(n) && n >= 1 && n <= 12 ? n : 0;
+  }
+
   private readonly logger = new Logger(UtilitiesService.name);
 
   constructor(
@@ -191,8 +204,14 @@ export class UtilitiesService {
 
       const sbResult = await this.dataSource.query(sbQuery, [parseInt(memberNo)]);
 
+      // ES-607: loan balances for the Receipt window (regular and emergency, from the member's stored balances)
+      const loanResult = await this.dataSource.query(
+        `SELECT COALESCE(regularloan, 0) AS rln_balance, COALESCE(emergency_loan_balance, 0) AS eln_balance
+           FROM member_balances WHERE mbno::numeric = $1::numeric LIMIT 1`, [parseInt(memberNo)]);
+
       return {
         member: member,
+        loan_summary: loanResult[0] || { rln_balance: 0, eln_balance: 0 },
         rd_summary: rdResult[0] || { rd_accounts: 0, total_rd_deposited: 0, total_monthly_installment: 0 },
         fd_summary: fdResult[0] || { fd_accounts: 0, total_fd_deposited: 0 },
         sb_summary: sbResult[0] || { sb_accounts: 0, total_sb_balance: 0 }
@@ -1047,13 +1066,75 @@ export class UtilitiesService {
    * Input check for the screens that post straight to the ledger (Receipt, Voucher Payment, Receipt voucher). (ES-359)
    * An empty or junk body used to give HTTP 500, or - for the payment voucher - a success with nothing in it.
    */
+  /** The working date as YYYY-MM-DD (null when Day-End has no open day): shown on the voucher windows, which can not change it */
+  async getWorkingDate(): Promise<{ date: string | null }> {
+    return { date: await getWorkingDateText(this.dataSource) };
+  }
+
+  /** The date a window will put on its entries now (its Date setting: working date or system date); shown on the window's calendar. */
+  async getPostingDate(windowKey: string): Promise<{ date: string; mode: 'WORKING' | 'SYSTEM' }> {
+    const key = String(windowKey ?? '').trim();
+    if (!key || key.length > 80) throw new BadRequestException('A window key is needed.');
+    const { date, mode } = await resolvePostingDate(this.dataSource, key);
+    return { date, mode };
+  }
+
   async assertVoucherInput(data: any): Promise<void> {
     if (!data || typeof data !== 'object') throw new BadRequestException('Request body is required.');
-    const memberNo = Number(data.memberNo);
-    if (!Number.isInteger(memberNo) || memberNo <= 0) throw new BadRequestException('memberNo must be a valid member number.');
-    const member = await this.dataSource.query(`SELECT 1 FROM member_master WHERE mbno = $1`, [memberNo]);
-    if (member.length === 0) throw new BadRequestException(`Member ${memberNo} does not exist.`);
-    if (data.transDate && Number.isNaN(new Date(data.transDate).getTime())) throw new BadRequestException('transDate is not a valid date.');
+
+    // General receipt / general payment: not tied to a member (member number 0)
+    const isGeneral = data.receiptType === 'general' || data.paymentType === 'general';
+    const memberNo = Number(data.memberNo ?? 0);
+    if (isGeneral) {
+      if (data.memberNo !== undefined && data.memberNo !== null && data.memberNo !== '' && memberNo !== 0) {
+        throw new BadRequestException('A general receipt / payment is not for a member: leave the member number empty (0).');
+      }
+    } else {
+      if (!Number.isInteger(memberNo) || memberNo <= 0) throw new BadRequestException('Member number must be a valid member number.');
+      const member = await this.dataSource.query(`SELECT 1 FROM member_master WHERE mbno = $1`, [memberNo]);
+      if (member.length === 0) throw new BadRequestException(`Member ${memberNo} does not exist.`);
+    }
+
+    if (data.transDate) {
+      const d = new Date(data.transDate);
+      if (Number.isNaN(d.getTime())) throw new BadRequestException('transDate is not a valid date.');
+      // ES-609: a voucher can not be dated in the future (it would post ahead of the working date)
+      const todayStr = new Date().toISOString().slice(0, 10);
+      if (String(data.transDate).slice(0, 10) > todayStr) throw new BadRequestException('The voucher date can not be in the future.');
+    }
+
+    // ES-610: narration is stored in a 100-character column
+    if (data.narration !== undefined && data.narration !== null && String(data.narration).length > 100) {
+      throw new BadRequestException('Narration can be at most 100 characters.');
+    }
+
+    // ES-609: mode of payment must be cash (C) or bank (B)
+    if (data.modeOfPay !== undefined && data.modeOfPay !== null && data.modeOfPay !== '') {
+      const mode = String(data.modeOfPay).toUpperCase();
+      if (mode !== 'C' && mode !== 'B') throw new BadRequestException('Mode of payment must be C (cash) or B (bank).');
+      data.modeOfPay = mode;
+    }
+
+    // ES-609: a bank / cheque payment needs a cheque number, and the account must really be a bank account
+    const bankHead = String(data.bankCode ?? data.receiveIntoCode ?? data.payFromCode ?? '').trim();
+    const isBankMode = data.modeOfPay === 'B' || (data.payFromCode !== undefined && bankHead !== '' && bankHead !== 'A1001');
+    if (data.modeOfPay === 'B' && data.receiptType !== undefined && !String(data.cheqNo ?? '').trim()) {
+      throw new BadRequestException('Enter the cheque number for a bank / cheque receipt.');
+    }
+    if (isBankMode && bankHead) {
+      const banks = await this.dataSource.query(
+        `SELECT 1 FROM headmaster WHERE TRIM(code) = $1 AND (UPPER(head_name) LIKE '%BANK%' OR UPPER(head_name) LIKE '%ACCOUNT%') LIMIT 1`, [bankHead]);
+      if (banks.length === 0) throw new BadRequestException(`${bankHead} is not a bank account head.`);
+    }
+
+    // ES-610: a manual voucher number that already exists is refused clearly
+    const manualNo = String(data.voucherNo ?? '').trim();
+    if (manualNo) {
+      if (manualNo.length > 20) throw new BadRequestException('Voucher number can be at most 20 characters.');
+      const dup = await this.dataSource.query(`SELECT 1 FROM vouchers WHERE "voucherNumber" = $1 LIMIT 1`, [manualNo]);
+      if (dup.length > 0) throw new BadRequestException(`Voucher number ${manualNo} already exists.`);
+    }
+
     if (!Array.isArray(data.rows) || data.rows.length === 0) throw new BadRequestException('At least one row is required.');
     const codes = new Set<string>();
     data.rows.forEach((row: any, i: number) => {
@@ -1062,7 +1143,14 @@ export class UtilitiesService {
       if (!Number.isFinite(amount) || amount <= 0 || amount > 1_000_000_000) throw new BadRequestException(`Row ${i + 1}: amount must be a number greater than 0.`);
       if (Math.abs(amount * 100 - Math.round(amount * 100)) > 1e-6) throw new BadRequestException(`Row ${i + 1}: amount can have at most 2 decimals.`);
       row.amount = amount;
-      codes.add(row.code.trim());
+      row.code = row.code.trim();
+      // ES-609: every row carries an account type (from the head when the screen did not send one)
+      if (!row.accType || !String(row.accType).trim()) row.accType = ACC_TYPE_BY_HEAD[row.code] || 'OTH';
+      // ES-611: the RD serial number typed on a row (digits only)
+      if (row.rdSrNo !== undefined && row.rdSrNo !== null && String(row.rdSrNo).trim() !== '' && !/^\d{1,9}$/.test(String(row.rdSrNo).trim())) {
+        throw new BadRequestException(`Row ${i + 1}: RD Sr.No must be a number.`);
+      }
+      codes.add(row.code);
     });
     const known = await this.dataSource.query(`SELECT TRIM(code) AS code FROM headmaster WHERE TRIM(code) = ANY($1)`, [[...codes]]);
     const knownSet = new Set(known.map((h: any) => h.code));
@@ -1084,6 +1172,11 @@ export class UtilitiesService {
     if (data.paymentDate && Number.isNaN(new Date(data.paymentDate).getTime())) throw new BadRequestException('paymentDate is not a valid date.');
   }
 
+  /**
+   * Receipt window. Like every other voucher it is only STAGED here (CR line per head, DR line for the cash / bank
+   * account, and a PENDING voucher header) and reaches the ledger and the Cash Book when it is passed in Pass
+   * Transactions. It used to post straight to the ledger (and stamped the cash line as a Payment).
+   */
   async saveReceipt(
     data: {
       memberNo: number;
@@ -1092,78 +1185,32 @@ export class UtilitiesService {
       modeOfPay: string;
       bankCode: string;   // which bank to DR (A1008 etc.)
       narration: string;
-      /** Bank mode only: the customer's cheque details. The ledger has a column for the bank name only;
-       *  the screen also appends the cheque number/date to the narration. */
       cheqNo?: string;
       cheqDate?: string;
+      /** the customer's bank (cheque drawn on) */
       bankName?: string;
-      rows: Array<{ code: string; accType: string; amount: number }>;
+      receiptType?: string;
+      month?: string;
+      year?: string | number;
+      rows: Array<{ code: string; accType: string; amount: number; rdSrNo?: string }>;
     },
     username: string = 'system',
   ): Promise<{ success: boolean; transNo: number; voucherNo: string; message: string }> {
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
-      this.logger.log(`[Receipt] Saving receipt for member ${data.memberNo} rows=${data.rows.length}`);
-
-      // Get next trans_no and ledgerid
-      await lockLedgerIds(queryRunner); // ES-445
-      const maxResult = await queryRunner.query(
-        `SELECT COALESCE(MAX(trans_no), 0) + 1 AS next_trans_no, COALESCE(MAX(ledgerid), 0) + 1 AS next_ledger_id FROM ledger`
-      );
-      let nextTransNo = Number(maxResult[0]?.next_trans_no ?? 1);
-      let nextLedgerId = Number(maxResult[0]?.next_ledger_id ?? 1);
-
-      // Generate R voucher number if not provided
-      let voucherNo = data.voucherNo;
-      if (!voucherNo) {
-        // ES-56: shared generator (locks the counter row and skips numbers that already exist)
-        voucherNo = await generateVoucherNo(queryRunner, 'R');
-      }
-
-      const transDate = data.transDate ? new Date(data.transDate) : new Date();
-      await assertPostingDateOpen(queryRunner, transDate); // ES-458
-      const totalAmount = data.rows.reduce((s, r) => s + r.amount, 0);
-      const modeOfPay = data.modeOfPay || 'B';
-      const bankCode = data.bankCode || 'A1008';
-
-      // CR entries for each row (vchr_type='R') — loan recovery, interest, etc.
-      for (const row of data.rows) {
-        if (!row.code || !row.amount) continue;
-        await queryRunner.query(
-          `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid, cust_bank_name)
-           VALUES ($1, $2, 'CR', $3, $4, 0, $5, $6, $7, 'R', $8, 0, $9, $10, $11, $12)`,
-          [nextTransNo++, transDate, row.code, data.memberNo, row.accType, row.amount, voucherNo, modeOfPay, data.narration || '', username, nextLedgerId++, data.bankName || null]
-        );
-      }
-
-      // BUG FIX: DR cash (A1001/CINH) for cash mode, DR bank head for bank mode.
-      // Previously acc_type was hardcoded 'BANK' regardless of modeOfPay, so cash
-      // receipts were incorrectly posted to the bank account in the ledger.
-      const drCode    = modeOfPay === 'C' ? 'A1001' : bankCode;
-      const drAccType = modeOfPay === 'C' ? 'CINH'  : 'BANK';
-
-      // DR cash/bank account (vchr_type='P') — same voucher number, total amount
-      await queryRunner.query(
-        `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid, cust_bank_name)
-         VALUES ($1, $2, 'DR', $3, $4, 0, $5, $6, $7, 'P', $8, 0, $9, $10, $11, $12)`,
-        [nextTransNo++, transDate, drCode, data.memberNo, drAccType, totalAmount, voucherNo, modeOfPay, data.narration || '', username, nextLedgerId++, data.bankName || null]
-      );
-
-      await queryRunner.commitTransaction();
-      this.logger.log(`[Receipt] Saved vchr=${voucherNo} member=${data.memberNo} total=${totalAmount} rows=${data.rows.length}`);
-
-      return { success: true, transNo: nextTransNo - data.rows.length - 1, voucherNo, message: `Receipt ${voucherNo} saved. Total: ${totalAmount}` };
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      this.logger.error(`[Receipt] Failed:`, error);
-      if (error instanceof HttpException) throw error; // ES-458: a clear 400 (closed day / closed year) stays a 400
-      throw new Error(`Failed to save receipt: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    } finally {
-      await queryRunner.release();
-    }
+    return this.saveReceiptVoucher({
+      ...(data.receiptType !== undefined ? { receiptType: data.receiptType } : {}),
+      ...(data.month !== undefined ? { month: data.month } : {}),
+      ...(data.year !== undefined ? { year: data.year } : {}),
+      memberNo: data.receiptType === 'general' ? 0 : data.memberNo,
+      voucherNo: data.voucherNo,
+      transDate: data.transDate,
+      modeOfPay: data.modeOfPay || 'C',
+      narration: data.narration,
+      ...(data.cheqNo !== undefined ? { cheqNo: data.cheqNo } : {}),
+      ...(data.cheqDate !== undefined ? { cheqDate: data.cheqDate } : {}),
+      ...(data.bankName !== undefined ? { bankName: data.bankName } : {}),
+      receiveIntoCode: data.bankCode || 'A1001',
+      rows: data.rows,
+    }, username);
   }
 
   async saveReceiptVoucher(
@@ -1178,7 +1225,12 @@ export class UtilitiesService {
       bankName?: string;
       /** Our bank/cash head to debit. Used in bank mode; cash mode always debits A1001. */
       receiveIntoCode?: string;
-      rows: Array<{ code: string; accType: string; amount: number }>;
+      /** Receipt window: 'receipt' | 'general' | 'demand'. Recorded on the voucher so a demand receipt can be told apart. */
+      receiptType?: string;
+      /** Demand receipt: the demand month (e.g. NOV) and year it is for. */
+      month?: string;
+      year?: string | number;
+      rows: Array<{ code: string; accType: string; amount: number; rdSrNo?: string }>;
     },
     username: string = 'system',
   ): Promise<{ success: boolean; transNo: number; voucherNo: string; message: string }> {
@@ -1198,14 +1250,41 @@ export class UtilitiesService {
       );
       let nextTransNo = Number(maxResult[0]?.next_trans_no ?? 1);
 
+      // Demand Receipt (by hand): a receipt against ONE member's demand for ONE month. It is a D voucher (the legacy
+      // keeps these in its own Demand_receipt table), and the member's demand for that month must not already be paid.
+      const isDemand = data.receiptType === 'demand';
+      const demandMonthNo = isDemand ? UtilitiesService.monthNumber(data.month) : 0;
+      const demandYear = isDemand ? Number(data.year) : 0;
+      if (isDemand) {
+        if (!data.memberNo) throw new BadRequestException('A demand receipt is for a member: select the member.');
+        if (!demandMonthNo) throw new BadRequestException('Choose the demand month (JAN to DEC).');
+        if (!Number.isInteger(demandYear) || demandYear < 2000 || demandYear > 2100) throw new BadRequestException('Choose a valid demand year.');
+        const posted = await queryRunner.query(
+          `SELECT 1 FROM demand_master WHERE mbno = $1 AND demand_for_year = $2 AND demand_for_month = $3 AND COALESCE(demand_posted, 'N') = 'Y' LIMIT 1`,
+          [data.memberNo, demandYear, demandMonthNo]);
+        if (posted.length > 0) {
+          throw new BadRequestException(`Member ${data.memberNo}'s demand for ${String(data.month).toUpperCase()} ${demandYear} is already posted.`);
+        }
+        const pending = await queryRunner.query(
+          `SELECT "voucherNumber" FROM vouchers WHERE status = 'PENDING' AND "memberId" = $1 AND remarks LIKE $2 LIMIT 1`,
+          [data.memberNo, `%DEMAND_MONTH:${String(data.month).toUpperCase()}|DEMAND_YEAR:${demandYear}%`]);
+        if (pending.length > 0) {
+          throw new BadRequestException(`Member ${data.memberNo} already has a pending demand receipt (${pending[0].voucherNumber}) for ${String(data.month).toUpperCase()} ${demandYear}. Pass or delete it first.`);
+        }
+      }
+      const vchrKind: 'R' | 'D' = isDemand ? 'D' : 'R';
+
       // Generate R voucher number if not provided (uses R_VCHR_NO from voucher_master)
       let voucherNo = data.voucherNo;
       if (!voucherNo) {
         // ES-56: shared generator (locks the counter row and skips numbers that already exist)
-        voucherNo = await generateVoucherNo(queryRunner, 'R');
+        voucherNo = await generateVoucherNo(queryRunner, vchrKind);
       }
 
-      const transDate = data.transDate ? new Date(data.transDate) : new Date();
+      // Dated by the client's Date setting for this window (Day End > Date settings): the Day-End WORKING date by default,
+      // or the real date of the day. Never the computer clock of the PC and never a date sent by the screen.
+      const posting = await resolvePostingDate(queryRunner, 'RECEIPT_PAYMENT');
+      const transDate = postingDateAsDate(posting.date);
       await assertPostingDateOpen(queryRunner, transDate); // ES-458
       const totalAmount = data.rows.reduce((s, r) => s + r.amount, 0);
       const modeOfPay = data.modeOfPay || 'C';
@@ -1217,7 +1296,7 @@ export class UtilitiesService {
       const drAccType = drCode === 'A1001' ? 'CINH' : 'BANK';
       await queryRunner.query(
         `INSERT INTO transactions (trans_no, trans_type, trans_date, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, cheq_no, cheq_amt, cheq_date, bankname, pass_flag, cashier_flag, code, narration, username)
-         VALUES ($1, 'DR', $2, $3, 0, $12, $4, $5, 'R', $6, $7, 0, $8, $9, 'N', 'Y', $13, $10, $11)`,
+         VALUES ($1, 'DR', $2, $3, 0, $12, $4, $5, '${vchrKind}', $6, $7, 0, $8, $9, 'N', 'Y', $13, $10, $11)`,
         [nextTransNo++, transDate, data.memberNo, totalAmount, voucherNo, modeOfPay,
          data.cheqNo || '', data.cheqDate ? new Date(data.cheqDate) : null, data.bankName || '',
          data.narration || '', username, drAccType, drCode]
@@ -1228,10 +1307,12 @@ export class UtilitiesService {
         if (!row.code || !row.amount) continue;
         await queryRunner.query(
           `INSERT INTO transactions (trans_no, trans_type, trans_date, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, cheq_no, cheq_amt, cheq_date, bankname, pass_flag, cashier_flag, code, narration, username)
-           VALUES ($1, 'CR', $2, $3, 0, $4, $5, $6, 'R', $7, $8, 0, $9, $10, 'N', 'Y', $11, $12, $13)`,
-          [nextTransNo++, transDate, data.memberNo, row.accType, row.amount, voucherNo, modeOfPay,
+           VALUES ($1, 'CR', $2, $3, $14, $4, $5, $6, '${vchrKind}', $7, $8, 0, $9, $10, 'N', 'Y', $11, $12, $13)`,
+          [nextTransNo++, transDate, data.memberNo || 0, row.accType || ACC_TYPE_BY_HEAD[row.code] || 'OTH', row.amount, voucherNo, modeOfPay,
            data.cheqNo || '', data.cheqDate ? new Date(data.cheqDate) : null, data.bankName || '',
-           row.code, data.narration || '', username]
+           row.code, data.narration || '', username,
+           // ES-611: the RD serial number typed on the row is the account number of that line
+           /^\d+$/.test(String(row.rdSrNo ?? '').trim()) ? Number(String(row.rdSrNo).trim()) : 0]
         );
       }
 
@@ -1244,7 +1325,11 @@ export class UtilitiesService {
                                "status","remarks","chequeNumber","chequeDate","bankName","createdAt")
          VALUES ($1,$2,$3,'RECEIPT',$4,$5,$6,'','PENDING',$7,$8,$9,$10,NOW())`,
         [nextVoucherId, voucherNo, transDate, totalAmount, data.narration || 'Receipt voucher',
-         data.memberNo || null, `VOUCHER_PAYMENT|PAY_MODE:${isBankMode ? 'BANK' : 'CASH'}`,
+         data.memberNo || null,
+         // ES-611: the kind of receipt (and the demand month / year) travel with the voucher
+         `VOUCHER_PAYMENT|PAY_MODE:${isBankMode ? 'BANK' : 'CASH'}` +
+           (data.receiptType && data.receiptType !== 'receipt' ? `|RECEIPT_TYPE:${String(data.receiptType).toUpperCase()}` : '') +
+           (data.receiptType === 'demand' && data.month && data.year ? `|DEMAND_MONTH:${String(data.month).toUpperCase()}|DEMAND_YEAR:${data.year}` : ''),
          data.cheqNo || null, data.cheqDate ? new Date(data.cheqDate) : null,
          // Pass treats a voucher with a bank name or cheque number as a transfer (not cash); keep bank mode intact.
          data.bankName || (isBankMode ? drCode : null)]
@@ -1257,12 +1342,20 @@ export class UtilitiesService {
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error(`[VoucherPayment] Failed:`, error);
+      if (error instanceof HttpException) throw error; // a clear 400 (closed day / closed year) stays a 400
       throw new Error(`Failed to save voucher payment: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       await queryRunner.release();
     }
   }
 
+
+  /**
+   * Payment voucher (Voucher Creation), step 1 of 3: Voucher Creation -> Voucher Payment (cashier signs) -> Pass Transactions.
+   * It only STAGES the debit line of each head and a PENDING header marked "SIGN:PENDING". There is no cash / bank line
+   * yet: the cashier chooses cash or bank in Voucher Payment, and that step adds it. Nothing reaches the ledger, the Cash
+   * Book or any balance until the voucher is signed and then passed in Pass Transactions.
+   */
   async savePaymentVoucher(
     data: {
       memberNo: number;
@@ -1280,56 +1373,167 @@ export class UtilitiesService {
     await queryRunner.startTransaction();
 
     try {
-      this.logger.log(`[PaymentVoucher] Saving payment for member ${data.memberNo} rows=${data.rows?.length}`);
+      this.logger.log(`[PaymentVoucher] Staging payment for member ${data.memberNo} rows=${data.rows?.length}`);
 
-      // Get next trans_no and ledgerid
-      await lockLedgerIds(queryRunner); // ES-445
-      const maxResult = await queryRunner.query(
-        `SELECT COALESCE(MAX(trans_no), 0) + 1 AS next_trans_no, COALESCE(MAX(ledgerid), 0) + 1 AS next_ledger_id FROM ledger`
-      );
-      let nextTransNo = Number(maxResult[0]?.next_trans_no ?? 1);
-      let nextLedgerId = Number(maxResult[0]?.next_ledger_id ?? 1);
+      // same lock order as the receipt voucher: vouchers first, then transactions
+      await lockNextId(queryRunner, 'vouchers', 'id');
+      await lockNextId(queryRunner, 'transactions', 'trans_no');
+      let nextTransNo = Number((await queryRunner.query(`SELECT COALESCE(MAX(trans_no), 0) + 1 AS n FROM transactions`))[0]?.n ?? 1);
 
-      // Generate voucher number if not provided
       let voucherNo = data.voucherNo;
       if (!voucherNo) {
         // ES-56: shared generator (locks the counter row and skips numbers that already exist)
         voucherNo = await generateVoucherNo(queryRunner, 'P');
       }
 
-      const transDate = data.transDate ? new Date(data.transDate) : new Date();
+      // Dated by the client's Date setting for this window (Day End > Date settings): the Day-End WORKING date by default,
+      // or the real date of the day. Never the computer clock of the PC and never a date sent by the screen.
+      const posting = await resolvePostingDate(queryRunner, 'RECEIPT_PAYMENT_VOUCHER_CREATION');
+      const transDate = postingDateAsDate(posting.date);
       await assertPostingDateOpen(queryRunner, transDate); // ES-458
-      const rows = data.rows || [];
+      const rows = (data.rows || []).filter(r => r.code && Number(r.amount) > 0);
+      if (rows.length === 0) throw new BadRequestException('Add at least one row with a head and an amount.');
+      const total = Math.round(rows.reduce((s, r) => s + Number(r.amount), 0) * 100) / 100;
+      const memberNo = data.paymentType === 'general' ? 0 : (data.memberNo || 0);
+      const narration = data.narration || '';
 
-      // DR one row per breakdown item (expense/asset accounts being paid out)
+      // DR one line per head being paid. cashier_flag 'N' until the cashier signs it in Voucher Payment.
       for (const row of rows) {
-        if (!row.code || !row.amount) continue;
         await queryRunner.query(
-          `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid)
-           VALUES ($1, $2, 'DR', $3, $4, 0, 'BANK', $5, $6, 'P', 'B', 0, $7, $8, $9)`,
-          [nextTransNo++, transDate, row.code, data.memberNo, row.amount, voucherNo, data.narration || row.name || '', username, nextLedgerId++]
+          `INSERT INTO transactions (trans_no, trans_type, trans_date, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, cheq_no, cheq_amt, cheq_date, bankname, pass_flag, cashier_flag, code, narration, username)
+           VALUES ($1, 'DR', $2, $3, $10, $4, $5, $6, 'P', '', '', 0, NULL, '', 'N', 'N', $7, $8, $9)`,
+          [nextTransNo++, transDate, memberNo, ACC_TYPE_BY_HEAD[row.code] || 'OTH', Number(row.amount), voucherNo,
+           row.code, (narration || row.name || '').slice(0, 100), username,
+           /^\d+$/.test(String(row.rdSrNo ?? '').trim()) ? Number(String(row.rdSrNo).trim()) : 0],
         );
       }
 
-      // CR cash/bank for the total — balances the payment voucher
-      const total = rows.reduce((s, r) => s + (r.amount || 0), 0);
-      if (total > 0) {
-        await queryRunner.query(
-          `INSERT INTO ledger (trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance, narration, username, ledgerid)
-           VALUES ($1, $2, 'CR', 'A1001', $3, 0, 'CINH', $4, $5, 'P', 'C', 0, $6, $7, $8)`,
-          [nextTransNo++, transDate, data.memberNo, total, voucherNo, data.narration || '', username, nextLedgerId++]
-        );
-      }
+      const nextVoucherId = Number((await queryRunner.query(`SELECT COALESCE(MAX(id), 0) + 1 AS n FROM vouchers`))[0].n);
+      await queryRunner.query(
+        `INSERT INTO vouchers ("id","voucherNumber","voucherDate","voucherType","totalAmount","description","memberId","payeeName",
+                               "status","remarks","chequeNumber","chequeDate","bankName","createdAt")
+         VALUES ($1,$2,$3,'PAYMENT',$4,$5,$6,'','PENDING','VOUCHER_PAYMENT|SIGN:PENDING',NULL,NULL,NULL,NOW())`,
+        [nextVoucherId, voucherNo, transDate, total, narration || 'Payment voucher', memberNo || null],
+      );
 
       await queryRunner.commitTransaction();
-      this.logger.log(`[PaymentVoucher] Saved vchr=${voucherNo} member=${data.memberNo} total=${total} rows=${rows.length}`);
+      this.logger.log(`[PaymentVoucher] Staged vchr=${voucherNo} member=${memberNo} total=${total} rows=${rows.length} (waiting for the cashier)`);
 
-      return { success: true, transNo: nextTransNo - rows.length - 1, voucherNo, message: `Payment voucher ${voucherNo} saved. Total: ${total}` };
+      return { success: true, transNo: nextTransNo - rows.length, voucherNo, message: `Payment voucher ${voucherNo} saved. Open Voucher Payment, choose cash or bank and save it, then pass it. Total: ${total}` };
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error(`[PaymentVoucher] Failed:`, error);
       if (error instanceof HttpException) throw error; // ES-458
       throw new Error(`Failed to save payment voucher: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  /** Voucher Payment drop-down: payment vouchers created in Voucher Creation that have not been completed in Voucher Payment yet. */
+  async listUnsignedPaymentVouchers(): Promise<any[]> {
+    const rows = await this.dataSource.query(
+      `SELECT v."voucherNumber" AS "voucherNo", v."voucherDate" AS "voucherDate", v."totalAmount" AS total, v."memberId" AS "memberNo",
+              REGEXP_REPLACE(TRIM(COALESCE(m.f_name,'') || ' ' || COALESCE(m.m_name,'') || ' ' || COALESCE(m.l_name,'')), '\\s+', ' ', 'g') AS "memberName"
+         FROM vouchers v LEFT JOIN member_master m ON m.mbno = v."memberId"
+        WHERE v.status = 'PENDING' AND v."voucherType" = 'PAYMENT' AND COALESCE(v.remarks, '') LIKE '%|SIGN:PENDING%'
+        ORDER BY v."createdAt" DESC, v."voucherNumber" DESC`);
+    return rows.map((r: any) => ({ ...r, total: Number(r.total) }));
+  }
+
+  /** What the cashier sees after picking a voucher: member, the heads and amounts, narration. */
+  async getPaymentVoucherForSign(voucherNo: string): Promise<any> {
+    const head = await this.dataSource.query(
+      `SELECT v."voucherNumber" AS "voucherNo", v."voucherDate" AS "voucherDate", v."totalAmount" AS total, v."memberId" AS "memberNo",
+              v.description AS narration, v.remarks,
+              REGEXP_REPLACE(TRIM(COALESCE(m.f_name,'') || ' ' || COALESCE(m.m_name,'') || ' ' || COALESCE(m.l_name,'')), '\\s+', ' ', 'g') AS "memberName",
+              m.officeno AS "officeNo"
+         FROM vouchers v LEFT JOIN member_master m ON m.mbno = v."memberId"
+        WHERE v."voucherNumber" = $1 AND v."voucherType" = 'PAYMENT' AND v.status = 'PENDING'`, [voucherNo]);
+    if (head.length === 0) throw new NotFoundException(`Payment voucher ${voucherNo} was not found or is no longer pending.`);
+    if (!String(head[0].remarks || '').includes('|SIGN:PENDING')) throw new BadRequestException(`Voucher ${voucherNo} is already saved in Voucher Payment.`);
+    const rows = await this.dataSource.query(
+      `SELECT t.code, COALESCE(h.head_name, '') AS name, t.trans_amt AS amount, t.acc_no AS "rdSrNo"
+         FROM transactions t LEFT JOIN headmaster h ON TRIM(h.code) = TRIM(t.code)
+        WHERE t.receipt_vchr_no = $1 AND t.pass_flag = 'N' AND t.trans_type = 'DR' ORDER BY t.trans_no`, [voucherNo]);
+    return {
+      voucherNo: head[0].voucherNo, voucherDate: head[0].voucherDate, total: Number(head[0].total),
+      memberNo: head[0].memberNo ? String(head[0].memberNo) : '0', memberName: head[0].memberName || '', officeNo: head[0].officeNo ?? '',
+      isGeneral: !head[0].memberNo, narration: head[0].narration || '',
+      rows: rows.map((r: any) => ({ code: String(r.code).trim(), name: r.name, amount: Number(r.amount), rdSrNo: Number(r.rdSrNo) > 0 ? String(r.rdSrNo) : '' })),
+    };
+  }
+
+  /**
+   * Voucher Payment, step 2 of 3 (the cashier's "Save"): choose cash or bank (with the cheque details), and the cash / bank
+   * line that balances the voucher is added. The voucher then shows up in Pass Transactions.
+   */
+  async signPaymentVoucher(
+    data: { voucherNo: string; modeOfPay: string; bankCode?: string; cheqNo?: string; cheqDate?: string; bankName?: string },
+    username: string = 'system',
+  ): Promise<{ success: boolean; voucherNo: string; message: string }> {
+    const voucherNo = String(data?.voucherNo || '').trim();
+    if (!voucherNo) throw new BadRequestException('Choose the voucher.');
+    const mode = String(data.modeOfPay || '').toUpperCase();
+    if (mode !== 'C' && mode !== 'B') throw new BadRequestException('Mode of payment must be C (cash) or B (bank).');
+    const isCash = mode === 'C';
+    const bankCode = String(data.bankCode || '').trim();
+    if (!isCash) {
+      if (!bankCode) throw new BadRequestException('Choose the bank account the payment is made from.');
+      if (!String(data.cheqNo || '').trim()) throw new BadRequestException('Enter the cheque number for a bank / cheque payment.');
+      const banks = await this.dataSource.query(
+        `SELECT 1 FROM headmaster WHERE TRIM(code) = $1 AND (UPPER(head_name) LIKE '%BANK%' OR UPPER(head_name) LIKE '%ACCOUNT%') LIMIT 1`, [bankCode]);
+      if (banks.length === 0) throw new BadRequestException(`${bankCode} is not a bank account head.`);
+    }
+    if (data.cheqDate && Number.isNaN(new Date(data.cheqDate).getTime())) throw new BadRequestException('The cheque date is not a valid date.');
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      await lockNextId(queryRunner, 'transactions', 'trans_no');
+      const head = await queryRunner.query(
+        `SELECT * FROM vouchers WHERE "voucherNumber" = $1 AND "voucherType" = 'PAYMENT' AND status = 'PENDING' FOR UPDATE`, [voucherNo]);
+      if (head.length === 0) throw new NotFoundException(`Payment voucher ${voucherNo} was not found or is no longer pending.`);
+      if (!String(head[0].remarks || '').includes('|SIGN:PENDING')) throw new BadRequestException(`Voucher ${voucherNo} is already saved in Voucher Payment.`);
+      await assertPostingDateOpen(queryRunner, new Date(head[0].voucherDate)); // ES-458
+
+      const lines = await queryRunner.query(
+        `SELECT trans_amt FROM transactions WHERE receipt_vchr_no = $1 AND pass_flag = 'N' AND trans_type = 'DR'`, [voucherNo]);
+      if (lines.length === 0) throw new BadRequestException(`Voucher ${voucherNo} has no lines.`);
+      const total = Math.round(lines.reduce((s: number, r: any) => s + Number(r.trans_amt), 0) * 100) / 100;
+
+      const payCode = isCash ? 'A1001' : bankCode;
+      const cheqDate = !isCash && data.cheqDate ? new Date(data.cheqDate) : null;
+      const cheqNo = isCash ? '' : String(data.cheqNo).trim();
+      const customerBank = isCash ? '' : String(data.bankName || '').trim().slice(0, 50);
+
+      // the lines already staged take the chosen mode and cheque details, and are signed
+      await queryRunner.query(
+        `UPDATE transactions SET modeofpay = $2, cheq_no = $3, cheq_date = $4, bankname = $5, cashier_flag = 'Y'
+          WHERE receipt_vchr_no = $1 AND pass_flag = 'N'`, [voucherNo, mode, cheqNo, cheqDate, customerBank]);
+      const first = await queryRunner.query(`SELECT mbno, trans_date FROM transactions WHERE receipt_vchr_no = $1 ORDER BY trans_no LIMIT 1`, [voucherNo]);
+      const nextTransNo = Number((await queryRunner.query(`SELECT COALESCE(MAX(trans_no), 0) + 1 AS n FROM transactions`))[0].n);
+      // the balancing line: CR the account the money goes out of
+      await queryRunner.query(
+        `INSERT INTO transactions (trans_no, trans_type, trans_date, mbno, acc_no, acc_type, trans_amt, receipt_vchr_no, vchr_type, modeofpay, cheq_no, cheq_amt, cheq_date, bankname, pass_flag, cashier_flag, code, narration, username)
+         VALUES ($1, 'CR', $2, $3, 0, $4, $5, $6, 'P', $7, $8, 0, $9, $10, 'N', 'Y', $11, $12, $13)`,
+        [nextTransNo, first[0].trans_date, first[0].mbno, isCash ? 'CINH' : 'BANK', total, voucherNo, mode, cheqNo, cheqDate, customerBank,
+         payCode, String(head[0].description || '').slice(0, 100), username]);
+
+      // the header now carries the payment mode (Pass treats a bank name / cheque number as a transfer)
+      await queryRunner.query(
+        `UPDATE vouchers SET remarks = $2, "chequeNumber" = $3, "chequeDate" = $4, "bankName" = $5 WHERE "voucherNumber" = $1`,
+        [voucherNo, `VOUCHER_PAYMENT|PAY_MODE:${isCash ? 'CASH' : 'BANK'}`, cheqNo || null, cheqDate, isCash ? null : (customerBank || payCode)]);
+
+      await queryRunner.commitTransaction();
+      this.logger.log(`[PaymentVoucher] Completed vchr=${voucherNo} mode=${mode} from=${payCode} total=${total} by ${username}`);
+      return { success: true, voucherNo, message: `Voucher ${voucherNo} saved in Voucher Payment. It is ready to be passed in Pass Transactions.` };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      if (error instanceof HttpException) throw error;
+      this.logger.error(`[PaymentVoucher] Voucher Payment failed:`, error);
+      throw new Error(`Failed to save the voucher: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       await queryRunner.release();
     }

@@ -69,9 +69,10 @@ describe('CompulsoryDepositService posting', () => {
     const balanceUpdate = calls.find(({ sql }) => sql.includes('UPDATE member_balances'));
     expect(balanceUpdate?.params).toEqual([50, 1001]);
 
-    const creditRows = calls.filter(({ sql }) => sql.includes("VALUES ($1, 'R', NOW()"));
+    const creditRows = calls.filter(({ sql }) => sql.includes('VALUES ($1, $7, NOW(), $2, $3, $4'));
     expect(creditRows).toHaveLength(1);
     expect(creditRows[0].params).toEqual(expect.arrayContaining([1001, 50, 'VCH1001']));
+    expect(creditRows[0].params?.[6]).toBe('R'); // interest: the member row is the credit
   });
 
   it('rejects a header total that does not equal the sum of the distributions', async () => {

@@ -107,6 +107,10 @@ export class PassTransactionService {
                 throw new BadRequestException('Voucher header not found or already posted');
             }
             const header = headerResult[0];
+            // ES-612: a payment voucher is passed only after the cashier has completed it in Voucher Payment
+            if (String(header.remarks || '').includes('|SIGN:PENDING')) {
+                throw new BadRequestException(`Voucher ${voucherNo} has not been completed in Voucher Payment yet. Open Voucher Payment, choose cash or bank and save it first.`);
+            }
             // ES-458: Pass posts on today's date; a closed day (Day-End done) or a closed financial year takes no postings
             await assertPostingDateOpen(queryRunner, new Date());
 
@@ -535,6 +539,15 @@ export class PassTransactionService {
                     'SEPARATE_INTEREST',
                     LOAN_INTEREST_METHOD,
                 ]);
+
+                // A penal rate the sanctioning officer set for THIS loan (with a reason) is kept as its own exception,
+                // so the penalty engine charges it. Without a reason the stored penalrate is just the snapshot and
+                // Business Rules keep applying.
+                if (!isNaN(lpPenal) && lpPenal >= 0 && String(loan.rate_override_reason ?? '').trim() !== '') {
+                    await queryRunner.query(
+                        `UPDATE loan_master SET penal_override = $1 WHERE loancaseno::text = $2`,
+                        [lpPenal, String(loan.loancaseno)]);
+                }
 
                 // Freeze this agreement's balance basis and principal EMI.
                 // A later consolidation creates another immutable version;
@@ -1003,6 +1016,19 @@ export class PassTransactionService {
                 }
 
                 if (isJournalVoucher) {
+                    // A journal is posted on ITS OWN date (the working date it was entered on), not on the day it happens to
+                    // be passed, the same as receipts and payments. If that day has been closed by Day-End since, it is
+                    // refused with a clear message (reject the voucher and enter it again on the open date).
+                    let journalPostDate = new Date();
+                    if (header.voucherDate && !isNaN(new Date(header.voucherDate).getTime())) {
+                        journalPostDate = new Date(header.voucherDate);
+                        try {
+                            await assertPostingDateOpen(queryRunner, journalPostDate);
+                        } catch (e: any) {
+                            throw new BadRequestException(
+                                `Voucher ${voucherNo} is dated ${journalPostDate.toISOString().slice(0, 10)} and that day is closed. Reject (delete) it and enter it again on an open date.`);
+                        }
+                    }
                     for (const detail of details) {
                         const amt = parseMoney(detail.trans_amt);
                         const headCode = detail.code; // checked above: never empty (ES-415)
@@ -1018,7 +1044,7 @@ export class PassTransactionService {
                                 narration, username, ledgerid
                             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'JV', $10, 0, $11, $12, $13)
                         `, [
-                            nextTransNo++, new Date(), drcr, headCode, lineMbno ?? 0,
+                            nextTransNo++, journalPostDate, drcr, headCode, lineMbno ?? 0,
                             detail.acc_no || 0, detail.acc_type || 'JV',
                             amt, voucherNo, 'J',
                             detail.narration || header.description, postedBy, nextLedgerId++
@@ -1048,6 +1074,24 @@ export class PassTransactionService {
                     }
                 }
 
+                // ES-608: a receipt / payment is posted on ITS OWN date (not on whatever day it happens to be passed) and is
+                // tagged R / P in the ledger, as every other receipt / payment row is. Posting into a day that has since
+                // been closed is refused with a clear message instead of changing the books of a closed day.
+                const voucherKindForPosting = String(header.voucherType || '').toUpperCase();
+                const isReceiptOrPayment = voucherKindForPosting === 'RECEIPT' || voucherKindForPosting === 'PAYMENT';
+                let postDate = new Date();
+                if (isReceiptOrPayment && header.voucherDate && !isNaN(new Date(header.voucherDate).getTime())) {
+                    postDate = new Date(header.voucherDate);
+                    try {
+                        await assertPostingDateOpen(queryRunner, postDate);
+                    } catch (e: any) {
+                        throw new BadRequestException(
+                            `Voucher ${voucherNo} is dated ${postDate.toISOString().slice(0, 10)} and that day is closed. Reject (delete) it and enter it again on an open date.`);
+                    }
+                }
+                const isDemandReceipt = voucherKindForPosting === 'RECEIPT' && /RECEIPT_TYPE:DEMAND/.test(header.remarks || '');
+                const ledgerVchrType = isDemandReceipt ? 'D' : voucherKindForPosting === 'RECEIPT' ? 'R' : voucherKindForPosting === 'PAYMENT' ? 'P' : 'JV';
+
                 for (const detail of (isJournalVoucher ? [] : details)) {
                     const amt = parseMoney(detail.trans_amt);
                     const headCode = detail.code; // checked above: never empty (ES-415)
@@ -1069,13 +1113,33 @@ export class PassTransactionService {
                             narration, username, ledgerid, acc_no, acc_type
                         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
                     `, [
-                        nextTransNo++, new Date(), entryTransType, headCode, header.memberId || 0,
-                        amt, voucherNo, 'JV', mode, 0,
+                        nextTransNo++, postDate, entryTransType, headCode, header.memberId || 0,
+                        amt, voucherNo, ledgerVchrType, mode, 0,
                         detail.narration || header.description, postedBy, nextLedgerId++,
-                        isMemberVoucher ? null : 0,
+                        // ES-611: the RD serial number staged on the line is kept as the account number
+                        Number(detail.acc_no) > 0 ? detail.acc_no : (isMemberVoucher ? null : 0),
                         // ES-50: keep the account type staged on the line (CINH for cash, BANK for a bank leg)
                         detail.acc_type || (isMemberVoucher ? null : 'OTH')
                     ]);
+
+                    // ES-605: a receipt / payment line on a member head moves the member's balance exactly like the same
+                    // line in a journal (loan heads, CD, share) — a loan recovery lowers the loan, a deposit raises the CD.
+                    if (isReceiptOrPayment && header.memberId && detail.mbno) {
+                        const balCol = this.getBalanceColumn(headCode);
+                        if (balCol && this.movesMemberBalance(headCode, detail.acc_type)) {
+                            const drcr = (entryTransType === 'CR' || entryTransType === 'R') ? 'CR' : 'DR';
+                            const balRes = await queryRunner.query(
+                                `SELECT COALESCE(${balCol.col}, 0) as bal FROM member_balances WHERE mbno = $1 FOR UPDATE`, [detail.mbno]);
+                            if (balRes.length > 0) {
+                                const curBal = parseFloat(balRes[0].bal) || 0;
+                                const newBal = balCol.type === 'LIABILITY'
+                                    ? (drcr === 'CR' ? curBal + amt : curBal - amt)
+                                    : (drcr === 'CR' ? curBal - amt : curBal + amt);
+                                await queryRunner.query(`UPDATE member_balances SET ${balCol.col} = $1 WHERE mbno = $2`, [newBal, detail.mbno]);
+                                console.log(`[PassTransaction] ${voucherKindForPosting} balance ${balCol.col}: ${curBal} → ${newBal} for mbno ${detail.mbno}`);
+                            }
+                        }
+                    }
 
                     // Cashbook Insert. ES-51: every line used to be written as a PAYMENT, so receipts were
                     // recorded as payments. The Cash Book is head-wise: each voucher line appears once, on
@@ -1098,8 +1162,13 @@ export class PassTransactionService {
                     await queryRunner.query(`
                         INSERT INTO tblcashbook (headcode, headname, rcash, rtransfer, pcash, ptransfer, trans_date, voucher_no, username)
                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                    `, [headCode, detail.narration || header.description, rcash, rtransfer, pcash, ptransfer, new Date(), voucherNo, postedBy]);
+                    `, [headCode, detail.narration || header.description, rcash, rtransfer, pcash, ptransfer, postDate, voucherNo, postedBy]);
                 }
+            }
+
+            // A passed demand receipt (D voucher) also marks the member's demand for that month as posted
+            if (header.voucherType === 'RECEIPT' && /RECEIPT_TYPE:DEMAND/.test(header.remarks || '')) {
+                await this.applyDemandReceipt(queryRunner, voucherNo, header, details, postedBy);
             }
 
             // 8. Update Voucher and Transaction flags
@@ -1255,10 +1324,11 @@ export class PassTransactionService {
                     `SELECT mbno, code, trans_type, trans_amt, acc_type FROM transactions WHERE receipt_vchr_no = $1`,
                     [voucherNo]
                 );
-                const isJournalReversal = String(header.voucherType || '').toUpperCase() === 'JOURNAL';
+                const reversalKind = String(header.voucherType || '').toUpperCase();
+                const movesBalances = reversalKind === 'JOURNAL' || reversalKind === 'RECEIPT' || reversalKind === 'PAYMENT'; // ES-605
                 for (const detail of staged) {
-                    // Only the journal path moves member balances (see passTransaction).
-                    if (!isJournalReversal || !detail.mbno) continue;
+                    // Journal, receipt and payment postings move member balances (see passTransaction).
+                    if (!movesBalances || !detail.mbno) continue;
                     const balCol = this.getBalanceColumn(detail.code);
                     if (!balCol) continue;
                     // Same rule as posting: a CD / share line only moved the balance if it was staged with its CD / SHR type
@@ -1282,6 +1352,7 @@ export class PassTransactionService {
                     console.log(`[PassTransaction] Reversed ${balCol.col}: ${curBal} → ${newBal} for mbno ${detail.mbno}`);
                 }
                 await queryRunner.query(`DELETE FROM tblcashbook WHERE voucher_no = $1`, [voucherNo]);
+                if (/RECEIPT_TYPE:DEMAND/.test(header.remarks || '')) await this.undoDemandReceipt(queryRunner, voucherNo);
             }
 
             // 6. Reset Flags
@@ -1305,6 +1376,75 @@ export class PassTransactionService {
         }
     }
 
+
+    /**
+     * Demand Receipt (by hand): once a D voucher is passed, keep the legacy's trace of it in `demand_receipt`
+     * (one row per head, with the demand year / month) and mark the member's demand for that month as posted, so the
+     * month's bulk posting skips the member. A member with no demand row for that month gets one built from the
+     * receipt rows (marked sd = 'H', by hand) so the month's demand lists show what was paid.
+     */
+    private async applyDemandReceipt(queryRunner: QueryRunner, voucherNo: string, header: any, details: any[], postedBy: string): Promise<void> {
+        const m = String(header.remarks || '').match(/DEMAND_MONTH:([A-Za-z0-9]+)\|DEMAND_YEAR:(\d{4})/);
+        if (!m) throw new BadRequestException(`Voucher ${voucherNo} is a demand receipt but has no demand month / year.`);
+        const names = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+        const monthNo = names.indexOf(m[1].toUpperCase().slice(0, 3)) + 1 || Number(m[1]);
+        const year = Number(m[2]);
+        const mbno = header.memberId;
+        if (!mbno || !(monthNo >= 1 && monthNo <= 12)) throw new BadRequestException(`Voucher ${voucherNo} has no valid member or demand month.`);
+
+        const credits = details.filter(d => String(d.trans_type || '').toUpperCase() === 'CR');
+        const sum = (types: string[]) => round2(credits.filter(d => types.includes(String(d.acc_type || '').toUpperCase()))
+            .reduce((s, d) => s + (parseFloat(d.trans_amt) || 0), 0));
+        const total = round2(credits.reduce((s, d) => s + (parseFloat(d.trans_amt) || 0), 0));
+        const known = ['RLN', 'ELN', 'ALN', 'MLN', 'MD', 'MD1', 'SHR', 'CD', 'RD'];
+        const others = round2(credits.filter(d => !known.includes(String(d.acc_type || '').toUpperCase()))
+            .reduce((s, d) => s + (parseFloat(d.trans_amt) || 0), 0));
+
+        // the legacy trace of the receipt itself
+        const next = Number((await queryRunner.query(`SELECT COALESCE(MAX(trans_no), 0) + 1 AS n FROM demand_receipt`))[0].n);
+        let transNo = next;
+        for (const d of credits) {
+            await queryRunner.query(
+                `INSERT INTO demand_receipt (trans_no, trans_date, mbno, dyear, dmonth, code, trans_type, acc_no, acc_type, trans_amt,
+                                             receipt_vchr_no, vchr_type, modeofpay, cheq_no, cheq_amt, cheq_date, bankname,
+                                             pass_flag, cashier_flag, narration, username)
+                 VALUES ($1, $2, $3, $4, $5, $6, 'CR', $7, $8, $9, $10, 'D', '', '', 0, NULL, '', 'Y', 'Y', 'Demand Receipt', $11)`,
+                [transNo++, header.voucherDate, mbno, year, monthNo, d.code, Math.trunc(Number(d.acc_no) || 0), d.acc_type, d.trans_amt, voucherNo, postedBy]);
+        }
+
+        const rows = await queryRunner.query(
+            `SELECT demand_posted FROM demand_master WHERE mbno = $1 AND demand_for_year = $2 AND demand_for_month = $3 FOR UPDATE`,
+            [mbno, year, monthNo]);
+        if (rows.some((r: any) => String(r.demand_posted || 'N') === 'Y')) {
+            throw new BadRequestException(`Member ${mbno}'s demand for ${m[1].toUpperCase()} ${year} is already posted.`);
+        }
+        if (rows.length > 0) {
+            await queryRunner.query(
+                `UPDATE demand_master SET demand_posted = 'Y', passflag = 'Y', dmnd_post_date = NOW(), receipt_vchr_no = $4
+                  WHERE mbno = $1 AND demand_for_year = $2 AND demand_for_month = $3`,
+                [mbno, year, monthNo, voucherNo]);
+        } else {
+            const office = await queryRunner.query(`SELECT officeno FROM member_master WHERE mbno = $1`, [mbno]);
+            await queryRunner.query(
+                `INSERT INTO demand_master (demand_for_year, demand_for_month, mbno, demand_posted, rln_amount, eln_amount, aln_amount, mln_amount,
+                        rln_installment_amount, rln_interest, eln_installment_amount, eln_interest, aln_installment_amount, aln_interest,
+                        mln_installment_amount, mln_interest, rd_amount, md_amount, md1_amount, cd_amount, shr_amount, bankcharge, sd,
+                        balance_for_month, dmnd_gnrt_date, officeno, totaldemand, "OTHERS", receipt_vchr_no, dmnd_post_date, passflag, dmnd_srno)
+                 VALUES ($1, $2, $3, 'Y', 0, 0, 0, 0, $4, 0, $5, 0, $6, 0, $7, 0, $8, $9, $10, $11, $12, 0, 'H',
+                         0, NOW(), $13, $14, $15, $16, NOW(), 'Y', $17)`,
+                [year, monthNo, mbno, sum(['RLN']), sum(['ELN']), sum(['ALN']), sum(['MLN']), sum(['RD']), sum(['MD']), sum(['MD1']),
+                 sum(["CD"]), sum(["SHR"]), office[0]?.officeno ?? 0, total, others, voucherNo, 0]);
+        }
+    }
+
+    /** Undo applyDemandReceipt: drop the trace rows, and un-post (or remove, if built by hand) the member's demand row. */
+    private async undoDemandReceipt(queryRunner: QueryRunner, voucherNo: string): Promise<void> {
+        await queryRunner.query(`DELETE FROM demand_receipt WHERE receipt_vchr_no = $1`, [voucherNo]);
+        await queryRunner.query(`DELETE FROM demand_master WHERE receipt_vchr_no = $1 AND sd = 'H'`, [voucherNo]);
+        await queryRunner.query(
+            `UPDATE demand_master SET demand_posted = 'N', passflag = 'N', dmnd_post_date = NULL, receipt_vchr_no = '' WHERE receipt_vchr_no = $1`,
+            [voucherNo]);
+    }
     /**
      * Member-balance column moved by a posted journal line, keyed by the head code. Only the two loan
      * heads have one; every other head moves the ledger only.

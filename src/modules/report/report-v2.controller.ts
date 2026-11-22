@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { RequireMenuAction } from '../auth/guards/menu-right.guard';
+import { assertSbEnabled } from '../shared/utils/sb-feature';
 import {
     CashBookReportsService,
     MemberReportsService,
@@ -301,6 +302,7 @@ export class ReportV2Controller {
     @Post('saving/statement')
     @ApiOperation({ summary: 'Get saving statement' })
     async getSavingStatement(@Body() dto: { memberNo: string; fromDate?: string; toDate?: string }) {
+        assertSbEnabled();
         return this.depositReports.getSavingStatement(dto);
     }
 

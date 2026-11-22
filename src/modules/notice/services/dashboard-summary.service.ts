@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { isSbEnabled } from '../../shared/utils/sb-feature';
 import { CREDIT_TYPES_SQL, DEBIT_TYPES_SQL } from '../../report/services-v2/ledger-types';
 
 /**
@@ -84,7 +85,8 @@ export class DashboardSummaryService {
                 const r = rows[0];
                 return {
                     fixedRecurring: { count: r.fd_count, amount: r.fd_amount },
-                    savings: { count: r.sb_count, amount: r.sb_amount },
+                    // null when the Saving Bank feature is switched off (SB_ENABLED) - the widget then leaves it out
+                    savings: isSbEnabled() ? { count: r.sb_count, amount: r.sb_amount } : null,
                     shares: r.shares,
                     compulsory: r.compulsory,
                 };

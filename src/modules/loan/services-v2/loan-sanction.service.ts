@@ -279,6 +279,7 @@ export class LoanSanctionService {
             return this.reagreementService.sanction(caseNo, {
                 noOfInstallments: sanctionData.noOfInstallments, rate: sanctionData.rate,
                 sanctionDate: sanctionData.sanctionDate, sanctionedAmount: sanctionData.sanctionedAmount,
+                penalRate: sanctionData.penalRate, rateOverrideReason: sanctionData.rateOverrideReason,
             }, { actor });
         }
         // ES-318: validate before anything is written

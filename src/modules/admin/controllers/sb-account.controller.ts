@@ -1,10 +1,12 @@
-import { Controller, Get, Post, Body, Param, Patch, Delete } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Patch, Delete, UseGuards } from '@nestjs/common';
+import { SbEnabledGuard } from '../../shared/utils/sb-feature';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { SbAccountService } from '../services/sb-account.service';
 import { CreateSbAccountDto, UpdateSbAccountDto } from '../dto/sb-account.dto';
 
 @ApiTags('Admin - SB Account')
 @Controller('admin/sb-accounts')
+@UseGuards(SbEnabledGuard)
 export class SbAccountController {
     constructor(private readonly sbAccountService: SbAccountService) { }
 

@@ -1,12 +1,16 @@
 import { BadRequestException } from '@nestjs/common';
 import { LoanApplicationService } from '../../../src/modules/loan/services-v2/loan-application.service';
+import { systemDateText } from '../../../src/modules/shared/utils/posting-date';
 
-interface Opt { unknownMembers?: string[]; pending?: any[]; outstanding?: number; card?: any; cfg?: Record<string, number>; suretyRows?: any[]; throwOn?: RegExp }
+interface Opt { working?: string | null; policy?: 'WORKING' | 'SYSTEM'; unknownMembers?: string[]; pending?: any[]; outstanding?: number; card?: any; cfg?: Record<string, number>; suretyRows?: any[]; throwOn?: RegExp }
 function mk(o: Opt = {}) {
   const calls: any[] = [];
   const route = (sql: string, p?: any[]) => {
     calls.push([sql, p]);
     if (o.throwOn && o.throwOn.test(sql)) throw new Error('db error');
+    if (/to_regclass/.test(sql)) return o.policy ? [{ t: 'window_date_policy' }] : [{ t: null }];
+    if (/FROM window_date_policy WHERE window_key/.test(sql)) return o.policy ? [{ mode: o.policy }] : [];
+    if (/FROM getworkingdate WHERE dayend_flag = 'N'/.test(sql)) return o.working ? [{ d: o.working }] : [];
     if (/FROM member_master/.test(sql)) return (o.unknownMembers ?? []).includes(String(p![0])) ? [] : [{ '?column?': 1 }];
     if (/FROM busrules/.test(sql)) return o.card ? [o.card] : [];
     if (/FROM member_balances/.test(sql)) return [{ total: o.outstanding ?? 0 }];
@@ -78,9 +82,29 @@ describe('loan/LoanApplicationService.saveLoanApplication', () => {
     const t = mk({ card: { max_amt: 1000000, max_inst: 120 } });
     await expect(t.svc.saveLoanApplication(app({ loanType: 'ZZZ' }))).rejects.toThrow(/Loan type 'ZZZ' is not valid/);
   });
-  it('rejects an application date far in the future (ES-317)', async () => {
-    const t = mk({ card: { max_amt: 1000000, max_inst: 120 } });
-    await expect(t.svc.saveLoanApplication(app({ applDate: '2099-01-01' }))).rejects.toThrow(/future/);
+  const insertParams = (t: any) => t.qr.query.mock.calls.find((c: any[]) => /INSERT INTO loan_pending/.test(c[0]))[1];
+  const midnight = (day: string) => new Date(`${day}T00:00:00`).getTime();
+
+  it('the application is dated on the WORKING date by default, as legacy does; a date sent by the screen is ignored', async () => {
+    const t = mk({ card: { max_amt: 1000000, max_inst: 120 }, working: '2026-11-14' });
+    await t.svc.saveLoanApplication(app({ applDate: '2026-11-22' }));
+    expect((insertParams(t)[5] as Date).getTime()).toBe(midnight('2026-11-14'));
+  });
+  it('a window set to SYSTEM date dates the application on the real date of the day (India time)', async () => {
+    const t = mk({ card: { max_amt: 1000000, max_inst: 120 }, working: '2026-11-14', policy: 'SYSTEM' });
+    await t.svc.saveLoanApplication(app());
+    expect((insertParams(t)[5] as Date).getTime()).toBe(midnight(systemDateText()));
+  });
+  it('with no open working date the real date of the day is used', async () => {
+    const t = mk({ card: { max_amt: 1000000, max_inst: 120 }, working: null });
+    await t.svc.saveLoanApplication(app());
+    expect((insertParams(t)[5] as Date).getTime()).toBe(midnight(systemDateText()));
+  });
+  it('editing a pending case keeps its original application date', async () => {
+    const t = mk({ card: { max_amt: 1000000, max_inst: 120 }, working: '2026-11-14', pending: [{ loancaseno: '55', mbno: '5' }] });
+    await t.svc.saveLoanApplication(app({ loanCaseNo: '55' }));
+    const upd = t.qr.query.mock.calls.find((c: any[]) => /UPDATE loan_pending/.test(c[0]));
+    expect(upd[0]).toContain('app_date    = COALESCE(app_date, $3)');
   });
   it('rejects an amount of 0, a negative amount and a non numeric amount', async () => {
     for (const loanAmount of [0, -5000, 'abc']) {
@@ -143,9 +167,10 @@ describe('loan/LoanApplicationService.saveLoanApplication', () => {
     await expect(t.svc.saveLoanApplication(app())).rejects.toThrow(/Failed to save loan application/);
     expect(t.qr.rollbackTransaction).toHaveBeenCalled(); expect(t.qr.commitTransaction).not.toHaveBeenCalled(); expect(t.qr.release).toHaveBeenCalled();
   });
-  it('an application date that is not a date is refused', async () => {
-    const t = mk({ card: { max_amt: 1000000, max_inst: 120 } });
-    await expect(t.svc.saveLoanApplication(app({ applDate: 'garbage' }))).rejects.toThrow(BadRequestException);
+  it('a garbage date sent by the screen no longer matters: the application is dated by the window setting', async () => {
+    const t = mk({ card: { max_amt: 1000000, max_inst: 120 }, working: '2026-11-14' });
+    await expect(t.svc.saveLoanApplication(app({ applDate: 'garbage' }))).resolves.toMatchObject({ success: true });
+    expect((insertParams(t)[5] as Date).getTime()).toBe(midnight('2026-11-14'));
   });
 });
 

@@ -3,6 +3,7 @@ import { DataSource } from 'typeorm';
 import { CreateJournalVoucherDto } from '../dto/journal-transfer.dto';
 import { generateVoucherNo } from '../../shared/utils/voucher-utils';
 import { lockNextId } from '../../shared/utils/ledger-lock';
+import { assertPostingDateOpen, resolvePostingDate } from '../../shared/utils/posting-date';
 
 /** Account type stamped on a journal line, by head code (same tags the legacy / migrated ledger uses). */
 const JOURNAL_ACC_TYPE: Record<string, string> = {
@@ -122,6 +123,13 @@ export class JournalTransferService {
                 }
             }
 
+            // The journal is dated by the client's Date setting for this window (Day End > Date settings): the Day-End
+            // WORKING date by default, or the real date of the day. Never the date a screen sends. A closed day or a
+            // closed financial year is refused here too.
+            const posting = await resolvePostingDate(queryRunner, 'JOURNAL_TRANSFER_ENTRY');
+            const workingDay = posting.date;
+            await assertPostingDateOpen(queryRunner, workingDay);
+
             const voucherNo = await generateVoucherNo(queryRunner, 'J');
 
             // 1. Create Voucher Header — PENDING (not POSTED)
@@ -135,7 +143,7 @@ export class JournalTransferService {
                 INSERT INTO vouchers (
                     id, "voucherNumber", "voucherDate", "voucherType", "totalAmount",
                     "description", "memberId", "status", "remarks", "createdAt"
-                ) VALUES ($1, $2, NOW(), 'JOURNAL', $3, $4, $5, 'PENDING', $6, NOW())
+                ) VALUES ($1, $2, COALESCE($7::timestamp, NOW()), 'JOURNAL', $3, $4, $5, 'PENDING', $6, NOW())
             `, [
                 nextVchrId,
                 voucherNo,
@@ -143,6 +151,7 @@ export class JournalTransferService {
                 dto.narration || 'Journal Transfer Entry',
                 memberId,
                 `JV_TYPE:${dto.transferType || 'headToHead'}|CHQ:${dto.chequeNo || ''}`,
+                workingDay,
             ]);
 
             // 2. Insert transaction rows — pass_flag = 'N' (pending, NOT posted)
@@ -165,7 +174,7 @@ export class JournalTransferService {
                         trans_no, trans_type, trans_date, mbno, acc_no, acc_type, trans_amt,
                         receipt_vchr_no, vchr_type, modeofpay, pass_flag, cashier_flag,
                         code, narration, username, cheq_no, cheq_amt
-                    ) VALUES ($1, $2, NOW(), $3, $4, $5, $6, $7, 'JV', 'J', 'N', 'N', $8, $9, $10, $11, 0)
+                    ) VALUES ($1, $2, COALESCE($12::timestamp, NOW()), $3, $4, $5, $6, $7, 'JV', 'J', 'N', 'N', $8, $9, $10, $11, 0)
                 `, [
                     currentTransNo++,
                     type,
@@ -178,6 +187,7 @@ export class JournalTransferService {
                     row.narration || dto.narration,
                     username,
                     dto.chequeNo || null,
+                    workingDay,
                 ]);
             }
 
@@ -186,8 +196,9 @@ export class JournalTransferService {
 
             return {
                 success: true,
-                message: `Journal voucher ${voucherNo} created. Go to Pass Transactions to post.`,
+                message: `Journal voucher ${voucherNo} created for ${posting.source === 'working-date' ? 'working date' : 'system date'} ${workingDay}. Go to Pass Transactions to post.`,
                 voucherNo,
+                voucherDate: workingDay,
             };
 
         } catch (error) {

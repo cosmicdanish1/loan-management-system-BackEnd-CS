@@ -19,7 +19,7 @@ function build(over: any = {}) {
     createQueryBuilder: jest.fn().mockReturnValue({ where: jest.fn().mockReturnThis(), getOne: jest.fn().mockResolvedValue({ userlevelid: 5, userlevel: 'CLERK' }) }),
     find: jest.fn().mockResolvedValue([]), create: jest.fn((x) => x), save: jest.fn(async (x) => x),
   };
-  const loginRepo: any = { create: jest.fn((x) => x), save: jest.fn(async (x) => x), findOne: jest.fn().mockResolvedValue(null) };
+  const loginRepo: any = { create: jest.fn((x) => x), save: jest.fn(async (x) => x), findOne: jest.fn().mockResolvedValue(null), find: jest.fn().mockResolvedValue([]) };
   const infoRepo: any = { findOne: jest.fn().mockResolvedValue(null), create: jest.fn((x) => x), save: jest.fn(async (x) => x) };
   const rightsRepo: any = { find: jest.fn().mockResolvedValue([]) };
   const defRightsRepo: any = { find: jest.fn().mockResolvedValue([]) };
@@ -83,12 +83,12 @@ describe('auth/AuthService.validateUser', () => {
     expect(await svc.validateUser('bob', 'bad')).toBeNull();
     expect(loginRepo.save).not.toHaveBeenCalled();
   });
-  it('returns the mapped user with allowedActions and records the session when no 2FA step is needed', async () => {
+  it('returns the mapped user with allowedActions and records NO session (it only checks the password; ES-618)', async () => {
     const { svc, loginRepo, userMasterRepo } = build();
     const u = await svc.validateUser('bob', 'p');
     expect(u).toMatchObject({ id: 7, username: 'bob' });
-    expect(loginRepo.save).toHaveBeenCalled();
-    expect(userMasterRepo.save.mock.calls[0][0].loginStatus).toBe('Y');
+    expect(loginRepo.save).not.toHaveBeenCalled();
+    expect(userMasterRepo.save).not.toHaveBeenCalled();
   });
   it('does NOT record a session when a second factor is still required', async () => {
     const { svc, loginRepo, twofa } = build(); twofa.gate.mockResolvedValue({ mode: 'verify' });
@@ -131,12 +131,24 @@ describe('auth/AuthService.login', () => {
     const r: any = await svc.login({ username: 'bob', password: 'p' } as any);
     expect(r.requires2faEnrol).toBe(true); expect(r.accessToken).toBeUndefined();
   });
-  it('a trusted device skips the code and still records the session once', async () => {
+  it('a trusted device skips the code and records the session once', async () => {
     const { svc, twofa, loginRepo } = build();
-    twofa.gate.mockResolvedValueOnce({ mode: 'verify' }).mockResolvedValueOnce({ mode: 'none', trusted: true });
-    // first call (inside validateUser) says verify -> no session; second (with device token) says trusted
+    twofa.gate.mockResolvedValue({ mode: 'none', trusted: true });
     const r: any = await svc.login({ username: 'bob', password: 'p', deviceToken: 'dev' } as any);
     expect(r.accessToken).toBe('jwt'); expect(loginRepo.save).toHaveBeenCalledTimes(1);
+  });
+  it('a normal login records exactly one session and marks the user logged in (ES-618)', async () => {
+    const { svc, loginRepo, userMasterRepo } = build();
+    await svc.login({ username: 'bob', password: 'p' } as any);
+    expect(loginRepo.save).toHaveBeenCalledTimes(1);
+    expect(userMasterRepo.save.mock.calls.some((c: any[]) => c[0].loginStatus === 'Y')).toBe(true);
+  });
+  it('a pending second step (code or enrolment) records no session yet', async () => {
+    for (const mode of ['verify', 'enrol']) {
+      const { svc, twofa, loginRepo } = build(); twofa.gate.mockResolvedValue({ mode });
+      await svc.login({ username: 'bob', password: 'p' } as any);
+      expect(loginRepo.save).not.toHaveBeenCalled();
+    }
   });
   it('signs access and refresh tokens with different secrets and unique ids', async () => {
     const { svc, jwt } = build();
@@ -262,10 +274,18 @@ describe('auth/AuthService.refreshToken', () => {
 describe('auth/AuthService.logout', () => {
   it('closes the open login session and resets login status', async () => {
     const { svc, loginRepo, userMasterRepo } = build();
-    const open = { logoutTime: '' }; loginRepo.findOne.mockResolvedValue(open);
+    const open = { logoutTime: '' }; loginRepo.find.mockResolvedValue([open]);
     const u = um(); userMasterRepo.findOne.mockResolvedValue(u);
     expect(await svc.logout(7)).toEqual({ message: 'Logout successful' });
     expect(open.logoutTime).toMatch(/^\d\d:\d\d:\d\d$/); expect(u.loginStatus).toBe('N');
+  });
+  it('closes EVERY open session of the user, not only the newest (ES-618)', async () => {
+    const { svc, loginRepo } = build();
+    const a = { logoutTime: '' }; const b = { logoutTime: '' };
+    loginRepo.find.mockResolvedValue([a, b]);
+    await svc.logout(7);
+    expect(a.logoutTime).toMatch(/^\d\d:\d\d:\d\d$/); expect(b.logoutTime).toMatch(/^\d\d:\d\d:\d\d$/);
+    expect(loginRepo.save).toHaveBeenCalledTimes(2);
   });
   it('works when there is no open session', async () => {
     const { svc } = build();
