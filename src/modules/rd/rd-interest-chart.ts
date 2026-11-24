@@ -7,8 +7,8 @@
  * to move forward on the clean formula rather than the printed chart's
  * exact figures.
  *
- * Interest = installment x annual rate x remaining months / 12
- * April=12 remaining months ... March=1 remaining month.
+ * Interest = (1,000 x annual rate x remaining months / 12, rounded to whole rupees) x installment / 1,000
+ * April=12 remaining months ... March=1 remaining month. (Printed chart, see installmentInterest.)
  */
 
 /** Calendar month number (1=Jan .. 12=Dec) -> months remaining until the
@@ -24,15 +24,18 @@ export function remainingMonthsInFinancialYear(calendarMonth: number): number {
     return 12 - idx;
 }
 
-/** Interest a single month's RD installment earns for however many months
- *  of the financial year it remains invested, per the user's formula. */
+/** Interest a single month's RD installment earns for however many months of the financial year it remains invested,
+ *  worked out the way the society's PRINTED RD chart is made (owner decision 2026-11-23): the interest of 1,000 for those
+ *  months, rounded to whole rupees (half up), then scaled to the installment. For 200 at 7%: April 14.00, May 12.80,
+ *  June 11.60 ... March 1.20, a full year of 91.20 (the exact formula would give 91.00). */
 export function installmentInterest(
     monthlyInstallment: number,
     annualRatePercent: number,
     remainingMonths: number,
 ): number {
-    const raw = monthlyInstallment * (annualRatePercent / 100) * (remainingMonths / 12);
-    return Math.round(raw * 100) / 100;
+    const per1000Exact = Math.round(((1000 * annualRatePercent * remainingMonths) / 1200) * 1e6) / 1e6;
+    const per1000 = Math.floor(per1000Exact + 0.5);
+    return Math.round(((per1000 * monthlyInstallment) / 1000) * 100) / 100;
 }
 
 /** The full year's chart for one monthly RD amount — one row per calendar

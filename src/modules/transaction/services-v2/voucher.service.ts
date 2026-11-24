@@ -254,9 +254,16 @@ export class VoucherService {
             const voucherHeaderQuery = `
                 INSERT INTO vouchers (
                     "id", "voucherNumber", "voucherDate", "voucherType", "totalAmount", 
-                    "description", "memberId", "payeeName", "status", "remarks", "createdAt"
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                    "description", "memberId", "payeeName", "status", "remarks", "createdAt",
+                    "bankName", "chequeNumber", "chequeDate"
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             `;
+            // ES-630: a loan paid by bank must say which bank account (head) it leaves from; Pass credits that head, not cash.
+            const paidByBank = String(voucherData.paymentMode || '').toUpperCase() === 'BANK';
+            const bankHead = paidByBank ? String(voucherData.bankName || voucherData.bankCode || '').trim() : '';
+            if (paidByBank && !bankHead) {
+                throw new BadRequestException('A loan paid by bank needs the bank account (bank head) it is paid from.');
+            }
 
             // The voucher pays the sanctioned amount; a client amount may only be lower, never more than sanctioned (ES-319)
             const sanctioned = round2(parseFloat(loan.sanctioned_amt.toString().replace(/[^0-9.-]+/g, "")));
@@ -295,8 +302,11 @@ export class VoucherService {
                 loan.mbno,
                 voucherData.payeeName || loan.member_name || '', // Note: payeeName might needs join or passed
                 'PENDING',
-                `LOAN_CASE:${voucherData.loanCaseNo}|PAY_MODE:${voucherData.paymentMode}`,
-                new Date()
+                `LOAN_CASE:${voucherData.loanCaseNo}|PAY_MODE:${voucherData.paymentMode}${bankHead ? `|BANK:${bankHead}` : ''}`,
+                new Date(),
+                paidByBank ? bankHead : null,
+                paidByBank ? (voucherData.chequeNo ? String(voucherData.chequeNo) : null) : null,
+                paidByBank && voucherData.chequeDate ? voucherData.chequeDate : null,
             ]);
 
             // 4. Insert breakdown into 'transactions' table with pass_flag = 'N'

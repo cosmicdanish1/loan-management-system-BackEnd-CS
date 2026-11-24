@@ -1802,9 +1802,19 @@ export class UtilitiesService {
     // Input checks (ES-358): headmaster.code is varchar(5), name varchar(100). Bad input is a 400, not a 500 from the INSERT,
     // and an empty code must never be stored.
     const text = (v: any) => (v === undefined || v === null ? '' : String(v).trim());
-    data.code = text(data.code);
+    data.code = text(data.code).toUpperCase(); // ES-636: 'l1005' and 'L1005' are the same head
     if (!/^[A-Za-z0-9]{1,5}$/.test(data.code)) {
       throw new BadRequestException('Head code must be 1 to 5 letters or digits.');
+    }
+    data.parentCode = text(data.parentCode).toUpperCase();
+    data.pflag = text(data.pflag).toUpperCase();
+    data.headType = text(data.headType).toUpperCase();
+    data.interest = text(data.interest).toUpperCase();
+    if (data.pflag && !['A', 'L', 'I', 'E', 'R'].includes(data.pflag)) {
+      throw new BadRequestException('P Flag must be A (Asset), L (Liability), I (Income), E (Expenditure) or R (Root).');
+    }
+    if (data.interest && !['Y', 'N'].includes(data.interest)) {
+      throw new BadRequestException('Interest must be Y or N.');
     }
     data.headName = text(data.headName);
     if (!data.headName || data.headName.length > 100) {
@@ -1819,7 +1829,11 @@ export class UtilitiesService {
       }
     }
     {
-      const current = await this.dataSource.query(`SELECT parent_code FROM headmaster WHERE code = $1`, [data.code]);
+      const current = await this.dataSource.query(`SELECT parent_code, headtype FROM headmaster WHERE code = $1`, [data.code]);
+      // ES-636: "Add" must never overwrite a head that already exists (it used to update it silently)
+      if (data.isNew === true && current.length > 0) {
+        throw new ConflictException(`Head ${data.code} already exists. Open it to change it.`);
+      }
       const parent = text(data.parentCode);
       const parentChanged = current.length === 0 || text(current[0].parent_code) !== parent;
       if (parentChanged) {
@@ -1827,8 +1841,24 @@ export class UtilitiesService {
         if (parent === data.code) throw new BadRequestException('A head cannot be its own parent.');
         const p = await this.dataSource.query(`SELECT 1 FROM headmaster WHERE code = $1`, [parent]);
         if (p.length === 0) throw new BadRequestException(`Parent head ${parent} does not exist.`);
+        // the code letter is the section: L liabilities, A assets, I income, E expenditure (the window tells the user so)
+        if (data.code[0] !== parent[0]) {
+          throw new BadRequestException(`Head ${data.code} cannot sit under ${parent}: the code must start with ${parent[0]}, the section of its parent.`);
+        }
+        // a head can not be moved under its own child (that would make a loop and hide both from the tree)
+        const loop = await this.dataSource.query(
+          `WITH RECURSIVE up AS (
+             SELECT code, parent_code, 1 AS d FROM headmaster WHERE code = $1
+             UNION ALL
+             SELECT h.code, h.parent_code, up.d + 1 FROM headmaster h JOIN up ON h.code = up.parent_code WHERE up.d < 50
+           ) SELECT 1 FROM up WHERE code = $2 LIMIT 1`, [parent, data.code]);
+        if (loop.length > 0) throw new BadRequestException(`${parent} is below ${data.code}, so ${data.code} cannot be placed under it.`);
       }
       data.parentCode = parent;
+      // Head type tells the system what the head is for (CINH cash, BANK bank, RLN regular loan, SHR share ...). Legacy default is OTH.
+      if (!data.headType) data.headType = current.length > 0 ? text(current[0].headtype) || 'OTH' : 'OTH';
+      // the section flag follows the code letter when the caller sends none
+      if (!data.pflag) data.pflag = ['A', 'L', 'I', 'E'].includes(data.code[0]) ? data.code[0] : 'L';
     }
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -1865,6 +1895,10 @@ export class UtilitiesService {
       return { success: true, message: `Head ${data.code} saved successfully.` };
     } catch (error) {
       await queryRunner.rollbackTransaction();
+      // two people adding the same code at the same moment: the second one hits the unique key (ES-637)
+      if ((error as any)?.code === '23505' || /duplicate key|unique constraint/i.test((error as any)?.message || '')) {
+        throw new ConflictException(`Head ${data.code} already exists. Open it to change it.`);
+      }
       throw new Error(`Failed to save head: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       await queryRunner.release();
@@ -2597,6 +2631,17 @@ export class UtilitiesService {
       if (postings[0].cnt > 0) {
         throw new ConflictException(`${code} has ${postings[0].cnt} ledger transaction(s) posted against it — cannot delete.`);
       }
+      // ES-636: vouchers still waiting to be passed also point at the head, and system heads (cash, loans, share, CD, MD)
+      // are looked up by their type all over the app, so they cannot be removed from here
+      const staged = await queryRunner.query(`SELECT COUNT(*)::int AS cnt FROM transactions WHERE TRIM(code) = $1`, [code]);
+      if (staged[0].cnt > 0) {
+        throw new ConflictException(`${code} is used by ${staged[0].cnt} voucher line(s) — cannot delete.`);
+      }
+      const kind = await queryRunner.query(`SELECT headtype, pflag FROM headmaster WHERE code = $1`, [code]);
+      if (kind[0]?.pflag === 'R') throw new ConflictException(`${code} is a section head and cannot be deleted.`);
+      if (['CINH', 'RLN', 'ALN', 'SHR', 'CD', 'MD', 'MD1'].includes(String(kind[0]?.headtype || '').trim())) {
+        throw new ConflictException(`${code} is a system head (${String(kind[0].headtype).trim()}) that the application uses, so it cannot be deleted.`);
+      }
       await queryRunner.query(`DELETE FROM headmaster   WHERE code      = $1`, [code]);
       await queryRunner.query(`DELETE FROM balancesheet WHERE head_code = $1`, [code]);
       await queryRunner.commitTransaction();
@@ -2615,18 +2660,28 @@ export class UtilitiesService {
     // yearcode is just a sequential ID (1, 2, 3…), not a calendar year: the real dates live on
     // the row itself (start_date/end_date), set at creation by FinancialYearService.
     const rows = await this.dataSource.query(
-      `SELECT DISTINCT ON (yearcode) yearcode, start_date, end_date
+      `SELECT DISTINCT ON (yearcode) yearcode, start_date, end_date, (closed_at IS NOT NULL) AS closed
        FROM yearend WHERE yearcode IS NOT NULL ORDER BY yearcode`
     );
     const fmt = (d: Date) => new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
     return rows.map((r: any) => {
       const startDate = fmt(r.start_date);
       const endDate = fmt(r.end_date);
-      return { yearcode: parseInt(r.yearcode), startDate, endDate, label: `${startDate} - ${endDate}` };
+      return { yearcode: parseInt(r.yearcode), startDate, endDate, label: `${startDate} - ${endDate}`, closed: !!r.closed };
     });
   }
 
+  /** The financial year row, or a 400 / 404. A closed year is returned flagged so callers can refuse to change it. */
+  private async openingYear(runner: { query: (s: string, p?: any[]) => Promise<any> }, yearcode: any): Promise<{ yearcode: number; closed: boolean }> {
+    const n = Number(yearcode);
+    if (!Number.isInteger(n) || n <= 0) throw new BadRequestException('Choose a financial year.');
+    const y = await runner.query(`SELECT yearcode, (closed_at IS NOT NULL) AS closed FROM yearend WHERE yearcode = $1 LIMIT 1`, [n]);
+    if (!y || y.length === 0) throw new NotFoundException(`Financial year ${n} does not exist.`);
+    return { yearcode: n, closed: !!y[0].closed };
+  }
+
   async getHeadOpeningBalances(yearcode: number): Promise<any[]> {
+    await this.openingYear(this.dataSource, yearcode); // ES-640: unknown / missing year is a clear 4xx, not an empty list
     return this.dataSource.query(`
       SELECT
         hm.code,
@@ -2650,26 +2705,58 @@ export class UtilitiesService {
     yearcode: number,
     balances: Array<{ headCode: string; closingBal: number }>,
   ): Promise<{ success: boolean; message: string }> {
+    // ES-640: input checks first (400), before anything is touched. An empty list would wipe the year, so it is refused.
+    if (!Array.isArray(balances) || balances.length === 0) throw new BadRequestException('Send at least one head balance.');
+    if (balances.length > 2000) throw new BadRequestException('Too many head balances in one save (the most is 2000).');
+    const seen = new Set<string>();
+    const codes: string[] = [];
+    const amounts: number[] = [];
+    for (const b of balances) {
+      const code = String(b?.headCode ?? '').trim().toUpperCase();
+      if (!code || code.length > 5) throw new BadRequestException('Every balance needs a head code of 1 to 5 characters.');
+      if (seen.has(code)) throw new BadRequestException(`Head ${code} is listed twice.`);
+      seen.add(code);
+      const raw: any = b?.closingBal;
+      const amt = typeof raw === 'number' ? raw : (typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : NaN);
+      if (!Number.isFinite(amt)) throw new BadRequestException(`The balance of ${code} must be a number.`);
+      if (Math.abs(amt) >= 1e13) throw new BadRequestException(`The balance of ${code} is too large.`);
+      codes.push(code);
+      amounts.push(Math.round(amt * 100) / 100);
+    }
+
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
     try {
+      const year = await this.openingYear(queryRunner, yearcode);
+      // two people saving the same year at once would interleave delete + insert; take one lock per year
+      await queryRunner.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`yearend_head:${year.yearcode}`]);
+      if (year.closed) throw new ConflictException(`Financial year ${year.yearcode} is closed, so its opening balances cannot be changed.`);
+
+      const known = await queryRunner.query(`SELECT code FROM headmaster WHERE code = ANY($1::text[])`, [codes]);
+      const knownSet = new Set<string>(known.map((r: any) => String(r.code).trim()));
+      const unknown = codes.filter(c => !knownSet.has(c));
+      if (unknown.length > 0) {
+        throw new BadRequestException(`Unknown head code${unknown.length > 1 ? 's' : ''}: ${unknown.slice(0, 5).join(', ')}${unknown.length > 5 ? ' ...' : ''}.`);
+      }
+
       await queryRunner.query(
         `DELETE FROM yearend_head WHERE yearcode = $1 AND head_code IN (SELECT code FROM headmaster)`,
-        [yearcode],
+        [year.yearcode],
       );
-      for (const b of balances) {
-        await queryRunner.query(
-          `INSERT INTO yearend_head (yearcode, head_code, parent_code, closing_bal)
-           SELECT $1, hm.code, hm.parent_code, $3 FROM headmaster hm WHERE hm.code = $2`,
-          [yearcode, b.headCode, b.closingBal],
-        );
-      }
+      await queryRunner.query(
+        `INSERT INTO yearend_head (yearcode, head_code, parent_code, closing_bal)
+         SELECT $1, hm.code, hm.parent_code, v.amt
+           FROM unnest($2::text[], $3::numeric[]) AS v(code, amt)
+           JOIN headmaster hm ON hm.code = v.code`,
+        [year.yearcode, codes, amounts],
+      );
       await queryRunner.commitTransaction();
-      this.logger.log(`[HeadOpenBal] Saved ${balances.length} balances for year ${yearcode}`);
-      return { success: true, message: `Saved ${balances.length} head balances for year ${yearcode}.` };
+      this.logger.log(`[HeadOpenBal] Saved ${codes.length} balances for year ${year.yearcode}`);
+      return { success: true, message: `Saved ${codes.length} head balances for year ${year.yearcode}.` };
     } catch (error) {
       await queryRunner.rollbackTransaction();
+      if (error instanceof HttpException) throw error;
       throw new Error(`Failed to save opening balances: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       await queryRunner.release();
@@ -2681,6 +2768,13 @@ export class UtilitiesService {
     await queryRunner.connect();
     await queryRunner.startTransaction();
     try {
+      const year = await this.openingYear(queryRunner, yearcode);
+      await queryRunner.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`yearend_head:${year.yearcode}`]);
+      // ES-640: a closed year's balances must not overwrite the live opening balances, and a year with nothing
+      // saved must not report "applied" (it used to answer success with 0 accounts updated)
+      if (year.closed) throw new ConflictException(`Financial year ${year.yearcode} is closed, so its balances cannot be applied.`);
+      const saved = await queryRunner.query(`SELECT COUNT(*)::int AS n FROM yearend_head WHERE yearcode = $1`, [year.yearcode]);
+      if (!saved[0] || saved[0].n === 0) throw new BadRequestException(`No opening balances are saved for financial year ${year.yearcode}. Save them first.`);
       // queryRunner.query() only returns raw.rows by default, which is empty for an UPDATE with no
       // RETURNING clause; pass useStructuredResult:true to read the affected row count instead.
       const result = await queryRunner.query(`
@@ -2700,7 +2794,8 @@ export class UtilitiesService {
       return { success: true, message: `Applied year ${yearcode} balances to ${updated} account heads.`, updated };
     } catch (error) {
       await queryRunner.rollbackTransaction();
-      throw new Error(`Failed to apply opening balances: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      if (error instanceof HttpException) throw error;
+      throw new Error(`Failed to apply opening balances:${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       await queryRunner.release();
     }

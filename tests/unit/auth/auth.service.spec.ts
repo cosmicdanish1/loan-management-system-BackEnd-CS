@@ -37,10 +37,17 @@ describe('auth/AuthService.getAllowedActions', () => {
     expect(await svc.getAllowedActions(1, 0)).toBeNull();
     expect(await svc.getAllowedActions(1, 1)).toBeNull();
   });
-  it('merges user rights and default rights into action codes', async () => {
+  it("a user's own rights ARE the rights: the level default is not added to them (ES-645, legacy rule)", async () => {
     const { svc, rightsRepo, defRightsRepo } = build();
     const [a, b] = MENU_ACTION_MAP;
     rightsRepo.find.mockResolvedValue([{ menuid: a.menuid }]);
+    defRightsRepo.find.mockResolvedValue([{ menuid: b.menuid }, { menuid: a.menuid }]);
+    expect(await svc.getAllowedActions(1, 5)).toEqual([a.action]);
+  });
+  it('a user with no rights of their own starts from the level defaults', async () => {
+    const { svc, rightsRepo, defRightsRepo } = build();
+    const [a, b] = MENU_ACTION_MAP;
+    rightsRepo.find.mockResolvedValue([]);
     defRightsRepo.find.mockResolvedValue([{ menuid: b.menuid }, { menuid: a.menuid }]);
     expect((await svc.getAllowedActions(1, 5))!.sort()).toEqual([a.action, b.action].sort());
   });

@@ -114,6 +114,19 @@ export class PassTransactionService {
             // ES-458: Pass posts on today's date; a closed day (Day-End done) or a closed financial year takes no postings
             await assertPostingDateOpen(queryRunner, new Date());
 
+            // ES-630: like receipts, payments and journals, a loan disbursement is dated on its own voucher date (date only),
+            // not on the moment it is passed. A voucher date that has been closed since is refused.
+            let loanPostDate = new Date();
+            if (/LOAN_CASE:/.test(header.remarks || '') && header.voucherDate && !isNaN(new Date(header.voucherDate).getTime())) {
+                loanPostDate = new Date(header.voucherDate);
+                try {
+                    await assertPostingDateOpen(queryRunner, loanPostDate);
+                } catch (e: any) {
+                    throw new BadRequestException(
+                        `Voucher ${voucherNo} is dated ${loanPostDate.toISOString().slice(0, 10)} and that day is closed. Reject (delete) it and enter it again on an open date.`);
+                }
+            }
+
             // 2. Determine if this is a Loan Disbursement or Generic Voucher
             const remarksMatch = (header.remarks || '').match(/LOAN_CASE:([^|]+)/);
             const isLoanVoucher = !!remarksMatch;
@@ -138,7 +151,10 @@ export class PassTransactionService {
             const maxTransNoResult = await queryRunner.query("SELECT COALESCE(MAX(trans_no), 0) as max_no FROM ledger");
             let nextTransNo = parseInt(maxTransNoResult[0].max_no) + 1;
 
-            const mode = (header.bankName || header.chequeNumber) ? 'T' : 'C'; // T=Transfer, C=Cash
+            // ES-630: a loan disbursement paid by bank carries PAY_MODE:BANK|BANK:<head> in its remarks (no bank name / cheque on the header)
+            const bankHeadFromRemarks = ((header.remarks || '').match(/\|BANK:([A-Za-z0-9]+)/) || [])[1] || null;
+            const paidByBank = !!(header.bankName || header.chequeNumber) || /PAY_MODE:BANK/.test(header.remarks || '');
+            const mode = paidByBank ? 'T' : 'C'; // T=Transfer, C=Cash
 
             const parseMoney = (val: any) => {
                 if (!val) return 0;
@@ -817,6 +833,7 @@ export class PassTransactionService {
                         + `(oldClosureInterest ₹${oldClosureInterestTotal} + RD/Share shortfall ₹${shareRdDeductionTotal})`);
                 }
 
+                let netPaidOut = 0; // ES-630: cash / bank actually handed over, credited to the cash or bank head below
                 // Post Breakdown for Loan
                 // ES-513: the staged voucher also carries the Receipt lines of the share / RD shortfall (the Loan Payment
                 // screen shows them as deductions). Those amounts are posted ONCE, by the deductions loop below, to
@@ -849,7 +866,7 @@ export class PassTransactionService {
                             narration, username, ledgerid
                         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
                     `, [
-                        nextTransNo++, new Date(), loanLegDirection, headCode, loan.mbno,
+                        nextTransNo++, loanPostDate, loanLegDirection, headCode, loan.mbno,
                         loan.loancaseno, loan.loantype,
                         fullAmt, voucherNo, 'JV', mode, 0,
                         detail.narration || '', postedBy, nextLedgerId++
@@ -858,13 +875,36 @@ export class PassTransactionService {
                     // Cashbook Insert — cash actually handed over (net of withholdings);
                     // the ledger row above carries the full loan principal like the legacy J voucher.
                     if (amt <= 0) continue;
+                    netPaidOut = round2(netPaidOut + amt);
                     let rcash = 0, rtransfer = 0, pcash = 0, ptransfer = 0;
                     if (mode === 'C') pcash = amt; else ptransfer = amt;
 
                     await queryRunner.query(`
-                        INSERT INTO tblcashbook (headcode, headname, rcash, rtransfer, pcash, ptransfer, trans_date)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7)
-                    `, [headCode, detail.narration || 'Loan Disbursement', rcash, rtransfer, pcash, ptransfer, new Date()]);
+                        INSERT INTO tblcashbook (headcode, headname, rcash, rtransfer, pcash, ptransfer, trans_date, voucher_no)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    `, [headCode, detail.narration || 'Loan Disbursement', rcash, rtransfer, pcash, ptransfer, loanPostDate, voucherNo]);
+                }
+
+                // ES-630: the other side of the payment, as legacy does (A1047 DR / A1001 CR): the cash in hand (A1001), or the
+                // bank head chosen on the voucher, is credited with what was actually paid out. Day Book and Cash Book read
+                // the cash position from these A1001 lines, so without it the day's closing cash stayed too high.
+                if (netPaidOut > 0) {
+                    const bankHead = bankHeadFromRemarks || (header.bankName && /^[A-Za-z]\d{3,5}$/.test(String(header.bankName).trim()) ? String(header.bankName).trim() : null);
+                    if (paidByBank && !bankHead) {
+                        throw new BadRequestException(`Voucher ${voucherNo} is paid by bank but does not say which bank account. Reject (delete) it and create it again with the bank chosen.`);
+                    }
+                    const cashHead = paidByBank ? bankHead! : 'A1001';
+                    await queryRunner.query(`
+                        INSERT INTO ledger (
+                            trans_no, trans_date, trans_type, code, mbno, acc_no, acc_type,
+                            trans_amt, receipt_vchr_no, vchr_type, modeofpay, pl_balance,
+                            narration, username, ledgerid
+                        ) VALUES ($1, $2, 'CR', $3, $4, $5, $6, $7, $8, 'JV', $9, 0, $10, $11, $12)
+                    `, [
+                        nextTransNo++, loanPostDate, cashHead, loan.mbno, loan.loancaseno,
+                        cashHead === 'A1001' ? 'CINH' : 'BANK', netPaidOut, voucherNo, mode,
+                        `Loan disbursement paid ${mode === 'C' ? 'in cash' : 'by bank'} - case ${loan.loancaseno}`, postedBy, nextLedgerId++,
+                    ]);
                 }
 
                 // Post the withheld RD/Share amounts to their own GL heads —
@@ -885,16 +925,16 @@ export class PassTransactionService {
                             narration, username, ledgerid
                         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
                     `, [
-                        nextTransNo++, new Date(), deductionDirection, deduction.code, loan.mbno,
+                        nextTransNo++, loanPostDate, deductionDirection, deduction.code, loan.mbno,
                         loan.loancaseno, deduction.kind === 'SHARE' ? 'SHR' : 'CD',
                         deduction.amount, voucherNo, 'JV', mode, 0,
                         deduction.name, postedBy, nextLedgerId++
                     ]);
 
                     await queryRunner.query(`
-                        INSERT INTO tblcashbook (headcode, headname, rcash, rtransfer, pcash, ptransfer, trans_date)
-                        VALUES ($1, $2, 0, 0, 0, 0, $3)
-                    `, [deduction.code, deduction.name, new Date()]);
+                        INSERT INTO tblcashbook (headcode, headname, rcash, rtransfer, pcash, ptransfer, trans_date, voucher_no)
+                        VALUES ($1, $2, 0, 0, 0, 0, $3, $4)
+                    `, [deduction.code, deduction.name, loanPostDate, voucherNo]);
 
                     // The RD balance timeline (rd_balance_events) must also
                     // reflect this addition — it's what the opening-balance
@@ -979,16 +1019,16 @@ export class PassTransactionService {
                             narration, username, ledgerid
                         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
                     `, [
-                        nextTransNo++, new Date(), closureInterestDirection, closureInterestHeadCode, loan.mbno,
+                        nextTransNo++, loanPostDate, closureInterestDirection, closureInterestHeadCode, loan.mbno,
                         loan.loancaseno, 'OTH',
                         breakdown.closureInterest, voucherNo, 'JV', mode, 0,
                         closureNarration, postedBy, nextLedgerId++
                     ]);
 
                     await queryRunner.query(`
-                        INSERT INTO tblcashbook (headcode, headname, rcash, rtransfer, pcash, ptransfer, trans_date)
-                        VALUES ($1, $2, 0, 0, 0, 0, $3)
-                    `, [closureInterestHeadCode, `INTT FROM MEMBER ${loan.loantype} (old loan consolidation)`, new Date()]);
+                        INSERT INTO tblcashbook (headcode, headname, rcash, rtransfer, pcash, ptransfer, trans_date, voucher_no)
+                        VALUES ($1, $2, 0, 0, 0, 0, $3, $4)
+                    `, [closureInterestHeadCode, `INTT FROM MEMBER ${loan.loantype} (old loan consolidation)`, loanPostDate, voucherNo]);
                 }
 
                 console.log(`[PassTransaction] Marking loan as PAID in loan_pending for case: ${loanCaseNo}`);
@@ -1282,6 +1322,8 @@ export class PassTransactionService {
             // 5. Remove/Deactivate from loan_master (and its RB schedule, so a
             // reversed-then-repassed loan gets a fresh schedule, not a stale one)
             if (loanCaseNo) {
+                // ES-630: the disbursement's Cash Book lines carry the voucher number now, so a reversal takes them out too.
+                await queryRunner.query(`DELETE FROM tblcashbook WHERE voucher_no = $1`, [voucherNo]);
                 // Read the loan row BEFORE deleting it — need mbno/loantype/loan_amt
                 // to undo the member_balances increment made at disbursement.
                 const loanRows = await queryRunner.query(

@@ -6,6 +6,7 @@ import {
   IsOptional,
   IsArray,
   IsBoolean,
+  IsInt,
   MinLength,
 } from 'class-validator';
 import { UserRole, UserPermission } from '../../auth/entities/user.entity';
@@ -103,4 +104,14 @@ export class UpdateUserDto {
   @IsBoolean()
   @IsOptional()
   allowPassTransactions?: boolean;
+
+  @ApiProperty({
+    description: "The user's own window rights (menumaster ids); replaces the current ones",
+    required: false,
+    type: [Number],
+  })
+  @IsArray()
+  @IsInt({ each: true })
+  @IsOptional()
+  menuIds?: number[];
 }

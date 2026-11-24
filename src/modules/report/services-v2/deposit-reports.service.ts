@@ -399,12 +399,28 @@ export class DepositReportsService {
         const mbno = (dto.memberNo || '').trim();
 
         // 1. Member info
+        // Email is optional: only select it when the member_master table actually has
+        // an email column (name comes from this whitelist lookup, never from input).
+        const emailCol = (await this.dataSource.query(`
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'member_master' AND column_name IN ('email','email_id')
+            ORDER BY column_name LIMIT 1
+        `))[0]?.column_name as string | undefined;
         const memberRes = await this.dataSource.query(`
             SELECT CAST(mbno AS text) AS "memberNo",
               TRIM(COALESCE(f_name,'')||' '||COALESCE(m_name,'')||' '||COALESCE(l_name,'')) AS "memberName",
               present_address AS "address",
               memb_date AS "membershipDate",
-              pfno AS "pfNo"
+              pfno AS "pfNo",
+              dob AS "dob",
+              date_of_appt AS "joiningDate",
+              COALESCE(date_of_retirement, dor) AS "retirementDate",
+              desig AS "designation",
+              dept_name AS "department",
+              frs_no AS "frsNo",
+              phoneno AS "contactNo",
+              nominee_name AS "nomineeName",
+              ${emailCol ? `${emailCol} AS "email"` : `NULL AS "email"`}
             FROM member_master WHERE CAST(mbno AS text) = $1
         `, [mbno]);
         const memberDetails = memberRes[0] || { memberNo: mbno, memberName: '', address: '', membershipDate: null, pfNo: '' };

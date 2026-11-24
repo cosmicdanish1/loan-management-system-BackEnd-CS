@@ -206,8 +206,9 @@ export class UtilitiesController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Get all account heads from headmaster with balance sheet data' })
   async getHeadMaster() {
-    const data = await this.utilitiesService.getHeadMaster();
-    return { success: true, data };
+    // ES-636: return the list itself. The global response wrapper adds { success, data }; wrapping it here too made
+    // res.data an object, so Head Addition / Modification and the Demand Print Order head lookup always showed "No data".
+    return this.utilitiesService.getHeadMaster();
   }
 
   @Get('divisions')
@@ -492,7 +493,7 @@ export class UtilitiesController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Get head opening balances for a financial year' })
   async getHeadOpeningBalances(@Query('yearcode') yearcode: string) {
-    return await this.utilitiesService.getHeadOpeningBalances(parseInt(yearcode));
+    return await this.utilitiesService.getHeadOpeningBalances(parseInt(yearcode, 10)); // missing / bad year -> 400 (ES-640)
   }
 
   @RequireMenuAction('HEAD_OPEN_BAL') // ES-464
@@ -501,7 +502,7 @@ export class UtilitiesController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Apply year opening balances to headmaster.op_bal' })
   async applyYearOpeningBalances(@Param('yearcode') yearcode: string) {
-    return await this.utilitiesService.applyYearOpeningBalances(parseInt(yearcode));
+    return await this.utilitiesService.applyYearOpeningBalances(parseInt(yearcode, 10));
   }
 
   @RequireMenuAction('HEAD_OPEN_BAL') // ES-464
@@ -514,7 +515,7 @@ export class UtilitiesController {
     if (!body?.yearcode || !Array.isArray(body?.balances)) {
       throw new BadRequestException('yearcode and a balances array are required');
     }
-    return await this.utilitiesService.saveHeadOpeningBalances(body.yearcode, body.balances);
+    return await this.utilitiesService.saveHeadOpeningBalances(Number(body.yearcode), body.balances);
   }
 
   @Get('deposit-loan-slabs')  @UseGuards(JwtAuthGuard)

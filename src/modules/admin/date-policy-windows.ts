@@ -19,6 +19,8 @@ export const DATE_POLICY_WINDOWS: DatePolicyWindow[] = [
     { key: 'RECEIPT_PAYMENT', label: 'Receipt (Receipt / General / Demand)', area: 'Receipt & Payment', kind: 'posts', wired: true },
     { key: 'RECEIPT_PAYMENT_VOUCHER_CREATION', label: 'Payment Voucher Creation', area: 'Receipt & Payment', kind: 'posts', wired: true },
     { key: 'JOURNAL_TRANSFER_ENTRY', label: 'Journal / Transfer Entry', area: 'Transaction', kind: 'posts', wired: true },
+    // Security
+    { key: 'USER_MANAGEMENT', label: 'Create / Modify Users (creation and enable / disable date)', area: 'Security', kind: 'stores', wired: true },
     // Loans
     { key: 'LOAN_APP', label: 'Loan Application (application date)', area: 'Loan', kind: 'stores', wired: true },
     { key: 'LOAN_PAYMENT', label: 'Loan Payment (disbursement)', area: 'Loan', kind: 'posts', wired: false },

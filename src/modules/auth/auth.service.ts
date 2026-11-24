@@ -71,10 +71,12 @@ export class AuthService {
       this.defaultRightsRepository.find({ where: { userlevelid } }),
     ]);
 
-    const menuIds = new Set<number>([
-      ...userRights.map((r) => r.menuid),
-      ...defaultRights.map((r) => r.menuid),
-    ]);
+    // ES-645 (legacy rule): once an administrator has set a person's own window rights (Create / Modify Users) those
+    // ARE the person's rights. The level's default rights are only the starting point for a user with none of their
+    // own. Before, the two were added together, so a right taken away from one user came back from the level default.
+    const menuIds = new Set<number>(
+      userRights.length > 0 ? userRights.map((r) => r.menuid) : defaultRights.map((r) => r.menuid),
+    );
 
     const actions = new Set<string>();
     for (const menuid of menuIds) {

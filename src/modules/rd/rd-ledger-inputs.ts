@@ -76,3 +76,53 @@ export function localDateFromYmd(ymd: string): Date {
     const [y, m, d] = String(ymd).slice(0, 10).split('-').map(Number);
     return new Date(y, (m || 1) - 1, d || 1);
 }
+
+/** One instalment row of the member's year (rd_installment_ledger): what was due, what was paid and when. */
+export interface RdInstallmentRow {
+    /** the month the instalment was due (YYYY-MM-DD) */
+    dueDate: string;
+    /** when it was paid (YYYY-MM-DD), null while unpaid */
+    paidDate: string | null;
+    paidAmount: number;
+    expectedAmount: number;
+    /** how the row was made, e.g. "Collected via demand import" */
+    narration: string;
+}
+
+/**
+ * ES-629: the instalment rows of a member's financial year. They are the only place that knows the DUE month of a payment, which
+ * the Allow / Deny decision needs (a late instalment earns from its due month when allowed, from the month it was paid when
+ * denied). Migrated members have none (their deposits are plain ledger rows and count as paid on time).
+ */
+export async function loadRdInstallmentRows(runner: Runner, mbno: string, yearcode: number): Promise<RdInstallmentRow[]> {
+    const rows = await runner.query(
+        `SELECT to_char(due_date, 'YYYY-MM-DD') AS due, to_char(paid_date, 'YYYY-MM-DD') AS paid,
+                COALESCE(paid_amount, 0)::float AS paid_amt, COALESCE(expected_amount, 0)::float AS exp_amt, COALESCE(narration, '') AS narr
+           FROM rd_installment_ledger WHERE mbno::numeric = $1::numeric AND yearcode = $2 ORDER BY due_date ASC`,
+        [mbno, yearcode],
+    );
+    return (rows || []).map((r: any) => ({ dueDate: String(r.due), paidDate: r.paid ? String(r.paid) : null, paidAmount: Number(r.paid_amt) || 0, expectedAmount: Number(r.exp_amt) || 0, narration: String(r.narr || '') }));
+}
+
+/**
+ * Which months of the financial year have their monthly demand POSTED to the ledger (demand_master.demand_posted = 'Y').
+ * The demand import writes an instalment row as soon as the file is imported, but the money reaches the main ledger only when
+ * the demand is posted, so an imported-but-unposted month must not earn interest yet. Key 'YYYY-MM' -> posted.
+ */
+export async function loadDemandPostedMonths(runner: Runner, mbno: string, fyStart: string, fyEnd: string): Promise<Map<string, boolean>> {
+    const out = new Map<string, boolean>();
+    try {
+        const rows = await runner.query(
+            `SELECT demand_for_year AS y, demand_for_month AS m, bool_or(demand_posted = 'Y') AS posted
+               FROM demand_master WHERE mbno::numeric = $1::numeric
+                AND (demand_for_year * 12 + demand_for_month) BETWEEN (EXTRACT(YEAR FROM $2::date)::int * 12 + EXTRACT(MONTH FROM $2::date)::int)
+                                                                  AND (EXTRACT(YEAR FROM $3::date)::int * 12 + EXTRACT(MONTH FROM $3::date)::int)
+              GROUP BY 1, 2`,
+            [mbno, fyStart, fyEnd],
+        );
+        for (const r of rows || []) out.set(`${r.y}-${String(r.m).padStart(2, '0')}`, !!r.posted);
+    } catch {
+        // no demand table: nothing is known to be unposted
+    }
+    return out;
+}

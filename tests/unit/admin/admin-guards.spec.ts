@@ -14,6 +14,12 @@ const userRow = (o: any = {}) => ({
 });
 const admin = (o: any = {}) => userRow({ userLevel: { userlevel: 'ADMINISTRATOR', userlevelid: 1 }, userlevelid: 1, ...o });
 
+// The acting user is looked up by id (their level decides who may hand out ADMINISTRATOR); here the actor is an administrator.
+const smartDs = () => ({
+  createQueryRunner: jest.fn(() => ({ connect: jest.fn(), startTransaction: jest.fn(), commitTransaction: jest.fn(), rollbackTransaction: jest.fn(), release: jest.fn(), query: jest.fn().mockResolvedValue([]) })),
+  query: jest.fn(async (sql: string) => (/JOIN userlevelmaster/.test(sql) ? [{ userlevel: 'ADMINISTRATOR' }] : [])),
+}) as any;
+
 function mkUsers(adminCount: number) {
   const qb: any = {
     where: jest.fn().mockReturnThis(), andWhere: jest.fn().mockReturnThis(), innerJoin: jest.fn().mockReturnThis(), leftJoinAndSelect: jest.fn().mockReturnThis(),
@@ -23,7 +29,7 @@ function mkUsers(adminCount: number) {
   const levelRepo: any = { createQueryBuilder: jest.fn(() => qb), find: jest.fn().mockResolvedValue([]), create: jest.fn((x) => x), save: jest.fn() };
   const loginRepo: any = { find: jest.fn().mockResolvedValue([]), save: jest.fn() };
   const actRepo: any = { create: jest.fn((x) => x), save: jest.fn(async (x) => x) };
-  return { svc: new UserManagementService(actRepo, um, levelRepo, loginRepo, {} as any, { assertNotReused: async () => undefined, recordHash: async () => undefined, recordCurrent: async () => undefined } as any), um };
+  return { svc: new UserManagementService(actRepo, um, levelRepo, loginRepo, smartDs(), { assertNotReused: async () => undefined, recordHash: async () => undefined, recordCurrent: async () => undefined } as any), um };
 }
 
 describe('admin/UserManagementService last administrator through update (ES-400)', () => {

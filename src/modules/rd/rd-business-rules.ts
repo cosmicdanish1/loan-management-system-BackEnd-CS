@@ -53,6 +53,11 @@ export interface RdRules {
     /** Whether more than one separate gap in the same year is still
      *  eligible for automatic full interest (Pattern F territory otherwise). */
     RULE_RD_ALLOW_MULTIPLE_GAPS: boolean;
+
+    /** Automatic pattern posting at year end. ON: a fully regular member is allowed the full interest by itself and everyone
+     *  else waits for the employee's Allow / Deny (undecided = Deny). OFF: nothing is allowed automatically; every undecided
+     *  member is Denied (interest only from the month the money was actually deposited). Explicit decisions are still used. */
+    RULE_RD_AUTO_PATTERN_POSTING: boolean;
 }
 
 export const RD_RULE_DEFAULTS: RdRules = {
@@ -67,6 +72,7 @@ export const RD_RULE_DEFAULTS: RdRules = {
     RULE_RD_ALLOW_LATER_MISS_RECOVERY: true,
     RULE_RD_MAX_ARREARS_CLEARANCE_MONTHS: 3,
     RULE_RD_ALLOW_MULTIPLE_GAPS: false,
+    RULE_RD_AUTO_PATTERN_POSTING: true,
 };
 
 export const RD_RULE_KEYS = Object.keys(RD_RULE_DEFAULTS) as Array<keyof RdRules>;

@@ -29,6 +29,9 @@ import type { FieldProblem } from '../../../common/validation/friendly-validatio
  */
 @Injectable()
 export class MemberCrudService {
+    /** member_master.email has been ensured in this process (see saveMemberMaster) */
+    private static emailColumnReady = false;
+
     constructor(
         @InjectRepository(Member)
         private readonly memberRepository: Repository<Member>,
@@ -410,7 +413,7 @@ export class MemberCrudService {
             if (!Number.isFinite(Number(v))) problems.push({ field, label, code: 'FIELD_NUMBER', message: `${label} must be a number.` });
             else if (Number(v) < 0) problems.push({ field, label, code: 'FIELD_MIN', message: `${label} cannot be less than 0.`, params: { min: 0 } });
         }
-        for (const [field, label] of [['dob', 'Date of birth'], ['dor', 'Retirement date'], ['memb_date', 'Membership date']] as const) {
+        for (const [field, label] of [['dob', 'Date of birth'], ['dor', 'Retirement date'], ['memb_date', 'Membership date'], ['date_of_appt', 'Date of joining service']] as const) {
             const v = d?.[field];
             if (!blank(v) && Number.isNaN(new Date(v).getTime())) problems.push({ field, label, code: 'FIELD_DATE', message: `${label} must be a valid date.` });
         }
@@ -421,6 +424,7 @@ export class MemberCrudService {
             ['desig', 'Designation', 40], ['dept_name', 'Department', 50], ['present_address', 'Present address', 200],
             ['permanent_address', 'Permanent address', 200], ['nominee_name', 'Nominee name', 40], ['remarks', 'Remarks', 100],
             ['pfno', 'PF number', 10], ['prefix', 'Title', 10], ['frs_no', 'FRS number', 20], ['wingno', 'Wing', 6],
+            ['email', 'Email', 100],
         ];
         for (const [field, label, max] of textLimits) {
             const v = d?.[field];
@@ -439,6 +443,8 @@ export class MemberCrudService {
             const digits = phone.replace(/\D/g, '').length;
             if (!/^[0-9+\-\s()]+$/.test(phone) || digits < 10 || digits > 15) bad('phoneno', 'Phone number', 'FIELD_FORMAT', 'Phone number must have 10 to 15 digits (digits, spaces, + and - only).');
         }
+        const mail = String(d?.email ?? '').trim();
+        if (mail && changed('email') && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) bad('email', 'Email', 'FIELD_FORMAT', 'Email must look like name@example.com.');
         const aadhaar = String(d?.aadharno ?? '').trim();
         if (aadhaar && changed('aadharno') && !/^\d{12}$/.test(aadhaar.replace(/[\s-]/g, ''))) bad('aadharno', 'Aadhaar number', 'FIELD_FORMAT', 'Aadhaar number must have exactly 12 digits.');
         const pan = String(d?.pan_no ?? '').trim();
@@ -471,6 +477,11 @@ export class MemberCrudService {
             } catch { existing = null; }
         }
         this.assertMemberFields(memberData, existing);
+        // Older installs may not have member_master.email yet — add it once (idempotent).
+        if (!MemberCrudService.emailColumnReady) {
+            await this.dataSource.query(`ALTER TABLE member_master ADD COLUMN IF NOT EXISTS email varchar(100)`);
+            MemberCrudService.emailColumnReady = true;
+        }
         try {
             // ES-99: date_of_retirement is the single retirement date. Clients may still
             // send it as `dor`; accept either and write the same value to both columns.
@@ -489,7 +500,8 @@ export class MemberCrudService {
             pfno = $22, flg_insured = $23, insureamt = $24, remarks = $25, dept_name = $26,
             isactive = $27, flg_retire = $28, aadharno = $29, phoneno = $30, pan_no = $31,
             frs_no = $32, fathers_name = $33, branchmsno = $34,
-            supanuationdate = $35, compulsory_deposit = $36, share_amount = $37, cast_category = $38
+            supanuationdate = $35, compulsory_deposit = $36, share_amount = $37, cast_category = $38,
+            date_of_appt = $39, email = $40
           WHERE mbno = $1
           RETURNING *
         `;
@@ -505,7 +517,10 @@ export class MemberCrudService {
                     memberData.flg_retire, memberData.aadharno, memberData.phoneno, memberData.pan_no,
                     memberData.frs_no, memberData.fathers_name, memberData.branchmsno,
                     memberData.supanuationdate || null, memberData.compulsory_deposit || 0,
-                    memberData.share_amount || 0, memberData.cast_category || ''
+                    memberData.share_amount || 0, memberData.cast_category || '',
+                    // Joining date / email: a caller that does not send them leaves the stored value alone
+                    'date_of_appt' in memberData ? (memberData.date_of_appt || null) : (existing?.date_of_appt ?? null),
+                    'email' in memberData ? (String(memberData.email ?? '').trim() || null) : (existing?.email ?? null),
                 ]);
 
                 // A pg UPDATE ... RETURNING through TypeORM answers [rows, rowCount]; unwrap it so an update returns the
@@ -543,13 +558,15 @@ export class MemberCrudService {
             nominee_relation, declare_date, memb_date, pfno, lfno, flg_incometax,
             flg_insured, insureamt, remarks, dept_name, isactive, flg_retire,
             aadharno, phoneno, pan_no, frs_no, fathers_name, branchmsno,
-            supanuationdate, compulsory_deposit, share_amount, cast_category
+            supanuationdate, compulsory_deposit, share_amount, cast_category,
+            date_of_appt, email
           ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
             $13, $14, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24,
             $25, $26, $27, $28, $29, $30,
             $31, $32, $33, $34, $35, $36,
-            $37, $38, $39, $40
+            $37, $38, $39, $40,
+            $41, $42
           )
           RETURNING *
         `;
@@ -566,7 +583,9 @@ export class MemberCrudService {
                         memberData.aadharno || '', memberData.phoneno || '', memberData.pan_no || '',
                         memberData.frs_no || '', memberData.fathers_name || '', memberData.branchmsno || '',
                         memberData.supanuationdate || null, memberData.compulsory_deposit || 0,
-                        memberData.share_amount || 0, memberData.cast_category || ''
+                        memberData.share_amount || 0, memberData.cast_category || '',
+                        memberData.date_of_appt || null,
+                        String(memberData.email ?? '').trim() || null,
                     ]);
 
                     const compulsoryDeposit = Number(memberData.compulsory_deposit) || 0;

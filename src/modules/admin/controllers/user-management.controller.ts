@@ -128,6 +128,34 @@ export class UserManagementController {
     return this.userManagementService.getAllUserActivities(page, limit);
   }
 
+  @Get(':id/menu-rights')
+  @Roles(UserRole.ADMIN, UserRole.BRANCH_MANAGER)
+  @RequirePermissions(UserPermission.MANAGE_USERS)
+  @ApiOperation({ summary: "One user's window rights: granted, level defaults and every window (ES-645)" })
+  @ApiParam({ name: 'id', type: Number, description: 'User ID' })
+  async getUserMenuRights(@Param('id', ParseIntPipe) id: number) {
+    return this.userManagementService.getUserMenuRights(id);
+  }
+
+  @RequireMenuAction('USER_MANAGEMENT')
+  @Put(':id/menu-rights')
+  @Roles(UserRole.ADMIN)
+  @RequirePermissions(UserPermission.MANAGE_USERS)
+  @ApiOperation({ summary: "Set one user's own window rights (ES-645)" })
+  @ApiParam({ name: 'id', type: Number, description: 'User ID' })
+  async setUserMenuRights(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { menuIds: number[] },
+    @CurrentUser() actor: any,
+  ) {
+    const target: any = await this.userManagementService.findUserById(id).catch(() => null);
+    const result = await this.userManagementService.setUserMenuRights(id, body?.menuIds);
+    try {
+      AlertBridge.get()?.userChanged({ by: actor?.username, username: target?.username ?? `#${id}`, changes: ['window rights'] });
+    } catch { /* alerting must never affect user admin */ }
+    return result;
+  }
+
   @Get(':id')
   @Roles(UserRole.ADMIN, UserRole.BRANCH_MANAGER)
   @RequirePermissions(UserPermission.MANAGE_USERS)
@@ -254,7 +282,7 @@ export class UserManagementController {
     @Body() updateUserRoleDto: UpdateUserRoleDto,
     @CurrentUser() actor: any,
   ): Promise<UserResponseDto> {
-    const updated = await this.userManagementService.updateUserRole(id, updateUserRoleDto);
+    const updated = await this.userManagementService.updateUserRole(id, updateUserRoleDto, Number(actor?.id ?? actor?.userid));
     try {
       AlertBridge.get()?.userChanged({
         by: actor?.username,

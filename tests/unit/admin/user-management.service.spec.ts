@@ -7,7 +7,7 @@ const userRow = (o: any = {}) => ({
   validatePassword: jest.fn().mockResolvedValue(true), ...o,
 });
 
-function mk(over: { rows?: any; taken?: number; adminCount?: number; level?: any } = {}) {
+function mk(over: { rows?: any; taken?: number; adminCount?: number; level?: any; defaults?: any[] } = {}) {
   const qb: any = {
     where: jest.fn().mockReturnThis(), andWhere: jest.fn().mockReturnThis(), innerJoin: jest.fn().mockReturnThis(), leftJoinAndSelect: jest.fn().mockReturnThis(),
     orderBy: jest.fn().mockReturnThis(), skip: jest.fn().mockReturnThis(), take: jest.fn().mockReturnThis(),
@@ -23,12 +23,18 @@ function mk(over: { rows?: any; taken?: number; adminCount?: number; level?: any
   const levelRepo: any = { createQueryBuilder: jest.fn(() => qb), find: jest.fn().mockResolvedValue([]), create: jest.fn((x) => x), save: jest.fn() };
   const em: any = { create: jest.fn((_e, x) => ({ ...x, permissions: [] })), save: jest.fn(async (x) => ({ ...x, userid: x.userid })) };
   const qr: any = { connect: jest.fn(), startTransaction: jest.fn(), commitTransaction: jest.fn(), rollbackTransaction: jest.fn(), release: jest.fn(), manager: em, query: jest.fn().mockResolvedValue([{ next_id: 8 }]) };
-  const ds: any = { createQueryRunner: jest.fn(() => qr) };
+  // ds.query answers the helper reads: the acting user's level (an administrator) and the level's default rights
+  const dsQuery = jest.fn(async (sql: string) => {
+    if (/JOIN userlevelmaster/.test(sql)) return [{ userlevel: 'ADMINISTRATOR' }];
+    if (/FROM userleveldefaultrights/.test(sql)) return over.defaults ?? [];
+    return [];
+  });
+  const ds: any = { createQueryRunner: jest.fn(() => qr), query: dsQuery };
   const actRepo: any = { create: jest.fn((x) => x), save: jest.fn(async (x) => ({ id: 1, ...x })), findAndCount: jest.fn().mockResolvedValue([[], 0]) };
   const svc = new UserManagementService(actRepo, um, levelRepo, {} as any, ds, { assertNotReused: async () => undefined, recordHash: async () => undefined, recordCurrent: async () => undefined } as any);
   // admin counting uses the same query builder mock; make its count configurable
   if (over.adminCount !== undefined) (um.createQueryBuilder as jest.Mock).mockReturnValue(countQb);
-  return { svc, um, qb, qr, em, levelRepo, actRepo };
+  return { svc, um, qb, qr, em, levelRepo, actRepo, ds, dsQuery };
 }
 const cu = (o: any = {}) => ({ username: 'new', password: 'Abcdef1!', role: 'clerk', ...o }) as any;
 
@@ -74,10 +80,10 @@ describe('admin/UserManagementService.createUser', () => {
     expect(em.create.mock.calls[0][1].passTransactionFlag).toBe('N');
   });
   it('copies the default rights of the user level into userrights', async () => {
-    const { svc, um } = mk(); um.findOne.mockResolvedValue(null);
-    um.query.mockResolvedValue([{ menuid: 3 }, { menuid: 9 }]);
+    const { svc, um, qr } = mk({ defaults: [{ menuid: 3 }, { menuid: 9 }] }); um.findOne.mockResolvedValue(null);
     await svc.createUser(cu());
-    expect(um.query.mock.calls.some((c: any[]) => /INSERT INTO userrights/.test(c[0]) && c[0].includes('(8, 3),(8, 9)'))).toBe(true);
+    const ins = qr.query.mock.calls.find((c: any[]) => /INSERT INTO userrights/.test(c[0]));
+    expect(ins[1]).toEqual([8, [3, 9]]);
   });
   it('a failure to copy default rights does not fail the creation', async () => {
     const { svc, um } = mk(); um.findOne.mockResolvedValue(null); um.query.mockRejectedValue(new Error('x'));

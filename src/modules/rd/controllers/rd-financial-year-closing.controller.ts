@@ -59,7 +59,45 @@ export class RdFinancialYearClosingController {
         return this.service.previewMemberClosing(mbno, yearcode, override);
     }
 
-    @RequireMenuAction('FIN_YEAR_CLOSING') // ES-464
+    @Get('history/years')
+    @ApiOperation({ summary: 'ES-629: past financial years that have RD/CD money in the ledger (read-only history)' })
+    async historyYears() {
+        return this.service.listHistoryYears();
+    }
+
+    @Get(':mbno/history/:fyStartYear/explain')
+    @ApiOperation({ summary: "ES-629: a PAST financial year's RD/CD interest of one member, worked out from the ledger, with what the legacy posted (read-only)" })
+    async explainHistory(@Param('mbno') mbno: string, @Param('fyStartYear', ParseIntPipe) fyStartYear: number) {
+        return this.service.explainHistoryYear(mbno, fyStartYear);
+    }
+
+    @Get(':mbno/:yearcode/explain')
+    @ApiOperation({ summary: "ES-629: one member's month-by-month RD/CD interest calculation, pattern and decision (read-only)" })
+    async explainOne(@Param('mbno') mbno: string, @Param('yearcode', ParseIntPipe) yearcode: number) {
+        return this.service.explainMember(mbno, yearcode);
+    }
+
+    @RequireMenuAction('FIN_YEAR_CLOSING', 'RD_INTEREST')
+    @Post(':mbno/:yearcode/decision')
+    @ApiOperation({ summary: "ES-629: record the employee's Allow / Deny of the full interest for one member's year" })
+    async decide(
+        @Param('mbno') mbno: string,
+        @Param('yearcode', ParseIntPipe) yearcode: number,
+        @Body() body: { decision: 'ALLOW' | 'DENY'; reason?: string },
+        @Req() req: any,
+    ) {
+        const by = req?.user?.username || 'system'; // from the token, never from the body
+        return this.service.setDecision(mbno, yearcode, body?.decision, body?.reason ?? '', by);
+    }
+
+    @RequireMenuAction('FIN_YEAR_CLOSING', 'RD_INTEREST')
+    @Post(':mbno/:yearcode/decision/clear')
+    @ApiOperation({ summary: 'ES-629: take back the decision of one member (back to the default)' })
+    async clearDecision(@Param('mbno') mbno: string, @Param('yearcode', ParseIntPipe) yearcode: number) {
+        return this.service.clearDecision(mbno, yearcode);
+    }
+
+    @RequireMenuAction('FIN_YEAR_CLOSING', 'RD_INTEREST') // ES-464
     @Post(':mbno/:yearcode/close')
     @ApiOperation({ summary: "Close one member's RD financial year — credits interest, writes the audit summary, rolls the balance forward" })
     async closeOne(

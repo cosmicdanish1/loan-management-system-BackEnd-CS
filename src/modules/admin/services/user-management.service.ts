@@ -26,6 +26,7 @@ import { UserResponseDto } from '../../auth/dto';
 import { roleFromLegacyLevel } from '../../auth/utils';
 import { AlertBridge } from '../../alerts/alert-bridge';
 import { PasswordHistoryService } from '../../shared/services/password-history.service';
+import { resolvePostingDate, postingDateAsDate } from '../../shared/utils/posting-date';
 
 // usermaster is the single source of truth for user management — the separate
 // modern `users` table it used to sync with (best-effort, via try/catch) has
@@ -180,10 +181,144 @@ export class UserManagementService implements OnModuleInit {
     return (await qb.getCount()) > 0;
   }
 
+  /**
+   * The date stamped on a user record (created, enabled / disabled): the Day-End WORKING date as a date only, the way
+   * the legacy window stamps it (every legacy DATE_OF_CREATION is a midnight date). Day-End > Date settings can switch
+   * the window to the system date; without any working date the system date is used. (ES-646)
+   */
+  private async recordDate(): Promise<Date> {
+    try {
+      const r = await resolvePostingDate(this.dataSource, 'USER_MANAGEMENT');
+      return postingDateAsDate(r.date);
+    } catch {
+      const d = new Date();
+      d.setHours(0, 0, 0, 0);
+      return d;
+    }
+  }
+
+  /** Who may hand out the top two levels: SYSTEM only by a system user, ADMINISTRATOR only by an administrator or system user. (ES-647) */
+  private assertCanAssignRole(actorRole: unknown, role: unknown): void {
+    const a = String(actorRole ?? '').toLowerCase();
+    const r = String(role ?? '').toLowerCase();
+    const actorIsSystem = a === 'system' || a === 'sample_1';
+    const actorIsAdmin = actorIsSystem || a === 'administrator' || a === 'admin';
+    if (r === 'system' && !actorIsSystem) {
+      throw new ForbiddenException('Only a SYSTEM user can create or assign the SYSTEM level.');
+    }
+    if ((r === 'administrator' || r === 'admin') && !actorIsAdmin) {
+      throw new ForbiddenException('Only an administrator can create or assign the ADMINISTRATOR level.');
+    }
+  }
+
+  /** The role of whoever is acting, read from the account itself (the token only carries an id). */
+  private async actorRoleById(actorId?: number): Promise<string> {
+    if (actorId === undefined || !Number.isFinite(actorId)) return '';
+    const rows = await this.dataSource.query(
+      `SELECT ul.userlevel FROM usermaster um JOIN userlevelmaster ul ON ul.userlevelid = um.userlevelid WHERE um.userid = $1`,
+      [actorId],
+    );
+    return String(rows?.[0]?.userlevel ?? '').toLowerCase().replace(/ /g, '_');
+  }
+
+  /** Menu ids that exist in menumaster, or a 400 naming the ones that do not. */
+  private async cleanMenuIds(menuIds: unknown): Promise<number[]> {
+    if (!Array.isArray(menuIds) || menuIds.some((m) => !Number.isInteger(m) || m < 0)) {
+      throw new BadRequestException('menuIds must be a list of window ids.');
+    }
+    const ids = [...new Set(menuIds as number[])];
+    if (ids.length > 1000) throw new BadRequestException('Too many window rights in one save.');
+    if (ids.length === 0) return ids;
+    const found = await this.dataSource.query(`SELECT menuid FROM menumaster WHERE menuid = ANY($1::int[])`, [ids]);
+    const have = new Set(found.map((r: any) => Number(r.menuid)));
+    const unknown = ids.filter((i) => !have.has(i));
+    if (unknown.length > 0) throw new BadRequestException(`Unknown window right${unknown.length > 1 ? 's' : ''}: ${unknown.slice(0, 5).join(', ')}.`);
+    return ids;
+  }
+
+  /** Replaces a person's own window rights in one transaction (one lock per person). */
+  private async replaceUserRights(userid: number, menuIds: number[]): Promise<void> {
+    const qr = this.dataSource.createQueryRunner();
+    await qr.connect();
+    await qr.startTransaction();
+    try {
+      await qr.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`userrights:${userid}`]);
+      await qr.query(`DELETE FROM userrights WHERE userid = $1`, [userid]);
+      if (menuIds.length > 0) {
+        await qr.query(`INSERT INTO userrights (userid, menuid) SELECT $1, m FROM unnest($2::int[]) AS m ON CONFLICT DO NOTHING`, [userid, menuIds]);
+      }
+      await qr.commitTransaction();
+    } catch (e) {
+      await qr.rollbackTransaction();
+      throw e;
+    } finally {
+      await qr.release();
+    }
+  }
+
+  /** The window rights a level starts a new person with. */
+  private async levelDefaultMenuIds(userlevelid: number): Promise<number[]> {
+    const rows = await this.dataSource.query(`SELECT menuid FROM userleveldefaultrights WHERE userlevelid = $1 ORDER BY menuid`, [userlevelid]);
+    return rows.map((r: any) => Number(r.menuid));
+  }
+
+  private static isUnrestrictedLevel(levelName: string): boolean {
+    return ['ADMINISTRATOR', 'SYSTEM'].includes(String(levelName || '').toUpperCase());
+  }
+
+  /** One person's window rights: what they have, what their level starts with, and every window. (ES-645) */
+  async getUserMenuRights(id: number) {
+    const um = await this.userMasterRepository.findOne({ where: { userid: id }, relations: ['userLevel'] });
+    if (!um) throw new NotFoundException('User not found');
+    const own: number[] = (await this.dataSource.query(`SELECT menuid FROM userrights WHERE userid = $1 ORDER BY menuid`, [id])).map((r: any) => Number(r.menuid));
+    const defaults = await this.levelDefaultMenuIds(um.userlevelid);
+    const menus = await this.dataSource.query(`SELECT menuid, menuname, menudesc FROM menumaster ORDER BY menuid`);
+    return {
+      userid: id,
+      username: um.susername,
+      userlevelid: um.userlevelid,
+      level: um.userLevel?.userlevel ?? '',
+      unrestricted: UserManagementService.isUnrestrictedLevel(um.userLevel?.userlevel ?? ''),
+      custom: own.length > 0,
+      granted: own.length > 0 ? own : defaults,
+      defaults,
+      menus,
+    };
+  }
+
+  /** Sets one person's own window rights. Takes effect on the very next request (the server reads them every time). */
+  async setUserMenuRights(id: number, menuIds: unknown): Promise<{ userid: number; count: number }> {
+    const ids = await this.cleanMenuIds(menuIds);
+    const um = await this.userMasterRepository.findOne({ where: { userid: id }, relations: ['userLevel'] });
+    if (!um) throw new NotFoundException('User not found');
+    if (UserManagementService.isUnrestrictedLevel(um.userLevel?.userlevel ?? '')) {
+      throw new BadRequestException('Administrators and SYSTEM users always have every right, so their window rights cannot be set.');
+    }
+    if (ids.length === 0) throw new BadRequestException('A user needs at least one window right.');
+    await this.replaceUserRights(id, ids);
+    return { userid: id, count: ids.length };
+  }
+
+  /**
+   * The login name as it will be stored: no spaces around it, 1 to 20 characters (the legacy column is varchar(20); a longer
+   * name used to fail with a database error), letters, digits, dot, underscore and hyphen only (ES-649).
+   */
+  private cleanUsername(raw: unknown): string {
+    const name = String(raw ?? '').trim();
+    if (!name) throw new BadRequestException('User name is required.');
+    if (name.length > 20) throw new BadRequestException('User name can be at most 20 characters.');
+    if (!/^[A-Za-z0-9._-]+$/.test(name)) throw new BadRequestException('User name can contain only letters, digits, dot, underscore and hyphen (no spaces).');
+    return name;
+  }
+
   async createUser(createUserDto: CreateUserDto, actor?: any): Promise<UserResponseDto> {
+    createUserDto.username = this.cleanUsername(createUserDto.username);
+    this.assertCanAssignRole(actor?.role, createUserDto.role);
     if (await this.usernameTaken(createUserDto.username)) {
       throw new ConflictException('Username already exists');
     }
+    const ownMenuIds = (createUserDto as any).menuIds !== undefined ? await this.cleanMenuIds((createUserDto as any).menuIds) : null;
+    const stamp = await this.recordDate();
 
     if (createUserDto.email) {
       const existingEmail = await this.userMasterRepository.findOne({
@@ -228,7 +363,8 @@ export class UserManagementService implements OnModuleInit {
         enableDisable: createUserDto.isActive === false ? 'D' : 'E',
         loginStatus: 'N',
         passTransactionFlag: createUserDto.allowPassTransactions === true ? 'Y' : 'N',
-        dateOfCreation: new Date(),
+        dateOfCreation: stamp,
+        dateOfDisableEnable: stamp, // legacy fills both with the creation date
         email: createUserDto.email,
         firstName: createUserDto.firstName,
         lastName: createUserDto.lastName,
@@ -253,16 +389,11 @@ export class UserManagementService implements OnModuleInit {
     // Populate userrights from userleveldefaultrights for this user level —
     // best-effort: a failure here shouldn't undo the user that was just created.
     try {
-      const defaultRights = await this.userMasterRepository.query(
-        `SELECT menuid FROM userleveldefaultrights WHERE userlevelid = $1`,
-        [userLevel.userlevelid],
-      );
-      if (defaultRights.length > 0) {
-        const values = defaultRights.map((r: any) => `(${saved.userid}, ${r.menuid})`).join(',');
-        await this.userMasterRepository.query(
-          `INSERT INTO userrights (userid, menuid) VALUES ${values} ON CONFLICT DO NOTHING`,
-        );
-      }
+      // the window rights chosen on the screen, else the level's defaults (legacy: the lists start from the level)
+      const startRights = ownMenuIds ?? (await this.levelDefaultMenuIds(userLevel.userlevelid));
+      // always replaced, even with an empty list: user ids are MAX+1, so an id can be reused and rows left by an earlier
+      // person of that id (see ES-651) must never become the new person's rights
+      await this.replaceUserRights(saved.userid, startRights);
     } catch (err) {
       this.logger.error(`Failed to populate default rights for new user: ${err.message}`);
     }
@@ -326,6 +457,10 @@ export class UserManagementService implements OnModuleInit {
     }
     // Setting a password here is a password reset: same rule as the dedicated reset (not for administrators).
     if (updateUserDto.password) this.assertCanResetPassword(userMaster, actorId);
+    if (updateUserDto.username !== undefined) updateUserDto.username = this.cleanUsername(updateUserDto.username);
+    if (updateUserDto.role !== undefined) this.assertCanAssignRole(await this.actorRoleById(actorId), updateUserDto.role);
+    const ownMenuIds = (updateUserDto as any).menuIds !== undefined ? await this.cleanMenuIds((updateUserDto as any).menuIds) : null;
+    const levelBefore = userMaster.userlevelid;
 
     // The last enabled administrator can be neither demoted nor disabled, whichever endpoint is used (ES-400)
     const currentRole = roleFromLegacyLevel(userMaster.userLevel?.userlevel || '');
@@ -359,7 +494,12 @@ export class UserManagementService implements OnModuleInit {
     if (updateUserDto.firstName !== undefined) userMaster.firstName = updateUserDto.firstName;
     if (updateUserDto.lastName !== undefined) userMaster.lastName = updateUserDto.lastName;
     if (updateUserDto.avatar !== undefined) userMaster.avatar = updateUserDto.avatar;
-    if (updateUserDto.isActive !== undefined) userMaster.enableDisable = updateUserDto.isActive ? 'E' : 'D';
+    if (updateUserDto.isActive !== undefined) {
+      const next = updateUserDto.isActive ? 'E' : 'D';
+      // legacy keeps the date the account was last enabled / disabled
+      if (next !== userMaster.enableDisable) userMaster.dateOfDisableEnable = await this.recordDate();
+      userMaster.enableDisable = next;
+    }
     if (updateUserDto.allowPassTransactions !== undefined) userMaster.passTransactionFlag = updateUserDto.allowPassTransactions ? 'Y' : 'N';
 
     if (updateUserDto.role) {
@@ -377,6 +517,17 @@ export class UserManagementService implements OnModuleInit {
 
     userMaster.updatedAt = new Date();
     const updated = await this.userMasterRepository.save(userMaster);
+    // Window rights: the ones sent from the screen, or (when the level changed) the new level's defaults, as legacy does.
+    // An unrestricted level never keeps own rights (they would not be enforced and only mislead).
+    const unrestricted = UserManagementService.isUnrestrictedLevel(updated.userLevel?.userlevel ?? '');
+    if (unrestricted) {
+      if (updated.userlevelid !== levelBefore) await this.replaceUserRights(updated.userid, []);
+    } else if (ownMenuIds !== null) {
+      if (ownMenuIds.length === 0) throw new BadRequestException('A user needs at least one window right.');
+      await this.replaceUserRights(updated.userid, ownMenuIds);
+    } else if (updated.userlevelid !== levelBefore) {
+      await this.replaceUserRights(updated.userid, await this.levelDefaultMenuIds(updated.userlevelid));
+    }
     return this.mapUserMasterToResponseDto(updated);
   }
 
@@ -399,6 +550,12 @@ export class UserManagementService implements OnModuleInit {
     }
 
     await this.userMasterRepository.remove(userMaster);
+    // the person's own window rights go with them (ES-651): they used to stay behind as rows for a user that no longer exists
+    try {
+      await this.dataSource.query(`DELETE FROM userrights WHERE userid = $1`, [id]);
+    } catch (e) {
+      this.logger.warn(`Could not remove the window rights of deleted user ${id}: ${(e as Error).message}`);
+    }
     return { message: 'User deleted successfully' };
   }
 
@@ -466,13 +623,15 @@ export class UserManagementService implements OnModuleInit {
   async updateUserRole(
     userId: number,
     updateUserRoleDto: UpdateUserRoleDto,
+    actorId?: number,
   ): Promise<UserResponseDto> {
-    const userMaster = await this.userMasterRepository.findOne({ where: { userid: userId } });
+    const userMaster = await this.userMasterRepository.findOne({ where: { userid: userId }, relations: ['userLevel'] });
     if (!userMaster) {
       throw new NotFoundException('User not found');
     }
 
     const currentRole = roleFromLegacyLevel(userMaster.userLevel?.userlevel || '');
+    this.assertCanAssignRole(await this.actorRoleById(actorId), updateUserRoleDto.role);
     if (currentRole === UserRole.ADMIN && updateUserRoleDto.role !== UserRole.ADMIN) {
       const adminCount = await this.countUsersByRole(UserRole.ADMIN, true);
       if (adminCount <= 1) {
@@ -481,11 +640,15 @@ export class UserManagementService implements OnModuleInit {
     }
 
     const userLevel = await this.resolveOrCreateUserLevel(updateUserRoleDto.role);
+    const levelBefore = userMaster.userlevelid;
     userMaster.userlevelid = userLevel.userlevelid;
     userMaster.userLevel = userLevel;
     userMaster.permissions = updateUserRoleDto.permissions || this.getDefaultPermissions(updateUserRoleDto.role);
 
     const updated = await this.userMasterRepository.save(userMaster);
+    if (updated.userlevelid !== levelBefore) {
+      await this.replaceUserRights(updated.userid, UserManagementService.isUnrestrictedLevel(userLevel.userlevel) ? [] : await this.levelDefaultMenuIds(updated.userlevelid));
+    }
     return this.mapUserMasterToResponseDto(updated);
   }
 

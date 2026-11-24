@@ -153,6 +153,9 @@ export const MENU_ACTION_MAP: MenuActionEntry[] = [
   { action: 'RD_WITHDRAWAL', menuid: 247, title: 'RD/CD Withdrawal' },
   { action: 'RD_REPAYMENT', menuid: 248, title: 'RD/CD Repayment' },
   { action: 'RD_FY_CLOSING', menuid: 249, title: 'RD/CD Financial Year Closing' },
+  // ES-648: this used menuid 250 too, the same as RD/CD Transaction Legacy below, so the two windows shared one right
+  // and RD_INTEREST had no menumaster row of its own. 251 is its own row.
+  { action: 'RD_INTEREST', menuid: 251, title: 'RD/CD Interest (one member)' },
   // Bulk CD charge (debits members' Compulsory Deposit, credits a head); the counterpart of RD/CD Transaction
   { action: 'COMPULSORY_DEPOSIT_LEGACY', menuid: 250, title: 'RD/CD Transaction Legacy' },
 ];

@@ -214,3 +214,39 @@ describe('Pass Transactions: Demand Receipt (D voucher)', () => {
     expect(calls.some(({ sql }) => sql.includes("UPDATE demand_master SET demand_posted = 'N'"))).toBe(true);
   });
 });
+
+describe('Pass Transactions: loan disbursement Cash Book lines (ES-630)', () => {
+  it('reversing a loan disbursement also removes its Cash Book lines, by voucher number', async () => {
+    const { service, calls } = build({ header: header({ voucherType: 'PAYMENT', status: 'POSTED', remarks: 'LOAN_CASE:55|PAY_MODE:CASH' }) });
+    await service.reverseTransaction('V1').catch(() => undefined);
+    const del = calls.find(c => /DELETE FROM tblcashbook WHERE voucher_no/.test(c.sql));
+    expect(del?.params).toEqual(['V1']);
+  });
+
+  it('writes the voucher number and the voucher date on every loan Cash Book and ledger line', () => {
+    const src = require('fs').readFileSync(
+      require('path').resolve(__dirname, '../../../src/modules/transaction/services-v2/pass-transaction.service.ts'), 'utf8');
+    const loanBranch = src.slice(src.indexOf('// Post Breakdown for Loan'), src.indexOf('// ==================== GENERIC POSTING LOGIC'));
+    expect(loanBranch.includes('nextTransNo++, new Date()')).toBe(false);
+    expect((loanBranch.match(/INSERT INTO tblcashbook \([^)]*voucher_no\)/g) || []).length).toBe(3);
+    expect((loanBranch.match(/loanPostDate/g) || []).length).toBeGreaterThanOrEqual(6);
+  });
+});
+
+describe('Pass Transactions: loan disbursement cash / bank leg (ES-630)', () => {
+  const src = require('fs').readFileSync(
+    require('path').resolve(__dirname, '../../../src/modules/transaction/services-v2/pass-transaction.service.ts'), 'utf8');
+  const loanBranch = src.slice(src.indexOf('// Post Breakdown for Loan'), src.indexOf('// ==================== GENERIC POSTING LOGIC'));
+
+  it('credits A1001 (or the chosen bank head) with the net paid out, once, after the loan lines', () => {
+    expect(loanBranch).toContain("const cashHead = paidByBank ? bankHead! : 'A1001'");
+    expect(loanBranch).toContain('netPaidOut = round2(netPaidOut + amt)');
+    expect(loanBranch).toMatch(/if \(netPaidOut > 0\)/);
+    expect((loanBranch.match(/'CR', \$3, \$4/g) || []).length).toBe(1);
+  });
+
+  it('a bank-paid loan is a transfer even though its header has no bank name', () => {
+    expect(src).toContain("/PAY_MODE:BANK/.test(header.remarks || '')");
+    expect(src).toContain('BANK:([A-Za-z0-9]+)');
+  });
+});

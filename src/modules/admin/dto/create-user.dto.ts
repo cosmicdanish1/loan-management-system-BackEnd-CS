@@ -8,6 +8,7 @@ import {
   IsOptional,
   IsArray,
   IsBoolean,
+  IsInt,
 } from 'class-validator';
 import { UserRole, UserPermission } from '../../auth/entities/user.entity';
 
@@ -99,4 +100,14 @@ export class CreateUserDto {
   @IsBoolean()
   @IsOptional()
   allowPassTransactions?: boolean;
+
+  @ApiProperty({
+    description: "The window rights (menumaster ids) this user starts with; without it the level's default rights are used",
+    required: false,
+    type: [Number],
+  })
+  @IsArray()
+  @IsInt({ each: true })
+  @IsOptional()
+  menuIds?: number[];
 }

@@ -4,7 +4,7 @@ import { RdRulesService } from '../rd-rules.service';
 import { RdMemberConfigService } from './rd-member-config.service';
 import { RdBalanceEventsService } from './rd-balance-events.service';
 import { RdPatternEligibilityService } from './rd-pattern-eligibility.service';
-import { RdInterestCalculationService } from './rd-interest-calculation.service';
+import { RdInterestCalculationService, RdDecision, RdDecisionInfo } from './rd-interest-calculation.service';
 import { PatternEvaluation } from '../rd-pattern-engine';
 import { RdInstallmentInterestResult } from '../rd-installment-interest-calculator';
 import { OpeningBalanceInterestResult } from '../rd-opening-balance-interest';
@@ -50,6 +50,11 @@ export interface MemberYearClosingPreview {
     openingBalanceInterest: OpeningBalanceInterestResult;
     totalInterestIfClosedNow: number;
     currentBalance: number;
+    /** ES-629: the member's total interest if the employee ALLOWS (late instalments from the due month) and if DENIES (from the month paid) */
+    interestIfAllowed: number;
+    interestIfDenied: number;
+    patternLabel: string;
+    decision: RdDecisionInfo;
 }
 
 /**
@@ -105,11 +110,18 @@ export class RdFinancialYearClosingService {
      *  no writes, safe to call for every member on the bulk-review screen
      *  before anyone commits to closing anything. */
     async previewMemberClosing(mbno: string, yearcode: number, overrideEligible?: boolean): Promise<MemberYearClosingPreview> {
-        const [patternEvaluation, totalPreview, currentBalance] = await Promise.all([
-            this.patternEligibility.evaluateMember(mbno, yearcode),
+        const [patternEvaluation, totalPreview, currentBalance, both, decisionRow, autoOn] = await Promise.all([
+            this.interestCalculation.evaluatePattern(mbno, yearcode),
             this.interestCalculation.previewTotalInterest(mbno, yearcode, overrideEligible),
             this.balanceEvents.getTotalCurrentHoldings(mbno, yearcode),
+            this.interestCalculation.calculateBothWays(mbno, yearcode),
+            this.interestCalculation.loadDecisionRow(mbno, yearcode),
+            this.rdRules.getRule('RULE_RD_AUTO_PATTERN_POSTING'),
         ]);
+        const interestIfAllowed = Math.round((both.instAllowed + both.opening) * 100) / 100;
+        const interestIfDenied = Math.round((both.instDenied + both.opening) * 100) / 100;
+        const decision = this.interestCalculation.resolveDecision(decisionRow, autoOn, patternEvaluation.detectedPattern, Math.abs(interestIfAllowed - interestIfDenied) > 0.004);
+        const labels: Record<string, string> = { FULLY_REGULAR: 'Fully regular', INITIAL_GAP_RECOVERED: 'Initial gap recovered', LATER_GAP_RECOVERED: 'Later gap recovered', MULTIPLE_GAPS: 'Multiple gaps', GAP_UNRECOVERED: 'Gap unrecovered' };
         return {
             mbno,
             patternEvaluation,
@@ -117,7 +129,60 @@ export class RdFinancialYearClosingService {
             openingBalanceInterest: totalPreview.openingBalanceInterest,
             totalInterestIfClosedNow: totalPreview.totalInterest,
             currentBalance,
+            interestIfAllowed,
+            interestIfDenied,
+            patternLabel: labels[patternEvaluation.detectedPattern] ?? patternEvaluation.detectedPattern,
+            decision,
         };
+    }
+
+    async listHistoryYears() {
+        return this.interestCalculation.listHistoryYears();
+    }
+
+    /** ES-629: a past financial year of one member, read-only. */
+    async explainHistoryYear(mbno: string, fyStartYear: number) {
+        const now = new Date();
+        const currentStart = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+        if (!Number.isInteger(fyStartYear) || fyStartYear < 2000 || fyStartYear >= currentStart) {
+            throw new BadRequestException('Choose a financial year before the current one.');
+        }
+        return this.interestCalculation.explainHistory(mbno, fyStartYear);
+    }
+
+    /** ES-629: the month-by-month calculation of one member (read-only), for the RD/CD Interest window. */
+    async explainMember(mbno: string, yearcode: number) {
+        return this.interestCalculation.explain(mbno, yearcode);
+    }
+
+    /** ES-629: the employee's Allow / Deny for one member's year. The latest choice replaces the earlier one; a closed year cannot be changed. */
+    async setDecision(mbno: string, yearcode: number, decision: RdDecision, reason: string, by: string): Promise<{ saved: RdDecision }> {
+        if (decision !== 'ALLOW' && decision !== 'DENY') throw new BadRequestException('The decision must be ALLOW or DENY.');
+        const why = String(reason ?? '').trim();
+        if (decision === 'ALLOW' && why.length < 3) throw new BadRequestException('Enter the reason for allowing the full interest.');
+        if (!String(by ?? '').trim()) throw new BadRequestException('The deciding user is missing.');
+        const member = await this.dataSource.query(`SELECT 1 FROM member_master WHERE mbno::numeric = $1::numeric LIMIT 1`, [mbno]);
+        if (member.length === 0) throw new NotFoundException(`Member ${mbno} not found.`);
+        const fy = await this.dataSource.query(`SELECT 1 FROM yearend WHERE yearcode = $1`, [yearcode]);
+        if (fy.length === 0) throw new NotFoundException(`Financial year ${yearcode} not found.`);
+        const closed = await this.dataSource.query(`SELECT 1 FROM rd_financial_year_summary WHERE mbno::numeric = $1::numeric AND yearcode = $2 AND closed_at IS NOT NULL`, [mbno, yearcode]);
+        if (closed.length > 0) throw new BadRequestException(`The RD/CD year ${yearcode} is already closed for member ${mbno}; the decision can no longer be changed.`);
+        await this.dataSource.query(
+            `INSERT INTO rd_interest_decision (mbno, yearcode, decision, reason, decided_by, decided_at)
+             VALUES ($1, $2, $3, $4, $5, NOW())
+             ON CONFLICT (mbno, yearcode) DO UPDATE SET decision = EXCLUDED.decision, reason = EXCLUDED.reason, decided_by = EXCLUDED.decided_by, decided_at = NOW()`,
+            [mbno, yearcode, decision, why || null, by],
+        );
+        return { saved: decision };
+    }
+
+    /** ES-629: take back a decision (the member goes back to the default: Deny, or Allow when fully regular and automatic posting is on). */
+    async clearDecision(mbno: string, yearcode: number): Promise<{ cleared: boolean }> {
+        const closed = await this.dataSource.query(`SELECT 1 FROM rd_financial_year_summary WHERE mbno::numeric = $1::numeric AND yearcode = $2 AND closed_at IS NOT NULL`, [mbno, yearcode]);
+        if (closed.length > 0) throw new BadRequestException(`The RD/CD year ${yearcode} is already closed for member ${mbno}.`);
+        const r = await this.dataSource.query(`DELETE FROM rd_interest_decision WHERE mbno::numeric = $1::numeric AND yearcode = $2 RETURNING id`, [mbno, yearcode]);
+        const n = Array.isArray(r) ? (Array.isArray(r[0]) ? r[0].length : r.length) : 0;
+        return { cleared: n > 0 };
     }
 
     async previewFinancialYearClosing(
@@ -160,8 +225,13 @@ export class RdFinancialYearClosingService {
         if (!fyRows[0]?.end_date) throw new NotFoundException(`Financial year ${yearcode} not found.`);
         const fyEndDate: Date = new Date(fyRows[0].end_date);
 
-        const patternEvaluation = await this.patternEligibility.evaluateMember(mbno, yearcode);
-        const finalEligible = override?.eligible ?? patternEvaluation.autoEligibleFullInterest;
+        const patternEvaluation = await this.interestCalculation.evaluatePattern(mbno, yearcode);
+        // ES-629: the employee's saved decision (else the default: Deny, or Allow for a fully regular member while automatic posting is on)
+        const resolved = await this.interestCalculation.resolveEffective(mbno, yearcode, patternEvaluation);
+        if (!override && resolved.saved) {
+            override = { eligible: resolved.saved === 'ALLOW', reason: resolved.reason ?? 'Decision recorded in RD/CD Interest', by: resolved.by ?? closedBy };
+        }
+        const finalEligible = override?.eligible ?? resolved.effective === 'ALLOW';
 
         // ES-581: both interest figures and the opening balance come from the member's RD/CD ledger (see rd-ledger-inputs.ts)
         const [installmentResult, openingResult, rate, monthlyRdAmount, openingBalance] = await Promise.all([
