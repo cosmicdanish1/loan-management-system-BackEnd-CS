@@ -254,13 +254,13 @@ export class SearchService {
           m.basic_pay,
           m.memb_date,
           d.name as office_name,
-          w.wingname as wing_name,
+          w.wname as wing_name,
           (SELECT string_agg(sb.acc_no::text, ', ' ORDER BY sb.acc_no) FROM sbmaster sb WHERE sb.mbno::text = m.mbno::text) AS sb_acc_nos,
           (SELECT mb.srno FROM member_balances mb WHERE mb.mbno = m.mbno LIMIT 1) AS sr_no,
           m.isactive
         FROM member_master m
         LEFT JOIN division_master d ON m.officeno = d.officeno
-        LEFT JOIN wing_master w ON w.wingno = m.wingno
+        LEFT JOIN wingmast w ON w.wingno = m.wingno
         WHERE (
           LOWER(m.f_name || ' ' || COALESCE(m.m_name, '') || ' ' || m.l_name) LIKE $1
           OR m.mbno::text LIKE $1

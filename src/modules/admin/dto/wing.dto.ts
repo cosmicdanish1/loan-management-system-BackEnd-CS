@@ -1,11 +1,14 @@
 import { IsOptional, IsString, IsNotEmpty, MaxLength, Matches } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { ApiProperty, PartialType } from '@nestjs/swagger';
 
+export const WING_STATE_MESSAGE = 'Invalid State. Use 1 (In State) or 0 (Out State).';
+
 export class CreateWingDto {
-    @ApiProperty({ description: 'Wing Code' })
+    @ApiProperty({ description: 'Wing Code (up to 6 characters)' })
     @IsString()
     @IsNotEmpty()
-    @MaxLength(20)
+    @MaxLength(6)
     @Matches(/^[^<>]*$/, { message: 'must not contain < or >' })
     wingId: string;
 
@@ -13,16 +16,16 @@ export class CreateWingDto {
     @IsOptional()
     @IsString()
     @IsNotEmpty()
-    @MaxLength(100)
+    @MaxLength(45)
     @Matches(/^[^<>]*$/, { message: 'must not contain < or >' })
     wingName?: string;
 
-    @ApiProperty({ description: 'State / Jurisdictional Status (1 or 0)' })
+    @ApiProperty({ description: 'State: 1 = In State, 0 = Out State' })
     @IsOptional()
+    // 1 or 0 only; WingService.parseState refuses anything else with the legacy message "Invalid State"
+    // (the global validation answer would replace the text of a DTO check)
+    @Transform(({ value }) => (value === null || value === undefined ? value : String(value).trim()))
     @IsString()
-    @IsNotEmpty()
-    @MaxLength(50)
-    @Matches(/^[^<>]*$/, { message: 'must not contain < or >' })
     state?: string;
 }
 

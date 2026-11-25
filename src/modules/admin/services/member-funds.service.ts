@@ -37,10 +37,10 @@ export class MemberFundsService {
     /** ES-491: wings that have members in fundsmaster, for the Wing filter (id = wing code, name = wing name). */
     async getWings(): Promise<{ id: string; name: string }[]> {
         const rows = await this.fundsRepository.query(
-            `SELECT DISTINCT m.wingno AS id, COALESCE(NULLIF(w.wingname, ''), m.wingno) AS name
+            `SELECT DISTINCT m.wingno AS id, COALESCE(NULLIF(w.wname, ''), m.wingno) AS name
              FROM member_master m
              JOIN fundsmaster f ON f.mbno = m.mbno
-             LEFT JOIN wing_master w ON w.wingno = m.wingno
+             LEFT JOIN wingmast w ON w.wingno = m.wingno
              WHERE m.wingno IS NOT NULL AND m.wingno <> ''
              ORDER BY name`,
         );

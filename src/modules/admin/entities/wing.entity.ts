@@ -1,13 +1,18 @@
 import { Entity, Column, PrimaryColumn } from 'typeorm';
 
-@Entity('wing_master')
+/**
+ * A wing (Division / RO). Stored in WINGMAST, the table the members, loans, lookups and reports join to
+ * (the window used to save into wing_master, which nothing else reads).
+ */
+@Entity('wingmast')
 export class Wing {
-    @PrimaryColumn({ name: 'wingno', length: 10 })
+    @PrimaryColumn({ name: 'wingno', type: 'varchar', length: 6 })
     wingId: string;
 
-    @Column({ name: 'wingname', length: 100, nullable: true })
+    @Column({ name: 'wname', type: 'varchar', length: 45, nullable: true })
     wingName: string;
 
-    @Column({ name: 'status_state', length: 10, nullable: true })
-    state: string;
+    /** 1 = In State, 0 = Out State */
+    @Column({ name: 'winstate', type: 'smallint', default: 1 })
+    state: number;
 }

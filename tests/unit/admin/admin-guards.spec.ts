@@ -99,9 +99,8 @@ const repo = (o: any = {}) => ({
 const ds = (n: number) => ({ query: jest.fn().mockResolvedValue([{ n }]) }) as any;
 
 describe('admin masters: a duplicate key is refused, nothing is overwritten (ES-299)', () => {
-  it('office / wing / designation / cast category: a new key is saved, an existing key is a 409 and is not saved', async () => {
+  it('wing / designation / cast category: a new key is saved (offices: see wing-office-master.spec.ts), an existing key is a 409 and is not saved', async () => {
     const cases: Array<[string, () => { create: () => Promise<any>; r: any }]> = [
-      ['office', () => { const r = repo(); return { r, create: () => new OfficeService(r, ds(0)).create({ officeId: 5, name: 'X' } as any) }; }],
       ['wing', () => { const r = repo(); return { r, create: () => new WingService(r, ds(0)).create({ wingId: '1', name: 'X' } as any) }; }],
       ['designation', () => { const r = repo(); return { r, create: () => new DesignationService(r, ds(0)).create({ code: 'A', name: 'X' } as any) }; }],
       ['cast', () => { const r = repo(); return { r, create: () => new CastCategoryService(r).create({ id: 1, name: 'X' } as any) }; }],
@@ -116,8 +115,6 @@ describe('admin masters: a duplicate key is refused, nothing is overwritten (ES-
     }
   });
   it('the existence check looks for the key that was sent', async () => {
-    const r = repo(); await new OfficeService(r, ds(0)).create({ officeId: 42, name: 'X' } as any);
-    expect(r.findOne).toHaveBeenCalledWith({ where: { officeId: 42 } });
     const w = repo(); await new WingService(w, ds(0)).create({ wingId: 'W9', name: 'X' } as any);
     expect(w.findOne).toHaveBeenCalledWith({ where: { wingId: 'W9' } });
   });

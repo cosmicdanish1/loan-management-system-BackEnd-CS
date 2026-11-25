@@ -15,18 +15,6 @@ const dsCount = (n: number) => ({ query: jest.fn().mockResolvedValue([{ n }]) })
 
 describe('admin/OfficeService', () => {
   it('findOne 404', async () => { await expect(new OfficeService(repo(), dsCount(0)).findOne(1)).rejects.toThrow(NotFoundException); });
-  it('create saves the entity', async () => {
-    const r = repo(); await new OfficeService(r, dsCount(0)).create({ officeId: 5, name: 'X' } as any);
-    expect(r.save).toHaveBeenCalled();
-  });
-  it('create with an existing office id is refused (does not overwrite the existing office)', async () => {
-    const r = repo({ findOne: jest.fn().mockResolvedValue({ officeId: 5, name: 'OLD' }) });
-    await expect(new OfficeService(r, dsCount(0)).create({ officeId: 5, name: 'NEW' } as any)).rejects.toThrow(ConflictException);
-  });
-  it('update merges fields', async () => {
-    const r = repo({ findOne: jest.fn().mockResolvedValue({ officeId: 5, name: 'OLD' }) });
-    expect(await new OfficeService(r, dsCount(0)).update(5, { name: 'NEW' } as any)).toMatchObject({ name: 'NEW' });
-  });
   it('remove 409 while members belong to the office', async () => {
     await expect(new OfficeService(repo(), dsCount(3)).remove(5)).rejects.toThrow(/3 member/);
   });
