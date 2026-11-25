@@ -1,8 +1,12 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import { KnowledgeService } from '../../../src/modules/ai-chat/knowledge.service';
 
 // Golden question set (ES-438/ES-439): staff questions and the document that must be among the top 3
 // passages found. Runs against the real docs, so a doc change or a ranking change that breaks a common
-// question fails before release. Skipped on a machine that has no docs folder.
+// question fails before release. Skipped when the full docs folder (docs/final-documentation, kept in the
+// main project repo, not in this backend repo) is not next to the backend: a build server that has only the
+// staff guides in backend/knowledge cannot answer most of these questions.
 const GOLDEN: Array<[string, string]> = [
   ['how do I run day end', 'guide-day-end'],
   ['what happens if day end fails', 'day-end'],
@@ -53,9 +57,12 @@ const GOLDEN: Array<[string, string]> = [
 
 const OFF_TOPIC = ['what is the weather in Mumbai', 'who won the cricket match', 'write me a poem about the moon', 'bitcoin price today'];
 
+const FULL_DOCS = [path.join(process.cwd(), '..', 'docs', 'final-documentation'), path.join(process.cwd(), 'docs', 'final-documentation')]
+  .some((d) => fs.existsSync(d));
+
 describe('golden question set', () => {
   const kb = new KnowledgeService({ get: () => undefined } as any);
-  const loaded = kb.reload().chunks > 0;
+  const loaded = FULL_DOCS && kb.reload().chunks > 0;
   const run = loaded ? it : it.skip;
 
   run.each(GOLDEN)('"%s" finds %s in the top 3', (question, expected) => {
