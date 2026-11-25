@@ -52,7 +52,7 @@ describe('loadMemberRules', () => {
   it('asks only for its own keys', async () => {
     const r = runner([]);
     await loadMemberRules(r);
-    expect(r.query.mock.calls[0]![1]).toEqual([[...MEMBER_RULE_KEYS]]);
+    expect((r.query.mock.calls[0] as any[])[1]).toEqual([[...MEMBER_RULE_KEYS]]);
   });
 });
 

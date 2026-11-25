@@ -126,6 +126,7 @@ export class MemberLookupService {
           m.isactive,
           m.flg_retire,
           m.signature_image_path,
+          EXISTS (SELECT 1 FROM bank_signature b WHERE btrim(b.account_number) = m.mbno::text AND b.signature IS NOT NULL) AS has_bank_signature,
           COALESCE(d.name, 'Unknown Office') as office_name
         FROM member_master m
         LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno

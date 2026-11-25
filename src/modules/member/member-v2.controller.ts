@@ -256,18 +256,18 @@ export class MemberV2Controller {
         @Param('mbno') mbno: string,
         @Res({ passthrough: true }) res: Response,
     ): Promise<StreamableFile> {
-        const filePath = await this.signatureService.getSignaturePathMaster(mbno);
-        if (!filePath) {
+        const found = await this.signatureService.getSignatureForMaster(mbno);
+        if (!found) {
             const e = new Error('Signature not found'); (e as any).status = 404; throw e;
         }
-        const fullPath = join(process.cwd(), filePath);
-        if (!existsSync(fullPath)) {
-            const e = new Error('Signature file missing on disk'); (e as any).status = 404; throw e;
+        if (found.kind === 'bytes') {
+            res.set({ 'Content-Type': found.mime, 'Content-Disposition': 'inline; filename="signature"' });
+            return new StreamableFile(found.data);
         }
-        const ext = extname(filePath).toLowerCase();
+        const ext = extname(found.path).toLowerCase();
         const mimeType = ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/png';
         res.set({ 'Content-Type': mimeType, 'Content-Disposition': `inline; filename="signature${ext}"` });
-        return new StreamableFile(createReadStream(fullPath));
+        return new StreamableFile(createReadStream(found.path));
     }
 
     @Delete('master/:mbno/signature')

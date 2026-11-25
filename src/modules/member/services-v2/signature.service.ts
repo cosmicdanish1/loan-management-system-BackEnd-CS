@@ -181,6 +181,36 @@ export class SignatureService {
                 `UPDATE member_master SET signature_image_path = NULL WHERE mbno = $1`, [mbno]
             );
         }
+        // The migrated legacy signature (Bank_Signature) is the member's signature too: Purge removes it as well,
+        // otherwise a purged signature would show up again from the legacy copy.
+        await this.dataSource.query(`DELETE FROM bank_signature WHERE btrim(account_number) = $1`, [String(mbno).trim()]);
+    }
+
+    /** The image type from its first bytes: the legacy stored bitmaps (BM), the new screen saves PNG / JPEG. */
+    static detectImageType(buf: Buffer | null | undefined): 'image/png' | 'image/jpeg' | 'image/bmp' | null {
+        if (!buf || buf.length < 4) return null;
+        if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'image/png';
+        if (buf[0] === 0xff && buf[1] === 0xd8) return 'image/jpeg';
+        if (buf[0] === 0x42 && buf[1] === 0x4d) return 'image/bmp';
+        return null;
+    }
+
+    /**
+     * The signature to show for a member: the file saved by this screen when there is one, otherwise the image migrated
+     * from the legacy Bank_Signature table (account number = member number). null when the member has none.
+     */
+    async getSignatureForMaster(mbno: string): Promise<{ kind: 'file'; path: string } | { kind: 'bytes'; data: Buffer; mime: string } | null> {
+        const filePath = await this.getSignaturePathMaster(mbno); // 404 for an unknown member, as before
+        if (filePath) {
+            const full = path.join(process.cwd(), filePath);
+            if (fs.existsSync(full)) return { kind: 'file', path: full };
+        }
+        const rows = await this.dataSource.query(
+            `SELECT signature FROM bank_signature WHERE btrim(account_number) = $1 AND signature IS NOT NULL LIMIT 1`, [String(mbno).trim()]);
+        const data: Buffer | null = rows?.[0]?.signature ?? null;
+        const mime = SignatureService.detectImageType(data);
+        if (!data || !mime) return null;
+        return { kind: 'bytes', data, mime };
     }
 
     async getSignaturePathMaster(mbno: string): Promise<string | null> {
