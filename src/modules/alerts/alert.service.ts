@@ -364,6 +364,12 @@ export class AlertService implements OnModuleInit, OnModuleDestroy {
         }
     }
 
+    /** An administrator ended this user's sessions (Logout User): they are offline now, not at the next sweep. */
+    forgetPresence(userId: string | number): void {
+        for (const [key, p] of this.presence) if (p.userId === String(userId)) this.presence.delete(key);
+        this.sessions.delete(String(userId));
+    }
+
     /** Everyone currently online, longest-connected first. */
     onlineNow() {
         const now = Date.now();

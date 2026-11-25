@@ -9,6 +9,7 @@ import {
   IsInt,
   MinLength,
 } from 'class-validator';
+import { NewPassword } from '../../shared/utils/password-policy';
 import { UserRole, UserPermission } from '../../auth/entities/user.entity';
 
 export class UpdateUserDto {
@@ -27,9 +28,8 @@ export class UpdateUserDto {
     minLength: 6,
     required: false,
   })
-  @IsString()
   @IsOptional()
-  @MinLength(6)
+  @NewPassword() // ES-660
   password?: string;
   @ApiProperty({
     description: 'User email address',

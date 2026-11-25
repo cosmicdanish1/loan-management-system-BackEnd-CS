@@ -7,6 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
+import { findUserMasterByName } from './utils/find-user-by-name';
 import { ConfigService } from '@nestjs/config';
 import {
   UserMaster,
@@ -46,10 +47,7 @@ export class AuthEnhancedService {
     username: string,
     password: string,
   ): Promise<UserMaster | null> {
-    const user = await this.userMasterRepository.findOne({
-      where: { susername: username },
-      relations: ['userLevel'],
-    });
+    const user = await findUserMasterByName(this.userMasterRepository, username, ['userLevel']); // ES-659
 
     if (!user) {
       return null;

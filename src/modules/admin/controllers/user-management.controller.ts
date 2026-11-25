@@ -390,6 +390,22 @@ export class UserManagementController {
     return this.userManagementService.forceLogoutUser(username);
   }
 
+  @Get('active-sessions/live')
+  @Roles(UserRole.ADMIN)
+  @RequirePermissions(UserPermission.MANAGE_USERS)
+  @ApiOperation({ summary: 'Every enabled user as a card, live ones first (Logout User, Live users)' })
+  async getLiveUsers() {
+    return this.userManagementService.getLiveUsers();
+  }
+
+  @Get('active-sessions/analytics')
+  @Roles(UserRole.ADMIN)
+  @RequirePermissions(UserPermission.MANAGE_USERS)
+  @ApiOperation({ summary: 'Sign-in analytics over the last N days (Logout User, Analytics)' })
+  async getSessionAnalytics(@Query('days') days?: string) {
+    return this.userManagementService.getSessionAnalytics(days ? Number(days) : 30);
+  }
+
   @Get('active-sessions/matrix')
   @Roles(UserRole.ADMIN)
   @RequirePermissions(UserPermission.MANAGE_USERS)

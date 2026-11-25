@@ -378,6 +378,9 @@ export class UserManagementService implements OnModuleInit {
       userMaster.permissions = permissions;
       saved = await queryRunner.manager.save(userMaster);
       await queryRunner.commitTransaction();
+      // ES-655: user ids are MAX+1, so an id can be reused; a new person starts with an empty history, never with the
+      // remembered passwords of whoever had that id before
+      try { await this.dataSource.query(`DELETE FROM password_history WHERE user_id = $1`, [saved.userid]); } catch { /* table appears with the first password change */ }
       await this.passwordHistory.recordHash(saved.userid, saved.spassword); // ES-207: the first password counts as used
     } catch (err) {
       await queryRunner.rollbackTransaction();
@@ -553,6 +556,8 @@ export class UserManagementService implements OnModuleInit {
     // the person's own window rights go with them (ES-651): they used to stay behind as rows for a user that no longer exists
     try {
       await this.dataSource.query(`DELETE FROM userrights WHERE userid = $1`, [id]);
+      await this.dataSource.query(`DELETE FROM password_history WHERE user_id = $1`, [id]); // ES-655: the remembered passwords go too
+      await this.dataSource.query(`DELETE FROM logintime WHERE userid = $1`, [id]); // new ids are max+1: the sign-in history must not pass to the next person with the same id
     } catch (e) {
       this.logger.warn(`Could not remove the window rights of deleted user ${id}: ${(e as Error).message}`);
     }
@@ -879,10 +884,146 @@ export class UserManagementService implements OnModuleInit {
 
     for (const session of activeSessions) {
       session.logoutTime = logoutTimeStr;
+      session.logoutAt = now;
       await this.loginTimeRepository.save(session);
     }
 
+    // the person is no longer online: drop them from the live list at once, not at the next sweep
+    AlertBridge.get()?.forgetPresence?.(String(userMaster.userid));
+
     return { message: `Session for '${username}' terminated successfully` };
+  }
+
+  /**
+   * Live users: every enabled user as one card. `live` is true while the app of that user is still sending its minute
+   * heartbeat (right after a backend restart, before any heartbeat could arrive, the sign-in flag is used instead).
+   * Live people come first, then the most recently seen. (Logout User, "who is using the app right now")
+   */
+  async getLiveUsers(): Promise<{ generatedAt: string; liveCount: number; totalCount: number; users: any[] }> {
+    const users = await this.userMasterRepository.find({ where: { enableDisable: 'E' }, relations: ['userLevel'] });
+    const bridge = AlertBridge.get();
+    const onlineIds = bridge?.onlineUserIds();
+    const presence = new Map<string, any>();
+    for (const p of bridge?.onlineNow?.() ?? []) presence.set(String(p.username).toLowerCase(), p);
+    const trustHeartbeat = !!onlineIds && process.uptime() > 180;
+
+    const latest: any[] = await this.userMasterRepository.query(
+      `SELECT DISTINCT ON (userid) userid, login_date, login_time, logout_time, working_date::text AS working_date, logout_at
+         FROM logintime ORDER BY userid, login_date DESC`,
+    );
+    const byUser = new Map<number, any>(latest.map((r) => [Number(r.userid), r]));
+    const now = Date.now();
+
+    const cards = users.map((u) => {
+      const s = byUser.get(u.userid);
+      const online = trustHeartbeat ? onlineIds!.has(String(u.userid)) : u.loginStatus === 'Y' || !!onlineIds?.has(String(u.userid));
+      const p = presence.get(String(u.susername).toLowerCase());
+      const open = !!s && !s.logout_time;
+      const startedAt: Date | null = online && open && s?.login_date ? new Date(s.login_date) : null;
+      return {
+        userId: u.userid,
+        username: u.susername,
+        fullName: [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || null,
+        role: u.userLevel?.userlevel ?? '',
+        live: online,
+        loginDate: s?.working_date ?? null,
+        loginTime: s?.login_time ?? null,
+        loginAt: s?.login_date ? new Date(s.login_date).toISOString() : null,
+        logoutTime: s?.logout_time || null,
+        sessionMinutes: startedAt ? Math.max(0, Math.round((now - startedAt.getTime()) / 60000)) : null,
+        lastSeen: p?.lastSeen ?? null,
+        host: p?.host ?? null,
+        ip: p?.ip ?? null,
+        version: p?.version ?? null,
+      };
+    });
+
+    cards.sort((a, b) =>
+      Number(b.live) - Number(a.live)
+      || String(b.loginAt ?? '').localeCompare(String(a.loginAt ?? ''))
+      || a.username.localeCompare(b.username));
+
+    return {
+      generatedAt: new Date().toISOString(),
+      liveCount: cards.filter((c) => c.live).length,
+      totalCount: cards.length,
+      users: cards,
+    };
+  }
+
+  /**
+   * Analytics for the Logout User window over the last `days` days (1 to 365): sessions and distinct people per day,
+   * the busiest hours, the average session length, the most active people, and the sessions that never closed.
+   * Days are real calendar days of the sign-in (the working date can lie weeks behind the calendar, so it is not used here).
+   */
+  async getSessionAnalytics(days = 30) {
+    const span = Math.min(365, Math.max(1, Math.floor(Number(days)) || 30));
+    const since = `(CURRENT_DATE - ($1::int - 1))`;
+    const dayOf = `login_date::date`;
+
+    const [totals] = await this.userMasterRepository.query(
+      `SELECT count(*)::int AS sessions,
+              count(DISTINCT userid)::int AS people,
+              COALESCE(round(avg(EXTRACT(EPOCH FROM (logout_at - login_date)) / 60)
+                       FILTER (WHERE logout_at IS NOT NULL AND logout_at > login_date AND logout_at - login_date < interval '24 hours'))::int, NULL) AS avg_minutes,
+              count(*) FILTER (WHERE logout_time = '' AND login_date < now() - interval '1 day')::int AS never_closed
+         FROM logintime WHERE ${dayOf} >= ${since}`,
+      [span],
+    );
+    const perDayRows: any[] = await this.userMasterRepository.query(
+      `SELECT ${dayOf}::text AS day, count(*)::int AS sessions, count(DISTINCT userid)::int AS people
+         FROM logintime WHERE ${dayOf} >= ${since} GROUP BY 1 ORDER BY 1`,
+      [span],
+    );
+    const hourRows: any[] = await this.userMasterRepository.query(
+      `SELECT EXTRACT(HOUR FROM login_date)::int AS hour, count(*)::int AS sessions
+         FROM logintime WHERE ${dayOf} >= ${since} GROUP BY 1`,
+      [span],
+    );
+    const topRows: any[] = await this.userMasterRepository.query(
+      `SELECT u.susername AS username, count(*)::int AS sessions, max(l.login_date) AS last_login
+         FROM logintime l JOIN usermaster u ON u.userid = l.userid
+        WHERE l.login_date::date >= ${since}
+        GROUP BY u.susername ORDER BY sessions DESC, u.susername LIMIT 8`,
+      [span],
+    );
+    const [never] = await this.userMasterRepository.query(
+      `SELECT count(*)::int AS n FROM usermaster u
+        WHERE u.enable_disable = 'E' AND NOT EXISTS (SELECT 1 FROM logintime l WHERE l.userid = u.userid)`,
+    );
+
+    // one entry per day of the span, zero where nobody signed in
+    const map = new Map(perDayRows.map((r) => [r.day, r]));
+    const perDay: { day: string; sessions: number; people: number }[] = [];
+    const [ty, tm, td] = (await this.todayText()).split('-').map(Number);
+    for (let i = span - 1; i >= 0; i--) {
+      const d = new Date(Date.UTC(ty, tm - 1, td - i));
+      const key = d.toISOString().slice(0, 10);
+      const r = map.get(key);
+      perDay.push({ day: key, sessions: r?.sessions ?? 0, people: r?.people ?? 0 });
+    }
+    const hours = Array.from({ length: 24 }, (_, h) => ({ hour: h, sessions: hourRows.find((r) => r.hour === h)?.sessions ?? 0 }));
+
+    return {
+      days: span,
+      totals: {
+        sessions: totals?.sessions ?? 0,
+        people: totals?.people ?? 0,
+        avgMinutes: totals?.avg_minutes ?? null,
+        neverClosed: totals?.never_closed ?? 0,
+        neverSignedIn: never?.n ?? 0,
+        liveNow: AlertBridge.get()?.onlineUserIds()?.size ?? 0,
+      },
+      perDay,
+      hours,
+      topUsers: topRows.map((r) => ({ username: r.username, sessions: r.sessions, lastLogin: r.last_login ? new Date(r.last_login).toISOString() : null })),
+    };
+  }
+
+  /** Today as YYYY-MM-DD (server clock): the last day of the analytics span. */
+  private async todayText(): Promise<string> {
+    const [r] = await this.userMasterRepository.query(`SELECT CURRENT_DATE::text AS d`);
+    return r.d;
   }
 
   async getActiveSessions(): Promise<any[]> {
@@ -906,7 +1047,7 @@ export class UserManagementService implements OnModuleInit {
           const now = new Date();
           const logoutTimeStr = now.toTimeString().split(' ')[0].substring(0, 8);
           const open = await this.loginTimeRepository.find({ where: { userid: user.userid, logoutTime: '' } });
-          for (const s of open) { s.logoutTime = logoutTimeStr; await this.loginTimeRepository.save(s); }
+          for (const s of open) { s.logoutTime = logoutTimeStr; s.logoutAt = now; await this.loginTimeRepository.save(s); }
           user.loginStatus = 'N' as any;
           await this.userMasterRepository.save(user);
         } catch { /* cleanup is best effort; the user is still left out of the list */ }

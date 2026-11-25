@@ -412,6 +412,26 @@ export class LoanRepaymentService {
      * ES-555: Business Rules switch RULE_LOAN_CLOSURE_GRACE_ENABLED. OFF (default, also when never saved): no grace
      * period in a loan closure. ON: the ES-522 grace-day behaviour.
      */
+    /**
+     * Business Rules switch RULE_LOAN_NEXT_MONTH_ALLOW_NR (Loan early closure protection card). ON (default, also when
+     * never saved): it may be used when the member has NR; the awaited EMI is the latest due one and every earlier unpaid instalment is still settled as NR.
+     */
+    private async getNextMonthAllowNr(runner: DataSource | QueryRunner): Promise<boolean> {
+        try {
+            const rows = await runner.query(
+                `SELECT value FROM system_configs WHERE key = 'RULE_LOAN_NEXT_MONTH_ALLOW_NR' AND "isActive" = true LIMIT 1`,
+            );
+            return !rows.length || ['true', '1', 'yes'].includes(String(rows[0]?.value ?? '').toLowerCase());
+        } catch {
+            return true;
+        }
+    }
+
+    private nextMonthNrMessage(loancaseno: string, nrCount: number): string {
+        return `Close on next month's outstanding is not available for loan ${loancaseno}: the member has NR — ${nrCount} earlier instalment${nrCount === 1 ? ' is' : 's are'} unpaid and already due. `
+            + `This option is only for regular payers. Clear the NR first, close the loan normally, or ask an administrator to allow it for members with NR (Modify Business Rules → Loan early closure protection).`;
+    }
+
     private async getClosureGraceEnabled(runner: DataSource | QueryRunner): Promise<boolean> {
         try {
             const rows = await runner.query(
@@ -2053,13 +2073,24 @@ export class LoanRepaymentService {
             // The member must have no other unpaid due installment (no NR), and no penalty is charged on this quote.
             let unpaidForAp = unpaid;
             let nextMonthInfo: null | { installmentNo: number | null; principal: number; wasInGrace: boolean } = null;
+            // Which instalment is "the awaited EMI", and how many OTHER unpaid due instalments (NR) the member has. The window
+            // uses this to disable the option up front instead of waiting for the server to refuse it.
+            const awaitedEmi = graceInstallment ?? (unpaid.length ? unpaid[unpaid.length - 1] : null);
+            const nrOthers = unpaid.filter(i => i !== awaitedEmi);
+            const nextMonthNrAllowed = await this.getNextMonthAllowNr(queryRunner);
+            const nextMonthOption = {
+                available: nrOthers.length === 0 || nextMonthNrAllowed,
+                nrCount: nrOthers.length,
+                allowedWithNr: nextMonthNrAllowed,
+                reason: nrOthers.length > 0 && !nextMonthNrAllowed ? this.nextMonthNrMessage(loancaseno, nrOthers.length) : null,
+            };
             if (nextMonth) {
-                if (unpaid.length > 1) {
-                    throw new BadRequestException(
-                        `Closing on next month's outstanding is only for members with no NR: ${unpaid.length} installments of loan ${loancaseno} are unpaid and due.`,
-                    );
+                if (!nextMonthOption.available) {
+                    throw new BadRequestException(this.nextMonthNrMessage(loancaseno, nrOthers.length));
                 }
-                const nextEmi = graceInstallment ?? unpaid[0] ?? null;
+                const nextEmi = awaitedEmi;
+                unpaidForAp = nrOthers;
+                penalInterest = applyLoanRounding(nrOthers.reduce((sum, i) => sum + i.penalDue, 0), rounding);
                 const emiPrincipal = nextEmi
                     ? round2(nextEmi.principalDue)
                     : round2(Math.min(monthlyPrincipal, Math.max(0, outstandingPrincipal)));
@@ -2067,11 +2098,10 @@ export class LoanRepaymentService {
                     throw new BadRequestException(`Loan ${loancaseno} has no EMI principal left to receive next month; use the normal early closure.`);
                 }
                 outstandingPrincipal = applyLoanRounding(Math.max(0, outstandingPrincipal - emiPrincipal), rounding);
-                unpaidForAp = [];
-                penalInterest = 0;
                 // a due installment is already inside k (now simply paid); a grace / not-yet-due one was a "future" one and
-                // must leave the future count too
-                if (!unpaid[0]) closureK = closureK + 1;
+                // must leave the future count too. Any other unpaid due instalment (NR, only when the rule allows it) stays
+                // in unpaidForAp / penalInterest above and is settled as NR.
+                if (!nextEmi || !unpaid.includes(nextEmi)) closureK = closureK + 1;
                 nextMonthInfo = { installmentNo: nextEmi ? nextEmi.installmentNo : null, principal: emiPrincipal, wasInGrace: !!graceInstallment };
             }
 
@@ -2154,6 +2184,7 @@ export class LoanRepaymentService {
                 adjustPayrollLag,
                 nextMonth,
                 nextMonthInfo,
+                nextMonthOption,
                 payrollLagRefunded,
                 payrollLagRefundDue,
                 payrollLagInterestOffset,
@@ -2417,12 +2448,14 @@ export class LoanRepaymentService {
             // treated as already paid, so it is not posted by this closure at all (it arrives through its own payment).
             let nextMonthPrincipal = 0;
             if (nextMonth) {
-                if (unpaidDue.length > 1) {
-                    throw new BadRequestException(
-                        `Closing on next month's outstanding is only for members with no NR: ${unpaidDue.length} installments of loan ${loancaseno} are unpaid and due.`,
-                    );
+                // same rule as the quote: the awaited EMI is the grace one, else the latest unpaid due one; every other unpaid
+                // due instalment is NR, which is refused unless Business Rules allow it
+                const awaitedDue = graceInstallment ?? (unpaidDue.length ? unpaidDue[unpaidDue.length - 1] : null);
+                const nrOthers = unpaidDue.filter(i => i !== awaitedDue);
+                if (nrOthers.length > 0 && !(await this.getNextMonthAllowNr(queryRunner))) {
+                    throw new BadRequestException(this.nextMonthNrMessage(loancaseno, nrOthers.length));
                 }
-                const nextEmi = graceInstallment ?? unpaidDue[0]
+                const nextEmi = awaitedDue
                     ?? [...installments].sort((a, b) => a.installmentNo - b.installmentNo).find(i => !i.isFullyPaid && i.principalDue > 0)
                     ?? null;
                 nextMonthPrincipal = nextEmi
@@ -2439,7 +2472,7 @@ export class LoanRepaymentService {
                 }
                 apPrincipalBasis = applyLoanRounding(Math.max(0, apPrincipalBasis - nextMonthPrincipal), rounding);
                 outstandingPrincipal = applyLoanRounding(Math.max(0, outstandingPrincipal - nextMonthPrincipal), rounding);
-                unpaidDue = [];
+                unpaidDue = nrOthers;
                 // a due installment is already inside k; a grace / not-yet-due one was counted as future and must leave it
                 if (!nextEmi || !nextEmi.isDue) closureK = closureK + 1;
             }

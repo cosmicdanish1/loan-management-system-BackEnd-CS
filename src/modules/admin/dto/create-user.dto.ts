@@ -10,6 +10,7 @@ import {
   IsBoolean,
   IsInt,
 } from 'class-validator';
+import { NewPassword } from '../../shared/utils/password-policy';
 import { UserRole, UserPermission } from '../../auth/entities/user.entity';
 
 export class CreateUserDto {
@@ -34,9 +35,7 @@ export class CreateUserDto {
     example: 'securePassword123',
     minLength: 6,
   })
-  @IsString()
-  @IsNotEmpty()
-  @MinLength(6)
+  @NewPassword() // ES-660: the same rule the person must follow when they change it themselves
   password: string;
 
   @ApiProperty({

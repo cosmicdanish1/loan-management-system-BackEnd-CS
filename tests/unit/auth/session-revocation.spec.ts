@@ -24,6 +24,8 @@ function world() {
   };
   const config: any = { get: jest.fn((k: string, d?: any) => ({ JWT_SECRET: 's', JWT_REFRESH_SECRET: 'r' } as any)[k] ?? d) };
   const loginRepo: any = { findOne: jest.fn(async () => null), find: jest.fn(async () => []), save: jest.fn(), create: jest.fn((x) => x) };
+  // the password change runs inside one transaction with a lock on the person's row (ES-658): the manager delegates to the same mocks
+  repo.manager = { transaction: async (cb: any) => cb({ query: async () => [], findOne: (_e: any, o: any) => repo.findOne(o), save: (x: any) => repo.save(x) }) };
   const svc = new AuthService(repo, {} as any, loginRepo, {} as any, {} as any, {} as any, jwt, config, {} as any, { assertNotReused: async () => undefined, recordHash: async () => undefined, recordCurrent: async () => undefined } as any);
   const strategy = new JwtStrategy(repo, { get: () => 's' } as any);
   const isAccessValid = async (token: string) => {

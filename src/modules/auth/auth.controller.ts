@@ -165,6 +165,7 @@ export class AuthController {
   // BUG FIX 3: Added JWT guard — change-password must require a valid session.
   // Also added ChangePasswordDto type instead of `any` so class-validator runs.
   @Post('change-password')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } }) // ES-656: per-IP cap; the per-person lock is in AuthService.changePassword
   @HttpCode(HttpStatus.OK)
   @UseGuards(AuthGuard('jwt'))
   @ApiBearerAuth()
@@ -189,7 +190,7 @@ export class AuthController {
       throw new BadRequestException('New password must be different from the current password');
     }
     const result = await this.authService.changePassword(
-      changePasswordDto.username,
+      user.username, // the signed-in person's own name as stored (the request name may differ in letter case, ES-659)
       changePasswordDto.currentPassword,
       changePasswordDto.newPassword,
     );

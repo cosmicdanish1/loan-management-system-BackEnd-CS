@@ -269,6 +269,24 @@ describe('deleting a user removes their window rights (ES-651)', () => {
   });
 });
 
+describe('password history follows the person (ES-655)', () => {
+  it('a new person starts with an empty history even when their id was used before', async () => {
+    const { svc, um, calls } = build(); um.findOne.mockResolvedValue(null);
+    await svc.createUser(cu(), { role: 'administrator' });
+    expect(calls.some(c => /DELETE FROM password_history WHERE user_id = \$1/.test(c.sql) && c.params![0] === 90)).toBe(true);
+  });
+  it('deleting a person removes their remembered passwords', async () => {
+    const { svc, calls } = build();
+    await svc.deleteUser(7, 99);
+    expect(calls.some(c => /DELETE FROM password_history WHERE user_id = \$1/.test(c.sql) && c.params![0] === 7)).toBe(true);
+  });
+  it('a refused delete (own account) removes nothing', async () => {
+    const { svc, calls } = build();
+    await expect(svc.deleteUser(7, 7)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(calls.some(c => /password_history/.test(c.sql))).toBe(false);
+  });
+});
+
 describe('menu map (ES-648)', () => {
   it('every window has its own menu id (RD/CD Interest no longer shares 250)', () => {
     const ids = MENU_ACTION_MAP.map(m => m.menuid);

@@ -9,6 +9,7 @@ import {
   IsArray,
 } from 'class-validator';
 import { UserRole, UserPermission } from '../entities/user.entity';
+import { NewPassword } from '../../shared/utils/password-policy';
 
 export class RegisterDto {
   @ApiProperty({
@@ -32,9 +33,7 @@ export class RegisterDto {
     example: 'securePassword123',
     minLength: 6,
   })
-  @IsString()
-  @IsNotEmpty()
-  @MinLength(6)
+  @NewPassword() // ES-660
   password: string;
 
   @ApiProperty({

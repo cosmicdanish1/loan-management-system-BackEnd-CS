@@ -9,6 +9,7 @@ import {
   BeforeUpdate,
 } from 'typeorm';
 import * as bcrypt from 'bcrypt';
+import { isBcryptHash } from '../../shared/utils/password-policy';
 import { UserLevelMaster } from './user-level-master.entity';
 import { UserRights } from './user-rights.entity';
 import { UserInfo } from './user-info.entity';
@@ -144,8 +145,10 @@ export class UserMaster {
   @BeforeInsert()
   @BeforeUpdate()
   async hashPassword() {
-    if (this.spassword && !this.spassword.startsWith('$2b$') && !this.spassword.startsWith('$2a$')) {
-      // Only hash if not already hashed (bcrypt hashes start with $2b$ or $2a$)
+    // ES-654: "already hashed" means a REAL bcrypt hash (60 characters in the exact format), not just a value that starts
+    // with $2b$ or $2a$ — a person's password such as "$2b$Abcdef1" used to be stored as plain text and could never sign in.
+    // The legacy scrambled passwords (letters only) are still hashed on the next save, as before.
+    if (this.spassword && !isBcryptHash(this.spassword)) {
       const saltRounds = 10;
       this.spassword = await bcrypt.hash(this.spassword, saltRounds);
     }

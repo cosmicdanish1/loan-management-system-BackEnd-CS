@@ -2157,7 +2157,7 @@ export class UtilitiesService {
       // ES-556: ON = an early closure waiting in Past Transaction is passed automatically when the awaited EMI is received.
       'RULE_EARLY_CLOSURE_AUTO_PASS',
       // ES-555: OFF (default) = no grace period in a loan closure; ON = the closure month's EMI keeps the grace-day behaviour.
-      'RULE_LOAN_CLOSURE_GRACE_ENABLED',
+      'RULE_LOAN_CLOSURE_GRACE_ENABLED', 'RULE_LOAN_NEXT_MONTH_ALLOW_NR',
       // One switch controls the tiered penal system for every active loan.
       // Activation date is maintained server-side so existing arrears are
       // never charged penalties for periods before the policy was enabled.
@@ -2212,6 +2212,7 @@ export class UtilitiesService {
       RULE_REAGREEMENT_ALLOW_BACKDATE: false,
       RULE_EARLY_CLOSURE_AUTO_PASS: false,
       RULE_LOAN_CLOSURE_GRACE_ENABLED: false,
+      RULE_LOAN_NEXT_MONTH_ALLOW_NR: true,
       RULE_TIERED_LOAN_PENALTY_ENABLED: false,
       RULE_TIERED_LOAN_PENALTY_ACTIVATION_DATE: '',
       // when the rule has never been saved the import is STRICT (DemandImportService.getStrictness does the same)
@@ -2431,6 +2432,7 @@ export class UtilitiesService {
         { key: 'RULE_REAGREEMENT_ALLOW_RATE_INCREASE', value: data.RULE_REAGREEMENT_ALLOW_RATE_INCREASE === false ? 'false' : 'true', dataType: 'boolean' },
         { key: 'RULE_REAGREEMENT_ALLOW_BACKDATE', value: data.RULE_REAGREEMENT_ALLOW_BACKDATE === true ? 'true' : 'false', dataType: 'boolean' },
         { key: 'RULE_EARLY_CLOSURE_AUTO_PASS', value: data.RULE_EARLY_CLOSURE_AUTO_PASS === true ? 'true' : 'false', dataType: 'boolean' },
+        { key: 'RULE_LOAN_NEXT_MONTH_ALLOW_NR', value: data.RULE_LOAN_NEXT_MONTH_ALLOW_NR === false ? 'false' : 'true', dataType: 'boolean' },
         { key: 'RULE_LOAN_CLOSURE_GRACE_ENABLED', value: data.RULE_LOAN_CLOSURE_GRACE_ENABLED === true ? 'true' : 'false', dataType: 'boolean' },
         // Auto Day-End switch: the nightly job (day-end.service.ts) runs only when this is ON.
         { key: 'SYS_DAYEND_AUTO_CLOSE', value: data.SYS_DAYEND_AUTO_CLOSE === true ? 'true' : 'false', dataType: 'boolean' },

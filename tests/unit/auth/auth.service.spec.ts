@@ -27,6 +27,8 @@ function build(over: any = {}) {
   const config: any = { get: jest.fn((k: string, d?: any) => ({ JWT_SECRET: 's', JWT_REFRESH_SECRET: 'r' } as any)[k] ?? d) };
   const twofa: any = { gate: jest.fn().mockResolvedValue({ mode: 'none', required: false, enrolled: false, trusted: false }), getSettings: jest.fn().mockResolvedValue({ rememberDays: 30 }), signChallenge: jest.fn(() => 'chal') };
   Object.assign(userMasterRepo, over.userMasterRepo || {});
+  // the password change runs inside one transaction with a lock on the person's row (ES-658): the manager delegates to the same mocks
+  userMasterRepo.manager = { transaction: async (cb: any) => cb({ query: async () => [], findOne: (_e: any, o: any) => userMasterRepo.findOne(o), save: (x: any) => userMasterRepo.save(x) }) };
   const svc = new AuthService(userMasterRepo, levelRepo, loginRepo, infoRepo, rightsRepo, defRightsRepo, jwt, config, twofa, { assertNotReused: async () => undefined, recordHash: async () => undefined, recordCurrent: async () => undefined } as any);
   return { svc, userMasterRepo, levelRepo, loginRepo, infoRepo, rightsRepo, defRightsRepo, jwt, config, twofa };
 }

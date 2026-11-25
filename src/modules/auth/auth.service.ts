@@ -28,6 +28,8 @@ import { JwtPayload } from './strategies/jwt.strategy';
 import { MENUID_TO_ACTION, BYPASS_USER_LEVEL_IDS } from './menu-action-map';
 import { TwoFaService } from './twofa/twofa.service';
 import { PasswordHistoryService } from '../shared/services/password-history.service';
+import { resolvePostingDate } from '../shared/utils/posting-date';
+import { findUserMasterByName } from './utils/find-user-by-name';
 
 @Injectable()
 export class AuthService {
@@ -90,10 +92,7 @@ export class AuthService {
     // BUG FIX 2: Never log credentials — removed all plaintext/hash console.log calls
 
     // Try new UserMaster table first
-    const userMaster = await this.userMasterRepository.findOne({
-      where: { susername: username },
-      relations: ['userLevel'],
-    });
+    const userMaster = await findUserMasterByName(this.userMasterRepository, username, ['userLevel']); // ES-659: any letter case
 
     if (userMaster) {
       // Check if user is enabled
@@ -127,11 +126,18 @@ export class AuthService {
     const loginTime = now.toTimeString().split(' ')[0].substring(0, 8);
 
     try {
+      // The legacy stamps the sign-in with the Day-End working date; ours also keeps it (login_date stays the real
+      // moment, so two sign-ins of one day never share a key). Day-End > Date settings can switch it to the system date.
+      let workingDate: string | null = null;
+      try {
+        workingDate = (await resolvePostingDate(this.loginTimeRepository.manager, 'LOGOUT_USER')).date;
+      } catch { /* no working date: the column stays empty, the sign-in still counts */ }
       const loginSession = this.loginTimeRepository.create({
         userid: userMaster.userid,
         loginDate: now,
         loginTime: loginTime,
         logoutTime: '',
+        workingDate,
       });
       await this.loginTimeRepository.save(loginSession);
     } catch (error) {
@@ -185,12 +191,12 @@ export class AuthService {
     return String(username || '').trim().toLowerCase();
   }
 
-  assertNotLocked(username: string): void {
+  assertNotLocked(username: string, what = 'sign-in'): void {
     const rec = this.loginFails.get(this.loginLockKey(username));
     if (rec && rec.lockedUntil > Date.now()) {
       const mins = Math.ceil((rec.lockedUntil - Date.now()) / 60_000);
       throw new HttpException(
-        { statusCode: 429, message: `Too many failed sign-in attempts. Try again in ${mins} minute(s).` },
+        { statusCode: 429, message: `Too many failed ${what} attempts. Try again in ${mins} minute(s).` },
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
@@ -465,6 +471,7 @@ export class AuthService {
       const logoutAt = new Date().toTimeString().split(' ')[0].substring(0, 8); // HH:MM:SS
       for (const session of openSessions) {
         session.logoutTime = logoutAt;
+        session.logoutAt = new Date();
         await this.loginTimeRepository.save(session);
       }
     }
@@ -667,37 +674,47 @@ export class AuthService {
     currentPassword: string,
     newPassword: string,
   ): Promise<{ message: string; accessToken: string; refreshToken: string; tokenType: string; expiresIn: number }> {
-    // Find user in UserMaster table
-    const userMaster = await this.userMasterRepository.findOne({
-      where: { susername: username },
-    });
-
-    if (!userMaster) {
+    // ES-659: the name matches in any letter case, like sign-in and like the legacy database
+    const found = await findUserMasterByName(this.userMasterRepository, username);
+    if (!found) {
       throw new UnauthorizedException('User not found');
     }
+    // ES-656: wrong current passwords are counted per person, like sign-in (5 wrong in 15 minutes lock it for 15 minutes)
+    const lockKey = `chg:${found.susername}`;
+    this.assertNotLocked(lockKey, 'password change');
 
-    // Check if user is enabled
-    if (userMaster.enableDisable !== 'E') {
-      throw new UnauthorizedException('User account is disabled');
-    }
+    // ES-658: the check and the save happen under one lock on the person's row. Ten requests at once used to all pass the
+    // "current password" check before any of them saved; now the second one waits, sees the NEW password and is refused.
+    const userMaster = await this.userMasterRepository.manager.transaction(async (m) => {
+      // A plain row lock: findOne({ lock }) joins the eager user-level relation and Postgres refuses FOR UPDATE on the
+      // nullable side of that join ("FOR UPDATE cannot be applied to the nullable side of an outer join").
+      await m.query(`SELECT userid FROM usermaster WHERE userid = $1 FOR UPDATE`, [found.userid]);
+      const um = await m.findOne(UserMaster, { where: { userid: found.userid } });
+      if (!um) {
+        throw new UnauthorizedException('User not found');
+      }
+      // Check if user is enabled
+      if (um.enableDisable !== 'E') {
+        throw new UnauthorizedException('User account is disabled');
+      }
+      // Validate current password
+      const isCurrentPasswordValid = await um.validatePassword(currentPassword);
+      if (!isCurrentPasswordValid) {
+        this.noteLoginFailure(lockKey);
+        throw new UnauthorizedException('Current password is incorrect');
+      }
 
-    // Validate current password
-    const isCurrentPasswordValid = await userMaster.validatePassword(
-      currentPassword,
-    );
-    if (!isCurrentPasswordValid) {
-      throw new UnauthorizedException('Current password is incorrect');
-    }
+      // ES-207: not the current password and not one of the last 5
+      await this.passwordHistory.assertNotReused(um.userid, newPassword);
 
-    // ES-207: not the current password and not one of the last 5
-    await this.passwordHistory.assertNotReused(userMaster.userid, newPassword);
-
-    // Update password (will be hashed automatically by entity)
-    userMaster.spassword = newPassword;
-    // ES-297: every token issued before this moment stops working (other PCs, a stolen session). Truncated to the
-    // second because token "iat" has second precision, so the fresh pair issued below is still accepted.
-    userMaster.forceLogoutAt = new Date(Math.floor(Date.now() / 1000) * 1000);
-    await this.userMasterRepository.save(userMaster);
+      // Update password (hashed by the entity: a real hash is kept as it is, anything else is hashed, ES-654)
+      um.spassword = newPassword;
+      // ES-297: every token issued before this moment stops working (other PCs, a stolen session). Truncated to the
+      // second because token "iat" has second precision, so the fresh pair issued below is still accepted.
+      um.forceLogoutAt = new Date(Math.floor(Date.now() / 1000) * 1000);
+      return m.save(um);
+    });
+    this.loginFails.delete(this.loginLockKey(lockKey));
     await this.passwordHistory.recordHash(userMaster.userid, userMaster.spassword);
 
     // the person changing the password keeps working on this PC: hand them a new session

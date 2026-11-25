@@ -22,6 +22,14 @@ export class LoginTime {
   @Column({ name: 'logout_time', type: 'varchar', length: 12, default: '' })
   logoutTime: string;
 
+  /** The Day-End working date of the sign-in (date only), as the legacy LOGIN_DATE; null on rows written before it existed. */
+  @Column({ name: 'working_date', type: 'date', nullable: true })
+  workingDate: string | null;
+
+  /** The real moment the session ended (null while it is open, and on old rows). */
+  @Column({ name: 'logout_at', type: 'timestamp', nullable: true })
+  logoutAt: Date | null;
+
   // Relationships
   @ManyToOne(() => UserMaster, (user) => user.loginTimes)
   @JoinColumn({ name: 'userid' })

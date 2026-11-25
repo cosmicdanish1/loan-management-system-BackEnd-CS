@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, MinLength, Matches } from 'class-validator';
+import { IsString, IsNotEmpty } from 'class-validator';
+import { NewPassword } from '../../shared/utils/password-policy';
 
 export class ChangePasswordDto {
   @ApiProperty({
@@ -23,11 +24,6 @@ export class ChangePasswordDto {
     example: 'newPassword123',
     minLength: 8,
   })
-  @IsString()
-  @IsNotEmpty()
-  @MinLength(8, { message: 'Password must be at least 8 characters long' })
-  @Matches(/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/, {
-    message: 'Password must contain an uppercase letter, a lowercase letter, and a number',
-  })
+  @NewPassword() // ES-660: one policy for every door
   newPassword: string;
 }

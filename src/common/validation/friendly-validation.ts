@@ -67,15 +67,19 @@ const TRANSLATORS: Record<string, (label: string, raw: string) => { code: string
       ? { code: 'FIELD_MAX', message: `${l} is too large.` }
       : { code: 'FIELD_MAX', message: `${l} cannot be more than ${v}.`, params: { max: n(v) as number } };
   },
+  // A rule that carries its own sentence (a custom `message`, like the password policy, ES-660) keeps that sentence: it says
+  // which rule failed. class-validator's own default sentences are still turned into the plain ones below.
   minLength: (l, raw) => {
     const v = (raw.match(/longer than or equal to (\d+)/) || [])[1];
+    if (!v && raw.includes(' ') && !/must be longer than/.test(raw)) return { code: 'FIELD_TOO_SHORT', message: raw };
     return { code: 'FIELD_TOO_SHORT', message: v ? `${l} must be at least ${v} characters.` : `${l} is too short.`, params: v ? { min: Number(v) } : undefined };
   },
   maxLength: (l, raw) => {
     const v = (raw.match(/shorter than or equal to (\d+)/) || [])[1];
+    if (!v && raw.includes(' ') && !/must be shorter than/.test(raw)) return { code: 'FIELD_TOO_LONG', message: raw };
     return { code: 'FIELD_TOO_LONG', message: v ? `${l} can be at most ${v} characters.` : `${l} is too long.`, params: v ? { max: Number(v) } : undefined };
   },
-  matches: (l) => ({ code: 'FIELD_FORMAT', message: `${l} is not in the right format.` }),
+  matches: (l, raw) => (/must match .* regular expression/.test(raw) ? { code: 'FIELD_FORMAT', message: `${l} is not in the right format.` } : { code: 'FIELD_FORMAT', message: raw }),
   isDecimal: (l, raw) => {
     const v = (raw.match(/(\d+) decimal/) || [])[1];
     return { code: 'FIELD_DECIMALS', message: v ? `${l} can have at most ${v} decimal places.` : `${l} has too many decimal places.`, params: v ? { max: Number(v) } : undefined };

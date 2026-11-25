@@ -17,6 +17,7 @@ import { UserMaster } from '../entities';
 import { mapUserMasterToUser } from '../utils';
 import { generateSecret, otpauthUrl, verifyTotp } from './totp.util';
 import { PasswordHistoryService } from '../../shared/services/password-history.service';
+import { passwordPolicyError } from '../../shared/utils/password-policy';
 
 export type TwoFaPolicy = 'off' | 'optional' | 'roles' | 'all';
 
@@ -541,9 +542,8 @@ export class TwoFaService implements OnModuleInit {
     if (p.pv !== (await this.passwordVersion(userId))) {
       throw new UnauthorizedException('This reset was already used. Start again from the sign-in page.');
     }
-    if (typeof newPassword !== 'string' || newPassword.length < 8 || newPassword.length > 128 || !/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(newPassword)) {
-      throw new BadRequestException('Password must be at least 8 characters with an uppercase letter, a lowercase letter and a number');
-    }
+    const policyProblem = passwordPolicyError(newPassword); // ES-660 / ES-657: the one policy, with a 64-character maximum
+    if (policyProblem) throw new BadRequestException(policyProblem);
     await this.passwordHistory.assertNotReused(userId, newPassword); // ES-207
     // Raw UPDATE with an explicit bcrypt hash: repository.save() would re-run the entity hooks on legacy passwords.
     const newHash = await bcrypt.hash(newPassword, 10);
