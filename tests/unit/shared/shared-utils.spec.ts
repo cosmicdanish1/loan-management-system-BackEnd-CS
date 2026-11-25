@@ -115,12 +115,29 @@ describe('shared/autoQueueNotification', () => {
 });
 
 describe('shared/SequenceGeneratorService', () => {
+  // New members are numbered inside the block 990,000,000 to 999,999,999 (no padding). Answers by query kind:
+  // the counter UPSERT gives last_value, "highest used" gives m, "is it used?" answers from usedNumbers.
+  const mkMember = (opts: { counter?: number[]; maxUsed?: number; seq?: number | null; usedNumbers?: number[] }) => {
+    let i = 0;
+    const ds: any = { query: jest.fn(async (sql: string, params: any[]) => {
+      if (/INSERT INTO sequence_master/.test(sql)) return [{ last_value: String(opts.counter![i++]) }];
+      if (/AS m FROM member_master/.test(sql)) return [{ m: String(opts.maxUsed ?? 989999999) }];
+      if (/SELECT last_value FROM sequence_master/.test(sql)) return opts.seq == null ? [] : [{ last_value: String(opts.seq) }];
+      return (opts.usedNumbers ?? []).includes(Number(params[0])) ? [{ '?column?': 1 }] : [];
+    }) };
+    return { svc: new SequenceGeneratorService(ds, { findOne: jest.fn() } as any), ds };
+  };
+  it('a new member number is the next one in the 990,000,000 block, not padded', async () =>
+    expect(await mkMember({ counter: [990000042] }).svc.generateNextMemberNumber()).toBe('990000042'));
+  it('a member number another member already holds is skipped', async () =>
+    expect(await mkMember({ counter: [990000042, 990000043], usedNumbers: [990000042] }).svc.generateNextMemberNumber()).toBe('990000043'));
+  it('a full new-member block is refused', async () =>
+    await expect(mkMember({ counter: [1000000000] }).svc.generateNextMemberNumber()).rejects.toThrow('block is full'));
   const mk = (row: any) => {
     const ds: any = { query: jest.fn().mockResolvedValue(row) };
     const repo: any = { findOne: jest.fn().mockResolvedValue(null) };
     return { svc: new SequenceGeneratorService(ds, repo), ds };
   };
-  it('member number is 8 digit padded', async () => expect(await mk([{ last_value: '42', prefix: '' }]).svc.generateNextMemberNumber()).toBe('00000042'));
   // the counter query answers with the number; the "is it already used?" query answers from usedNumbers
   const mkCase = (numbers: number[], usedNumbers: number[]) => {
     let i = 0;
@@ -156,9 +173,10 @@ describe('shared/SequenceGeneratorService', () => {
     expect(ds.query.mock.calls[0][1]).toEqual(['VOUCHER_NO', 'VCH', true, new Date().getFullYear()]);
   });
   it('peek does not consume the number', async () => {
-    const { svc, ds } = mk([{ last_value: '41' }]);
-    expect(await svc.peekNextMemberNumber()).toBe('00000042'); expect(ds.query.mock.calls[0][0]).not.toContain('INSERT');
+    const { svc, ds } = mkMember({ maxUsed: 990000041, seq: 990000041 });
+    expect(await svc.peekNextMemberNumber()).toBe('990000042');
+    expect(ds.query.mock.calls.some((c: any[]) => /INSERT/.test(c[0]))).toBe(false);
   });
-  it('peek on an empty table starts at 1', async () => expect(await mk([]).svc.peekNextMemberNumber()).toBe('00000001'));
+  it('peek on an empty block starts at 990,000,000', async () => expect(await mkMember({}).svc.peekNextMemberNumber()).toBe('990000000'));
   it('generateSequence applies prefix and padding', async () => expect(await mk([{ last_value: '3' }]).svc.generateSequence('K', 'X-', 4)).toBe('X-0003'));
 });
