@@ -12,6 +12,8 @@ const TYPE_LABEL: Record<string, string> = {
     BUG: 'Bug',
     QUESTION: 'Question',
     DATA_CORRECTION: 'Data correction',
+    DB_DELETE: 'Database delete request',
+    DB_UPDATE: 'Database update request',
     FEATURE_REQUEST: 'Feature request',
     OTHER: 'Other',
 };

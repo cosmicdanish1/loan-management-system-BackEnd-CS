@@ -1,7 +1,7 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
 
 export type SupportPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-export type SupportQueryType = 'BUG' | 'QUESTION' | 'DATA_CORRECTION' | 'FEATURE_REQUEST' | 'OTHER';
+export type SupportQueryType = 'BUG' | 'QUESTION' | 'DATA_CORRECTION' | 'DB_DELETE' | 'DB_UPDATE' | 'FEATURE_REQUEST' | 'OTHER';
 export type SupportStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
 // PENDING = not delivered yet, SENT = delivered, FAILED = tried and errored,
 // DISABLED = integration not configured (retried automatically once it is).

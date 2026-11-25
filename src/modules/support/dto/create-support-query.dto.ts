@@ -2,7 +2,7 @@ import { IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validato
 
 export const SUPPORT_PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as const;
 
-export const SUPPORT_QUERY_TYPES = ['BUG', 'QUESTION', 'DATA_CORRECTION', 'FEATURE_REQUEST', 'OTHER'] as const;
+export const SUPPORT_QUERY_TYPES = ['BUG', 'QUESTION', 'DATA_CORRECTION', 'DB_DELETE', 'DB_UPDATE', 'FEATURE_REQUEST', 'OTHER'] as const;
 
 export class CreateSupportQueryDto {
     @IsOptional()

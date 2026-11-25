@@ -118,6 +118,21 @@ describe('admin/MemberFundsService', () => {
     await svc.updateBalances(5, { compulsoryDepositInstallment: 500 } as any);
     expect(r.manager.query.mock.calls.some((c: any[]) => /INSERT INTO rd_member_config/.test(c[0]))).toBe(false);
   });
+  it('Regular / Emergency loan boxes come from the latest RLN / ALN loan, not from the md1 / md2 columns', async () => {
+    const { svc, r } = mk({}, { memberNo: 5, rlnOpBal: 3531, rlnAmt: 17, elnOpBal: 9, elnAmt: 9, sharesInstallment: 4 });
+    r.query = jest.fn().mockResolvedValue([{ loantype: 'RLN', op: 0, inst: 3674 }, { loantype: 'ALN', op: 0, inst: 500 }]);
+    expect(await svc.findByMember(5)).toMatchObject({ rlnOpBal: 0, rlnAmt: 3674, elnOpBal: 0, elnAmt: 500, sharesInstallment: 4 });
+    expect(r.query.mock.calls[0][0]).toMatch(/FROM loan_master/);
+    r.query = jest.fn().mockResolvedValue([]);
+    expect(await svc.findByMember(5)).toMatchObject({ rlnOpBal: 0, rlnAmt: 0, elnOpBal: 0, elnAmt: 0 });
+  });
+  it('the loan boxes are never saved (they would overwrite the member FRS-2 / MD2 columns)', async () => {
+    const { svc, r } = mk({ dob: '1990-01-01' }, { memberNo: 5, rlnAmt: 17 });
+    await svc.updateBalances(5, { sharesInstallment: 9, rlnAmt: 3674, rlnOpBal: 1, elnAmt: 500, elnOpBal: 2 } as any);
+    const saved = (r.save as jest.Mock).mock.calls.at(-1)[0];
+    expect(saved).toMatchObject({ sharesInstallment: 9, rlnAmt: 17 });
+    expect(saved.elnAmt).toBeUndefined(); expect(saved.rlnOpBal).toBeUndefined();
+  });
   it('updating existing funds merges into the row', async () => {
     const { svc } = mk({ dob: '1990-01-01' }, { memberNo: 5, sharesInstallment: 1 });
     expect(await svc.updateBalances(5, { sharesInstallment: 9 } as any)).toMatchObject({ sharesInstallment: 9 });

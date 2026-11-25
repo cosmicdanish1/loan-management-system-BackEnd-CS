@@ -1,6 +1,6 @@
 {
   "name": "loan-management-backend",
-  "version": "1.19.1",
+  "version": "1.19.2",
   "description": "NestJS backend for Loan Management System",
   "author": "Paperwhite Technology",
   "private": true,

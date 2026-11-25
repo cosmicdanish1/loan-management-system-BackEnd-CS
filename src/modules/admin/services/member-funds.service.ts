@@ -69,11 +69,30 @@ export class MemberFundsService {
             };
         }
         this.logger.log(`[MemberFunds] Found record for mbno=${memberNo}`);
-        return funds;
+        return { ...funds, ...(await this.latestLoanFigures(memberNo)) } as FundsMaster;
+    }
+
+    /**
+     * Regular / Emergency loan boxes: the Op. Balance and Inst. Amount of the member's latest loan of each type
+     * (RLN / ALN) in loan_master, as the legacy screen shows them. They are NOT fundsmaster columns: md1_* / md2_* hold
+     * the member's FRS-2 / MD2 contribution, which an earlier version of this screen showed and saved as the loans.
+     */
+    private async latestLoanFigures(memberNo: number): Promise<Pick<FundsMaster, 'rlnOpBal' | 'rlnAmt' | 'elnOpBal' | 'elnAmt'>> {
+        const rows = await this.fundsRepository.query(
+            `SELECT DISTINCT ON (loantype) loantype, COALESCE(openbalance, 0)::float AS op, COALESCE(instal_amt, 0)::float AS inst
+               FROM loan_master WHERE mbno = $1::numeric AND loantype IN ('RLN', 'ALN')
+              ORDER BY loantype, payment_date DESC NULLS LAST, loancaseno DESC`,
+            [memberNo],
+        );
+        const by = (t: string) => rows.find((r: any) => r.loantype === t);
+        return { rlnOpBal: by('RLN')?.op ?? 0, rlnAmt: by('RLN')?.inst ?? 0, elnOpBal: by('ALN')?.op ?? 0, elnAmt: by('ALN')?.inst ?? 0 };
     }
 
     async updateBalances(memberNo: number, updateDto: UpdateMemberFundsDto): Promise<FundsMaster> {
         this.logger.log(`[MemberFunds] Updating fundsmaster for mbno=${memberNo}`);
+
+        // Loan boxes are read-only here (they come from loan_master; see latestLoanFigures). Never write them to md1_* / md2_*.
+        for (const k of ['rlnOpBal', 'rlnAmt', 'elnOpBal', 'elnAmt'] as const) delete (updateDto as any)[k];
 
         // FRS (MD) eligibility: members who joined at age 50+ are locked to
         // the ₹2 nominal contribution — block any manual edit here that
@@ -103,7 +122,7 @@ export class MemberFundsService {
         // worked out from them). They cannot be changed once the member has a funds row; a brand-new row may set them.
         if (funds) {
             const openingFields: Array<keyof UpdateMemberFundsDto> = [
-                'sharesOpeningBalance', 'monthlyContributionOpeningBalance', 'compulsoryDepositOpeningBalance', 'rlnOpBal', 'elnOpBal',
+                'sharesOpeningBalance', 'monthlyContributionOpeningBalance', 'compulsoryDepositOpeningBalance',
             ];
             const changed = openingFields.filter(
                 (k) => updateDto[k] !== undefined && Math.abs(Number(updateDto[k]) - Number((funds as any)[k] ?? 0)) > 0.004,
