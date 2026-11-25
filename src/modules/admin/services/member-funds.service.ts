@@ -62,10 +62,7 @@ export class MemberFundsService {
                 compulsoryDepositOpeningBalance: 0,
                 suspenseBalance: 0,
                 loanExecutionReceipt: 0,
-                rlnOpBal: 0,
-                rlnAmt: 0,
-                elnOpBal: 0,
-                elnAmt: 0,
+                ...(await this.latestLoanFigures(memberNo)),
             };
         }
         this.logger.log(`[MemberFunds] Found record for mbno=${memberNo}`);

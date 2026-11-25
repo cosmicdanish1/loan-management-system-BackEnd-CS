@@ -78,7 +78,8 @@ describe('admin/MemberFundsService', () => {
     return { svc: new MemberFundsService(r), r };
   };
   it('findByMember returns zero defaults for a member without a row', async () => {
-    expect(await mk().svc.findByMember(5)).toMatchObject({ memberNo: 5, monthlyContributionInstallment: 0, sharesInstallment: 0 });
+    const { svc, r } = mk(); r.query = jest.fn().mockResolvedValue([{ loantype: 'RLN', op: 0, inst: 3674 }]);
+    expect(await svc.findByMember(5)).toMatchObject({ memberNo: 5, monthlyContributionInstallment: 0, sharesInstallment: 0, rlnAmt: 3674, elnAmt: 0 });
   });
   it('getMemberList returns text member numbers', async () => {
     const { svc, r } = mk(); r.find.mockResolvedValue([{ memberNo: 1 }, { memberNo: 2 }]);
