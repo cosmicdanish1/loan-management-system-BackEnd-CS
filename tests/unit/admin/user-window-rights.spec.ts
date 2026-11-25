@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { UserManagementService } from '../../../src/modules/admin/services/user-management.service';
+import { systemDateText } from '../../../src/modules/shared/utils/posting-date';
 import { MENUID_TO_ACTION, MENU_ACTION_MAP } from '../../../src/modules/auth/menu-action-map';
 
 // Create / Modify Users (ES-645..648): window rights per user, working date stamp, who may hand out the top levels.
@@ -118,8 +119,9 @@ describe('creation and enable / disable date (ES-646)', () => {
     const { svc, um, qr } = build({ working: '2026-08-25', policy: 'SYSTEM' }); um.findOne.mockResolvedValue(null);
     await svc.createUser(cu(), { role: 'administrator' });
     const d: Date = qr.manager.create.mock.calls[0][1].dateOfCreation;
-    const now = new Date();
-    expect([d.getFullYear(), d.getMonth(), d.getDate()]).toEqual([now.getFullYear(), now.getMonth(), now.getDate()]);
+    // The system date is the India date (Asia/Kolkata), whatever time zone this machine or the CI runner is in.
+    const [y, m, day] = systemDateText().split('-').map(Number);
+    expect([d.getFullYear(), d.getMonth(), d.getDate()]).toEqual([y, m - 1, day]);
     expect(d.getHours()).toBe(0);
   });
   it('with no working date at all, today as a date only', async () => {
