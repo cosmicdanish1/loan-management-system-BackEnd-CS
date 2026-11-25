@@ -20,6 +20,8 @@ import { SystemConfigService } from '../../admin/services/system-config.service'
 import { RdMemberConfigService } from '../../rd/services/rd-member-config.service';
 import { postRdCdReceipt } from '../../rd/rd-cd-receipt';
 import type { FieldProblem } from '../../../common/validation/friendly-validation';
+import { loadMemberRules, rangeProblem, minAgeProblem } from '../member-rules';
+import { resolvePostingDate } from '../../shared/utils/posting-date';
 
 /**
  * Member CRUD Service - Handles Create, Read, Update, Delete operations for members.
@@ -460,6 +462,11 @@ export class MemberCrudService {
             && (changed('dob') || (!blank(d?.dor) ? changed('dor') : changed('date_of_retirement')))) {
             bad('dor', 'Retirement date', 'FIELD_DATE_ORDER', 'Retirement date cannot be before the date of birth.');
         }
+        // ES-382: a member cannot join before being born (the migrated data holds 20 such rows; only a changed value is checked)
+        const membT = blank(d?.memb_date) ? NaN : new Date(d.memb_date).getTime();
+        if (Number.isFinite(dobT) && Number.isFinite(membT) && membT < dobT && (changed('dob') || changed('memb_date'))) {
+            bad('memb_date', 'Membership date', 'FIELD_DATE_ORDER', 'Membership date cannot be before the date of birth.');
+        }
         if (problems.length) {
             throw new BadRequestException({
                 statusCode: 400, error: 'Bad Request', code: 'VALIDATION_FAILED',
@@ -468,7 +475,110 @@ export class MemberCrudService {
         }
     }
 
+    /** The one message shown whenever a Personal Number is already held by another member (ES-652). */
+    static readonly PERSONAL_NUMBER_TAKEN = 'This Personal Number is already registered. A member account with this Personal Number already exists.';
+
+    /**
+     * ES-382: the legacy data stores "no date" as 1900-01-01 (1,540 retirement dates). A date before 1901 is not a real
+     * date for any member, so it is treated as empty: it is neither shown as a date nor saved back.
+     */
+    static isPlaceholderDate(v: any): boolean {
+        if (v === null || v === undefined || v === '') return false;
+        const t = new Date(v).getTime();
+        return Number.isFinite(t) && new Date(t).getFullYear() < 1901;
+    }
+
+    /** ES-652: One Personal Number = One Member. Called for a new member, and for an edit that changes the number. */
+    private async assertPersonalNumberFree(pfno: any, mbno: string | null): Promise<void> {
+        const value = String(pfno ?? '').trim();
+        if (!value) return; // a member may have no Personal Number; blank numbers are never compared
+        const rows = await this.dataSource.query(
+            `SELECT mbno FROM member_master WHERE btrim(pfno) = $1 AND ($2::text IS NULL OR mbno::text <> $2) LIMIT 1`,
+            [value, mbno],
+        );
+        if (rows.length > 0) throw new ConflictException(MemberCrudService.PERSONAL_NUMBER_TAKEN);
+    }
+
+    /**
+     * The legacy Save also writes FUNDSMASTER (Monthly Contribution = MDAMT, Compulsory Deposit = CDAMT) and MEMBERCATEGORY
+     * (cast category code, member type). Ours kept these only in member_master columns, so the screen read 0 / 0 and lost the
+     * member type. UPDATE-then-INSERT because neither table has a unique key on mbno. A value that was not sent is left alone.
+     */
+    private async saveFundsAndCategory(runner: { query: (sql: string, params?: any[]) => Promise<any> }, mbno: string, d: any): Promise<void> {
+        const num = (v: any): number | null => (v === undefined || v === null || v === '' || !Number.isFinite(Number(v))) ? null : Number(v);
+        const rowsOf = (r: any): any[] => (Array.isArray(r?.[0]) ? r[0] : r) ?? [];
+        const md = num(d?.monthly_contribution);
+        const cd = num(d?.compulsory_deposit);
+        if (md !== null || cd !== null) {
+            const upd = await runner.query(`UPDATE fundsmaster SET mdamt = COALESCE($2, mdamt), cdamt = COALESCE($3, cdamt) WHERE mbno = $1 RETURNING mbno`, [mbno, md, cd]);
+            if (rowsOf(upd).length === 0) {
+                await runner.query(`INSERT INTO fundsmaster (mbno, mdamt, cdamt) VALUES ($1, $2, $3)`, [mbno, md ?? 0, cd ?? 0]);
+            }
+        }
+        // member type: a name ("Other Nominal") or an id
+        let typeId: number | null = null;
+        const typeRaw = String(d?.member_type ?? '').trim();
+        if (typeRaw) {
+            if (/^\d+$/.test(typeRaw)) typeId = Number(typeRaw);
+            else {
+                const t = rowsOf(await runner.query(`SELECT id FROM membertypemaster WHERE lower(btrim(membertype)) = lower($1) LIMIT 1`, [typeRaw]));
+                if (t.length === 0) throw new BadRequestException(`Member type "${typeRaw}" does not exist.`);
+                typeId = Number(t[0].id);
+            }
+        }
+        let castId: number | null = null;
+        const castRaw = String(d?.cast_category ?? '').trim();
+        if (castRaw) {
+            const c = rowsOf(await runner.query(`SELECT id FROM castcategorymaster WHERE lower(btrim(castcategory)) = lower($1) LIMIT 1`, [castRaw]));
+            if (c.length > 0) castId = Number(c[0].id);
+        }
+        if (typeId === null && castId === null) return;
+        const upd = await runner.query(`UPDATE membercategory SET categorycode = COALESCE($2, categorycode), membertype = COALESCE($3, membertype) WHERE mbno = $1 RETURNING mbno`, [mbno, castId, typeId]);
+        if (rowsOf(upd).length === 0) {
+            await runner.query(`INSERT INTO membercategory (mbno, categorycode, membertype) VALUES ($1, $2, $3)`, [mbno, castId ?? 2, typeId ?? 1]);
+        }
+    }
+
+    /**
+     * The rules set in Modify Business Rules > Members (0 = no limit): minimum age at joining and the Compulsory Deposit /
+     * Monthly Contribution ranges. A value that did not change is not checked again, so members saved before a rule existed
+     * (the 88 old members under 18, the 5,653 contributions of 8) can still be edited.
+     */
+    private async assertMemberRules(d: any, existing: any, mbno: string | null): Promise<void> {
+        const rules = await loadMemberRules(this.dataSource);
+        const day = (v: any): string => { const m = /^(\d{4}-\d{2}-\d{2})/.exec(String(v ?? '').trim()); return m ? m[1]! : ''; };
+        const problems: FieldProblem[] = [];
+        const dobChanged = !existing || day(existing.dob) !== day(d?.dob);
+        const membChanged = !existing || day(existing.memb_date) !== day(d?.memb_date);
+        if (dobChanged || membChanged) {
+            const msg = minAgeProblem(day(d?.dob), day(d?.memb_date), rules.RULE_MEMBER_MIN_AGE);
+            if (msg) problems.push({ field: 'dob', label: 'Date of birth', code: 'FIELD_MIN_AGE', message: msg, params: { min: rules.RULE_MEMBER_MIN_AGE } });
+        }
+        const num = (v: any): number | null => (v === undefined || v === null || v === '' || !Number.isFinite(Number(v))) ? null : Number(v);
+        const cd = num(d?.compulsory_deposit);
+        const md = num(d?.monthly_contribution);
+        let stored: any = {};
+        if (existing && mbno && (cd !== null || md !== null)) {
+            try { stored = (await this.dataSource.query(`SELECT mdamt, cdamt FROM fundsmaster WHERE mbno = $1 LIMIT 1`, [mbno]))?.[0] ?? {}; } catch { stored = {}; }
+        }
+        if (cd !== null && (!existing || cd !== Number(stored.cdamt ?? NaN))) {
+            const msg = rangeProblem('Compulsory Deposit', cd, rules.RULE_MEMBER_CD_MIN, rules.RULE_MEMBER_CD_MAX);
+            if (msg) problems.push({ field: 'compulsory_deposit', label: 'Compulsory deposit', code: 'FIELD_RANGE', message: msg });
+        }
+        if (md !== null && (!existing || md !== Number(stored.mdamt ?? NaN))) {
+            const msg = rangeProblem('Monthly Contribution', md, rules.RULE_MEMBER_MD_MIN, rules.RULE_MEMBER_MD_MAX);
+            if (msg) problems.push({ field: 'monthly_contribution', label: 'Monthly contribution', code: 'FIELD_RANGE', message: msg });
+        }
+        if (problems.length) {
+            throw new BadRequestException({ statusCode: 400, error: 'Bad Request', code: 'VALIDATION_FAILED', message: problems.map((p) => p.message), errors: problems });
+        }
+    }
+
     async saveMemberMaster(memberData: any) {
+        if (typeof memberData?.pfno === 'string') memberData.pfno = memberData.pfno.trim(); // spaces never count (ES-652)
+        for (const f of ['dor', 'date_of_retirement', 'supanuationdate']) {
+            if (MemberCrudService.isPlaceholderDate(memberData?.[f])) memberData[f] = null;
+        }
         // ES-309: when an existing member is edited, only changed values are format-checked (see assertMemberFields)
         let existing: any = null;
         if (memberData?.mbno && memberData.mbno !== 'auto' && /^\d+$/.test(String(memberData.mbno).trim())) {
@@ -477,6 +587,14 @@ export class MemberCrudService {
             } catch { existing = null; }
         }
         this.assertMemberFields(memberData, existing);
+        await this.assertMemberRules(memberData, existing, memberData?.mbno && memberData.mbno !== 'auto' ? String(memberData.mbno).trim() : null);
+        {
+            const isEdit = !!memberData?.mbno && memberData.mbno !== 'auto';
+            const newPf = String(memberData?.pfno ?? '').trim();
+            const oldPf = String(existing?.pfno ?? '').trim();
+            // an edit that leaves the number as it is never fails (members migrated with a shared number stay editable)
+            if (!isEdit || newPf !== oldPf) await this.assertPersonalNumberFree(newPf, isEdit ? String(memberData.mbno).trim() : null);
+        }
         // Older installs may not have member_master.email yet — add it once (idempotent).
         if (!MemberCrudService.emailColumnReady) {
             await this.dataSource.query(`ALTER TABLE member_master ADD COLUMN IF NOT EXISTS email varchar(100)`);
@@ -510,7 +628,7 @@ export class MemberCrudService {
                     memberData.mbno, memberData.prefix, memberData.f_name, memberData.m_name,
                     memberData.l_name, memberData.sex, memberData.desig, memberData.present_address,
                     memberData.permanent_address, memberData.wingno, memberData.officeno, memberData.age,
-                    memberData.dob, memberData.dor, memberData.gross_salary, memberData.basic_pay,
+                    memberData.dob, memberData.dor, 'gross_salary' in memberData ? memberData.gross_salary : (existing?.gross_salary ?? 0), memberData.basic_pay,
                     memberData.nominee_name, memberData.nominee_address, memberData.nominee_relation,
                     memberData.declare_date, memberData.memb_date, memberData.pfno, memberData.flg_insured,
                     memberData.insureamt, memberData.remarks, memberData.dept_name, memberData.isactive,
@@ -529,9 +647,14 @@ export class MemberCrudService {
                 if (!updatedRows || updatedRows.length === 0) {
                     throw new NotFoundException(`Member ${memberData.mbno} not found`);
                 }
+                await this.saveFundsAndCategory(this.dataSource, String(memberData.mbno).trim(), memberData);
                 return updatedRows[0];
             } else {
                 // Insert new member - use shared sequence generator
+                // The date the screen puts in the greyed Declaration Date box (legacy: the Day-End WORKING date). Day End > Date settings
+                // can switch this window to the system date. It is filled only when a nominee is named and no date was given.
+                const workDay = (await resolvePostingDate(this.dataSource, 'MEMBER_MASTER')).date;
+                if (String(memberData.nominee_name ?? '').trim() && !String(memberData.declare_date ?? '').trim()) memberData.declare_date = workDay;
                 const memberNumber = await this.sequenceGenerator.generateNextMemberNumber();
 
                 // Wrapped in a transaction (unlike the plain dataSource.query()
@@ -575,7 +698,7 @@ export class MemberCrudService {
                         memberNumber, memberData.prefix, memberData.f_name, memberData.m_name,
                         memberData.l_name, memberData.sex, memberData.desig, memberData.present_address,
                         memberData.permanent_address, memberData.wingno, memberData.officeno, memberData.age,
-                        memberData.dob, memberData.dor, memberData.gross_salary, memberData.basic_pay,
+                        memberData.dob, memberData.dor, memberData.gross_salary ?? 0, memberData.basic_pay,
                         memberData.nominee_name, memberData.nominee_address, memberData.nominee_relation,
                         memberData.declare_date, memberData.memb_date, memberData.pfno, memberData.lfno,
                         memberData.flg_incometax, memberData.flg_insured, memberData.insureamt,
@@ -588,15 +711,16 @@ export class MemberCrudService {
                         String(memberData.email ?? '').trim() || null,
                     ]);
 
+                    await this.saveFundsAndCategory(queryRunner, memberNumber, memberData);
                     const compulsoryDeposit = Number(memberData.compulsory_deposit) || 0;
                     // RD always starts with the member (no opt-out): the Compulsory Deposit amount is
                     // the monthly RD amount from the joining month.
                     if (compulsoryDeposit > 0) {
                         await this.postInitialCompulsoryDeposit(
-                            queryRunner, memberNumber, compulsoryDeposit, memberData.username || 'system',
+                            queryRunner, memberNumber, compulsoryDeposit, memberData.username || 'system', workDay,
                         );
                         await this.setupInitialRd(
-                            queryRunner, memberNumber, compulsoryDeposit, memberData.username || 'system',
+                            queryRunner, memberNumber, compulsoryDeposit, memberData.username || 'system', workDay,
                         );
                     }
 
@@ -624,6 +748,13 @@ export class MemberCrudService {
                 }
             }
         } catch (error) {
+            // ES-652: two saves at the same moment: the database refuses the second one; show the same friendly message
+            if (/MEMBER_NUMBER_EXISTS/.test(String((error as any)?.message ?? ''))) {
+                throw new ConflictException('This member number was just taken by another member. Please save again to get the next number.');
+            }
+            if ((error as any)?.code === '23505' || /PERSONAL_NUMBER_EXISTS/.test(String((error as any)?.message ?? ''))) {
+                throw new ConflictException(MemberCrudService.PERSONAL_NUMBER_TAKEN);
+            }
             console.error('[MemberCrudService] Error saving member master:', error);
             throw error;
         }
@@ -645,14 +776,14 @@ export class MemberCrudService {
         mbno: string,
         amount: number,
         username: string,
+        postingDate: string,
     ): Promise<void> {
         // ES-573: the starting amount is cash received, booked the same way as every other RD/CD receipt: a CD voucher,
         // both ledger legs (CR RD/CD L1004, DR cash), the transaction rows, a cash-book line carrying the voucher number
         // and user, and the member's balance. Cash is assumed because the form has no mode-of-payment field.
         // The voucher number comes from the shared generator (voucherNumber is not a plain integer column).
         const voucherNo = await this.sequenceGenerator.getNextVoucherNumber();
-        const d = new Date();
-        const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const today = postingDate; // the working date (or the system date when Day End > Date settings says so)
         await postRdCdReceipt(queryRunner, {
             mbno, amount, date: today, voucherNo,
             text: 'Initial RD/CD deposit - new member',
@@ -687,9 +818,9 @@ export class MemberCrudService {
      *  rather than needing a separate visit to RD Member Setup. Silently
      *  does nothing if there's no financial year currently active (should
      *  not happen in practice, but must never block member creation). */
-    private async setupInitialRd(queryRunner: QueryRunner, mbno: string, monthlyAmount: number, username: string): Promise<void> {
+    private async setupInitialRd(queryRunner: QueryRunner, mbno: string, monthlyAmount: number, username: string, onDate: string): Promise<void> {
         const yearRows = await queryRunner.query(
-            `SELECT yearcode FROM yearend WHERE start_date <= NOW() AND end_date >= NOW() LIMIT 1`,
+            `SELECT yearcode FROM yearend WHERE start_date <= $1::date AND end_date >= $1::date LIMIT 1`, [onDate],
         );
         if (!yearRows[0]) return;
         await this.rdMemberConfig.setMonthlyAmount(

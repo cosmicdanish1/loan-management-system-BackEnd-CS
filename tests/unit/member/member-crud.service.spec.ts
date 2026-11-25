@@ -162,7 +162,7 @@ describe('member/MemberCrudService.saveMemberMaster (legacy member_master form)'
   it('update path returns the updated row and copies date_of_retirement into dor', async () => {
     const { svc, ds } = mk(); ds.query.mockResolvedValue([[{ mbno: '1' }, 1]]);
     await svc.saveMemberMaster(data({ mbno: '900000005', date_of_retirement: '2040-01-01' }));
-    expect(ds.query.mock.calls[0][1][13]).toBe('2040-01-01');
+    expect(ds.query.mock.calls.find((c: any[]) => /UPDATE member_master/.test(c[0]))[1][13]).toBe('2040-01-01');
   });
   it('insert path allocates a member number and commits', async () => {
     const { svc, qr, seq } = mk(); qr.query.mockResolvedValue([{ mbno: '900000001' }]);

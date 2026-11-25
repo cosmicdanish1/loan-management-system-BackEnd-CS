@@ -11,6 +11,7 @@ import { generateVoucherNo } from '../shared/utils/voucher-utils';
 import { parseBusinessDate } from '../shared/utils/date-utils';
 import { lockLedgerIds, lockNextId } from '../shared/utils/ledger-lock';
 import { DIVIDEND_RATE_KEYS, dividendRateRulesFrom, validateDividendRateRuleSettings } from '../dividend/dividend-rate-rules';
+import { MEMBER_RULE_KEYS, MEMBER_RULE_DEFAULTS } from '../member/member-rules';
 
 /**
  * A stored day-of-month setting, forced into 1-31. Deliberately NOT validated
@@ -2149,6 +2150,8 @@ export class UtilitiesService {
       // "Close to the old EMI" range in rupees for the check-this flags on consolidated loans
       // (loan-payment-flag.service.ts) — an amount within this of the old EMI, but not equal, is flagged.
       'RULE_LOAN_OLD_EMI_FLAG_TOLERANCE',
+      // Member Master rules (checked by MemberCrudService.saveMemberMaster): minimum age at joining and the deposit ranges
+      ...MEMBER_RULE_KEYS,
       // Loan re-agreement (restructure) limits. Every one defaults to permissive: the member already
       // holds the loan and the sanctioning authority decides, so these only add optional guard-rails.
       'RULE_REAGREEMENT_MIN_INSTALLMENTS_PAID', 'RULE_REAGREEMENT_MIN_OUTSTANDING', 'RULE_REAGREEMENT_MAX_TENURE',
@@ -2202,6 +2205,7 @@ export class UtilitiesService {
       RULE_LOAN_SLOT1_END_DAY: 5,
       RULE_LOAN_ROUNDING_MODE: 'NEAREST',
       RULE_LOAN_OLD_EMI_FLAG_TOLERANCE: 10,
+      ...MEMBER_RULE_DEFAULTS,
       RULE_REAGREEMENT_MIN_INSTALLMENTS_PAID: 0,
       RULE_REAGREEMENT_MIN_OUTSTANDING: 0,
       RULE_REAGREEMENT_MAX_TENURE: 0,
@@ -2423,6 +2427,8 @@ export class UtilitiesService {
         { key: 'RULE_LOAN_SLOT1_START_DAY', value: String(clampDayOfMonth(data.RULE_LOAN_SLOT1_START_DAY, 25)), dataType: 'number' },
         { key: 'RULE_LOAN_SLOT1_END_DAY', value: String(clampDayOfMonth(data.RULE_LOAN_SLOT1_END_DAY, 5)), dataType: 'number' },
         { key: 'RULE_LOAN_ROUNDING_MODE', value: ['NONE', 'NEAREST', 'UP', 'DOWN'].includes(data.RULE_LOAN_ROUNDING_MODE) ? data.RULE_LOAN_ROUNDING_MODE : 'NEAREST', dataType: 'string' },
+        // Member Master rules: whole years for the age, rupees (never negative) for the ranges; 0 = no limit for a range
+        ...MEMBER_RULE_KEYS.map((key) => ({ key, value: String(Math.max(0, Number(data[key] ?? MEMBER_RULE_DEFAULTS[key]) || 0)), dataType: 'number' as const })),
         { key: 'RULE_LOAN_OLD_EMI_FLAG_TOLERANCE', value: String(Math.min(100000, Math.max(0, Number(data.RULE_LOAN_OLD_EMI_FLAG_TOLERANCE ?? 10) || 0))), dataType: 'number' },
         // Loan re-agreement limits (0 = no limit).
         ...['RULE_REAGREEMENT_MIN_INSTALLMENTS_PAID', 'RULE_REAGREEMENT_MIN_OUTSTANDING', 'RULE_REAGREEMENT_MAX_TENURE',

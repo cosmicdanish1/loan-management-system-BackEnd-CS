@@ -16,7 +16,7 @@ export class UserPreference {
     @Column({ default: 'light' })
     interfaceMode: 'light' | 'dark' | 'system';
 
-    @Column({ default: '#6366f1' }) // Default Indigo
+    @Column({ default: '#0ea5e9' }) // Default sky blue (ES-668)
     accentColor: string;
 
     @Column({ type: 'float', default: 1.0 })

@@ -47,23 +47,59 @@ export class SequenceGeneratorService {
         };
     }
 
+    /** New members are numbered inside this block (the legacy's block for new members: 990,042,382 was the last one used). */
+    static readonly MEMBER_BLOCK_FIRST = 990000000;
+    static readonly MEMBER_BLOCK_LAST = 999999999;
+
     /**
-     * Generate next sequential member number (8 digits)
+     * The next member number for a NEW member.
+     *
+     * Numbers continue after the highest number already used in the new-member block 990,000,000 to 999,999,999. That block
+     * holds ten million numbers, far more than the 20 lakh members a city of this size can produce. The counter is one
+     * atomic statement (the row is locked, so two saves at the same moment never get the same number), it can never fall
+     * behind numbers that are already in the table, and a number a member already holds is skipped. The test numbers of
+     * the QA runs (above 9,999,999,999) and the old series (3xxxxxxx, 61xxxxxxx) are not part of the block. The database
+     * also refuses a duplicate member number (migration 1794960000000), so a lost race can only ever ask the user to save again.
      */
     async generateNextMemberNumber(): Promise<string> {
-        const { value } = await this.getNextValue('MEMBER_NO');
-        return value.toString().padStart(8, '0');
+        const year = new Date().getFullYear();
+        for (let attempt = 0; attempt < 10000; attempt++) {
+            const rows = await this.dataSource.query(
+                `INSERT INTO sequence_master (sequence_key, last_value, prefix, reset_yearly, last_year)
+                 VALUES ('MEMBER_NO_NEW',
+                         COALESCE((SELECT MAX(mbno) FROM member_master WHERE mbno BETWEEN $1 AND $2), $1 - 1)::bigint + 1, '', false, $3)
+                 ON CONFLICT (sequence_key) DO UPDATE SET
+                     last_value = GREATEST(sequence_master.last_value,
+                                           COALESCE((SELECT MAX(mbno) FROM member_master WHERE mbno BETWEEN $1 AND $2), $1 - 1)::bigint) + 1,
+                     last_year = $3
+                 RETURNING last_value`,
+                [SequenceGeneratorService.MEMBER_BLOCK_FIRST, SequenceGeneratorService.MEMBER_BLOCK_LAST, year],
+            );
+            const value = parseInt(rows[0].last_value, 10);
+            if (value > SequenceGeneratorService.MEMBER_BLOCK_LAST) {
+                throw new Error('The new-member number block is full. Please contact support.');
+            }
+            const used = await this.dataSource.query(`SELECT 1 FROM member_master WHERE mbno = $1::numeric LIMIT 1`, [value.toString()]);
+            if (used.length === 0) return value.toString();
+        }
+        throw new Error('Could not find a free member number. Please contact support.');
     }
 
     /**
-     * Show the member number the next Save will receive WITHOUT consuming it (ES-310).
-     * generateNextMemberNumber() increments the counter, so calling it for a screen preview burned a number
-     * on every open and the number shown never matched the one saved.
+     * The number the next Save will receive, WITHOUT using it (ES-310): the same rule as generateNextMemberNumber, read-only.
      */
     async peekNextMemberNumber(): Promise<string> {
-        const rows = await this.dataSource.query(`SELECT last_value FROM sequence_master WHERE sequence_key = 'MEMBER_NO'`);
-        const next = rows.length ? parseInt(rows[0].last_value, 10) + 1 : 1;
-        return next.toString().padStart(8, '0');
+        const first = SequenceGeneratorService.MEMBER_BLOCK_FIRST;
+        const last = SequenceGeneratorService.MEMBER_BLOCK_LAST;
+        const [hi] = await this.dataSource.query(`SELECT COALESCE(MAX(mbno), $1 - 1)::bigint AS m FROM member_master WHERE mbno BETWEEN $1 AND $2`, [first, last]);
+        const [seq] = await this.dataSource.query(`SELECT last_value FROM sequence_master WHERE sequence_key = 'MEMBER_NO_NEW'`);
+        let next = Math.max(parseInt(hi.m, 10), seq ? parseInt(seq.last_value, 10) : 0) + 1;
+        for (let i = 0; i < 10000 && next <= last; i++, next++) {
+            const used = await this.dataSource.query(`SELECT 1 FROM member_master WHERE mbno = $1::numeric LIMIT 1`, [next.toString()]);
+            if (used.length === 0) break;
+        }
+        if (next > last) throw new Error('The new-member number block is full. Please contact support.');
+        return next.toString();
     }
 
     /**

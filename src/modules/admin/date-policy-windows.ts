@@ -22,6 +22,8 @@ export const DATE_POLICY_WINDOWS: DatePolicyWindow[] = [
     // Security
     { key: 'USER_MANAGEMENT', label: 'Create / Modify Users (creation and enable / disable date)', area: 'Security', kind: 'stores', wired: true },
     { key: 'LOGOUT_USER', label: 'Sign-in / Logout User (login date of a session)', area: 'Security', kind: 'stores', wired: true },
+    // Masters
+    { key: 'MEMBER_MASTER', label: 'Member Master (nominee declaration date and the starting RD/CD deposit)', area: 'Masters', kind: 'posts', wired: true },
     // Loans
     { key: 'LOAN_APP', label: 'Loan Application (application date)', area: 'Loan', kind: 'stores', wired: true },
     { key: 'LOAN_PAYMENT', label: 'Loan Payment (disbursement)', area: 'Loan', kind: 'posts', wired: false },

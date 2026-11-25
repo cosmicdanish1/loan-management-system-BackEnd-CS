@@ -224,7 +224,7 @@ describe('AuthService.recordLoginSession stamps the working date', () => {
     const { svc, created } = make(query);
     await svc.recordLoginSession({ userid: 1, loginStatus: 'N' });
     expect(created[0].workingDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(query.mock.calls.some((c) => /LOGOUT_USER/.test(JSON.stringify(c[1] ?? [])))).toBe(true);
+    expect(query.mock.calls.some((c) => /LOGOUT_USER/.test(JSON.stringify((c as any[])[1] ?? [])))).toBe(true);
   });
 
   it('if the date cannot be read the sign-in is still recorded, with no working date', async () => {

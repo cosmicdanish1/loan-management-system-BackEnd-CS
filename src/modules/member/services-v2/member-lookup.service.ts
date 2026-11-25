@@ -104,9 +104,13 @@ export class MemberLookupService {
           TO_CHAR(m.supanuationdate::date, 'YYYY-MM-DD') as supanuationdate,
           m.gross_salary,
           m.basic_pay,
-          m.compulsory_deposit,
+          -- Monthly Contribution and Compulsory Deposit live in the funds table (FUNDSMASTER.MDAMT / CDAMT), as in the legacy
+          COALESCE(f.mdamt, 0) AS monthly_contribution,
+          COALESCE(f.cdamt, m.compulsory_deposit, 0) AS compulsory_deposit,
           m.share_amount,
-          m.cast_category,
+          -- Cast category and Member Type: the member's own row (MEMBERCATEGORY), as in the legacy
+          COALESCE(NULLIF(m.cast_category, ''), cm.castcategory) AS cast_category,
+          mt.membertype AS member_type,
           m.pan_no,
           m.frs_no,
           m.aadharno,
@@ -125,6 +129,10 @@ export class MemberLookupService {
           COALESCE(d.name, 'Unknown Office') as office_name
         FROM member_master m
         LEFT JOIN division_master d ON m.officeno = d.officeno AND m.wingno = d.wingno
+        LEFT JOIN LATERAL (SELECT mdamt, cdamt FROM fundsmaster WHERE mbno = m.mbno LIMIT 1) f ON true
+        LEFT JOIN LATERAL (SELECT categorycode, membertype FROM membercategory WHERE mbno = m.mbno ORDER BY membertype DESC LIMIT 1) mc ON true
+        LEFT JOIN castcategorymaster cm ON cm.id = mc.categorycode
+        LEFT JOIN membertypemaster mt ON mt.id = mc.membertype
         WHERE m.mbno = $1
       `;
 
